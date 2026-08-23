@@ -936,7 +936,7 @@ def parse_wamd(payload: bytes) -> WamdMetadata:
         elif type_id == _TYPE_MANUAL_ID:
             fields["manual_id"] = raw.decode("utf-8", errors="replace") or None
 
-    return WamdMetadata(**fields)  # type: ignore[arg-type]
+    return WamdMetadata(**fields)
 ```
 
 - [ ] **Step 5: Run tests to verify they pass**
@@ -1192,7 +1192,7 @@ git commit -m "feat: read standard GUANO metadata chunk"
 - Consumes: nothing
 - Produces:
   - `Verdict` — `enum.StrEnum` with members `SPECIES = "species"`, `NO_ID = "no_id"`, `NOISE = "noise"`
-  - `IdSource` — `enum.StrEnum` with `EMT_GUANO = "emt.guano"`, `EMT_WAMD = "emt.wamd"`, `EMT_FILENAME = "emt.filename"`, `BATDETECT2 = "batdetect2"`, `MANUAL = "manual"`
+  - `IdSource` — `enum.StrEnum` with `EMT_GUANO = "emt.guano"`, `EMT_WAMD = "emt.wamd"`, `EMT_FILENAME = "emt.filename"`, `BATDETECT2 = "batdetect2"`, `BATTYBIRDNET = "battybirdnet"`, `KALEIDOSCOPE = "kaleidoscope"`, `MANUAL = "manual"` — seven members, matching the spec's identification-source vocabulary
   - `FilenameParse` — frozen dataclass: `code: str | None`, `verdict: Verdict`, `timestamp: datetime` (naive — the filename carries no offset)
   - `parse_emt_filename(name: str) -> FilenameParse | None`
 
@@ -1572,6 +1572,7 @@ class RecordingMetadata:
     make: str | None = None
     model: str | None = None
     serial: str | None = None
+    device: str | None = None  # host phone, from wamd; NOT the detector
     note: str | None = None
     guano_raw: dict[str, str] = field(default_factory=dict)
     identifications: tuple[ParsedIdentification, ...] = ()
@@ -1601,6 +1602,7 @@ with itself by twelve hours, so the default is provisional, not a finding.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import TypeVar
 
 from fledermap.domain.codes import IdSource, Verdict
 from fledermap.domain.metadata import ParsedIdentification, RecordingMetadata
@@ -1616,7 +1618,11 @@ class NoTimestampError(Exception):
     """Neither the filename nor the embedded metadata yields a timestamp."""
 
 
-def _first(*values: object) -> object | None:
+_T = TypeVar("_T")
+
+
+def _first(*values: _T | None) -> _T | None:
+    """First non-None value, preserving its type so no `type: ignore` is needed."""
     return next((v for v in values if v is not None), None)
 
 
@@ -1707,25 +1713,26 @@ def merge_metadata(
     return RecordingMetadata(
         recorded_at=recorded_at,
         filename_at=filename_at,
-        metadata_at=metadata_at,  # type: ignore[arg-type]
-        timestamp_disagreement_s=_disagreement_seconds(filename_at, metadata_at),  # type: ignore[arg-type]
-        latitude=_first(  # type: ignore[arg-type]
+        metadata_at=metadata_at,
+        timestamp_disagreement_s=_disagreement_seconds(filename_at, metadata_at),
+        latitude=_first(
             getattr(guano, "latitude", None), getattr(wamd, "latitude", None),
         ),
-        longitude=_first(  # type: ignore[arg-type]
+        longitude=_first(
             getattr(guano, "longitude", None), getattr(wamd, "longitude", None),
         ),
-        elevation_m=_first(  # type: ignore[arg-type]
+        elevation_m=_first(
             getattr(guano, "elevation_m", None), getattr(wamd, "elevation_m", None),
         ),
         loc_accuracy_m=getattr(guano, "loc_accuracy_m", None),
         samplerate_hz=getattr(guano, "samplerate_hz", None),
         te_factor=getattr(guano, "te_factor", None),
         make=getattr(guano, "make", None),
-        model=_first(  # type: ignore[arg-type]
+        model=_first(
             getattr(guano, "model", None), getattr(wamd, "model", None),
         ),
         serial=getattr(guano, "serial", None),
+        device=getattr(wamd, "device", None),
         note=getattr(guano, "note", None),
         guano_raw=dict(getattr(guano, "raw", {}) or {}),
         identifications=_identifications(guano, wamd, filename),
@@ -2260,6 +2267,7 @@ class Recording(Base):
     make: Mapped[str | None] = mapped_column(String(128))
     model: Mapped[str | None] = mapped_column(String(128))
     serial: Mapped[str | None] = mapped_column(String(128))
+    device: Mapped[str | None] = mapped_column(String(128))
     note: Mapped[str | None] = mapped_column(Text)
 
     guano_raw: Mapped[dict] = mapped_column(JSONB, default=dict)
