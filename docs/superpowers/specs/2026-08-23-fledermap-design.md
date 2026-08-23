@@ -77,6 +77,13 @@ implementation), **batogram** (spectrogram rendering), and locally
 | D15 | Photos deferred to v2, model shaped for them | Geotagged photos carry their own time and position, exactly like a WAV |
 | D16 | Archive indexed in place; the owner owns it, ingest is read-only | With Syncthing as transport the watched directory is already a replica — a managed copy would be a third copy of multi-GB nights |
 | D17 | Store `filename_at` and `metadata_at` separately; `recorded_at` is computed and re-derivable | The only evidence available is synthetic, and it disagrees with itself by 12 hours. Defer the judgement rather than bake a guess into ingest |
+
+> **Unavoidable provisional default.** `recorded_at` is `NOT NULL` and sessions
+> derive from it, so phase 2 cannot run without *some* rule. The default is
+> `timestamp_source: filename`, chosen only because it is the reading that
+> yields plausible bat activity times (21:54, 21:35) on the sole available data.
+> **This is a config default flagged provisional, not decision D17 being made.**
+> Phase 0b revisits it; changing it re-derives and does not re-ingest.
 | D18 | Read both `guan` and `wamd`; prefer `guan`, fall back to `wamd` | The samples carry only `wamd`; the user guide claims real files carry both. Supporting both costs little and removes the dependency on an unverified claim |
 
 ---
