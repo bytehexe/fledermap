@@ -20,7 +20,8 @@ Every task's requirements implicitly include this section.
 - **Conventional Commits**, enforced by gitlint. Prefixes used here: `feat:`, `fix:`, `test:`, `docs:`, `chore:`, `refactor:`.
 - **Commits are GPG-signed** — `commit.gpgsign` is already `true` repo-locally. gpg-agent cannot write inside the command sandbox, so **always commit with the sandbox disabled**. Never use `--no-gpg-sign`.
 - **Stage explicit paths.** Never `git add -A` or `git add .`.
-- **Ruff config:** `select = ["E","W","F","I","UP","B","A","COM","ANN"]`, `ignore = ["E501","COM812","ANN401"]`, double quotes.
+- **Ruff config:** `select = ["E","W","F","I","UP","B","A","COM","ANN"]`, `ignore = ["E501","COM812","ANN401"]`, double quotes, `extend-exclude = ["docs/"]`.
+- **Run `hatch run ruff:ruff format .` (writing) before `hatch run ruff:ruff format --check .` (verifying).** The code blocks in this plan are written for readability and carry magic trailing commas on single-line calls; `skip-magic-trailing-comma = false` expands them. Transcribing verbatim and going straight to `--check` fails. Format first, then check.
 - **`bats_db` is never `poiidx_db`.** poiidx drops and recreates its tables on any config change. Pointing Fledermap at it destroys data. This must be a comment at the connection site, not only in the spec.
 - **Ingest is strictly read-only on `archive_root`.** It never moves, renames, or deletes a source file.
 - **`recorded_at` default is provisional.** `timestamp_source: filename` is a config default flagged provisional (spec D17), not a settled decision. Do not remove the `metadata_at` column or the disagreement flag as "unused".
@@ -128,6 +129,10 @@ markers = [
 ]
 
 [tool.ruff]
+# Docs are prose deliverables. Ruff formats Python code fences inside markdown,
+# which would rewrite the committed spec and plan documents.
+extend-exclude = ["docs/"]
+
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "UP", "B", "A", "COM", "ANN"]
 ignore = ["E501", "COM812", "ANN401"]
