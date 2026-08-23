@@ -1,0 +1,25 @@
+# Brainstorm companion — mockups and session state
+.superpowers/
+
+# Never commit recordings or derived artefacts
+archive/
+media/
+*.wav
+*.WAV
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+
+# Tooling caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Local secrets
+*.pwd
+.env
