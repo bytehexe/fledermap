@@ -73,6 +73,30 @@ def _parse_timestamp(value: str | None) -> datetime | None:
         return None
 
 
+def _unescape(value: str) -> str:
+    """Undo GUANO's escaping: `\\n` is a newline, `\\\\` a literal backslash.
+
+    A single pass, so a literal backslash followed by `n` survives intact
+    instead of being mistaken for an escaped newline.
+    """
+    out: list[str] = []
+    i = 0
+    while i < len(value):
+        if value[i] == "\\" and i + 1 < len(value):
+            nxt = value[i + 1]
+            if nxt == "n":
+                out.append("\n")
+                i += 2
+                continue
+            if nxt == "\\":
+                out.append("\\")
+                i += 2
+                continue
+        out.append(value[i])
+        i += 1
+    return "".join(out)
+
+
 def parse_guano(path: Path) -> GuanoMetadata | None:
     """Return parsed GUANO metadata, or None when the file has no `guan` chunk."""
     try:
@@ -84,11 +108,15 @@ def parse_guano(path: Path) -> GuanoMetadata | None:
 
     text = read_chunk(path, chunk).decode("utf-8", errors="replace")
     raw: dict[str, str] = {}
+    last_key: str | None = None
     for line in text.splitlines():
-        if ":" not in line:
-            continue
-        key, _, value = line.partition(":")
-        raw[key.strip()] = value.strip().replace("\\n", "\n")
+        if ":" in line:
+            key, _, value = line.partition(":")
+            last_key = key.strip()
+            raw[last_key] = _unescape(value.strip())
+        elif last_key is not None:
+            # A physical newline inside a value. Keep it rather than drop it.
+            raw[last_key] += "\n" + _unescape(line)
 
     lat, lon = _parse_position(raw.get("Loc Position"))
     return GuanoMetadata(

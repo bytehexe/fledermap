@@ -73,3 +73,42 @@ def test_missing_position_is_none(tmp_path: Path) -> None:
     assert meta is not None
     assert meta.latitude is None
     assert meta.longitude is None
+
+
+def test_literal_backslash_n_survives(tmp_path: Path) -> None:
+    """A literal backslash followed by 'n' must not become a newline."""
+    guano = "GUANO|Version: 1.0\nNote: C:\\\\notes\\\\bat.wav\n"
+    meta = parse_guano(_wav(tmp_path, guano))
+
+    assert meta is not None
+    assert meta.raw["Note"] == "C:\\notes\\bat.wav"
+    # Must not contain an embedded newline
+    assert "\n" not in meta.raw["Note"]
+
+
+def test_escaped_newline_in_value(tmp_path: Path) -> None:
+    """A GUANO-escaped newline (`\\n`) becomes a real newline."""
+    guano = "GUANO|Version: 1.0\nNote: Line one\\nLine two\n"
+    meta = parse_guano(_wav(tmp_path, guano))
+
+    assert meta is not None
+    assert meta.raw["Note"] == "Line one\nLine two"
+
+
+def test_multiline_value_preserved(tmp_path: Path) -> None:
+    """A value spanning a physical newline is preserved whole, not truncated."""
+    guano = "GUANO|Version: 1.0\nNote: First line\nSecond line\n"
+    meta = parse_guano(_wav(tmp_path, guano))
+
+    assert meta is not None
+    assert meta.raw["Note"] == "First line\nSecond line"
+
+
+def test_leading_line_without_colon_does_not_raise(tmp_path: Path) -> None:
+    """A malformed leading line without a colon is ignored, not raised."""
+    guano = "orphaned line\nGUANO|Version: 1.0\nNote: test\n"
+    meta = parse_guano(_wav(tmp_path, guano))
+
+    # Should not raise, and parse remaining content
+    assert meta is not None
+    assert meta.raw["Note"] == "test"
