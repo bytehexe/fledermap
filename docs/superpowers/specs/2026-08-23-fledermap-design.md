@@ -1,8 +1,8 @@
-# batlog — design
+# Fledermap — design
 
 **Date:** 2026-08-23
 **Status:** design approved, not yet planned
-**Working name:** `batlog` (see *Open decisions*)
+**Name:** `fledermap`
 
 ---
 
@@ -82,7 +82,7 @@ implementation), **batogram** (spectrogram rendering), and locally
 ## 4. Architecture
 
 ```
-batlog/
+fledermap/
   domain/     dataclasses + code tables. No I/O, no DB, no framework.
   ingest/     tree walk → RIFF chunk parse → GUANO read → filename fallback
   store/      SQLAlchemy 2.0 + GeoAlchemy2 models, repositories, Alembic
@@ -93,7 +93,7 @@ batlog/
   web/
     api/      JSON + GeoJSON endpoints
     views/    Jinja fragments for HTMX
-  cli/        batlog ingest | derive | worker | serve
+  cli/        fledermap ingest | derive | worker | serve
   util/
     projection.py   LocalProjection, copied from mkmapdiary
 ```
@@ -441,7 +441,7 @@ tables**. Therefore:
 
 ```
 postgres
- ├─ poiidx_db        ← owner's existing index. NOT OURS. Never point batlog at it
+ ├─ poiidx_db        ← owner's existing index. NOT OURS. Never point fledermap at it
  ├─ poiidx_bats_db   ← ours. Regenerable; wiping costs only a re-download
  └─ bats_db          ← ours. Real storage, migrated, never dropped
 ```
@@ -502,7 +502,7 @@ tripwires (§10) are re-checked at each boundary.
 | Phase | Ends when |
 |---|---|
 | **0 · Spike** | R1 closed; `guano_map.py` pinned by evidence, not assumption |
-| **1 · Ingest core** | `batlog ingest <dir>` populates `bats_db` idempotently. No web, no media. The `guan`-mutation hash test passes |
+| **1 · Ingest core** | `fledermap ingest <dir>` populates `bats_db` idempotently. No web, no media. The `guan`-mutation hash test passes |
 | **2 · Derivation** | Sessions and sites derive; clustering regression test passes at both latitudes. Still no web |
 | **3 · Media + jobs** | Procrastinate running; spectrograms and ÷10 previews generated on ingest |
 | **4 · Map** | Recordings and site circles on a Leaflet map with server-side filters. Noise hidden by default |
@@ -512,14 +512,32 @@ tripwires (§10) are re-checked at each boundary.
 Phases 1 and 2 are deliberately headless — the data model is the risky part, and
 it is far cheaper to get wrong before a UI depends on its shape.
 
-## 16. Open decisions
+## 16. Settled since first draft
 
-Neither blocks planning; both should be settled before the first commit.
+1. **Name — `fledermap`.** The earlier working name `batlog` was dropped for
+   collisions, all found before any code existed:
+   - **BatLog** (Yanga et al., *Integrative and Comparative Biology*, 2026) — an
+     open-source Arduino PIT-tag logger for bat behavioural studies that
+     explicitly integrates acoustic monitors. Same domain, published, citable.
+   - **BATLOGGER** (Elekon) — a commercial bat detector line with BatExplorer.
+   - [`batlog`](https://github.com/dvarrazzo/batlog) — a Linux battery logger
+     holding the obvious repo and PyPI name.
 
-1. **Project name.** `batlog` is a placeholder used throughout this document.
-2. **Licence.** mkmapdiary and poiidx are PolyForm Noncommercial. That sits
-   awkwardly with the "might become a public webservice one day" idea, and
-   `LocalProjection` is being copied from mkmapdiary — unproblematic, since the
-   owner holds the copyright to both, but the target licence should be chosen
-   deliberately rather than inherited by habit.
-3. **Repository.** `~/projekte/bats` is not yet a git repository.
+   Known near-neighbour, accepted: **Fledermaus** (QPS), 3D bathymetry and
+   topography visualisation. Different field, different word.
+
+2. **Licence — MIT.** Compatible with every planned dependency (FastAPI,
+   SQLAlchemy, Procrastinate MIT; Leaflet BSD-2; markercluster MIT) and with
+   batbox, the nearest prior art. Chosen knowingly against the owner's
+   PolyForm Noncommercial default on mkmapdiary and poiidx: MIT permits a
+   third-party hosted commercial version, and `LocalProjection`, copied from
+   mkmapdiary, becomes MIT-available to anyone taking it from this repository
+   even though mkmapdiary's own copy stays noncommercial. The owner holds
+   copyright to both, so the relicensing itself is unproblematic.
+
+3. **Repository.** Initialised at `~/projekte/bats`, branch `main`, with
+   `commit.gpgsign` set repo-locally to match mkmapdiary and poiidx.
+
+Database names deliberately keep the `bats_` prefix (`bats_db`,
+`poiidx_bats_db`) rather than tracking the application name — they describe the
+data they hold, and survive a future rename.
