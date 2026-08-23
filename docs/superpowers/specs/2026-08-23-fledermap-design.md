@@ -76,6 +76,8 @@ implementation), **batogram** (spectrogram rendering), and locally
 | D14 | Multi-tenancy not built, not foreclosed | Owner flagged it as a maybe |
 | D15 | Photos deferred to v2, model shaped for them | Geotagged photos carry their own time and position, exactly like a WAV |
 | D16 | Archive indexed in place; the owner owns it, ingest is read-only | With Syncthing as transport the watched directory is already a replica — a managed copy would be a third copy of multi-GB nights |
+| D17 | Store `filename_at` and `metadata_at` separately; `recorded_at` is computed and re-derivable | The only evidence available is synthetic, and it disagrees with itself by 12 hours. Defer the judgement rather than bake a guess into ingest |
+| D18 | Read both `guan` and `wamd`; prefer `guan`, fall back to `wamd` | The samples carry only `wamd`; the user guide claims real files carry both. Supporting both costs little and removes the dependency on an unverified claim |
 
 ---
 
@@ -129,7 +131,9 @@ manual venv, never `PYTHONPATH`.
 id
 audio_hash      bytea UNIQUE     -- sha256(fmt_chunk ‖ data_chunk)
 path            text             -- current location, relative to archive_root; MUTABLE
-recorded_at     timestamptz NOT NULL
+recorded_at     timestamptz NOT NULL   -- computed from the two below, per config
+filename_at     timestamptz NULL       -- parsed from ID_YYYYMMDD_HHMMSS.WAV
+metadata_at     timestamptz NULL       -- GUANO Timestamp, or wamd type 0x05
 geom            geography(Point,4326) NULL     -- NULL is first-class
 loc_accuracy_m  real NULL
 elevation_m     real NULL
@@ -449,11 +453,20 @@ inconsistent — a `+0200` offset against New York coordinates, which would be
 - A **`wamd` reader is required**, not merely a GUANO reader. Whether real EMT2
   files also carry `guan` — as the user guide states — remains unverified.
   Build both, prefer `guan` when present, fall back to `wamd`.
-- **Timestamp precedence is now a real decision.** The filename says `21:54:46`;
-  `wamd` says `09:54:54` — twelve hours and eight seconds apart. Taking metadata
-  as authoritative would place both recordings at ~09:54 in the morning, which
-  is not when bats fly. Filename wins; metadata is the cross-check; a
-  disagreement beyond a few seconds is logged as a warning on the recording.
+- **Timestamp precedence is deferred, not guessed (D17).** The filename says
+  `21:54:46`; `wamd` says `09:54:54` — twelve hours and eight seconds apart.
+  Metadata-as-authoritative would place both recordings at ~09:54 in the
+  morning, which is not when bats fly; filename-as-authoritative gives 21:54 and
+  21:35, plausible for European summer. But the source is synthetic, so neither
+  reading is evidence about real devices. Both are therefore stored —
+  `filename_at` and `metadata_at` — with `recorded_at` computed per config and
+  **re-derivable without re-ingesting**. A disagreement beyond a few seconds is
+  flagged on the recording.
+
+  > Changing the precedence rule after data exists can move recordings across
+  > session boundaries, and sessions carry durable notes (D7). So a rule change
+  > raises a **session re-derivation proposal**, never a silent rewrite — the
+  > same principle as the bridging-recording merge.
 - **Session folders are not session boundaries.** `Session_20130401_053030`
   contains files dated 2015-06-10 and 2015-06-23 — a folder named for 2013,
   holding two nights thirteen days apart. Derive sessions from timestamps only
@@ -540,7 +553,8 @@ tripwires (§10) are re-checked at each boundary.
 
 | Phase | Ends when |
 |---|---|
-| **0 · Spike** | R1 closed; `guano_map.py` pinned by evidence, not assumption |
+| **0 · Spike** | *Run 2026-08-23. Produced the `wamd` mapping (R1), but could not close it — the only samples available are synthetic* |
+| **0b · Revalidate** | **Blocked until real field recordings exist.** Re-run the R1 dump and settle, in order: (a) is `guan` present alongside `wamd`; (b) do filename and metadata timestamps agree — settles D17; (c) does position survive the app's export path — closes R3; (d) does re-running auto-ID leave the `data` chunk byte-identical — closes R2. **Until this passes, every field mapping is provisional** |
 | **1 · Ingest core** | `fledermap ingest <dir>` populates `bats_db` idempotently. No web, no media. The `guan`-mutation hash test passes |
 | **2 · Derivation** | Sessions and sites derive; clustering regression test passes at both latitudes. Still no web |
 | **3 · Media + jobs** | Procrastinate running; spectrograms and ÷10 previews generated on ingest |
