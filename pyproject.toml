@@ -1,0 +1,91 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fledermap"
+dynamic = ["version"]
+description = "Map-first organiser for bat recordings from handheld detectors"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "Janna Hopp" }]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+  "sqlalchemy>=2.0",
+  "geoalchemy2",
+  "alembic",
+  "psycopg2-binary",
+  "guano>=1.0.16",
+  "click",
+  "platformdirs",
+  "pyyaml",
+]
+
+[project.scripts]
+fledermap = "fledermap.cli.main:cli"
+
+[tool.hatch.version]
+path = "src/fledermap/__about__.py"
+source = "vcs"
+
+[tool.hatch.version.vcs]
+fallback-version = "0.0.0"
+
+[tool.hatch.version.raw-options]
+local_scheme = "no-local-version"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/fledermap/__about__.py"
+
+[tool.hatch.envs.hatch-test]
+extra-dependencies = [
+  "pytest>=7.0.0",
+  "testcontainers",
+]
+
+[tool.hatch.envs.types]
+extra-dependencies = ["mypy>=1.0.0"]
+
+[tool.hatch.envs.types.scripts]
+check = "mypy --install-types --non-interactive {args:src/fledermap tests}"
+
+[tool.hatch.envs.ruff]
+skip-install = true
+detached = true
+extra-dependencies = ["ruff"]
+
+[tool.pytest.ini_options]
+filterwarnings = [
+  "ignore::DeprecationWarning:testcontainers.*",
+]
+markers = [
+  "db: requires a PostGIS container",
+]
+
+[tool.ruff]
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "UP", "B", "A", "COM", "ANN"]
+ignore = ["E501", "COM812", "ANN401"]
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.lint.flake8-annotations]
+mypy-init-return = true
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.coverage.run]
+source_pkgs = ["fledermap", "tests"]
+branch = true
+parallel = true
+omit = ["src/fledermap/__about__.py"]
