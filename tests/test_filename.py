@@ -59,3 +59,11 @@ def test_timestamp_is_naive() -> None:
 
     assert parsed is not None
     assert parsed.timestamp.tzinfo is None
+
+
+def test_extension_is_deliberately_not_validated() -> None:
+    """Content probing is the caller's gate; see parse_emt_filename's docstring."""
+    parsed = parse_emt_filename("EPTSER_20150610_215446.mp3")
+
+    assert parsed is not None
+    assert parsed.code == "EPTSER"

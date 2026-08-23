@@ -30,7 +30,14 @@ class FilenameParse:
 
 
 def parse_emt_filename(name: str) -> FilenameParse | None:
-    """Parse an EMT filename, or return None if it does not match the convention."""
+    """Parse an EMT filename, or return None if it does not match the convention.
+
+    Deliberately does NOT validate the file extension. Callers establish that a
+    file is a recording by probing its RIFF content (see `ingest.scan`), which
+    is stronger than a suffix check and does not reject a correctly-named file
+    stored as `.wave` or with no extension at all. This function's contract is
+    the NAME PATTERN only: identifier, date, time.
+    """
     stem = PurePath(name).stem
     parts = stem.rsplit("_", 2)
     if len(parts) != 3:
