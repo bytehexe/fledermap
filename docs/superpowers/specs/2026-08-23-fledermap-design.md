@@ -450,6 +450,25 @@ payload`.
 with a `WGS84` prefix and a literal `(null)` for missing elevation — parse
 defensively.
 
+**Measured during implementation (2026-08-23), refining the timestamp picture.**
+Once the filename and `wamd` parsers both existed, the disagreement could be
+quantified rather than eyeballed:
+
+| File | Filename | `wamd` | Δ |
+|---|---|---|---|
+| EPTSER | 21:54:46 | 09:54:54+02:00 | 43192 s = 12.00 h |
+| MYODAU | 21:35:47 | 09:36:43+02:00 | 43144 s = 11.98 h |
+
+Neither is a clean twelve hours. Add 12 h to each metadata time and it lands a
+few seconds *after* the filename time — 8 s and 56 s respectively. The species
+codes, by contrast, agree exactly between the two sources.
+
+Read that as: **filename ≈ trigger time, metadata ≈ file-write time, plus a
+12-hour AM/PM formatting fault in the writer.** That is evidence *for* the
+provisional `timestamp_source: filename` default (D17), since the filename is
+the one that marks when the bat actually flew — but it is evidence from a
+simulator, so phase 0b must confirm the same relationship on a real device.
+
 **Why R1 is not closed:** device is `iPhone Simulator`, so these were generated
 on a developer's Mac, not recorded in the field. The metadata is also internally
 inconsistent — a `+0200` offset against New York coordinates, which would be
