@@ -410,15 +410,54 @@ surface from day one because Leaflet consumes GeoJSON regardless.
 
 ## 11. Open risks
 
-### R1 — EMT GUANO field mapping *(closable now)*
+### R1 — EMT metadata mapping *(spike run 2026-08-23; STILL OPEN)*
 
-**First task, before any schema is committed.** Dump both app-bundled sample
-files: full RIFF chunk layout, every GUANO key and value. Specifically: **is the
-auto-ID in `Species Auto ID` or under a `WA|` key?** Output is a findings note
-that pins `ingest/guano_map.py`.
+Ran against the two app-bundled samples in `~/Bat Sessions/`. Result overturned
+a core assumption.
 
-Expected and *useful*: the samples likely carry no `Loc Position`, exercising the
-NULL-geometry path on day one.
+**There is no GUANO chunk.** Chunk layout is `RIFF · WAVE · fmt · data · wamd`
+— only Wildlife Acoustics' proprietary chunk. Both files: 256 kHz, 16-bit mono
+PCM.
+
+`wamd` structure, decoded and confirmed by arithmetic (entry sizes reconcile
+exactly to the chunk length): repeated entries of `uint16 type · uint32 size ·
+payload`.
+
+| Type | Field | Example |
+|---:|---|---|
+| 0x00 | format version | `0x0001` |
+| 0x01 | model | `Echo Meter Touch` |
+| 0x03 | app version | `App 3.1.10` |
+| 0x04 | device | `iPhone Simulator` |
+| 0x05 | timestamp | `2015-06-10 09:54:54+0200` |
+| 0x06 | position | `WGS84,42.346973,-76.48760,(null)` |
+| 0x0b | **auto ID** | `EPTSER` |
+| 0x0c | **manual ID** | `MYODAU` (present in one file only) |
+
+**Confirmed:** auto ID and manual ID are separate fields at the device level
+(D9). Position *is* present, contrary to expectation, as a comma-joined string
+with a `WGS84` prefix and a literal `(null)` for missing elevation — parse
+defensively.
+
+**Why R1 is not closed:** device is `iPhone Simulator`, so these were generated
+on a developer's Mac, not recorded in the field. The metadata is also internally
+inconsistent — a `+0200` offset against New York coordinates, which would be
+−0400 in June. Synthetic fixtures cannot establish what a real device writes.
+
+**Consequences for the design:**
+
+- A **`wamd` reader is required**, not merely a GUANO reader. Whether real EMT2
+  files also carry `guan` — as the user guide states — remains unverified.
+  Build both, prefer `guan` when present, fall back to `wamd`.
+- **Timestamp precedence is now a real decision.** The filename says `21:54:46`;
+  `wamd` says `09:54:54` — twelve hours and eight seconds apart. Taking metadata
+  as authoritative would place both recordings at ~09:54 in the morning, which
+  is not when bats fly. Filename wins; metadata is the cross-check; a
+  disagreement beyond a few seconds is logged as a warning on the recording.
+- **Session folders are not session boundaries.** `Session_20130401_053030`
+  contains files dated 2015-06-10 and 2015-06-23 — a folder named for 2013,
+  holding two nights thirteen days apart. Derive sessions from timestamps only
+  (D7); never parse folder names.
 
 ### R2 — Does the EMT re-encode audio on re-ID? *(needs real field files)*
 
