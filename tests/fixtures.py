@@ -37,3 +37,43 @@ def build_wav(chunks: list[tuple[bytes, bytes]]) -> bytes:
 def minimal_wav(audio: bytes = b"\x01\x00\x02\x00", samplerate: int = 256000) -> bytes:
     """The smallest file the parser should accept: fmt + data."""
     return build_wav([(b"fmt ", fmt_payload(samplerate)), (b"data", audio)])
+
+
+WAMD_MODEL = 0x01
+WAMD_APP_VERSION = 0x03
+WAMD_DEVICE = 0x04
+WAMD_TIMESTAMP = 0x05
+WAMD_POSITION = 0x06
+WAMD_AUTO_ID = 0x0B
+WAMD_MANUAL_ID = 0x0C
+
+
+def wamd_entry(type_id: int, text: str) -> bytes:
+    body = text.encode("utf-8")
+    return struct.pack("<HI", type_id, len(body)) + body
+
+
+def wamd_payload(
+    *,
+    model: str | None = "Echo Meter Touch",
+    app_version: str | None = "App 3.1.10",
+    device: str | None = "iPhone Simulator",
+    timestamp: str | None = "2015-06-10 09:54:54+0200",
+    position: str | None = "WGS84,42.346973,-76.48760,(null)",
+    auto_id: str | None = "EPTSER",
+    manual_id: str | None = None,
+) -> bytes:
+    """Reproduces the layout observed in the real EMT sample files."""
+    out = struct.pack("<HI", 0x00, 2) + struct.pack("<H", 1)
+    for type_id, value in (
+        (WAMD_MODEL, model),
+        (WAMD_APP_VERSION, app_version),
+        (WAMD_DEVICE, device),
+        (WAMD_TIMESTAMP, timestamp),
+        (WAMD_POSITION, position),
+        (WAMD_AUTO_ID, auto_id),
+        (WAMD_MANUAL_ID, manual_id),
+    ):
+        if value is not None:
+            out += wamd_entry(type_id, value)
+    return out
