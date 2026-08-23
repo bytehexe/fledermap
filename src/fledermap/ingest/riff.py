@@ -57,6 +57,16 @@ class MissingAudioChunkError(Exception):
     """The file lacks a `fmt ` or `data` chunk and cannot be identified."""
 
 
+def _locate_audio_chunks(path: Path) -> tuple[Chunk, Chunk]:
+    """Return the `fmt ` and `data` chunks, raising if either is absent."""
+    chunks = {c.chunk_id: c for c in iter_chunks(path)}
+    try:
+        return chunks["fmt "], chunks["data"]
+    except KeyError as exc:
+        msg = f"{path} has no {exc.args[0]!r} chunk"
+        raise MissingAudioChunkError(msg) from exc
+
+
 def audio_hash(path: Path) -> str:
     """Identity of a recording: sha256 over the `fmt ` and `data` payloads only.
 
@@ -65,12 +75,7 @@ def audio_hash(path: Path) -> str:
     payload means that is recognised as the *same* recording rather than a
     duplicate. See spec D8.
     """
-    chunks = {c.chunk_id: c for c in iter_chunks(path)}
-    try:
-        fmt_chunk, data_chunk = chunks["fmt "], chunks["data"]
-    except KeyError as exc:
-        msg = f"{path} has no {exc.args[0]!r} chunk"
-        raise MissingAudioChunkError(msg) from exc
+    fmt_chunk, data_chunk = _locate_audio_chunks(path)
 
     digest = hashlib.sha256()
     with path.open("rb") as fh:
@@ -105,12 +110,7 @@ def read_format(path: Path) -> AudioFormat:
     Duration comes from byte counts rather than any metadata field, so it is
     correct even when the detector writes none.
     """
-    chunks = {c.chunk_id: c for c in iter_chunks(path)}
-    try:
-        fmt_chunk, data_chunk = chunks["fmt "], chunks["data"]
-    except KeyError as exc:
-        msg = f"{path} has no {exc.args[0]!r} chunk"
-        raise MissingAudioChunkError(msg) from exc
+    fmt_chunk, data_chunk = _locate_audio_chunks(path)
 
     payload = read_chunk(path, fmt_chunk)
     _, channels, samplerate, byte_rate, _, bits = struct.unpack_from("<HHIIHH", payload)
