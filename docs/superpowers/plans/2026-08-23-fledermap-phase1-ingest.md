@@ -110,7 +110,10 @@ extra-dependencies = [
 ]
 
 [tool.hatch.envs.types]
-extra-dependencies = ["mypy>=1.0.0"]
+# pytest ships inline types; without it here mypy cannot resolve `import pytest`
+# in the test files, and the tempting fix — a global ignore_missing_imports —
+# would blind-spot every third-party import in the project.
+extra-dependencies = ["mypy>=1.0.0", "pytest>=7.0.0"]
 
 [tool.hatch.envs.types.scripts]
 check = "mypy --install-types --non-interactive {args:src/fledermap tests}"
@@ -253,7 +256,7 @@ The WAV container is `"RIFF" · uint32 size · "WAVE"` followed by chunks of `id
   - `iter_chunks(path: Path) -> Iterator[Chunk]`
   - `read_chunk(path: Path, chunk: Chunk) -> bytes`
   - `NotARiffFileError(Exception)`
-  - `tests.fixtures.build_wav(chunks: list[tuple[bytes, bytes]], *, samplerate: int = 256000) -> bytes`
+  - `tests.fixtures.build_wav(chunks: list[tuple[bytes, bytes]]) -> bytes` — samplerate belongs to `fmt_payload`, not here
 
 - [ ] **Step 1: Write the fixture builder**
 
