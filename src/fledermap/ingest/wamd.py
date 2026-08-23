@@ -72,7 +72,16 @@ def _parse_position(value: str) -> tuple[float | None, float | None, float | Non
 
 def parse_wamd(payload: bytes) -> WamdMetadata:
     """Parse a `wamd` chunk payload. Never raises on malformed input."""
-    fields: dict[str, object] = {}
+    model: str | None = None
+    app_version: str | None = None
+    device: str | None = None
+    timestamp: datetime | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    elevation_m: float | None = None
+    auto_id: str | None = None
+    manual_id: str | None = None
+
     pos = 0
     while pos + _ENTRY_HEADER <= len(payload):
         type_id, size = struct.unpack_from("<HI", payload, pos)
@@ -83,22 +92,32 @@ def parse_wamd(payload: bytes) -> WamdMetadata:
         pos += size
 
         if type_id == _TYPE_MODEL:
-            fields["model"] = raw.decode("utf-8", errors="replace")
+            model = raw.decode("utf-8", errors="replace")
         elif type_id == _TYPE_APP_VERSION:
-            fields["app_version"] = raw.decode("utf-8", errors="replace")
+            app_version = raw.decode("utf-8", errors="replace")
         elif type_id == _TYPE_DEVICE:
-            fields["device"] = raw.decode("utf-8", errors="replace")
+            device = raw.decode("utf-8", errors="replace")
         elif type_id == _TYPE_TIMESTAMP:
-            fields["timestamp"] = _parse_timestamp(
+            timestamp = _parse_timestamp(
                 raw.decode("utf-8", errors="replace"),
             )
         elif type_id == _TYPE_POSITION:
-            lat, lon, elev = _parse_position(raw.decode("utf-8", errors="replace"))
-            fields["latitude"], fields["longitude"] = lat, lon
-            fields["elevation_m"] = elev
+            latitude, longitude, elevation_m = _parse_position(
+                raw.decode("utf-8", errors="replace"),
+            )
         elif type_id == _TYPE_AUTO_ID:
-            fields["auto_id"] = raw.decode("utf-8", errors="replace") or None
+            auto_id = raw.decode("utf-8", errors="replace") or None
         elif type_id == _TYPE_MANUAL_ID:
-            fields["manual_id"] = raw.decode("utf-8", errors="replace") or None
+            manual_id = raw.decode("utf-8", errors="replace") or None
 
-    return WamdMetadata(**fields)  # type: ignore[arg-type]
+    return WamdMetadata(
+        model=model,
+        app_version=app_version,
+        device=device,
+        timestamp=timestamp,
+        latitude=latitude,
+        longitude=longitude,
+        elevation_m=elevation_m,
+        auto_id=auto_id,
+        manual_id=manual_id,
+    )
