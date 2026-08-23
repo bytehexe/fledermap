@@ -493,6 +493,28 @@ inconsistent — a `+0200` offset against New York coordinates, which would be
   > session boundaries, and sessions carry durable notes (D7). So a rule change
   > raises a **session re-derivation proposal**, never a silent rewrite — the
   > same principle as the bridging-recording merge.
+
+- **D17 has a second half, found during implementation: *which zone?*** The
+  filename encodes a wall-clock reading with no offset, so turning it into an
+  absolute instant requires one, and any choice fabricates. Three facts, all
+  from the real samples:
+
+  1. The filename is naive: `2015-06-10 21:54:46`.
+  2. The `wamd` metadata says `+02:00` — the only offset evidence in the file.
+  3. **The position says otherwise.** 42.346973 / −76.48760 is in the US
+     Eastern zone, UTC−4 in June. So `+02:00` is wrong *for where the recording
+     claims to be*, which is further evidence these are simulator files.
+
+  Rules: `recorded_at` borrows the offset from `metadata_at` when one is
+  available, because it is the only evidence present and because
+  `_disagreement_seconds` already normalises that way — the two must not make
+  contradictory assumptions about the same instant. When no source carries an
+  offset, a configured `default_timezone` applies (default UTC), and that case
+  is a documented fabrication rather than a silent default.
+
+  **Phase 0b gains a fifth question:** on a real recording, does the metadata
+  offset agree with the GPS position's civil zone? If it does, position-derived
+  zone lookup becomes the better long-term answer and this rule can be retired.
 - **Session folders are not session boundaries.** `Session_20130401_053030`
   contains files dated 2015-06-10 and 2015-06-23 — a folder named for 2013,
   holding two nights thirteen days apart. Derive sessions from timestamps only
@@ -580,7 +602,7 @@ tripwires (§10) are re-checked at each boundary.
 | Phase | Ends when |
 |---|---|
 | **0 · Spike** | *Run 2026-08-23. Produced the `wamd` mapping (R1), but could not close it — the only samples available are synthetic* |
-| **0b · Revalidate** | **Blocked until real field recordings exist.** Re-run the R1 dump and settle, in order: (a) is `guan` present alongside `wamd`; (b) do filename and metadata timestamps agree — settles D17; (c) does position survive the app's export path — closes R3; (d) does re-running auto-ID leave the `data` chunk byte-identical — closes R2. **Until this passes, every field mapping is provisional** |
+| **0b · Revalidate** | **Blocked until real field recordings exist.** Re-run the R1 dump and settle, in order: (a) is `guan` present alongside `wamd`; (b) do filename and metadata timestamps agree — settles D17; (c) does position survive the app's export path — closes R3; (d) does re-running auto-ID leave the `data` chunk byte-identical — closes R2; (e) does the metadata's UTC offset agree with the GPS position's civil zone — settles D17's zone half. **Until this passes, every field mapping is provisional** |
 | **1 · Ingest core** | `fledermap ingest <dir>` populates `bats_db` idempotently. No web, no media. The `guan`-mutation hash test passes |
 | **2 · Derivation** | Sessions and sites derive; clustering regression test passes at both latitudes. Still no web |
 | **3 · Media + jobs** | Procrastinate running; spectrograms and ÷10 previews generated on ingest |
