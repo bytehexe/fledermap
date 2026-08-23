@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import os
+import stat
+import sys
 import time
 from pathlib import Path
+
+import pytest
 
 from fledermap.ingest.scan import scan
 from tests.fixtures import build_wav, fmt_payload, wamd_payload
@@ -90,3 +94,56 @@ def test_scan_does_not_modify_the_archive(tmp_path: Path) -> None:
     list(scan(tmp_path))
 
     assert (path.stat().st_mtime, path.read_bytes()) == before
+
+
+def test_dotted_archive_root_is_still_scannable(tmp_path: Path) -> None:
+    """The hidden-component check is relative to root, not to the filesystem root.
+
+    An archive living under a dot-prefixed directory (e.g. under `~/.local/...`)
+    must not be blackholed: `path.parts` on an absolute path would otherwise
+    include every dotted ancestor, not just dotted components inside the archive.
+    """
+    root = tmp_path / ".hidden_archive"
+    root.mkdir()
+    _emt_file(root, "EPTSER_20150610_215446.wav")
+
+    assert len(list(scan(root))) == 1
+
+
+def test_hidden_subdirectory_inside_archive_is_skipped(tmp_path: Path) -> None:
+    """Syncthing's `.stfolder` (and similar) must still be skipped."""
+    hidden = tmp_path / ".stfolder"
+    hidden.mkdir()
+    _emt_file(hidden, "EPTSER_20150610_215446.wav")
+    _emt_file(tmp_path, "MYODAU_20150623_213547.wav", audio=b"\x09\x08" * 32)
+
+    results = list(scan(tmp_path))
+
+    assert len(results) == 1
+    assert results[0].path.name == "MYODAU_20150623_213547.wav"
+
+
+def test_sync_temp_suffix_is_skipped(tmp_path: Path) -> None:
+    path = _emt_file(tmp_path, "EPTSER_20150610_215446.wav.syncthing")
+
+    assert list(scan(tmp_path)) == []
+    assert path.exists()  # sanity: it was created, just skipped
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits only")
+@pytest.mark.skipif(
+    hasattr(os, "geteuid") and os.geteuid() == 0, reason="root ignores permission bits"
+)
+def test_unreadable_file_does_not_abort_the_whole_scan(tmp_path: Path) -> None:
+    """One flaky/unreadable file must not stop the scan from reaching the rest."""
+    bad = _emt_file(tmp_path, "EPTSER_20150610_215446.wav")
+    _emt_file(tmp_path, "MYODAU_20150623_213547.wav", audio=b"\x09\x08" * 32)
+    bad.chmod(0o000)
+
+    try:
+        results = list(scan(tmp_path))
+    finally:
+        bad.chmod(stat.S_IRUSR | stat.S_IWUSR)
+
+    assert len(results) == 1
+    assert results[0].path.name == "MYODAU_20150623_213547.wav"

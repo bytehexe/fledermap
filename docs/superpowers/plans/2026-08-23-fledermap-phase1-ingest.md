@@ -1918,9 +1918,18 @@ class SkipReason(StrEnum):
     UNPARSEABLE = "unparseable"
 
 
-def _is_settled(path: Path, settle_seconds: float, now: float) -> bool:
-    """A file still being written by Syncthing or rsync must not be read yet."""
-    if any(part.startswith(".") for part in path.parts):
+def _is_settled(path: Path, root: Path, settle_seconds: float, now: float) -> bool:
+    """A file still being written by Syncthing or rsync must not be read yet.
+
+    Hidden components are checked RELATIVE to the archive root: an archive that
+    itself lives under a dotted directory must still be scannable, while hidden
+    subdirectories inside it (Syncthing's `.stfolder`) stay skipped.
+    """
+    try:
+        parts = path.relative_to(root).parts
+    except ValueError:
+        parts = (path.name,)
+    if any(part.startswith(".") for part in parts):
         return False
     if path.name.endswith(_TEMP_SUFFIXES):
         return False

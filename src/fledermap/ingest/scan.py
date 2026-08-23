@@ -45,9 +45,18 @@ class SkipReason(StrEnum):
     UNPARSEABLE = "unparseable"
 
 
-def _is_settled(path: Path, settle_seconds: float, now: float) -> bool:
-    """A file still being written by Syncthing or rsync must not be read yet."""
-    if any(part.startswith(".") for part in path.parts):
+def _is_settled(path: Path, root: Path, settle_seconds: float, now: float) -> bool:
+    """A file still being written by Syncthing or rsync must not be read yet.
+
+    Hidden components are checked RELATIVE to the archive root: an archive that
+    itself lives under a dotted directory must still be scannable, while hidden
+    subdirectories inside it (Syncthing's `.stfolder`) stay skipped.
+    """
+    try:
+        parts = path.relative_to(root).parts
+    except ValueError:
+        parts = (path.name,)
+    if any(part.startswith(".") for part in parts):
         return False
     if path.name.endswith(_TEMP_SUFFIXES):
         return False
@@ -69,8 +78,13 @@ def _scan_one(path: Path, timestamp_source: str) -> ScannedFile | SkipReason:
         wamd = None
 
     try:
+        guano = parse_guano(path)
+    except OSError:
+        return SkipReason.NOT_A_WAV
+
+    try:
         metadata = merge_metadata(
-            guano=parse_guano(path),
+            guano=guano,
             wamd=wamd,
             filename=parse_emt_filename(path.name),
             timestamp_source=timestamp_source,
@@ -81,7 +95,10 @@ def _scan_one(path: Path, timestamp_source: str) -> ScannedFile | SkipReason:
 
     # Samplerate and duration come from the container itself, which is more
     # reliable than any metadata field and present even when metadata is not.
-    fmt = read_format(path)
+    try:
+        fmt = read_format(path)
+    except (NotARiffFileError, MissingAudioChunkError, OSError):
+        return SkipReason.NOT_A_WAV
     metadata = replace(
         metadata,
         samplerate_hz=metadata.samplerate_hz or fmt.samplerate_hz,
@@ -121,7 +138,7 @@ def scan_with_skips(
     for path in sorted(root.rglob("*")):
         if not path.is_file():
             continue
-        if not _is_settled(path, settle_seconds, clock):
+        if not _is_settled(path, root, settle_seconds, clock):
             yield (path, SkipReason.UNSETTLED)
             continue
         result = _scan_one(path, timestamp_source)
