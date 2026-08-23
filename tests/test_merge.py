@@ -14,7 +14,12 @@ BERLIN = timezone(timedelta(hours=2))
 
 
 def test_filename_wins_by_default() -> None:
-    """The provisional default. Metadata says 09:54, filename says 21:54."""
+    """The provisional default. Metadata says 09:54, filename says 21:54.
+
+    The chosen `recorded_at` is the naive filename reading, but it must not
+    invent an offset: the metadata's +02:00 is the only offset evidence in
+    the file, and `recorded_at` must carry it rather than a fabricated UTC.
+    """
     result = merge_metadata(
         guano=None,
         wamd=parse_wamd(wamd_payload()),
@@ -22,6 +27,7 @@ def test_filename_wins_by_default() -> None:
     )
 
     assert result.recorded_at.hour == 21
+    assert result.recorded_at.utcoffset() == timedelta(hours=2)
     assert result.filename_at == datetime(2015, 6, 10, 21, 54, 46)
     assert result.metadata_at == datetime(2015, 6, 10, 9, 54, 54, tzinfo=BERLIN)
 
@@ -116,3 +122,43 @@ def test_position_prefers_guano_over_wamd() -> None:
     )
 
     assert result.latitude == 52.5
+
+
+def test_naive_preferred_borrows_aware_fallback_offset() -> None:
+    """Real sample shape: filename is naive, metadata carries +02:00.
+
+    `recorded_at` must carry the metadata's offset rather than a fabricated
+    UTC — it is the only offset evidence present in the file.
+    """
+    result = merge_metadata(
+        guano=None,
+        wamd=parse_wamd(wamd_payload(timestamp="2015-06-10 09:54:54+0200")),
+        filename=parse_emt_filename("EPTSER_20150610_215446.wav"),
+    )
+
+    assert result.metadata_at is not None
+    assert result.recorded_at.utcoffset() == result.metadata_at.utcoffset()
+    assert result.recorded_at.utcoffset() == timedelta(hours=2)
+
+
+def test_no_offset_evidence_anywhere_uses_default_timezone() -> None:
+    """Neither source carries an offset: default_timezone applies (UTC default)."""
+    result = merge_metadata(
+        guano=None,
+        wamd=parse_wamd(wamd_payload(timestamp="2015-06-10 09:54:54")),
+        filename=parse_emt_filename("EPTSER_20150610_215446.wav"),
+    )
+
+    assert result.recorded_at.utcoffset() == timedelta(0)
+
+
+def test_explicit_default_timezone_is_honoured_when_no_evidence() -> None:
+    eastern = timezone(timedelta(hours=-5))
+    result = merge_metadata(
+        guano=None,
+        wamd=parse_wamd(wamd_payload(timestamp="2015-06-10 09:54:54")),
+        filename=parse_emt_filename("EPTSER_20150610_215446.wav"),
+        default_timezone=eastern,
+    )
+
+    assert result.recorded_at.utcoffset() == timedelta(hours=-5)

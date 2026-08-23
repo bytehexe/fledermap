@@ -7,7 +7,7 @@ with itself by twelve hours, so the default is provisional, not a finding.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, tzinfo
 from typing import TypeVar
 
 from fledermap.domain.codes import IdSource, Verdict
@@ -98,8 +98,19 @@ def merge_metadata(
     wamd: WamdMetadata | None,
     filename: FilenameParse | None,
     timestamp_source: str = TIMESTAMP_SOURCE_FILENAME,
+    default_timezone: tzinfo = UTC,
 ) -> RecordingMetadata:
-    """Merge every available source. Raises NoTimestampError if none yields a time."""
+    """Merge every available source. Raises NoTimestampError if none yields a time.
+
+    `default_timezone` is used only when the chosen `recorded_at` is naive AND
+    the other candidate is also naive (or absent) — i.e. when NOTHING among the
+    sources carries an offset. In that case there is no evidence at all for
+    what the offset should be, so `default_timezone` is a fabrication, not a
+    derived value. Whenever the other candidate DOES carry an offset, that
+    offset is borrowed instead, matching how `_disagreement_seconds` already
+    treats a naive/aware pair — so the two computations agree on what the
+    naive reading means.
+    """
     filename_at = filename.timestamp if filename else None
     metadata_at = _first(
         getattr(guano, "timestamp", None),
@@ -115,8 +126,14 @@ def merge_metadata(
     if recorded_at is None:
         msg = "no timestamp available from filename or embedded metadata"
         raise NoTimestampError(msg)
+
     if recorded_at.tzinfo is None:
-        recorded_at = recorded_at.replace(tzinfo=UTC)
+        # The filename encodes a wall-clock reading with no offset. Borrow the one
+        # the other source asserts rather than inventing UTC — it is the only
+        # evidence present, and `_disagreement_seconds` already normalises this way.
+        # Assuming UTC here would make the two computations contradict each other.
+        borrowed = fallback.tzinfo if fallback is not None else None
+        recorded_at = recorded_at.replace(tzinfo=borrowed or default_timezone)
 
     return RecordingMetadata(
         recorded_at=recorded_at,
