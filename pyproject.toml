@@ -50,10 +50,11 @@ extra-dependencies = [
 ]
 
 [tool.hatch.envs.types]
-# pytest ships inline types; without it here mypy cannot resolve `import pytest`
-# in the test files, and the tempting fix — a global ignore_missing_imports —
-# would blind-spot every third-party import in the project.
-extra-dependencies = ["mypy>=1.0.0", "pytest>=7.0.0"]
+# pytest and testcontainers both ship inline types; without them here mypy
+# cannot resolve `import pytest` / `import testcontainers.postgres` in the
+# test files, and the tempting fix — a global ignore_missing_imports — would
+# blind-spot every third-party import in the project.
+extra-dependencies = ["mypy>=1.0.0", "pytest>=7.0.0", "testcontainers"]
 
 [tool.hatch.envs.types.scripts]
 check = "mypy --install-types --non-interactive {args:src/fledermap tests}"
