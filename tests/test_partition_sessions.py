@@ -261,6 +261,51 @@ def test_recording_between_two_sessions_within_gap_of_both_raises_a_proposal(
         assert proposal.resolution is None
 
 
+def test_two_bridging_recordings_raise_only_one_proposal_for_the_pair(
+    engine: Engine,
+) -> None:
+    """Regression (whole-branch review): two recordings in the SAME run can each
+    land between the same still-adjacent pair — the second bisects against a
+    `prev_session.ended_at` the first already widened — and each raised its own
+    proposal for the identical pair, differing only in the bridging recording.
+    Not corruption, but duplicate noise in the human review queue."""
+    with OrmSession(engine) as session:
+        base = datetime(2026, 8, 21, 21, tzinfo=UTC)
+        early = Session(
+            started_at=base,
+            ended_at=base,
+            kind=SessionKind.STATIONARY,
+            detector_key="EMT\x1f1",
+        )
+        late = Session(
+            started_at=base + timedelta(hours=11),
+            ended_at=base + timedelta(hours=11),
+            kind=SessionKind.STATIONARY,
+            detector_key="EMT\x1f1",
+        )
+        session.add_all([early, late])
+        session.flush()
+        # First: 5h after `early`, 6h before `late` — within a 6h gap of both.
+        first = _recording("a", base + timedelta(hours=5), make="EMT", serial="1")
+        # Second: 1h after `early`'s widened ended_at, 5h before `late` —
+        # bridges the same still-adjacent pair all over again.
+        second = _recording("b", base + timedelta(hours=6), make="EMT", serial="1")
+        session.add_all([first, second])
+        session.commit()
+
+        report = partition_sessions(session, session_gap=timedelta(hours=6))
+        session.commit()
+
+        assert report.extended == 2
+        assert report.created == 0
+        assert report.merge_proposals == 1
+        proposal = session.scalars(select(SessionMergeProposal)).one()
+        assert proposal.session_a_id == early.id
+        assert proposal.session_b_id == late.id
+        # The FIRST bridging recording is the one recorded.
+        assert proposal.bridging_recording_id == first.id
+
+
 def test_recording_close_to_only_one_neighbor_does_not_raise_a_proposal(
     engine: Engine,
 ) -> None:

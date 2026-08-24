@@ -58,6 +58,16 @@ def partition_sessions(
     recording, close only to what is currently the earliest known session).
     """
     report = SessionPartitionReport()
+    # One proposal per session pair per run. Two different recordings in the
+    # same run can each land between the same still-adjacent pair — the second
+    # one bisects against `prev_session.ended_at` already widened by the first
+    # — and would otherwise raise a duplicate proposal for the identical pair,
+    # differing only in `bridging_recording_id`. Not corruption, but noise in
+    # the human review queue. Declared once, outside the per-detector loop:
+    # session ids are globally unique, so cross-detector collision is
+    # impossible anyway. Cross-RUN duplication is already prevented by only
+    # ever reprocessing `session_id IS NULL` recordings.
+    proposed_pairs: set[tuple[int, int]] = set()
 
     unsessioned = db_session.scalars(
         select(Recording)
@@ -113,15 +123,18 @@ def partition_sessions(
                 report.extended += 1
                 if joins_next:
                     assert next_session is not None  # joins_next implies this
-                    db_session.add(
-                        SessionMergeProposal(
-                            session_a_id=prev_session.id,
-                            session_b_id=next_session.id,
-                            bridging_recording_id=recording.id,
-                            detected_at=datetime.now(UTC),
-                        ),
-                    )
-                    report.merge_proposals += 1
+                    pair = (prev_session.id, next_session.id)
+                    if pair not in proposed_pairs:
+                        proposed_pairs.add(pair)
+                        db_session.add(
+                            SessionMergeProposal(
+                                session_a_id=prev_session.id,
+                                session_b_id=next_session.id,
+                                bridging_recording_id=recording.id,
+                                detected_at=datetime.now(UTC),
+                            ),
+                        )
+                        report.merge_proposals += 1
             elif joins_next:
                 assert next_session is not None  # joins_next implies this
                 next_session.started_at = recording.recorded_at
