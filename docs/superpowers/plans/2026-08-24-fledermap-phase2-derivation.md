@@ -2344,12 +2344,18 @@ git commit -m "feat: derive_sites — wholesale site rebuild from DBSCAN cluster
 **Fixture note:** `tests/test_cli.py`'s `_archive` fixture builds two recordings from
 `wamd_payload()`'s defaults — same `position` (`42.346973,-76.48760`) on both files, no
 `make`/`serial` (wamd carries no such field; both come back `None`, so both recordings
-share one detector key), and filename timestamps ~19 minutes apart. Under
-`site_min_points`'s *default* of 3, two identically-located recordings are correctly
-noise (DBSCAN needs 3 for a cluster), not a site — so this test asserts on that
-realistic default-config outcome (one session, zero sites) rather than contriving a
-third recording just to force a site to form; sites forming correctly is already
-covered end-to-end by Task 9 and Task 11.
+share one detector key). Their filenames are `EPTSER_20150610_215446.wav` and
+`MYODAU_20150623_213547.wav` — **13 days apart** (June 10 vs June 23, 2015), not ~19
+minutes: the times-of-day alone (21:54:46 vs 21:35:47) are ~19 minutes apart, but the
+dates differ, and 13 days is far beyond the default 6h `session_gap`. (Caught during
+Task 10's implementation — this plan's own arithmetic compared only the time-of-day
+portions and missed the date difference; verified directly against the fixture before
+fixing.) So the two recordings land in **two separate new sessions**, not one extended
+session. Under `site_min_points`'s *default* of 3, two identically-located recordings
+are also correctly noise (DBSCAN needs 3 for a cluster), not a site — so this test
+asserts on that realistic default-config outcome (two sessions, zero sites) rather than
+contriving a third recording just to force a site to form; sites forming correctly is
+already covered end-to-end by Task 9 and Task 11.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2370,10 +2376,10 @@ def test_derive_command_reports_sessions_and_sites(
     result = runner.invoke(cli, ["derive"], env=env)
 
     assert result.exit_code == 0, result.output
-    # Both recordings share one (absent) detector key and land within the
-    # default 6h session gap of each other (filenames ~19 minutes apart) -> one
-    # new session.
-    assert "sessions: created 1  extended 1  merge proposals 0" in result.output
+    # Both recordings share one (absent) detector key but their filename dates
+    # are 13 days apart (June 10 vs June 23, 2015) -- far beyond the default 6h
+    # session gap -> two separate new sessions, not one extended.
+    assert "sessions: created 2  extended 0  merge proposals 0" in result.output
     # Identical GPS position but only 2 points, below the default
     # site_min_points=3 -> correctly noise, not a site.
     assert "sites: 0  unclustered 2" in result.output
