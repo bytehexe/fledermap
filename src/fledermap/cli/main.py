@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from pathlib import Path
 
 import click
@@ -10,8 +11,10 @@ from sqlalchemy.orm import Session as OrmSession
 
 from alembic import command as alembic_command
 from fledermap.config import Config, ConfigError
+from fledermap.derive.sessions import partition_sessions
 from fledermap.domain.metadata import ScannedFile
 from fledermap.ingest.scan import INCOMPLETE_SCAN_REASONS, scan_with_skips
+from fledermap.services.derive import derive_sites
 from fledermap.services.ingest import (
     IncompleteScanError,
     MassDisappearanceError,
@@ -150,3 +153,43 @@ def ingest(ctx: click.Context, archive: Path, sweep: bool) -> None:
             except IncompleteScanError as exc:
                 click.echo(f"WARNING: {exc}", err=True)
                 ctx.exit(EXIT_SWEEP_REFUSED)
+
+
+@cli.command()
+def derive() -> None:
+    """Partition sessions and rebuild sites from what `ingest` has stored.
+
+    Headless — no web, no site naming (that's a later phase's job queue).
+    Safe to re-run at any time: session partitioning only touches unsessioned
+    recordings, and site rebuilding is idempotent.
+    """
+    try:
+        config = Config.from_env(Path.cwd())
+    except ConfigError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    engine = make_engine(config.database_url)
+    _run_migrations(config.database_url)
+
+    with OrmSession(engine) as session:
+        session_report = partition_sessions(
+            session,
+            session_gap=timedelta(hours=config.session_gap_hours),
+        )
+        session.commit()
+
+        site_report = derive_sites(
+            session,
+            eps_m=config.site_eps_m,
+            min_points=config.site_min_points,
+        )
+        session.commit()
+
+        click.echo(
+            f"sessions: created {session_report.created}  "
+            f"extended {session_report.extended}  "
+            f"merge proposals {session_report.merge_proposals}",
+        )
+        click.echo(
+            f"sites: {site_report.site_count}  unclustered {site_report.unclustered}",
+        )

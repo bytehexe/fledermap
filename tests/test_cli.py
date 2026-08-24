@@ -370,3 +370,44 @@ def test_gps_less_recording_ingests_with_null_geom(
         recording = session.scalars(select(Recording)).one()
         assert recording.geom is None
     engine.dispose()
+
+
+def test_derive_command_reports_sessions_and_sites(
+    clean_database_url: str,
+    tmp_path: Path,
+) -> None:
+    archive = _archive(tmp_path)
+    runner = CliRunner()
+    env = {"FLEDERMAP_DATABASE_URL": clean_database_url}
+
+    ingest_result = runner.invoke(cli, ["ingest", str(archive)], env=env)
+    assert ingest_result.exit_code == 0, ingest_result.output
+
+    result = runner.invoke(cli, ["derive"], env=env)
+
+    assert result.exit_code == 0, result.output
+    # Both recordings share one (absent) detector key, but their filename
+    # dates are 13 days apart (2015-06-10 vs 2015-06-23; only their
+    # times-of-day are ~19 minutes apart) -> well past the default 6h
+    # session gap, so each lands in its own new session.
+    assert "sessions: created 2  extended 0  merge proposals 0" in result.output
+    # Identical GPS position but only 2 points, below the default
+    # site_min_points=3 -> correctly noise, not a site.
+    assert "sites: 0  unclustered 2" in result.output
+
+
+def test_derive_command_is_idempotent(
+    clean_database_url: str,
+    tmp_path: Path,
+) -> None:
+    archive = _archive(tmp_path)
+    runner = CliRunner()
+    env = {"FLEDERMAP_DATABASE_URL": clean_database_url}
+    runner.invoke(cli, ["ingest", str(archive)], env=env)
+    runner.invoke(cli, ["derive"], env=env)
+
+    result = runner.invoke(cli, ["derive"], env=env)
+
+    assert result.exit_code == 0, result.output
+    # Second run: nothing left unsessioned to partition, no new sessions.
+    assert "sessions: created 0  extended 0  merge proposals 0" in result.output
