@@ -52,3 +52,23 @@ def test_eps_in_local_metres_is_not_eps_in_degrees() -> None:
 
     assert local_distance == pytest.approx(68.0, abs=5.0)
     assert raw_distance < 0.01  # far under 1 in raw degree units
+
+
+def test_ups_north_boundary_is_inclusive_at_84_degrees() -> None:
+    proj = LocalProjection(Point(0.0, 84.0))
+    assert proj.crs.to_epsg() == 32661  # UPS North
+
+
+def test_just_below_84_degrees_is_regular_utm() -> None:
+    proj = LocalProjection(Point(0.0, 83.999999))
+    assert proj.crs.to_epsg() == 32631  # UTM zone 31N, not UPS
+
+
+def test_ups_south_boundary_is_inclusive_at_minus_80_degrees() -> None:
+    proj = LocalProjection(Point(0.0, -80.0))
+    assert proj.crs.to_epsg() == 32761  # UPS South
+
+
+def test_just_above_minus_80_degrees_is_regular_utm() -> None:
+    proj = LocalProjection(Point(0.0, -79.999999))
+    assert proj.crs.to_epsg() == 32731  # UTM zone 31S, not UPS
