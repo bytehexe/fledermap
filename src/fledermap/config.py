@@ -69,7 +69,7 @@ class Config:
         else:
             try:
                 default_timezone = zoneinfo.ZoneInfo(timezone_name)
-            except zoneinfo.ZoneInfoNotFoundError as exc:
+            except (zoneinfo.ZoneInfoNotFoundError, ValueError) as exc:
                 msg = (
                     f"{ENV_DEFAULT_TIMEZONE}={timezone_name!r} is not a "
                     "known IANA timezone name (e.g. 'Europe/Berlin')."
