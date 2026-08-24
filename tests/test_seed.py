@@ -85,13 +85,18 @@ def test_resolves_a_known_code(engine: Engine) -> None:
 
 
 def test_group_and_genus_ranks_are_representable(engine: Engine) -> None:
-    """MYOSPP is a genus, Nyctaloid is a phonic group. Neither is a species."""
+    """Myotis is a genus, Nyctaloid is a phonic group. Neither is a species.
+
+    Both are looked up by name, not by code: the Wildlife Acoustics list is
+    species-level only, so neither carries one.
+    """
     with OrmSession(engine) as session:
         seed_taxonomy(session)
         session.commit()
 
-        genus = resolve_code(session, "emt", "MYOSPP")
-        assert genus is not None
+        genus = session.scalars(
+            select(Taxon).where(Taxon.scientific_name == "Myotis"),
+        ).one()
         assert genus.rank == "genus"
 
         group = session.scalars(

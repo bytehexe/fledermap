@@ -1,3 +1,14 @@
+# European bat taxa and the Wildlife Acoustics codes the Echo Meter Touch emits.
+#
+# Codes are verified against the authoritative Wildlife Acoustics list:
+# https://answers.wildlifeacoustics.com/r/en-US/Bat-Auto-ID-Performance-and-Supported-Species/Bat-Auto-ID-Supported-Species-and-Abbreviated-Codes
+#
+# That list is SPECIES-LEVEL ONLY — it defines no genus or group codes. Do not
+# invent one. An unmapped label resolves to None and lands in the review queue
+# by design (spec section 5), which is a far better failure than a code that
+# resolves to something the detector never actually emits.
+#
+# This covers 10 of the 31 European species on that list; extend as needed.
 taxa:
   - scientific_name: Pipistrellus pipistrellus
     rank: species
@@ -49,11 +60,14 @@ taxa:
     common_name_de: Braunes Langohr
     common_name_en: Brown long-eared bat
     codes: {emt: PLEAUR}
+  # Genus and group taxa carry NO code: the EMT emits species codes only.
+  # They exist as targets for manual identifications (spec D10 — not every
+  # identification is a species).
   - scientific_name: Myotis
     rank: genus
     common_name_de: Mausohren
     common_name_en: Mouse-eared bats
-    codes: {emt: MYOSPP}
+    codes: {}
   - scientific_name: Nyctaloid
     rank: group
     common_name_de: Nyctaloid

@@ -79,6 +79,19 @@ timestamps differ by 12 h minus a few seconds, which reads as an AM/PM fault in 
 writer. Do not generalise timestamp, timezone, or metadata behaviour from them — spec R1–R3 and
 the timezone half of D17 stay open until real field recordings exist.
 
+## Species codes
+
+The authoritative Wildlife Acoustics code list is
+<https://answers.wildlifeacoustics.com/r/en-US/Bat-Auto-ID-Performance-and-Supported-Species/Bat-Auto-ID-Supported-Species-and-Abbreviated-Codes>.
+It is **species-level only** — there are no genus or group codes. `MYOSPP` was
+invented by the plan, survived a review, and had to be removed; check this list
+before adding any code. `taxa_eu.yaml` currently covers 10 of the 31 European
+species on it.
+
+An unmapped label is not a failure: it resolves to `None` and lands in the review
+queue by design (spec section 5). A *wrong* mapping is far worse than a missing
+one, because it resolves confidently to something the detector never emits.
+
 ## Ingest invariants
 
 - **Ingest is strictly read-only on the archive** (D16). No code may move, rename, write, or
