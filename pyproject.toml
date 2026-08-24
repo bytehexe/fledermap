@@ -67,6 +67,10 @@ skip-install = true
 detached = true
 extra-dependencies = ["ruff"]
 
+# scikit-learn ships no `py.typed` marker and there is no `types-scikit-learn`
+# stub package, so mypy cannot resolve it by any other means. A SCOPED override
+# is the correct fix here, unlike the global `ignore_missing_imports` rejected
+# above — this one blind-spots exactly one package, named explicitly.
 [[tool.mypy.overrides]]
 module = "sklearn.*"
 ignore_missing_imports = true

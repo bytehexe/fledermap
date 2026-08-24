@@ -72,7 +72,7 @@ def test_recording_beyond_gap_starts_a_new_session(engine: Engine) -> None:
 
         assert report.created == 2
         assert report.extended == 0
-        assert session.scalars(select(Session)).all().__len__() == 2
+        assert len(session.scalars(select(Session)).all()) == 2
 
 
 def test_different_detectors_get_separate_sessions(engine: Engine) -> None:

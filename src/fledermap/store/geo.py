@@ -19,5 +19,10 @@ def decode_point(elem: object | None) -> tuple[float, float] | None:
     if not isinstance(elem, WKBElement):
         return None
     point = to_shape(elem)
-    assert isinstance(point, Point)
+    if not isinstance(point, Point):
+        # Not an `assert`: `python -O` strips those, and this guards real data
+        # integrity, not just mypy narrowing — a non-Point geometry must fail
+        # loudly rather than silently yield the wrong coordinates.
+        msg = f"expected a Point geometry, got {type(point).__name__}"
+        raise TypeError(msg)
     return (point.x, point.y)

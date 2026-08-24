@@ -136,12 +136,10 @@ def test_session_kind_round_trips_to_python_type(engine: Engine) -> None:
                 started_at=datetime(2026, 8, 21, 21, tzinfo=UTC),
                 ended_at=datetime(2026, 8, 21, 23, tzinfo=UTC),
                 kind=SessionKind.STATIONARY,
-                # Not "EMT\x001" as in the brief/plan's fixture: Postgres text
-                # columns categorically reject embedded NUL bytes (see this
-                # task's report — a real defect found in the plan's Task 6
-                # `_detector_key` design, flagged separately, out of scope to
-                # fix here). This test's subject is `kind`'s round-trip, not
-                # `detector_key`'s content.
+                # A plain value: this test's subject is `kind`'s round-trip,
+                # not `detector_key`'s content. The real separator is `\x1f`
+                # (ASCII Unit Separator) — see `derive.sessions._detector_key`,
+                # which explains why it is not `\x00`.
                 detector_key="EMT1",
             ),
         )

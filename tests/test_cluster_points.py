@@ -6,7 +6,7 @@ from fledermap.derive.sites import cluster_points
 
 
 def test_two_nearby_points_form_one_cluster() -> None:
-    # ~11m apart at this latitude.
+    # ~6.8m apart at this latitude.
     points = np.array([[13.4000, 52.5000], [13.4001, 52.5000]])
 
     labels = cluster_points(points, eps_m=75.0, min_points=2)
