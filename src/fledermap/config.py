@@ -114,7 +114,9 @@ class Config:
             try:
                 site_min_points = int(site_min_points_raw)
             except ValueError as exc:
-                msg = f"{ENV_SITE_MIN_POINTS}={site_min_points_raw!r} is not an integer."
+                msg = (
+                    f"{ENV_SITE_MIN_POINTS}={site_min_points_raw!r} is not an integer."
+                )
                 raise ConfigError(msg) from exc
 
         return cls(
