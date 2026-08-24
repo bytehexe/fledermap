@@ -14,29 +14,35 @@ the URL: several of these overlap in subject and disagree in detail.
 | [Wildlife Acoustics — Bat Auto-ID Supported Species and Abbreviated Codes](https://answers.wildlifeacoustics.com/r/en-US/Bat-Auto-ID-Performance-and-Supported-Species/Bat-Auto-ID-Supported-Species-and-Abbreviated-Codes) | The codes the **Echo Meter Touch and Kaleidoscope actually emit**. This is the vocabulary `taxa_eu.yaml` maps. | **Species-level only** — it defines no genus or group codes. `MYOSPP` was invented against this list and had to be removed. 31 European species; we currently map 10. |
 | [NABat — List of Species Codes](https://www.nabatmonitoring.org/species-codes) | North American Bat Monitoring Program codes. | Lists **two codes per species**: a four-letter and a six-letter form (*Eptesicus fuscus* is both `EPFU` and `EPTFUS`). Both belong to one authority — see the note below before treating them as separate sources. |
 
-> **NABat's six-letter codes appear to BE the Wildlife Acoustics codes**, not
-> merely a similar scheme. Every species checkable in both lists matches exactly:
-> *Antrozous pallidus* `ANTPAL`, *Eptesicus fuscus* `EPTFUS`, *Euderma maculatum*
-> `EUDMAC`. Both are genus-3 + species-3, and the EMT supports 38 US/Canada
-> species, so the overlap is large.
+> **Naming — there is no official name for these code systems.** Searched for one;
+> none found. Each authority uses only descriptive terms for its own:
+> NABat says "four-letter species code" / "six-letter species code" (its column
+> headers), Wildlife Acoustics says "abbreviated codes" (its page title).
 >
-> **The genuinely distinct system is NABat's four-letter form** (`EPFU`, `ANPA`,
-> `EUMA`) — a different construction with no counterpart in the WA list.
+> Do **not** call them "alpha codes". Birds have a real
+> [standardized 4- and 6-letter alpha code](https://www.birdpop.org/pages/birdSpeciesCodes.php)
+> system in which the *four*-letter form comes from the **English** name
+> (American Robin → `AMRO`). Both bat forms come from the **scientific** name:
+> `EPFU` is genus-2 + species-2, `EPTFUS` genus-3 + species-3. Borrowing the bird
+> term would describe them wrongly.
 >
-> **If NABat data is ever ingested, split along that line** — a `nabat4` source
-> for the four-letter codes, and the six-letter codes folded into whatever source
-> already holds the WA vocabulary — rather than one `nabat` source holding both.
-> Storing the six-letter codes a second time under their own source would
-> duplicate rows that mean the same thing.
+> **The six-letter forms coincide with Wildlife Acoustics'.** Every species
+> checkable in both lists matches exactly: *Antrozous pallidus* `ANTPAL`,
+> *Eptesicus fuscus* `EPTFUS`, *Euderma maculatum* `EUDMAC`.
 >
-> A caveat that keeps `taxon_code` per-source worthwhile regardless: two
-> independently maintained registries are not *guaranteed* to stay in step. The
-> construction rule is not injective, so colliding species need a tiebreak, and
-> nothing binds the two bodies to pick the same one. Per-source keying costs one
-> column and means we never have to bet on their agreeing.
+> **Even so, keep them as separate sources** — `nabat4`, `nabat6`, and whatever
+> holds the WA vocabulary. Folding the six-letter codes into the WA source
+> because they currently agree would re-introduce precisely the universal-code-key
+> assumption spec D10 exists to reject, only at smaller scale. The two registries
+> are independently maintained, the construction rule is not injective, and
+> nothing binds them to resolve a collision the same way. Duplicating ~30 rows
+> costs nothing; a silent merge of two authorities' claims is not recoverable
+> afterwards, because the row no longer records who said it.
 >
-> Note this also makes the source name `emt` slightly wrong for a vocabulary two
-> authorities share. Not worth renaming until NABat data actually arrives.
+> A taxon may hold several codes under one source — `uq_taxon_code` is
+> `(source, code)`, not `(source, taxon_id)` — so `EPFU` and `EPTFUS` can both
+> point at *Eptesicus fuscus*. Pinned by
+> `test_one_taxon_may_carry_several_codes_from_one_source`.
 
 ## File formats
 

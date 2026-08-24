@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 from sqlalchemy import Engine, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.store.models import Taxon, TaxonCode
@@ -112,3 +113,55 @@ def test_unknown_code_resolves_to_none(engine: Engine) -> None:
         session.commit()
 
         assert resolve_code(session, "emt", "ZZZZZZ") is None
+
+
+def test_one_taxon_may_carry_several_codes_from_one_source(engine: Engine) -> None:
+    """NABat publishes BOTH a four- and a six-letter code for every species, so a
+    taxon must be able to carry more than one code under a single source.
+
+    `uq_taxon_code` is (source, code), not (source, taxon_id), which permits this
+    while still forbidding the thing that must stay forbidden: one code meaning
+    two different taxa within a source. Tightening it to one-code-per-source
+    would make NABat unrepresentable.
+
+    The codes below are illustrative of the two-form shape, not reference data —
+    Eptesicus serotinus is European and does not appear in NABat's list.
+    """
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        session.commit()
+
+        taxon = session.scalars(
+            select(Taxon).where(Taxon.scientific_name == "Eptesicus serotinus"),
+        ).one()
+        session.add_all(
+            [
+                TaxonCode(source="illustrative", code="EPSE", taxon_id=taxon.id),
+                TaxonCode(source="illustrative", code="EPTSER", taxon_id=taxon.id),
+            ],
+        )
+        session.commit()
+
+        short = resolve_code(session, "illustrative", "EPSE")
+        long_ = resolve_code(session, "illustrative", "EPTSER")
+
+        assert short is not None
+        assert long_ is not None
+        assert short.id == long_.id == taxon.id
+
+
+def test_one_code_may_not_mean_two_taxa_within_a_source(engine: Engine) -> None:
+    """The other half of uq_taxon_code, and the half that must hold."""
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        session.commit()
+
+        a, b = session.scalars(select(Taxon).limit(2)).all()
+        session.add_all(
+            [
+                TaxonCode(source="illustrative", code="DUPDUP", taxon_id=a.id),
+                TaxonCode(source="illustrative", code="DUPDUP", taxon_id=b.id),
+            ],
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
