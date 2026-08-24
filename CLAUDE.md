@@ -44,6 +44,19 @@ to it when you find a new source.
   fire at all. `uq_identification_source_claim` needs `postgresql_nulls_not_distinct=True`
   precisely because `source_version` is NULL for the sources that most need it — filename IDs
   and manual annotations.
+- **A NUL byte is not a NULL value, and Postgres rejects it outright.** psycopg2 raises
+  `ValueError: A string literal cannot contain NUL (0x00) characters.` client-side, before the
+  query ever reaches the server, for any `text` value containing `\x00`. That is why
+  `derive.sessions._detector_key` joins `(make, serial)` with `\x1f` (ASCII Unit Separator) —
+  a separator that cannot occur in either field and round-trips through Postgres text fine.
+  `\x00` would have crashed on every session ever created.
+- **`DELETE FROM site`, never `TRUNCATE`, for a wholesale rebuild.** `TRUNCATE` does not fire
+  `ON DELETE SET NULL` the way `DELETE` does: it errors on the referencing `recording.site_id`
+  FK, or with `CASCADE` truncates `recording` too — which must never happen.
+- **`np.float64` has no psycopg2 adapter.** Bound as a query parameter it renders via `repr()`
+  as the literal text `np.float64(...)`, which Postgres reads as a schema-qualified name and
+  rejects with `InvalidSchemaName`. Cast to a plain `float()` before binding. Every numpy scalar
+  reaching the DB layer needs this — `GeoCluster.radius` is only the first one found.
 - **SQLAlchemy's `Enum` persists the member *name*, not `.value`.** The `IdSource` / `Verdict`
   values (`emt.wamd`, not `EMT_WAMD`) are the canonical on-disk vocabulary, so both columns pass
   `values_callable`. Dropping it silently rewrites stored representation.
@@ -85,6 +98,14 @@ no database.
 **The general rule:** a schema-drift test's blind spots are exactly the parts of the schema
 `compare_metadata` cannot see (non-native enums without a CHECK, anything else erased to a
 featureless column type). Each one needs its own explicit test; none of it is covered by default.
+
+**Adding a CHECK to an EXISTING enum column must be hand-written.** Autogenerate compares
+column *types*, and a type-bound constraint appearing on a column whose declared type did not
+change is invisible to it — the migration comes out silently missing the constraint. Write
+`op.create_check_constraint()` (and its `drop` in `downgrade`) by hand, then let
+`tests/test_migrations.py` confirm the result. Another instance of the same blind spot as above,
+reached from the other direction: there the CHECK was absent from the metadata side, here from
+the migration.
 
 Mutation-test any `compare_metadata` or excluded-constraint assertion (add a column, add an enum
 member, confirm it fails). One that cannot fail is worse than no test.
