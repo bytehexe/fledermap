@@ -371,6 +371,9 @@ def commit_scan(
 
         moved = existing.path != rel
         existing.path = rel
+        # `sweep_missing` (below) clears `missing_since` the same way when a
+        # known hash reappears in a scan. Two functions now share this
+        # responsibility — keep them in sync if the reappearance rule changes.
         existing.missing_since = None
         metadata_changed = _apply_metadata(existing, item)
         ids_changed = _apply_identifications(
@@ -389,3 +392,101 @@ def commit_scan(
             report.record(IngestOutcome.UNCHANGED)
 
     return report
+
+
+DEFAULT_MISSING_THRESHOLD = 0.10
+
+
+class MassDisappearanceError(Exception):
+    """Too many recordings vanished at once to be believable.
+
+    An unmounted archive or a mid-sync Syncthing makes every file look deleted.
+    Flagging them all would be silent, wide damage, so the sweep refuses.
+    """
+
+    def __init__(self, missing: int, known: int) -> None:
+        self.missing = missing
+        self.known = known
+        super().__init__(
+            f"{missing} of {known} recordings absent — refusing to flag. "
+            "Is the archive mounted and finished syncing?",
+        )
+
+
+class IncompleteScanError(Exception):
+    """The scan skipped files, so `seen_hashes` cannot be trusted as complete.
+
+    Sweeping on incomplete information is exactly what the mass-disappearance
+    guard exists to prevent — it would just be arriving through a different
+    route (a settling file, a transient I/O error) instead of an unmounted
+    drive. Refuse rather than risk flagging a file that is simply still being
+    written.
+    """
+
+    def __init__(self, skipped: int) -> None:
+        self.skipped = skipped
+        super().__init__(
+            f"{skipped} file(s) were skipped during scan — refusing to sweep "
+            "on an incomplete picture of what's present.",
+        )
+
+
+def sweep_missing(
+    session: OrmSession,
+    seen_hashes: set[str],
+    *,
+    threshold: float = DEFAULT_MISSING_THRESHOLD,
+    skipped: int = 0,
+) -> int:
+    """Flag recordings whose source file was not seen. Never deletes rows.
+
+    Two guards refuse the whole sweep, before any row is touched, rather than
+    risk a false mass-flagging:
+
+    - `IncompleteScanError` if the caller's scan skipped any files. A skipped
+      file (settling, or a transient I/O error — see `scan_with_skips`) never
+      makes it into `seen_hashes`, so it would otherwise look identical to a
+      genuine deletion. This is the same failure the ratio guard below exists
+      to catch, just arriving through a route that guard can't see, so it's
+      caught here explicitly instead.
+    - `MassDisappearanceError` if too large a fraction of recordings newly
+      went missing THIS sweep. The ratio is computed over *newly* absent rows
+      (`missing_since is None`) only — rows an earlier sweep already flagged
+      don't count again, otherwise a real, permanently-deleted file would
+      eventually push the cumulative absent count over threshold and disable
+      the guard (and thus this function) forever. Below `min_known_for_guard`
+      recordings, the ratio can't distinguish "one file" from "mass
+      disappearance" (one file already meets the threshold fraction), so the
+      guard is skipped entirely and the sweep proceeds normally.
+
+    `missing_since` is also cleared here when a known hash reappears — the
+    same responsibility `commit_scan` (above) takes on a freshly-(re)matched
+    row. Keep the two in sync if the reappearance rule ever changes.
+
+    Loads every `Recording` row into memory; fine at journal scale (tens to
+    low thousands), not optimized further.
+    """
+    if skipped > 0:
+        raise IncompleteScanError(skipped)
+
+    known = session.scalars(select(Recording)).all()
+    if not known:
+        return 0
+
+    absent = [r for r in known if r.audio_hash not in seen_hashes]
+    newly_absent = [r for r in absent if r.missing_since is None]
+
+    min_known_for_guard = max(1, round(1 / threshold))
+    if len(known) >= min_known_for_guard and len(newly_absent) > len(known) * threshold:
+        raise MassDisappearanceError(missing=len(newly_absent), known=len(known))
+
+    now = datetime.now(tz=UTC)
+    flagged = 0
+    for recording in known:
+        if recording.audio_hash in seen_hashes:
+            recording.missing_since = None
+        elif recording.missing_since is None:
+            recording.missing_since = now
+            flagged += 1
+
+    return flagged
