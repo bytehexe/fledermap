@@ -1,0 +1,376 @@
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from pathlib import Path
+
+import pytest
+from geoalchemy2 import Geometry
+from sqlalchemy import Engine, cast, event, func, select
+from sqlalchemy.orm import Session as OrmSession
+
+from fledermap.domain.codes import IdSource, Verdict
+from fledermap.domain.metadata import (
+    ParsedIdentification,
+    RecordingMetadata,
+    ScannedFile,
+)
+from fledermap.services.ingest import _EMT_SOURCES, commit_scan
+from fledermap.store.models import Identification, Recording
+from fledermap.store.seed import seed_taxonomy
+
+pytestmark = pytest.mark.db
+
+ROOT = Path("/archive")
+
+
+def _scanned(
+    digest: str = "a" * 64,
+    name: str = "EPTSER_20150610_215446.wav",
+    label: str = "EPTSER",
+    device: str | None = None,
+    note: str | None = None,
+    duration_s: float | None = None,
+    identifications: tuple[ParsedIdentification, ...] | None = None,
+) -> ScannedFile:
+    return ScannedFile(
+        audio_hash=digest,
+        path=ROOT / "Session_20130401_053030" / name,
+        metadata=RecordingMetadata(
+            recorded_at=datetime(2015, 6, 10, 21, 54, 46, tzinfo=UTC),
+            samplerate_hz=256000,
+            latitude=42.346973,
+            longitude=-76.48760,
+            device=device,
+            note=note,
+            duration_s=duration_s,
+            identifications=(
+                identifications
+                if identifications is not None
+                else (
+                    ParsedIdentification(
+                        source=IdSource.EMT_WAMD,
+                        source_version="App 3.1.10",
+                        verdict=Verdict.SPECIES,
+                        raw_label=label,
+                    ),
+                )
+            ),
+        ),
+    )
+
+
+def test_new_file_is_created(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        report = commit_scan(session, [_scanned()], archive_root=ROOT)
+        session.commit()
+
+        assert report.created == 1
+        assert session.scalar(select(func.count()).select_from(Recording)) == 1
+
+
+def test_ingest_is_idempotent(engine: Engine) -> None:
+    """Run twice, nothing changes. The defining property of spec section 6."""
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        commit_scan(session, [_scanned()], archive_root=ROOT)
+        session.commit()
+
+        report = commit_scan(session, [_scanned()], archive_root=ROOT)
+        session.commit()
+
+        assert report.created == 0
+        assert report.unchanged == 1
+        assert session.scalar(select(func.count()).select_from(Recording)) == 1
+
+
+def test_second_run_emits_no_update_statements(engine: Engine) -> None:
+    """Circularity guard: report counters are computed by the code under test,
+    so `test_ingest_is_idempotent` alone can't prove nothing was written. Capture
+    the actual SQL sent to Postgres on the second run and assert no UPDATE is
+    among it (task-11 amendments, 'Verify idempotency properly')."""
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        commit_scan(session, [_scanned()], archive_root=ROOT)
+        session.commit()
+
+    statements: list[str] = []
+
+    def _capture(conn, cursor, statement, parameters, context, executemany) -> None:  # noqa: ANN001
+        statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", _capture)
+    try:
+        with OrmSession(engine) as session:
+            # NOT `assert not session.dirty` here: SQLAlchemy can list an
+            # object in `session.dirty` (a candidate for the flush's change
+            # evaluation) even when the eventual flush emits no SQL for it at
+            # all — confirmed empirically for `guano_raw` while building this
+            # task. Only the SQL actually sent to Postgres is conclusive.
+            commit_scan(session, [_scanned()], archive_root=ROOT)
+            session.commit()
+    finally:
+        event.remove(engine, "before_cursor_execute", _capture)
+
+    updates = [s for s in statements if s.strip().upper().startswith("UPDATE")]
+    assert updates == []
+
+
+def test_rename_updates_path_without_duplicating(engine: Engine) -> None:
+    """The re-ID case: same audio, new filename. This is why identity is the hash."""
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        commit_scan(
+            session, [_scanned(name="NoID_20150610_215446.wav")], archive_root=ROOT
+        )
+        session.commit()
+
+        report = commit_scan(
+            session,
+            [_scanned(name="EPTSER_20150610_215446.wav")],
+            archive_root=ROOT,
+        )
+        session.commit()
+
+        assert report.moved == 1
+        assert session.scalar(select(func.count()).select_from(Recording)) == 1
+        assert (
+            session.scalars(select(Recording))
+            .one()
+            .path.endswith(
+                "EPTSER_20150610_215446.wav",
+            )
+        )
+
+
+def test_moved_and_reidentified_reports_as_moved(engine: Engine) -> None:
+    """Deliberate: a file that both moved AND changed its identification (the
+    re-ID case) is reported as MOVED, not UPDATED — spec section 6 defines the
+    outcome by (hash, path) status ('known hash, new path'), not by whether
+    metadata happens to also differ. See task-11 report, judgement call on
+    'MOVED masks UPDATED'. The underlying data still records the change either
+    way: the old identification is superseded and a new one is added."""
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        commit_scan(
+            session,
+            [_scanned(name="NoID_20150610_215446.wav", label="NoID")],
+            archive_root=ROOT,
+        )
+        session.commit()
+
+        report = commit_scan(
+            session,
+            [_scanned(name="EPTSER_20150610_215446.wav", label="EPTSER")],
+            archive_root=ROOT,
+        )
+        session.commit()
+
+        assert report.moved == 1
+        assert report.updated == 0
+        ids = session.scalars(select(Identification)).all()
+        assert len(ids) == 2
+        assert {i.raw_label for i in ids} == {"NoID", "EPTSER"}
+
+
+def test_changed_identification_supersedes_the_old_one(engine: Engine) -> None:
+    """The EMT changing its mind is recorded, not overwritten."""
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        commit_scan(session, [_scanned(label="MYODAU")], archive_root=ROOT)
+        session.commit()
+
+        commit_scan(session, [_scanned(label="EPTSER")], archive_root=ROOT)
+        session.commit()
+
+        ids = session.scalars(select(Identification)).all()
+        assert len(ids) == 2
+        superseded = [i for i in ids if i.superseded_at is not None]
+        assert len(superseded) == 1
+        assert superseded[0].raw_label == "MYODAU"
+
+
+def test_note_change_without_move_is_reported_as_updated(engine: Engine) -> None:
+    """metadata_changed must cover more than the original 3 fields (task-11
+    amendments, defect 4) — `note` and `duration_s` are not in that set."""
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        commit_scan(session, [_scanned()], archive_root=ROOT)
+        session.commit()
+
+        report = commit_scan(
+            session,
+            [_scanned(note="heard a dog bark", duration_s=2.5)],
+            archive_root=ROOT,
+        )
+        session.commit()
+
+        assert report.updated == 1
+        assert report.unchanged == 0
+        rec = session.scalars(select(Recording)).one()
+        assert rec.note == "heard a dog bark"
+        assert rec.duration_s == 2.5
+
+
+def test_device_field_round_trips(engine: Engine) -> None:
+    """`device` (the host phone, from wamd) must not be silently dropped —
+    task-11 amendments, defect 3."""
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        commit_scan(session, [_scanned(device="iPhone 12")], archive_root=ROOT)
+        session.commit()
+
+        assert session.scalars(select(Recording)).one().device == "iPhone 12"
+
+
+def test_paths_are_stored_relative_to_archive_root(engine: Engine) -> None:
+    """So the archive can move without rewriting every row."""
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        commit_scan(session, [_scanned()], archive_root=ROOT)
+        session.commit()
+
+        path = session.scalars(select(Recording)).one().path
+        assert not path.startswith("/")
+        assert path.startswith("Session_20130401_053030/")
+
+
+def test_path_outside_archive_root_raises(engine: Engine) -> None:
+    """A scanned path that isn't under `archive_root` is a programming/config
+    error, not a tolerable fallback — silently storing an absolute path would
+    violate the invariant `test_paths_are_stored_relative_to_archive_root`
+    asserts (task-11 amendments, judgement call on `_relative`)."""
+    outside = ScannedFile(
+        audio_hash="c" * 64,
+        path=Path("/elsewhere/foo.wav"),
+        metadata=RecordingMetadata(
+            recorded_at=datetime(2015, 6, 10, 21, 54, 46, tzinfo=UTC),
+        ),
+    )
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        with pytest.raises(ValueError, match="archive_root"):
+            commit_scan(session, [outside], archive_root=ROOT)
+
+
+def test_known_label_resolves_to_taxon(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        commit_scan(session, [_scanned(label="EPTSER")], archive_root=ROOT)
+        session.commit()
+
+        ident = session.scalars(select(Identification)).one()
+        assert ident.taxon_id is not None
+
+
+def test_manual_identification_resolves_to_taxon(engine: Engine) -> None:
+    """Manual IDs on the EMT use the same Wildlife Acoustics vocabulary as the
+    auto IDs (task-11 amendments, defect 5)."""
+    scanned = _scanned(
+        identifications=(
+            ParsedIdentification(
+                source=IdSource.MANUAL,
+                source_version=None,
+                verdict=Verdict.SPECIES,
+                raw_label="EPTSER",
+            ),
+        ),
+    )
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        report = commit_scan(session, [scanned], archive_root=ROOT)
+        session.commit()
+
+        ident = session.scalars(select(Identification)).one()
+        assert ident.source is IdSource.MANUAL
+        assert ident.taxon_id is not None
+        assert "EPTSER" not in report.unmapped_labels
+
+
+def test_duplicate_manual_identifications_collapse_to_one_row(engine: Engine) -> None:
+    """GUANO and wamd both carrying the same `manual_id` is the normal case
+    (they're the same on-device correction, read from two chunks of the same
+    file) and must not raise IntegrityError (task-11 amendments, defect 2)."""
+    dup_claim = ParsedIdentification(
+        source=IdSource.MANUAL,
+        source_version=None,
+        verdict=Verdict.SPECIES,
+        raw_label="EPTSER",
+    )
+    scanned = _scanned(identifications=(dup_claim, dup_claim))
+
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        commit_scan(session, [scanned], archive_root=ROOT)
+        session.commit()  # would raise IntegrityError before the fix
+
+        ids = session.scalars(select(Identification)).all()
+        assert len(ids) == 1
+        assert ids[0].source is IdSource.MANUAL
+        assert ids[0].raw_label == "EPTSER"
+
+
+def test_unmapped_label_is_stored_and_reported(engine: Engine) -> None:
+    """Ingest must not fail on an unknown code; it becomes a review item."""
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        report = commit_scan(session, [_scanned(label="ZZZZZZ")], archive_root=ROOT)
+        session.commit()
+
+        ident = session.scalars(select(Identification)).one()
+        assert ident.taxon_id is None
+        assert ident.raw_label == "ZZZZZZ"
+        assert "ZZZZZZ" in report.unmapped_labels
+
+
+def test_geometry_is_written_when_position_present(engine: Engine) -> None:
+    """Re-query in a fresh session and check the actual stored coordinates —
+    asserting `.geom is not None` on the in-session object proves nothing, since
+    that's just the value that was assigned a moment earlier (task-11
+    amendments, defect 6)."""
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        commit_scan(session, [_scanned()], archive_root=ROOT)
+        session.commit()
+
+    with OrmSession(engine) as session:
+        lon, lat = session.execute(
+            select(
+                func.ST_X(cast(Recording.geom, Geometry)),
+                func.ST_Y(cast(Recording.geom, Geometry)),
+            ),
+        ).one()
+        assert lon == pytest.approx(-76.48760)
+        assert lat == pytest.approx(42.346973)
+
+
+def test_replaced_file_marks_old_row_missing_and_creates_new_row(
+    engine: Engine,
+) -> None:
+    """Same path, new hash: the file was replaced. A new recording is created;
+    the old row's path is marked missing, never deleted (task-11 amendments,
+    defect 1 — spec section 6, row 4)."""
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        commit_scan(session, [_scanned(digest="a" * 64)], archive_root=ROOT)
+        session.commit()
+
+        report = commit_scan(session, [_scanned(digest="b" * 64)], archive_root=ROOT)
+        session.commit()
+
+        assert report.replaced == 1
+        assert report.created == 0
+        recs = {r.audio_hash: r for r in session.scalars(select(Recording)).all()}
+        assert len(recs) == 2
+        assert recs["a" * 64].missing_since is not None
+        assert recs["b" * 64].missing_since is None
+        assert recs["a" * 64].path == recs["b" * 64].path
+
+
+def test_emt_sources_membership_uses_stringenum_semantics() -> None:
+    """`IdSource` is a `StrEnum`, so `IdSource.EMT_WAMD in {"emt.wamd"}` is True
+    and `identification.source` (which round-trips as an `IdSource`, not a
+    plain `str`, per Task 9) still matches a set of `IdSource` members.
+    Confirmed rather than assumed (task-11 amendments, judgement calls)."""
+    assert IdSource.EMT_WAMD in _EMT_SOURCES
+    assert "emt.wamd" in {s.value for s in _EMT_SOURCES}
