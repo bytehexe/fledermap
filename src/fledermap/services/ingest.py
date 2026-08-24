@@ -460,6 +460,15 @@ def sweep_missing(
       disappearance" (one file already meets the threshold fraction), so the
       guard is skipped entirely and the sweep proceeds normally.
 
+      The denominator is `known` (every row, missing or not), not the count
+      still present. This keeps the guard calibrated to the archive's stable
+      size rather than one that shrinks as files vanish — the tradeoff is
+      that a heavily-eroded archive (most rows already missing) becomes
+      progressively less sensitive to losing what little remains present, in
+      percentage-of-remaining terms. Accepted: a large fraction already
+      missing is itself a visible, standing signal in the data; the guard's
+      job is catching a sudden event, not tracking decline.
+
     `missing_since` is also cleared here when a known hash reappears — the
     same responsibility `commit_scan` (above) takes on a freshly-(re)matched
     row. Keep the two in sync if the reappearance rule ever changes.
@@ -486,6 +495,13 @@ def sweep_missing(
     # this two-stage guard exists to prevent. ceil(5.26)=6 avoids it: 1 >
     # 6*0.19=1.14 is False. Verified for the shipped default (threshold=0.10)
     # this is unchanged: ceil(10.0) == round(10.0) == 10.
+    #
+    # `ceil` is itself IEEE754 float division, not exact rational arithmetic,
+    # so it can in principle undershoot too. Swept every threshold of the form
+    # 1/n for n up to 5000: mismatches exist, but only below roughly
+    # threshold=0.006 (n>=161) — nowhere near an operator-facing config value.
+    # Not hardened against this; revisit with `fractions.Fraction` if
+    # `threshold` is ever exposed below roughly 1%.
     min_known_for_guard = max(1, math.ceil(1 / threshold))
     if len(known) >= min_known_for_guard and len(newly_absent) > len(known) * threshold:
         raise MassDisappearanceError(missing=len(newly_absent), known=len(known))

@@ -146,7 +146,7 @@ def test_small_archive_below_floor_flags_all_missing_without_raising(
 def test_ratio_guard_still_fires_at_the_floor(engine: Engine) -> None:
     """At or above `min_known_for_guard`, the ratio check from Defect 1 applies."""
     with OrmSession(engine) as session:
-        # threshold=0.10 -> min_known_for_guard = round(1/0.10) = 10.
+        # threshold=0.10 -> min_known_for_guard = ceil(1/0.10) = 10.
         _add(session, 10)
 
         with pytest.raises(MassDisappearanceError) as excinfo:
