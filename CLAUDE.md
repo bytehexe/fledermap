@@ -86,7 +86,7 @@ The authoritative Wildlife Acoustics code list is
 It is **species-level only** — there are no genus or group codes. `MYOSPP` was
 invented by the plan, survived a review, and had to be removed; check this list
 before adding any code. `taxa_eu.yaml` currently covers 10 of the 31 European
-species on it.
+species on it — a deliberate deferral Janna owns and will pick up as its own task.
 
 An unmapped label is not a failure: it resolves to `None` and lands in the review
 queue by design (spec section 5). A *wrong* mapping is far worse than a missing
