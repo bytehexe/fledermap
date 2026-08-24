@@ -17,6 +17,7 @@ from sqlalchemy import Enum as SAEnum
 from sqlalchemy.exc import IntegrityError
 
 from alembic import command
+from fledermap.domain.codes import Verdict
 from fledermap.store.db import make_engine
 from fledermap.store.models import Base
 
@@ -35,7 +36,12 @@ def migrated_engine(postgis_url: str) -> Iterator[Engine]:
         conn.execute(text("DROP SCHEMA public CASCADE"))
         conn.execute(text("CREATE SCHEMA public"))
 
-    cfg = Config(str(PROJECT_ROOT / "alembic.ini"))
+    # Deliberately NOT Config("alembic.ini"): env.py calls fileConfig() whenever
+    # the config carries a file name, and fileConfig defaults to
+    # disable_existing_loggers=True — which would silently disable every logger
+    # created before this fixture runs, at a random point in the session.
+    # `script_location` and `sqlalchemy.url` are the only settings upgrade needs.
+    cfg = Config()
     cfg.set_main_option("script_location", str(PROJECT_ROOT / "alembic"))
     cfg.set_main_option("sqlalchemy.url", postgis_url)
     command.upgrade(cfg, "head")
@@ -122,3 +128,32 @@ def test_migrated_verdict_check_is_enforced(migrated_engine: Engine) -> None:
                 " SELECT id, 'manual', 'not_a_verdict' FROM recording"
             )
         )
+
+
+def test_migrated_verdict_check_accepts_every_verdict(migrated_engine: Engine) -> None:
+    """The other half of the exclusion `_comparable` makes. Rejecting a bogus
+    value proves the CHECK exists; only this proves it still matches `Verdict`.
+    A member added to the enum without a migration would otherwise pass both the
+    drift comparison (excluded) and the rejection test (still rejects garbage)."""
+    with migrated_engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO recording (audio_hash, path, recorded_at, guano_raw)"
+                " VALUES ('v' || repeat('0', 63), 'x.wav', now(), '{}'::jsonb)"
+            )
+        )
+        for verdict in Verdict:
+            # raw_label must differ per row: uq_identification_source_claim is
+            # (recording_id, source, source_version, raw_label) with
+            # nulls_not_distinct, and `verdict` is not part of it.
+            conn.execute(
+                text(
+                    "INSERT INTO identification"
+                    " (recording_id, source, verdict, raw_label)"
+                    " SELECT id, 'manual', :verdict, :label FROM recording"
+                ),
+                {"verdict": verdict.value, "label": verdict.value},
+            )
+        stored = conn.scalar(text("SELECT count(*) FROM identification"))
+
+    assert stored == len(Verdict)
