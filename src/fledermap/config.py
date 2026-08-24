@@ -96,6 +96,15 @@ class Config:
                     "of hours."
                 )
                 raise ConfigError(msg) from exc
+            # `not x > 0` rather than `x <= 0`: `float("nan")` parses fine
+            # and is <= 0 == False, so a plain `<= 0` would let it through to
+            # crash later inside `timedelta`.
+            if not session_gap_hours > 0:
+                msg = (
+                    f"{ENV_SESSION_GAP_HOURS}={session_gap_raw!r} is not a "
+                    "positive number of hours."
+                )
+                raise ConfigError(msg)
 
         site_eps_raw = os.environ.get(ENV_SITE_EPS_M)
         if site_eps_raw is None:
@@ -106,6 +115,12 @@ class Config:
             except ValueError as exc:
                 msg = f"{ENV_SITE_EPS_M}={site_eps_raw!r} is not a number of metres."
                 raise ConfigError(msg) from exc
+            if not site_eps_m > 0:  # also rejects nan; see above
+                msg = (
+                    f"{ENV_SITE_EPS_M}={site_eps_raw!r} is not a positive number "
+                    "of metres."
+                )
+                raise ConfigError(msg)
 
         site_min_points_raw = os.environ.get(ENV_SITE_MIN_POINTS)
         if site_min_points_raw is None:
@@ -118,6 +133,12 @@ class Config:
                     f"{ENV_SITE_MIN_POINTS}={site_min_points_raw!r} is not an integer."
                 )
                 raise ConfigError(msg) from exc
+            if site_min_points < 1:
+                msg = (
+                    f"{ENV_SITE_MIN_POINTS}={site_min_points_raw!r} is not an "
+                    "integer of 1 or more."
+                )
+                raise ConfigError(msg)
 
         return cls(
             database_url=url,

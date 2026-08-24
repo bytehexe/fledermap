@@ -176,3 +176,68 @@ def test_invalid_site_min_points_raises_config_error(
     monkeypatch.setenv(ENV_SITE_MIN_POINTS, "not-an-int")
     with pytest.raises(ConfigError, match="not-an-int"):
         Config.from_env(tmp_path)
+
+
+def test_zero_session_gap_raises_config_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Range violations must fail at config parse time like every other bad
+    value here (cf. `test_malformed_timezone_key_raises_config_error_not_valueerror`),
+    not after migrations have run, deep inside scikit-learn or `timedelta`."""
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_SESSION_GAP_HOURS, "0")
+    with pytest.raises(ConfigError, match=ENV_SESSION_GAP_HOURS):
+        Config.from_env(tmp_path)
+
+
+def test_negative_session_gap_raises_config_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_SESSION_GAP_HOURS, "-1")
+    with pytest.raises(ConfigError, match=ENV_SESSION_GAP_HOURS):
+        Config.from_env(tmp_path)
+
+
+def test_zero_site_eps_raises_config_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_SITE_EPS_M, "0")
+    with pytest.raises(ConfigError, match=ENV_SITE_EPS_M):
+        Config.from_env(tmp_path)
+
+
+def test_negative_site_eps_raises_config_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_SITE_EPS_M, "-5")
+    with pytest.raises(ConfigError, match=ENV_SITE_EPS_M):
+        Config.from_env(tmp_path)
+
+
+def test_zero_site_min_points_raises_config_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_SITE_MIN_POINTS, "0")
+    with pytest.raises(ConfigError, match=ENV_SITE_MIN_POINTS):
+        Config.from_env(tmp_path)
+
+
+def test_nan_session_gap_raises_config_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """`float("nan")` parses, and `nan <= 0` is False — a plain `<= 0` check
+    would let it through to raise inside `timedelta(hours=nan)` instead."""
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_SESSION_GAP_HOURS, "nan")
+    with pytest.raises(ConfigError, match=ENV_SESSION_GAP_HOURS):
+        Config.from_env(tmp_path)
