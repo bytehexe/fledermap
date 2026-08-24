@@ -16,9 +16,12 @@ BERLIN = timezone(timedelta(hours=2))
 def test_filename_wins_by_default() -> None:
     """The provisional default. Metadata says 09:54, filename says 21:54.
 
-    The chosen `recorded_at` is the naive filename reading, but it must not
-    invent an offset: the metadata's +02:00 is the only offset evidence in
-    the file, and `recorded_at` must carry it rather than a fabricated UTC.
+    The chosen `recorded_at` is the filename reading, but it must not invent
+    an offset: the metadata's +02:00 is the only offset evidence in the file,
+    and `recorded_at` (and `filename_at`, stored in its own aware column) must
+    carry it rather than a fabricated UTC (task-11 fix round 1, priority 1:
+    `filename_at`/`metadata_at` are aware, not naive, matching their
+    `DateTime(timezone=True)` columns).
     """
     result = merge_metadata(
         guano=None,
@@ -28,7 +31,7 @@ def test_filename_wins_by_default() -> None:
 
     assert result.recorded_at.hour == 21
     assert result.recorded_at.utcoffset() == timedelta(hours=2)
-    assert result.filename_at == datetime(2015, 6, 10, 21, 54, 46)
+    assert result.filename_at == datetime(2015, 6, 10, 21, 54, 46, tzinfo=BERLIN)
     assert result.metadata_at == datetime(2015, 6, 10, 9, 54, 54, tzinfo=BERLIN)
 
 
@@ -95,7 +98,7 @@ def test_produces_one_identification_per_source() -> None:
     sources = {i.source for i in result.identifications}
 
     assert IdSource.EMT_WAMD in sources
-    assert IdSource.MANUAL in sources
+    assert IdSource.EMT_MANUAL in sources
     assert IdSource.EMT_FILENAME in sources
 
 
@@ -150,6 +153,41 @@ def test_no_offset_evidence_anywhere_uses_default_timezone() -> None:
     )
 
     assert result.recorded_at.utcoffset() == timedelta(0)
+    # filename_at/metadata_at get the same fabricated default, not just
+    # recorded_at (task-11 fix round 1, priority 1).
+    assert result.filename_at is not None
+    assert result.filename_at.utcoffset() == timedelta(0)
+    assert result.metadata_at is not None
+    assert result.metadata_at.utcoffset() == timedelta(0)
+
+
+def test_filename_at_and_metadata_at_are_always_aware() -> None:
+    """Both columns are `DateTime(timezone=True)` (models.py); a naive value
+    read back from Postgres becomes aware, so comparing it against a naive
+    Python value in `_apply_metadata`'s change-guard is always unequal — the
+    idempotency-breaking defect this test guards against (task-11 fix round
+    1, priority 1). Covers all three offset-evidence shapes: metadata has the
+    only offset, filename has the only offset, and neither has one.
+    """
+    metadata_has_offset = merge_metadata(
+        guano=None,
+        wamd=parse_wamd(wamd_payload()),  # +02:00
+        filename=parse_emt_filename("EPTSER_20150610_215446.wav"),  # naive
+    )
+    assert metadata_has_offset.filename_at is not None
+    assert metadata_has_offset.filename_at.tzinfo is not None
+    assert metadata_has_offset.metadata_at is not None
+    assert metadata_has_offset.metadata_at.tzinfo is not None
+
+    neither_has_offset = merge_metadata(
+        guano=None,
+        wamd=parse_wamd(wamd_payload(timestamp="2015-06-10 09:54:54")),  # naive
+        filename=parse_emt_filename("EPTSER_20150610_215446.wav"),  # naive
+    )
+    assert neither_has_offset.filename_at is not None
+    assert neither_has_offset.filename_at.tzinfo is not None
+    assert neither_has_offset.metadata_at is not None
+    assert neither_has_offset.metadata_at.tzinfo is not None
 
 
 def test_explicit_default_timezone_is_honoured_when_no_evidence() -> None:

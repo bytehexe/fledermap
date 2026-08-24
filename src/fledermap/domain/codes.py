@@ -23,7 +23,16 @@ class IdSource(StrEnum):
     EMT_GUANO = "emt.guano"
     EMT_WAMD = "emt.wamd"
     EMT_FILENAME = "emt.filename"
+    # The on-device manual correction (GUANO/wamd `manual_id`), re-derived from
+    # the file on every scan — distinct from `MANUAL` below so it can be
+    # superseded like the other EMT-derived claims (task-11 fix round 1,
+    # priority 4). Uses the same Wildlife Acoustics code vocabulary as the
+    # EMT's auto-ID sources.
+    EMT_MANUAL = "emt.manual"
     BATDETECT2 = "batdetect2"
     BATTYBIRDNET = "battybirdnet"
     KALEIDOSCOPE = "kaleidoscope"
+    # A future UI-entered identification, never re-derived from the scanned
+    # file — so it must never be auto-superseded by a rescan. Deliberately
+    # excluded from `_EMT_SOURCES` in services/ingest.py.
     MANUAL = "manual"

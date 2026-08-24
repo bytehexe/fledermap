@@ -34,8 +34,13 @@ from fledermap.store.seed import resolve_code
 # Deliberately EXCLUDES `MANUAL`: a manual identification entered later through
 # fledermap itself (not embedded in the file) would never appear in `parsed`,
 # and including it here would silently supersede it on the next re-scan of the
-# same file. See task-11 report.
-_EMT_SOURCES = frozenset({IdSource.EMT_GUANO, IdSource.EMT_WAMD, IdSource.EMT_FILENAME})
+# same file. See task-11 report. INCLUDES `EMT_MANUAL` (task-11 fix round 1,
+# priority 4): the on-device manual correction IS re-derived from the file on
+# every scan, so when the operator changes it on the EMT the stale claim must
+# be superseded — unlike `MANUAL`, which is never re-derived.
+_EMT_SOURCES = frozenset(
+    {IdSource.EMT_GUANO, IdSource.EMT_WAMD, IdSource.EMT_FILENAME, IdSource.EMT_MANUAL},
+)
 
 # Sources that use the Wildlife Acoustics code vocabulary for taxon resolution.
 # Manual IDs entered on the EMT itself use the same codes as its auto-ID
@@ -83,6 +88,20 @@ class IngestReport:
     updated: int = 0
     moved: int = 0
     replaced: int = 0
+    # Two copies of one recording (same audio_hash) sighted within a single
+    # commit_scan call — a real archive condition (backup folder, re-filed
+    # session) the operator should see, not something silently absorbed into
+    # `unchanged`. Does NOT participate in `total`: a duplicate sighting isn't
+    # one of the five (hash, path) outcomes above, it's a second sighting of
+    # one that already got one (task-11 fix round 1, priority 3).
+    duplicates: int = 0
+    # Orthogonal to the five outcomes above (in particular to MOVED, which by
+    # spec section 6 stays a single outcome keyed on (hash, path) and does not
+    # get its own MOVED_AND_UPDATED variant): how many identification claims
+    # changed, independent of whether the file also moved. Both are computed
+    # inside `_apply_identifications` (task-11 fix round 1, priority 5).
+    identifications_added: int = 0
+    identifications_superseded: int = 0
     unmapped_labels: set[str] = field(default_factory=set)
 
     def record(self, outcome: IngestOutcome) -> None:
@@ -107,7 +126,12 @@ class IngestReport:
 
     @property
     def total(self) -> int:
-        return self.created + self.unchanged + self.updated + self.moved + self.replaced
+        # Derived from `IngestOutcome` itself, not re-listed as a fourth edit
+        # site alongside the enum, `record`'s match statement, and (soon) a
+        # test — adding a member here is covered automatically as long as its
+        # `.value` names a field on this dataclass, same as `record` already
+        # requires via `assert_never` (task-11 fix round 1, priority 6).
+        return sum(getattr(self, outcome.value) for outcome in IngestOutcome)
 
 
 def _relative(path: Path, archive_root: Path) -> str:
@@ -161,6 +185,7 @@ def _apply_identifications(
     for key, ident in existing.items():
         if key not in incoming and ident.source in _EMT_SOURCES:
             ident.superseded_at = now
+            report.identifications_superseded += 1
             changed = True
 
     for key, p in incoming.items():
@@ -181,6 +206,7 @@ def _apply_identifications(
                 first_seen_at=now,
             ),
         )
+        report.identifications_added += 1
         changed = True
 
     return changed
@@ -194,6 +220,11 @@ def _decode_point(elem: object | None) -> tuple[float, float] | None:
     layout (order byte, type word, an optional SRID word, then two doubles in
     the record's own endianness) is a stable OGC-specified format, not an
     implementation detail of this driver, so decoding it directly is safe.
+    Skipping the geometry-type check on the type word is safe specifically
+    BECAUSE `Recording.geom` (models.py) is declared `geometry_type="POINT"`:
+    the column's typmod constrains every value that can ever reach this
+    decoder to a Point, so there is no other WKB shape this could be handed
+    (task-11 fix round 1, priority 6).
     """
     if not isinstance(elem, WKBElement):
         return None
@@ -207,6 +238,15 @@ def _decode_point(elem: object | None) -> tuple[float, float] | None:
 
 
 def _position_changed(recording: Recording, m: RecordingMetadata) -> bool:
+    # Keep-last-known-position rule: an incoming `None` position (metadata that
+    # failed to parse, or a source that never carries one) is reported as
+    # unchanged rather than clearing a previously recorded position. This is
+    # the one field in `_apply_metadata` that does NOT let `None` overwrite a
+    # value — deliberately: this is a location journal, and a metadata hiccup
+    # must not erase a real recorded position. Every other field writes
+    # `None` over a prior value because for those fields "disappeared from
+    # this scan" and "genuinely absent" are the same fact; for position they
+    # are not (task-11 fix round 1, priority 6).
     if m.latitude is None or m.longitude is None:
         return False
     return _decode_point(recording.geom) != (m.longitude, m.latitude)
@@ -263,17 +303,51 @@ def commit_scan(
     """
     report = IngestReport()
     now = datetime.now(tz=UTC)
+    # Hashes already handled earlier in THIS call. Two `ScannedFile`s sharing
+    # one audio_hash are duplicate copies of one recording on disk (a backup
+    # folder, a re-filed session) — same audio, different paths. Without this,
+    # the second copy is resolved against the row the first copy just created,
+    # sees a different path, and gets reported (and written) as MOVED — which
+    # then flips back on every subsequent scan as the two paths alternate
+    # being "current". First path sighted wins; every later sighting in this
+    # call is a duplicate, not a move (task-11 fix round 1, priority 3).
+    seen_hashes: set[str] = set()
 
     for item in scanned:
         rel = _relative(item.path, archive_root)
+
+        if item.audio_hash in seen_hashes:
+            report.duplicates += 1
+            continue
+        seen_hashes.add(item.audio_hash)
+
         existing = session.scalars(
             select(Recording).where(Recording.audio_hash == item.audio_hash),
         ).one_or_none()
 
         if existing is None:
+            # `Recording.path` is indexed but NOT unique, and a REPLACED row's
+            # `path` is left intact (see below) — so after one replacement two
+            # rows can share a path, and plain `.one_or_none()` here raises
+            # `MultipleResultsFound` on the next one. The invariant that
+            # actually holds is narrower: a LIVE row's path is where its file
+            # currently is, so at most one non-missing row can occupy a path.
+            # Filtering on `missing_since.is_(None)` restores that invariant;
+            # `order_by`+`limit(1)` is only there so a corrupted state (which
+            # should be unreachable given the filter) degrades to one
+            # deterministic row instead of aborting the whole ingest
+            # (task-11 fix round 1, priority 2).
+            #
+            # Accepted consequence: a file already swept to `missing_since`
+            # and later succeeded by a *different* file at the same path now
+            # counts CREATED, not REPLACED. That is more accurate — nothing
+            # was replaced, the old file was already gone.
             replaced = session.scalars(
-                select(Recording).where(Recording.path == rel),
-            ).one_or_none()
+                select(Recording)
+                .where(Recording.path == rel, Recording.missing_since.is_(None))
+                .order_by(Recording.id.desc())
+                .limit(1),
+            ).first()
             if replaced is not None:
                 replaced.missing_since = now
 

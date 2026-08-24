@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -14,13 +14,17 @@ from fledermap.domain.metadata import (
     RecordingMetadata,
     ScannedFile,
 )
+from fledermap.ingest.merge import merge_metadata
+from fledermap.ingest.wamd import parse_wamd
 from fledermap.services.ingest import _EMT_SOURCES, commit_scan
 from fledermap.store.models import Identification, Recording
 from fledermap.store.seed import seed_taxonomy
+from tests.fixtures import wamd_payload
 
 pytestmark = pytest.mark.db
 
 ROOT = Path("/archive")
+CET = timezone(timedelta(hours=2))
 
 
 def _scanned(
@@ -37,7 +41,22 @@ def _scanned(
         path=ROOT / "Session_20130401_053030" / name,
         metadata=RecordingMetadata(
             recorded_at=datetime(2015, 6, 10, 21, 54, 46, tzinfo=UTC),
+            # Populated, not left at None (task-11 fix round 1, priority 1):
+            # a no-UPDATE regression test can't see a defect in how a field is
+            # guarded on the second scan if that field is None on both scans,
+            # since `None != None` is always False. `filename_at`/
+            # `metadata_at` are aware, matching their `DateTime(timezone=True)`
+            # columns — the specific shape of the defect this covers.
+            filename_at=datetime(2015, 6, 10, 21, 54, 46, tzinfo=CET),
+            metadata_at=datetime(2015, 6, 10, 9, 54, 54, tzinfo=CET),
+            timestamp_disagreement_s=43200.0,
+            elevation_m=350.0,
+            loc_accuracy_m=5.0,
             samplerate_hz=256000,
+            te_factor=10,
+            make="Wildlife Acoustics",
+            model="Echo Meter Touch 2",
+            serial="EMT2-0001",
             latitude=42.346973,
             longitude=-76.48760,
             device=device,
@@ -112,6 +131,10 @@ def test_second_run_emits_no_update_statements(engine: Engine) -> None:
     finally:
         event.remove(engine, "before_cursor_execute", _capture)
 
+    # A listener that failed to attach would leave `statements` empty, which
+    # would make the UPDATE-filter assertion below pass vacuously — assert
+    # something was actually captured first (task-11 fix round 1, priority 6).
+    assert statements != []
     updates = [s for s in statements if s.strip().upper().startswith("UPDATE")]
     assert updates == []
 
@@ -168,6 +191,11 @@ def test_moved_and_reidentified_reports_as_moved(engine: Engine) -> None:
 
         assert report.moved == 1
         assert report.updated == 0
+        # The orthogonal counters (task-11 fix round 1, priority 5) are what
+        # give this exact case visibility: MOVED alone tells the operator
+        # nothing about the identification change happening underneath it.
+        assert report.identifications_added == 1
+        assert report.identifications_superseded == 1
         ids = session.scalars(select(Identification)).all()
         assert len(ids) == 2
         assert {i.raw_label for i in ids} == {"NoID", "EPTSER"}
@@ -265,11 +293,13 @@ def test_known_label_resolves_to_taxon(engine: Engine) -> None:
 
 def test_manual_identification_resolves_to_taxon(engine: Engine) -> None:
     """Manual IDs on the EMT use the same Wildlife Acoustics vocabulary as the
-    auto IDs (task-11 amendments, defect 5)."""
+    auto IDs (task-11 amendments, defect 5). Source is `EMT_MANUAL`, not the
+    generic `MANUAL` (task-11 fix round 1, priority 4) — this simulates what
+    `merge.py` emits for a GUANO/wamd `manual_id`."""
     scanned = _scanned(
         identifications=(
             ParsedIdentification(
-                source=IdSource.MANUAL,
+                source=IdSource.EMT_MANUAL,
                 source_version=None,
                 verdict=Verdict.SPECIES,
                 raw_label="EPTSER",
@@ -282,7 +312,7 @@ def test_manual_identification_resolves_to_taxon(engine: Engine) -> None:
         session.commit()
 
         ident = session.scalars(select(Identification)).one()
-        assert ident.source is IdSource.MANUAL
+        assert ident.source is IdSource.EMT_MANUAL
         assert ident.taxon_id is not None
         assert "EPTSER" not in report.unmapped_labels
 
@@ -292,7 +322,7 @@ def test_duplicate_manual_identifications_collapse_to_one_row(engine: Engine) ->
     (they're the same on-device correction, read from two chunks of the same
     file) and must not raise IntegrityError (task-11 amendments, defect 2)."""
     dup_claim = ParsedIdentification(
-        source=IdSource.MANUAL,
+        source=IdSource.EMT_MANUAL,
         source_version=None,
         verdict=Verdict.SPECIES,
         raw_label="EPTSER",
@@ -306,8 +336,47 @@ def test_duplicate_manual_identifications_collapse_to_one_row(engine: Engine) ->
 
         ids = session.scalars(select(Identification)).all()
         assert len(ids) == 1
-        assert ids[0].source is IdSource.MANUAL
+        assert ids[0].source is IdSource.EMT_MANUAL
         assert ids[0].raw_label == "EPTSER"
+
+
+def test_emt_manual_identification_is_superseded_on_rescan(engine: Engine) -> None:
+    """The operator changing the on-device manual ID must supersede the old
+    claim, not leave two contradictory active manual identifications (task-11
+    fix round 1, priority 4). Goes through the real `merge_metadata`, not a
+    hand-built `ParsedIdentification`, so it exercises the actual source this
+    defect was about.
+
+    Before the fix: `IdSource.MANUAL` (excluded from `_EMT_SOURCES`) means the
+    second scan adds EPTSER without ever superseding MYODAU — two active
+    claims. After the fix: `IdSource.EMT_MANUAL` is in `_EMT_SOURCES`, so the
+    rescan supersedes it correctly.
+    """
+
+    def _scanned_with_manual_id(manual_id: str) -> ScannedFile:
+        metadata = merge_metadata(
+            guano=None,
+            wamd=parse_wamd(wamd_payload(auto_id=None, manual_id=manual_id)),
+            filename=None,
+        )
+        return ScannedFile(audio_hash="e" * 64, path=ROOT / "a.wav", metadata=metadata)
+
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        commit_scan(session, [_scanned_with_manual_id("MYODAU")], archive_root=ROOT)
+        session.commit()
+
+        commit_scan(session, [_scanned_with_manual_id("EPTSER")], archive_root=ROOT)
+        session.commit()
+
+        ids = session.scalars(select(Identification)).all()
+        active = [i for i in ids if i.superseded_at is None]
+        assert len(active) == 1
+        assert active[0].raw_label == "EPTSER"
+        assert active[0].source is IdSource.EMT_MANUAL
+        superseded = [i for i in ids if i.superseded_at is not None]
+        assert len(superseded) == 1
+        assert superseded[0].raw_label == "MYODAU"
 
 
 def test_unmapped_label_is_stored_and_reported(engine: Engine) -> None:
@@ -365,6 +434,65 @@ def test_replaced_file_marks_old_row_missing_and_creates_new_row(
         assert recs["a" * 64].missing_since is not None
         assert recs["b" * 64].missing_since is None
         assert recs["a" * 64].path == recs["b" * 64].path
+
+
+def test_second_replacement_at_the_same_path_does_not_crash(engine: Engine) -> None:
+    """Before the fix: `Recording.path` is indexed but not unique, and a
+    REPLACED row keeps its old `path`, so after one replacement two rows share
+    a path. `.one_or_none()` against that raises `MultipleResultsFound` on the
+    NEXT replacement, aborting the whole scan (task-11 fix round 1, priority
+    2 — reproduced by the controller with exactly this three-hash sequence
+    before dispatching this fix round). Filtering to `missing_since IS NULL`
+    restores the real invariant: at most one *live* row occupies a path."""
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        for digest in ("a" * 64, "b" * 64, "c" * 64):
+            report = commit_scan(session, [_scanned(digest=digest)], archive_root=ROOT)
+            session.commit()
+
+        assert report.replaced == 1
+        assert report.created == 0
+        recs = {r.audio_hash: r for r in session.scalars(select(Recording)).all()}
+        assert len(recs) == 3
+        assert recs["a" * 64].missing_since is not None
+        assert recs["b" * 64].missing_since is not None
+        assert recs["c" * 64].missing_since is None
+        # Only the LIVE row (c) is at the path; a and b's rows still record it
+        # too (never rewritten), which is why the lookup must filter on
+        # missing_since rather than assume uniqueness.
+        assert recs["c" * 64].path == recs["a" * 64].path == recs["b" * 64].path
+
+
+def test_duplicate_file_in_the_archive_does_not_ping_pong(engine: Engine) -> None:
+    """Two copies of one recording at different paths (a backup folder, a
+    re-filed session) hash identically. Before the fix, the second copy was
+    resolved against the row the first just created, saw a different path,
+    and was reported+written as MOVED — which then flipped back on every
+    subsequent scan as the two paths alternated being 'current' (task-11 fix
+    round 1, priority 3 — reproduced by the controller: `moved == 2` forever,
+    one row, before dispatching this fix round). The first path sighted in a
+    call wins; a later sighting of the same hash is a duplicate, not a move."""
+    same_hash = "d" * 64
+    copy_a = _scanned(digest=same_hash, name="copy_a.wav")
+    copy_b = _scanned(digest=same_hash, name="copy_b.wav")
+
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        first = commit_scan(session, [copy_a, copy_b], archive_root=ROOT)
+        session.commit()
+
+        assert first.created == 1
+        assert first.duplicates == 1
+        first_path = session.scalars(select(Recording)).one().path
+
+        second = commit_scan(session, [copy_a, copy_b], archive_root=ROOT)
+        session.commit()
+
+        assert second.moved == 0
+        assert second.duplicates == 1
+        rows = session.scalars(select(Recording)).all()
+        assert len(rows) == 1
+        assert rows[0].path == first_path
 
 
 def test_emt_sources_membership_uses_stringenum_semantics() -> None:

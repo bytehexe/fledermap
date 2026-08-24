@@ -36,7 +36,12 @@ def _disagreement_seconds(
     filename_at: datetime | None,
     metadata_at: datetime | None,
 ) -> float | None:
-    """Compare the two candidate timestamps, tolerating one being naive."""
+    """Compare the two candidate timestamps.
+
+    Tolerates a naive input for robustness, but in practice `merge_metadata`
+    now always passes already-aware values (via `_borrow_offset`), so the
+    naive branches below are not exercised from that call site.
+    """
     if filename_at is None or metadata_at is None:
         return None
     a, b = filename_at, metadata_at
@@ -45,6 +50,31 @@ def _disagreement_seconds(
     elif b.tzinfo is None and a.tzinfo is not None:
         b = b.replace(tzinfo=a.tzinfo)
     return abs((a - b).total_seconds())
+
+
+def _borrow_offset(
+    value: datetime | None,
+    other: datetime | None,
+    default_timezone: tzinfo,
+) -> datetime | None:
+    """Make `value` timezone-aware, borrowing `other`'s offset when it has one.
+
+    `filename_at` and `metadata_at` are stored in `DateTime(timezone=True)`
+    columns (`Recording.filename_at`, `Recording.metadata_at`). A naive value
+    is unrepresentable there: Postgres applies the session timezone at write
+    time regardless of what Python thinks, so the "we don't know the offset"
+    intent is already lost the moment it's stored — keeping it naive in
+    Python doesn't preserve that information, it only defers the assumption
+    to Postgres and hides it. So the ambiguity is resolved here, deliberately,
+    the same way `recorded_at` resolves it below: borrow the other source's
+    offset when it has one, and fall back to `default_timezone` only when
+    NEITHER source carries any offset evidence at all — a documented
+    fabrication, not a derived value (task-11 fix round 1, priority 1).
+    """
+    if value is None or value.tzinfo is not None:
+        return value
+    borrowed = other.tzinfo if other is not None else None
+    return value.replace(tzinfo=borrowed or default_timezone)
 
 
 def _identifications(
@@ -82,7 +112,12 @@ def _identifications(
         if meta.manual_id:
             out.append(
                 ParsedIdentification(
-                    source=IdSource.MANUAL,
+                    # Re-derived from the file on every scan, so it must be
+                    # superseded like the EMT's other claims when the operator
+                    # changes it on the device — `IdSource.MANUAL` is reserved
+                    # for a future UI entry that is never re-derived (task-11
+                    # fix round 1, priority 4).
+                    source=IdSource.EMT_MANUAL,
                     source_version=None,
                     verdict=Verdict.SPECIES,
                     raw_label=meta.manual_id,
@@ -102,20 +137,26 @@ def merge_metadata(
 ) -> RecordingMetadata:
     """Merge every available source. Raises NoTimestampError if none yields a time.
 
-    `default_timezone` is used only when the chosen `recorded_at` is naive AND
-    the other candidate is also naive (or absent) — i.e. when NOTHING among the
-    sources carries an offset. In that case there is no evidence at all for
-    what the offset should be, so `default_timezone` is a fabrication, not a
-    derived value. Whenever the other candidate DOES carry an offset, that
-    offset is borrowed instead, matching how `_disagreement_seconds` already
-    treats a naive/aware pair — so the two computations agree on what the
-    naive reading means.
+    `filename_at`, `metadata_at`, and `recorded_at` are all made aware by
+    `_borrow_offset`: `default_timezone` is used only when NEITHER candidate
+    carries an offset — i.e. there is no evidence at all for what the offset
+    should be, so it is a documented fabrication, not a derived value.
+    Whenever the other candidate DOES carry an offset, that offset is
+    borrowed instead. See `_borrow_offset` for the full reasoning (task-11 fix
+    round 1, priority 1).
     """
-    filename_at = filename.timestamp if filename else None
-    metadata_at = _first(
+    raw_filename_at = filename.timestamp if filename else None
+    raw_metadata_at = _first(
         getattr(guano, "timestamp", None),
         getattr(wamd, "timestamp", None),
     )
+
+    # Both stored columns are timezone-aware (task-11 fix round 1, priority 1):
+    # make each candidate aware here, borrowing from the OTHER RAW candidate
+    # (before either has been touched) so neither borrow can pick up an offset
+    # the other only has because it was itself just fabricated.
+    filename_at = _borrow_offset(raw_filename_at, raw_metadata_at, default_timezone)
+    metadata_at = _borrow_offset(raw_metadata_at, raw_filename_at, default_timezone)
 
     preferred, fallback = (
         (filename_at, metadata_at)
@@ -126,14 +167,9 @@ def merge_metadata(
     if recorded_at is None:
         msg = "no timestamp available from filename or embedded metadata"
         raise NoTimestampError(msg)
-
-    if recorded_at.tzinfo is None:
-        # The filename encodes a wall-clock reading with no offset. Borrow the one
-        # the other source asserts rather than inventing UTC — it is the only
-        # evidence present, and `_disagreement_seconds` already normalises this way.
-        # Assuming UTC here would make the two computations contradict each other.
-        borrowed = fallback.tzinfo if fallback is not None else None
-        recorded_at = recorded_at.replace(tzinfo=borrowed or default_timezone)
+    # No naive-handling needed here: `filename_at` and `metadata_at` are both
+    # already aware (or None) by construction above, so whichever of them was
+    # chosen as `recorded_at` is already aware too.
 
     return RecordingMetadata(
         recorded_at=recorded_at,
