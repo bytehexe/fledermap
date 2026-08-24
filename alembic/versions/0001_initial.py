@@ -123,6 +123,7 @@ def upgrade() -> None:
                 "emt.guano",
                 "emt.wamd",
                 "emt.filename",
+                "emt.manual",
                 "batdetect2",
                 "battybirdnet",
                 "kaleidoscope",

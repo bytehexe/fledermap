@@ -72,6 +72,20 @@ Two tests cover what the exclusion drops, and both halves are needed:
 and `test_migrated_verdict_check_accepts_every_verdict` proves it still *matches `Verdict`* — a
 member added to the enum without a migration passes the first and the drift comparison alike.
 
+**This coverage is per-column, not automatic — `source` needed its own test.** `Identification.source`
+uses `create_constraint=False` (spec D9: further classifiers are coming, and a CHECK would force a
+migration per one), so it has no CHECK for `_comparable` to exclude and `compare_metadata` sees
+identical `VARCHAR(32)` DDL on both sides no matter how the two enum lists disagree. This is exactly
+how `emt.manual` (added to `IdSource` in a later fix round) shipped missing from the migration's
+literal list for a while, undetected — a real instance of the drift this section warns about, caught
+by a whole-branch review rather than any single task's. `test_migration_idsource_literal_matches_the_model`
+closes it with a static `ast`-based check of the migration's literal list against `IdSource`, needing
+no database.
+
+**The general rule:** a schema-drift test's blind spots are exactly the parts of the schema
+`compare_metadata` cannot see (non-native enums without a CHECK, anything else erased to a
+featureless column type). Each one needs its own explicit test; none of it is covered by default.
+
 Mutation-test any `compare_metadata` or excluded-constraint assertion (add a column, add an enum
 member, confirm it fails). One that cannot fail is worse than no test.
 

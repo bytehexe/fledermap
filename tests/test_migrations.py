@@ -4,6 +4,7 @@ real deployment runs it (review item 4)."""
 
 from __future__ import annotations
 
+import ast
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -17,7 +18,7 @@ from sqlalchemy import Enum as SAEnum
 from sqlalchemy.exc import IntegrityError
 
 from alembic import command
-from fledermap.domain.codes import Verdict
+from fledermap.domain.codes import IdSource, Verdict
 from fledermap.store.db import make_engine
 from fledermap.store.models import Base
 
@@ -157,3 +158,53 @@ def test_migrated_verdict_check_accepts_every_verdict(migrated_engine: Engine) -
         stored = conn.scalar(text("SELECT count(*) FROM identification"))
 
     assert stored == len(Verdict)
+
+
+def _migration_idsource_literal() -> list[str]:
+    """The literal `source` enum values `0001_initial.py` hard-codes.
+
+    `compare_metadata` cannot see drift here (whole-branch review, finding 2):
+    `Identification.source` is `native_enum=False, create_constraint=False`
+    (models.py), so both the model and the migration erase to a plain
+    `VARCHAR(32)` with no CHECK — there is nothing for a schema diff to
+    compare. `emt.manual` was added to `IdSource` in Task 11's fix round,
+    after this migration was written, and stayed missing from the migration
+    with nothing to catch it. `verdict` has an equivalent test
+    (`test_migrated_verdict_check_accepts_every_verdict`, above) because it
+    DOES get a CHECK; `source` needs a different mechanism because it
+    deliberately doesn't.
+
+    Read via `ast`, not by importing the migration module and calling
+    `upgrade()`: the values are needed at collection time, without a
+    database, and parsing avoids ever executing DDL to answer a question
+    about source code.
+    """
+    tree = ast.parse(
+        (PROJECT_ROOT / "alembic" / "versions" / "0001_initial.py").read_text(),
+    )
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "Enum"
+            and any(
+                kw.arg == "name"
+                and isinstance(kw.value, ast.Constant)
+                and kw.value.value == "idsource"
+                for kw in node.keywords
+            )
+        ):
+            return [
+                arg.value
+                for arg in node.args
+                if isinstance(arg, ast.Constant) and isinstance(arg.value, str)
+            ]
+    msg = "no sa.Enum(name='idsource') call found in 0001_initial.py"
+    raise AssertionError(msg)
+
+
+def test_migration_idsource_literal_matches_the_model() -> None:
+    """Static, no database: the migration's hard-coded `source` vocabulary
+    must list every `IdSource` member. Mutation-test this by adding a member
+    to `IdSource` without touching the migration — it must fail."""
+    assert _migration_idsource_literal() == [s.value for s in IdSource]
