@@ -4,6 +4,10 @@ Design authority: `docs/superpowers/specs/2026-08-23-fledermap-design.md` (decis
 open risks R1–R3). Phase 1 plan is in `docs/superpowers/plans/`; its execution ledger is
 `.superpowers/sdd/*/progress.md` (gitignored, but it carries every ruling made during the build).
 
+Authoritative domain sources — species codes, names, file formats — live in
+@docs/references.md. Check there before hand-entering a code or a chunk layout, and add
+to it when you find a new source.
+
 ## Environment gotchas
 
 - **Docker is blocked by the command sandbox.** Any `db`-marked test (testcontainers + PostGIS)
@@ -81,16 +85,18 @@ the timezone half of D17 stay open until real field recordings exist.
 
 ## Species codes
 
-The authoritative Wildlife Acoustics code list is
-<https://answers.wildlifeacoustics.com/r/en-US/Bat-Auto-ID-Performance-and-Supported-Species/Bat-Auto-ID-Supported-Species-and-Abbreviated-Codes>.
-It is **species-level only** — there are no genus or group codes. `MYOSPP` was
-invented by the plan, survived a review, and had to be removed; check this list
-before adding any code. `taxa_eu.yaml` currently covers 10 of the 31 European
-species on it — a deliberate deferral Janna owns and will pick up as its own task.
+Never hand-enter a species code. The Wildlife Acoustics list (see
+@docs/references.md) is **species-level only** — no genus or group codes exist.
+`MYOSPP` was invented by the plan, survived a review as "plausible", and had to be
+removed. NABat's codes are a *different* vocabulary (4-character, North American);
+that is why `taxon_code` is per-source rather than one universal key.
 
 An unmapped label is not a failure: it resolves to `None` and lands in the review
 queue by design (spec section 5). A *wrong* mapping is far worse than a missing
 one, because it resolves confidently to something the detector never emits.
+
+`taxa_eu.yaml` covers 10 of the 31 European species — a deliberate deferral Janna
+owns and will pick up as its own task.
 
 ## Ingest invariants
 
