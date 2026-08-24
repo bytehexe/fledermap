@@ -83,7 +83,10 @@ def partition_sessions(
             prev_session = existing[idx - 1] if idx > 0 else None
             next_session = existing[idx] if idx < len(existing) else None
 
-            if prev_session is not None and prev_session.ended_at >= recording.recorded_at:
+            if (
+                prev_session is not None
+                and prev_session.ended_at >= recording.recorded_at
+            ):
                 recording.session_id = prev_session.id
                 report.extended += 1
                 continue
@@ -110,6 +113,12 @@ def partition_sessions(
             elif joins_next:
                 assert next_session is not None  # joins_next implies this
                 next_session.started_at = recording.recorded_at
+                # Keep the bisect cache in sync: `starts[idx]` mirrors
+                # `next_session.started_at` (next_session IS existing[idx]).
+                # Without this, a second recording in the same run that also
+                # backward-extends this same session bisects against the
+                # stale value.
+                starts[idx] = next_session.started_at
                 recording.session_id = next_session.id
                 report.extended += 1
             else:

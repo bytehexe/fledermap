@@ -25,7 +25,9 @@ def _recording(hash_suffix: str, recorded_at: datetime, **kwargs: object) -> Rec
 def test_first_recording_creates_a_new_session(engine: Engine) -> None:
     with OrmSession(engine) as session:
         session.add(
-            _recording("a", datetime(2026, 8, 21, 21, tzinfo=UTC), make="EMT", serial="1"),
+            _recording(
+                "a", datetime(2026, 8, 21, 21, tzinfo=UTC), make="EMT", serial="1"
+            ),
         )
         session.commit()
 
@@ -150,6 +152,40 @@ def test_old_recording_close_only_to_a_later_existing_session_joins_it_backward(
         assert report.extended == 1
         session.refresh(later)
         assert later.started_at == base - timedelta(hours=1)
+
+
+def test_two_recordings_backward_extending_the_same_session_both_land_inside_it(
+    engine: Engine,
+) -> None:
+    """Regression: a stale bisect cache could silently narrow started_at past
+    an earlier recording's own timestamp after a SECOND backward-extend in
+    the same run (Task 6 review, Important 1)."""
+    with OrmSession(engine) as session:
+        base = datetime(2026, 8, 21, 21, tzinfo=UTC)
+        later = Session(
+            started_at=base,
+            ended_at=base,
+            kind=SessionKind.STATIONARY,
+            detector_key="EMT\x1f1",
+        )
+        session.add(later)
+        session.flush()
+        # Y (2h before later.started_at) then X (1h before) — both within
+        # the 6h gap, processed in ascending recorded_at order.
+        y = _recording("y", base - timedelta(hours=2), make="EMT", serial="1")
+        x = _recording("x", base - timedelta(hours=1), make="EMT", serial="1")
+        session.add_all([y, x])
+        session.commit()
+
+        report = partition_sessions(session, session_gap=timedelta(hours=6))
+        session.commit()
+
+        assert report.created == 0
+        assert report.extended == 2
+        assert len(session.scalars(select(Session)).all()) == 1
+        session.refresh(later)
+        session.refresh(y)
+        assert later.started_at <= y.recorded_at <= later.ended_at
 
 
 def test_already_sessioned_recordings_are_untouched(engine: Engine) -> None:
