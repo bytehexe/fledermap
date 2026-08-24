@@ -13,6 +13,7 @@ from fledermap.domain.metadata import ScannedFile
 from fledermap.ingest.scan import (
     INCOMPLETE_SCAN_REASONS,
     SkipReason,
+    _settle_check,
     scan,
     scan_with_skips,
 )
@@ -232,6 +233,32 @@ def test_oserror_during_settle_check_is_reported_as_unreadable(
 
     assert skipped[flaky.name] == SkipReason.UNREADABLE
     assert scanned_names == {fine.name}
+
+
+def test_settle_check_itself_catches_oserror_from_stat(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`_settle_check`'s OWN `path.stat()` guard, isolated from `is_file()`'s.
+
+    `Path.is_file()` calls `self.stat()` internally, and `scan_with_skips`
+    calls `is_file()` before `_settle_check` — so a global `Path.stat`
+    monkeypatch (as in the test above) is always intercepted by `is_file()`'s
+    guard first, and `_settle_check`'s own separate guard is never actually
+    reached by that test. A regression that broke `_settle_check`'s guard
+    specifically, while `is_file()`'s kept working, would go undetected
+    without calling `_settle_check` directly (whole-branch fix round 1
+    re-review, minor)."""
+    path = tmp_path / "EPTSER_20150610_215446.wav"
+    path.write_bytes(b"not a real wav, stat is about to fail anyway")
+
+    def failing_stat(self: Path, *, follow_symlinks: bool = True) -> os.stat_result:
+        msg = "simulated I/O error"
+        raise OSError(msg)
+
+    monkeypatch.setattr(Path, "stat", failing_stat)
+
+    assert _settle_check(path, tmp_path, 30.0, time.time()) == SkipReason.UNREADABLE
 
 
 # --- Priority 2 (whole-branch review): default_timezone reaches production --
