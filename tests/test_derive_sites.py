@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import SessionKind
 from fledermap.services.derive import derive_sites
+from fledermap.store.geo import decode_point
 from fledermap.store.models import Recording, Session, Site
 
 pytestmark = pytest.mark.db
@@ -159,6 +160,34 @@ def test_clustering_regression_at_both_latitudes(
             recordings[f"{label}-a.wav"].site_id == recordings[f"{label}-b.wav"].site_id
         )
         assert recordings[f"{label}-far.wav"].site_id is None
+
+
+def test_recordings_at_one_identical_fix_still_produce_a_site(engine: Engine) -> None:
+    """Regression: a stationary detector reporting the same rounded GPS fix for
+    every recording gives a zero-variance spread. `GeoCluster`'s z-score filter
+    then discarded EVERY point, `mass_point` returned `(None, None)`, and the
+    `POINT(None None)` that produced failed to parse in Postgres — so the whole
+    `derive` run died on write. This project's own two bundled samples already
+    share one identical fix; a third and fourth would have triggered it."""
+    with OrmSession(engine) as session:
+        stationary = _stationary_session(session)
+        for suffix in ("a", "b", "c", "d"):
+            _recording(suffix, session, stationary, 13.4000, 52.5000)
+        session.commit()
+
+        report = derive_sites(session, eps_m=75.0, min_points=2)
+        session.commit()
+
+        assert report.site_count == 1
+        assert report.unclustered == 0
+        site = session.scalars(select(Site)).one()
+        assert site.recording_count == 4
+        centroid = decode_point(site.centroid)
+        assert centroid is not None
+        lon, lat = centroid
+        assert lon == pytest.approx(13.4000, abs=1e-6)
+        assert lat == pytest.approx(52.5000, abs=1e-6)
+        assert site.radius_m == pytest.approx(0.0, abs=1e-6)
 
 
 def test_rebuild_is_wholesale_and_idempotent(engine: Engine) -> None:

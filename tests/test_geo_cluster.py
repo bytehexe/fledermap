@@ -4,6 +4,7 @@ unchanged) plus new tests for the properties that math feeds into."""
 from __future__ import annotations
 
 import math
+import warnings
 
 import pytest
 
@@ -89,6 +90,51 @@ class TestGeoClusterProperties:
         cluster = GeoCluster([*tight, far_outlier])
         assert far_outlier not in cluster.locations
         assert len(cluster.locations) == len(tight)
+
+    def test_four_identical_points_keep_a_real_mass_point(self) -> None:
+        """Regression: a stationary detector reporting the same rounded GPS fix
+        repeatedly gives a zero-variance spread. `stats.zscore` then returns
+        nan, no point passes `z < 1`, and the whole set was discarded —
+        `mass_point` became `(None, None)`, which `derive_sites` interpolated
+        into `POINT(None None)` and Postgres refused to parse. The zero-spread
+        case is now skipped before `zscore` runs, which also silences scipy's
+        catastrophic-cancellation RuntimeWarning."""
+        points = [(13.4, 52.5)] * 4
+        with warnings.catch_warnings():
+            # This project treats a warning as a defect; make one fail here.
+            warnings.simplefilter("error")
+            cluster = GeoCluster(points)
+
+        assert len(cluster.locations) == len(points)
+        lon, lat = cluster.mass_point
+        assert lon == pytest.approx(13.4, abs=1e-9)
+        assert lat == pytest.approx(52.5, abs=1e-9)
+
+    def test_two_distinct_values_per_axis_keep_every_point(self) -> None:
+        """A rectangle of four fixes: every point sits at exactly `z == 1`, so
+        `z < 1` keeps none of them. Same degenerate-spread guard."""
+        points = [(13.4, 52.5), (13.4, 52.5001), (13.4001, 52.5), (13.4001, 52.5001)]
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            cluster = GeoCluster(points)
+
+        assert len(cluster.locations) == len(points)
+        assert cluster.mass_point != (None, None)
+
+    def test_remove_outliers_false_keeps_every_point(self) -> None:
+        """`derive_sites` passes `remove_outliers=False`: DBSCAN already decided
+        membership, and trimming at `z < 1` would understate `radius_m` against
+        a `recording_count` that still counts every member."""
+        tight = [(13.0, 52.0), (13.0001, 52.0), (13.0002, 52.0001), (13.0001, 52.0002)]
+        far_outlier = (20.0, 52.0)
+        points = [*tight, far_outlier]
+
+        cluster = GeoCluster(points, remove_outliers=False)
+
+        assert len(cluster.locations) == len(points)
+        assert far_outlier in cluster.locations
+        # ... and the default is unchanged: see
+        # `test_outlier_is_removed_with_four_or_more_points` above.
 
     def test_no_outlier_removal_below_four_points(self) -> None:
         # Below 4 points, `GeoCluster.__remove_outliers` deliberately leaves the

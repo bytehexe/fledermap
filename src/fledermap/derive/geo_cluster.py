@@ -19,11 +19,17 @@ from fledermap.util.projection import LocalProjection
 
 
 class GeoCluster:
-    def __init__(self, locations: list[tuple[float, float]]) -> None:
+    def __init__(
+        self,
+        locations: list[tuple[float, float]],
+        *,
+        remove_outliers: bool = True,
+    ) -> None:
         # Interface expects locations as (lon, lat) tuples for consistency with
         # GeoJSON.
         self.__locations = locations
-        self.__remove_outliers()
+        if remove_outliers:
+            self.__remove_outliers()
 
         self.__degrees, self.__distance, self.__midpoint = (
             self.__longest_greatcircle_separation()
@@ -38,9 +44,28 @@ class GeoCluster:
         proj = LocalProjection(self.shape)
         local_locations = proj.to_local_np(np.array(self.__locations))
 
+        # A degenerate spread (all points identical, or only 2 distinct values
+        # per axis) makes every point sit exactly at the z-score threshold, or
+        # produces nan from a zero-variance stddev. Z-score outlier removal is
+        # meaningless on such input, and applying it anyway empties the point
+        # set entirely: 4 identical points -> no point passes `z < 1` ->
+        # `mass_point` is `(None, None)` -> `derive_sites` builds a WKTElement
+        # with literal "None" text -> Postgres fails to parse the geometry on
+        # write. `np.ptp` (peak-to-peak, max-min per axis) catches it before
+        # `zscore` runs, which also avoids scipy's "precision loss ...
+        # catastrophic cancellation" RuntimeWarning. Skip removal rather than
+        # discard every point when nothing distinguishes an outlier from the
+        # rest.
+        if np.ptp(local_locations, axis=0).min() == 0:
+            return
+
         threshold = 1
         z_scores = np.abs(stats.zscore(local_locations))
         filtered_data = local_locations[(z_scores < threshold).all(axis=1)]
+        if filtered_data.shape[0] == 0:
+            # Defensive backstop for any other degenerate shape: every point
+            # looked like "an outlier", so keep them all.
+            return
         self.__locations = proj.to_wgs_np(filtered_data).tolist()
 
     @property

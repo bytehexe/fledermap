@@ -74,7 +74,14 @@ def derive_sites(
             point = decode_point(r.geom)
             assert point is not None, "excluded by the geom IS NOT NULL query above"
             locations.append(point)
-        cluster = GeoCluster(locations)
+        # No z-score outlier removal here: DBSCAN's eps/min_points already
+        # decided membership (noise is labelled -1 and excluded above), so
+        # re-trimming is redundant at best. At worst it is wrong — `z < 1`
+        # keeps only ~68% of a normal spread per axis, so `radius_m` would
+        # describe roughly half the points while `recording_count` counts them
+        # all. `GeoCluster`'s removal was built for mkmapdiary's different
+        # problem: trimming GPS spikes out of a continuous track.
+        cluster = GeoCluster(locations, remove_outliers=False)
         lon, lat = cluster.mass_point
 
         site = Site(

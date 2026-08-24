@@ -199,9 +199,12 @@ class Session(Base):
 class Site(Base):
     """A derived cluster of stationary recordings — a projection, not an entity.
 
-    Truncated and rebuilt wholesale by `services.derive.derive_sites` (spec
-    section 7). `name`/`admin_path` are schema now, populated by Phase 3's poiidx
-    naming job — this phase never writes them.
+    Deleted and rebuilt wholesale by `services.derive.derive_sites` (spec
+    section 7) — `DELETE`, never `TRUNCATE`; see that function's docstring.
+    `radius_m` is the true extent of all `recording_count` members: no outlier
+    trimming is applied, DBSCAN having already decided membership.
+    `name`/`admin_path` are schema now, populated by Phase 3's poiidx naming
+    job — this phase never writes them.
     """
 
     __tablename__ = "site"
