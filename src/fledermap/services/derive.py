@@ -8,6 +8,7 @@ import numpy as np
 from geoalchemy2.elements import WKTElement
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session as OrmSession
+from sqlalchemy.orm import raiseload
 
 from fledermap.derive.geo_cluster import GeoCluster
 from fledermap.derive.sites import cluster_points
@@ -42,6 +43,12 @@ def derive_sites(
         db_session.scalars(
             select(Recording)
             .join(Session, Recording.session_id == Session.id)
+            # `Recording.identifications` is `lazy="selectin"`; neither this
+            # function nor anything it calls touches it, so eager-loading would
+            # materialise the whole identification table on every run for
+            # nothing. `raiseload` rather than `lazyload`: a future accidental
+            # access should fail loudly, not silently become an N+1 query.
+            .options(raiseload(Recording.identifications))
             .where(
                 Session.kind == SessionKind.STATIONARY,
                 Recording.geom.is_not(None),

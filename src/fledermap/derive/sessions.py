@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
+from sqlalchemy.orm import raiseload
 
 from fledermap.domain.codes import SessionKind
 from fledermap.store.models import Recording, Session, SessionMergeProposal
@@ -71,6 +72,11 @@ def partition_sessions(
 
     unsessioned = db_session.scalars(
         select(Recording)
+        # `Recording.identifications` is `lazy="selectin"` and unused here;
+        # without an override every run eagerly loads every identification of
+        # every unsessioned recording. `raiseload` so a future accidental
+        # access fails loudly instead of becoming a silent N+1.
+        .options(raiseload(Recording.identifications))
         .where(Recording.session_id.is_(None))
         .order_by(Recording.recorded_at),
     ).all()
