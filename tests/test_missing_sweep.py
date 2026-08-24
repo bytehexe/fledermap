@@ -156,6 +156,27 @@ def test_ratio_guard_still_fires_at_the_floor(engine: Engine) -> None:
         assert all(r.missing_since is None for r in session.scalars(select(Recording)))
 
 
+def test_single_loss_never_fires_at_the_floor(engine: Engine) -> None:
+    """`min_known_for_guard` must use `ceil(1/threshold)`, not `round`.
+
+    At threshold=0.19, `round(1/0.19)` = `round(5.263)` = 5, so with 5 known
+    rows `round`-based code treats the ratio guard as active — and a single
+    loss out of 5 (1 > 5*0.19=0.95) exceeds it, reproducing the exact "one
+    file in a small archive" defect the two-stage guard exists to prevent
+    (controller-found, before this task's review). `ceil(5.263)` = 6 puts 5
+    known rows BELOW the floor instead, where the guard does not apply at
+    all: a single loss out of 5 must be flagged, not refused.
+    """
+    with OrmSession(engine) as session:
+        hashes = _add(session, 5)
+
+        flagged = sweep_missing(session, set(hashes[1:]), threshold=0.19)
+
+        assert flagged == 1
+        rows = session.scalars(select(Recording)).all()
+        assert sum(1 for r in rows if r.missing_since is not None) == 1
+
+
 # --- Defect 3: a caller's incomplete `seen_hashes` must not be trusted -----
 
 

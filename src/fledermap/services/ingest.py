@@ -8,6 +8,7 @@ does not get this for free from SQLAlchemy the way a JSONB column does).
 
 from __future__ import annotations
 
+import math
 import struct
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -476,7 +477,16 @@ def sweep_missing(
     absent = [r for r in known if r.audio_hash not in seen_hashes]
     newly_absent = [r for r in absent if r.missing_since is None]
 
-    min_known_for_guard = max(1, round(1 / threshold))
+    # ceil, not round: the floor must be the SMALLEST n with n * threshold >= 1,
+    # so that a single loss at exactly the floor never itself exceeds the ratio
+    # (1/n <= threshold). round() can undershoot that n whenever 1/threshold's
+    # fractional part is < 0.5 — e.g. threshold=0.19 gives round(5.26)=5, and a
+    # single loss out of 5 known (1 > 5*0.19=0.95) still trips the guard right
+    # at the floor, reproducing the exact "one file in a small archive" defect
+    # this two-stage guard exists to prevent. ceil(5.26)=6 avoids it: 1 >
+    # 6*0.19=1.14 is False. Verified for the shipped default (threshold=0.10)
+    # this is unchanged: ceil(10.0) == round(10.0) == 10.
+    min_known_for_guard = max(1, math.ceil(1 / threshold))
     if len(known) >= min_known_for_guard and len(newly_absent) > len(known) * threshold:
         raise MassDisappearanceError(missing=len(newly_absent), known=len(known))
 
