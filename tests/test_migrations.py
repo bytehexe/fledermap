@@ -10,14 +10,14 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from alembic.autogenerate import compare_metadata
+from alembic.config import Config
+from alembic.migration import MigrationContext
 from sqlalchemy import Engine, text
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.exc import IntegrityError
 
 from alembic import command
-from alembic.autogenerate import compare_metadata
-from alembic.config import Config
-from alembic.migration import MigrationContext
 from fledermap.domain.codes import IdSource, MergeResolution, SessionKind, Verdict
 from fledermap.store.db import make_engine
 from fledermap.store.models import Base
