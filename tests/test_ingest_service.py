@@ -483,6 +483,10 @@ def test_duplicate_file_in_the_archive_does_not_ping_pong(engine: Engine) -> Non
 
         assert first.created == 1
         assert first.duplicates == 1
+        # A duplicate sighting isn't one of the five (hash, path) outcomes
+        # spec section 6 defines, so `total` must not count it (task-11 fix
+        # round 1, priority 6).
+        assert first.total == 1
         first_path = session.scalars(select(Recording)).one().path
 
         second = commit_scan(session, [copy_a, copy_b], archive_root=ROOT)

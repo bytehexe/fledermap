@@ -60,16 +60,17 @@ def _borrow_offset(
     """Make `value` timezone-aware, borrowing `other`'s offset when it has one.
 
     `filename_at` and `metadata_at` are stored in `DateTime(timezone=True)`
-    columns (`Recording.filename_at`, `Recording.metadata_at`). A naive value
-    is unrepresentable there: Postgres applies the session timezone at write
-    time regardless of what Python thinks, so the "we don't know the offset"
-    intent is already lost the moment it's stored — keeping it naive in
-    Python doesn't preserve that information, it only defers the assumption
-    to Postgres and hides it. So the ambiguity is resolved here, deliberately,
-    the same way `recorded_at` resolves it below: borrow the other source's
-    offset when it has one, and fall back to `default_timezone` only when
-    NEITHER source carries any offset evidence at all — a documented
-    fabrication, not a derived value (task-11 fix round 1, priority 1).
+    columns (`Recording.filename_at`, `Recording.metadata_at`), so the value
+    read back from the database is always aware — and Python's naive-vs-aware
+    comparison is unconditionally unequal (`!=` is always `True`, never
+    raises). Leaving either field naive here would therefore make every
+    change-detection comparison in `_apply_metadata` report a difference on
+    every scan, forever, which is exactly the idempotency defect this fixes
+    (task-11 fix round 1, priority 1). So the ambiguity is resolved here,
+    deliberately, the same way `recorded_at` resolves it below: borrow the
+    other source's offset when it has one, and fall back to
+    `default_timezone` only when NEITHER source carries any offset evidence
+    at all — a documented fabrication, not a derived value.
     """
     if value is None or value.tzinfo is not None:
         return value

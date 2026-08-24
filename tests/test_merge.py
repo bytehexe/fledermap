@@ -166,8 +166,13 @@ def test_filename_at_and_metadata_at_are_always_aware() -> None:
     read back from Postgres becomes aware, so comparing it against a naive
     Python value in `_apply_metadata`'s change-guard is always unequal — the
     idempotency-breaking defect this test guards against (task-11 fix round
-    1, priority 1). Covers all three offset-evidence shapes: metadata has the
-    only offset, filename has the only offset, and neither has one.
+    1, priority 1).
+
+    Covers two of the three offset-evidence shapes: metadata has the only
+    offset, and neither has one. The third — filename has the only offset —
+    is structurally impossible: `FilenameParse.timestamp` is naive by
+    contract (`ingest/filename.py`), so `filename_at` alone can never carry
+    offset evidence.
     """
     metadata_has_offset = merge_metadata(
         guano=None,
