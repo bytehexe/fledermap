@@ -26,3 +26,4 @@ src/fledermap/__about__.py
 # Local secrets
 *.pwd
 .env
+.worktrees/
