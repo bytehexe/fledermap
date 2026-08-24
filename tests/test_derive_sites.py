@@ -121,6 +121,46 @@ def test_recordings_without_gps_are_excluded(engine: Engine) -> None:
         assert report.unclustered == 0
 
 
+@pytest.mark.parametrize(
+    ("label", "lon", "lat"),
+    [
+        ("berlin", 13.4000, 52.5000),  # high northern latitude
+        ("quito", -78.4600, -0.1800),  # near-equatorial, southern hemisphere
+    ],
+)
+def test_clustering_regression_at_both_latitudes(
+    engine: Engine,
+    label: str,
+    lon: float,
+    lat: float,
+) -> None:
+    """Phase 2's exit criterion (parent spec section 15): clustering must be
+    correct near a pole-adjacent latitude AND near the equator. A wrong UTM
+    zone pick, or an eps accidentally in degrees instead of metres, could pass
+    every other test in this plan (all of which sit near Berlin) while still
+    being broken here."""
+    with OrmSession(engine) as session:
+        stationary = _stationary_session(session)
+        # Two points ~15m apart (well inside a 75m eps); one far outlier that
+        # must stay unclustered regardless of latitude.
+        _recording(f"{label}-a", session, stationary, lon, lat)
+        _recording(f"{label}-b", session, stationary, lon + 0.0002, lat)
+        _recording(f"{label}-far", session, stationary, lon + 5.0, lat)
+        session.commit()
+
+        report = derive_sites(session, eps_m=75.0, min_points=2)
+        session.commit()
+
+        assert report.site_count == 1
+        assert report.unclustered == 1
+        recordings = {r.path: r for r in session.scalars(select(Recording)).all()}
+        assert recordings[f"{label}-a.wav"].site_id is not None
+        assert (
+            recordings[f"{label}-a.wav"].site_id == recordings[f"{label}-b.wav"].site_id
+        )
+        assert recordings[f"{label}-far.wav"].site_id is None
+
+
 def test_rebuild_is_wholesale_and_idempotent(engine: Engine) -> None:
     """Re-running with the same data doesn't duplicate sites; a recording that
     drops out of the archive between runs loses its site cleanly."""
