@@ -24,6 +24,8 @@ dependencies = [
   "psycopg2-binary",
   "click",
   "pyyaml",
+  "numpy",
+  "pyproj",
 ]
 
 [project.scripts]
