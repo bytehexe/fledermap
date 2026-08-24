@@ -36,3 +36,15 @@ class IdSource(StrEnum):
     # file — so it must never be auto-superseded by a rescan. Deliberately
     # excluded from `_EMT_SOURCES` in services/ingest.py.
     MANUAL = "manual"
+
+
+class TimestampSource(StrEnum):
+    """Which candidate `merge_metadata` prefers for `recorded_at` (spec D17).
+
+    Lives here, not in `ingest/merge.py`: spec section 4 places shared
+    vocabulary in `domain/`, not in a leaf ingest module — `config.py`
+    imports it from here rather than reaching into `ingest/merge.py`.
+    """
+
+    FILENAME = "filename"
+    METADATA = "metadata"

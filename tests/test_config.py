@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+from datetime import UTC
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 
 from fledermap.config import (
     ENV_DATABASE_URL,
+    ENV_DEFAULT_TIMEZONE,
     ENV_TIMESTAMP_SOURCE,
     Config,
     ConfigError,
 )
-from fledermap.ingest.merge import TIMESTAMP_SOURCE_FILENAME, TIMESTAMP_SOURCE_METADATA
+from fledermap.domain.codes import TimestampSource
 
 
 def test_missing_database_url_raises(
@@ -29,7 +32,7 @@ def test_default_timestamp_source_is_filename(
     monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
     monkeypatch.delenv(ENV_TIMESTAMP_SOURCE, raising=False)
     config = Config.from_env(tmp_path)
-    assert config.timestamp_source == TIMESTAMP_SOURCE_FILENAME
+    assert config.timestamp_source == TimestampSource.FILENAME
 
 
 def test_metadata_timestamp_source_is_accepted(
@@ -37,9 +40,9 @@ def test_metadata_timestamp_source_is_accepted(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
-    monkeypatch.setenv(ENV_TIMESTAMP_SOURCE, TIMESTAMP_SOURCE_METADATA)
+    monkeypatch.setenv(ENV_TIMESTAMP_SOURCE, TimestampSource.METADATA)
     config = Config.from_env(tmp_path)
-    assert config.timestamp_source == TIMESTAMP_SOURCE_METADATA
+    assert config.timestamp_source == TimestampSource.METADATA
 
 
 def test_invalid_timestamp_source_raises_config_error(
@@ -55,5 +58,38 @@ def test_invalid_timestamp_source_raises_config_error(
     with pytest.raises(ConfigError, match="filenmae") as exc_info:
         Config.from_env(tmp_path)
     message = str(exc_info.value)
-    assert TIMESTAMP_SOURCE_FILENAME in message
-    assert TIMESTAMP_SOURCE_METADATA in message
+    assert TimestampSource.FILENAME in message
+    assert TimestampSource.METADATA in message
+
+
+def test_default_timezone_defaults_to_utc(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.delenv(ENV_DEFAULT_TIMEZONE, raising=False)
+    config = Config.from_env(tmp_path)
+    assert config.default_timezone == UTC
+
+
+def test_valid_iana_zone_name_is_accepted(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_DEFAULT_TIMEZONE, "Europe/Berlin")
+    config = Config.from_env(tmp_path)
+    assert config.default_timezone == ZoneInfo("Europe/Berlin")
+
+
+def test_invalid_timezone_name_raises_config_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Spec section 11: default_timezone must be configurable. An invalid IANA
+    name (a typo) must fail loudly, naming the bad value, rather than silently
+    falling back to UTC (Priority 2)."""
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_DEFAULT_TIMEZONE, "Not/AZone")
+    with pytest.raises(ConfigError, match="Not/AZone"):
+        Config.from_env(tmp_path)

@@ -4,9 +4,13 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from fledermap.domain.codes import IdSource, Verdict
+from fledermap.domain.codes import IdSource, TimestampSource, Verdict
 from fledermap.ingest.filename import parse_emt_filename
-from fledermap.ingest.merge import NoTimestampError, merge_metadata
+from fledermap.ingest.merge import (
+    InvalidTimestampSourceError,
+    NoTimestampError,
+    merge_metadata,
+)
 from fledermap.ingest.wamd import parse_wamd
 from tests.fixtures import wamd_payload
 
@@ -41,7 +45,7 @@ def test_metadata_source_can_be_selected() -> None:
         guano=None,
         wamd=parse_wamd(wamd_payload()),
         filename=parse_emt_filename("EPTSER_20150610_215446.wav"),
-        timestamp_source="metadata",
+        timestamp_source=TimestampSource.METADATA,
     )
 
     assert result.recorded_at.hour == 9
@@ -193,6 +197,19 @@ def test_filename_at_and_metadata_at_are_always_aware() -> None:
     assert neither_has_offset.filename_at.tzinfo is not None
     assert neither_has_offset.metadata_at is not None
     assert neither_has_offset.metadata_at.tzinfo is not None
+
+
+def test_invalid_timestamp_source_raises_explicitly() -> None:
+    """spec D3: ingest is a library other callers (a future watcher, a web
+    upload) will also use, so it must validate its own input rather than
+    silently treating any non-'filename' value as 'metadata' (Minor C)."""
+    with pytest.raises(InvalidTimestampSourceError, match="banana"):
+        merge_metadata(
+            guano=None,
+            wamd=parse_wamd(wamd_payload()),
+            filename=parse_emt_filename("EPTSER_20150610_215446.wav"),
+            timestamp_source="banana",  # type: ignore[arg-type]
+        )
 
 
 def test_explicit_default_timezone_is_honoured_when_no_evidence() -> None:

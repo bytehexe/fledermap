@@ -10,18 +10,33 @@ from __future__ import annotations
 from datetime import UTC, datetime, tzinfo
 from typing import TypeVar
 
-from fledermap.domain.codes import IdSource, Verdict
+from fledermap.domain.codes import IdSource, TimestampSource, Verdict
 from fledermap.domain.metadata import ParsedIdentification, RecordingMetadata
 from fledermap.ingest.filename import FilenameParse
 from fledermap.ingest.guano_read import GuanoMetadata
 from fledermap.ingest.wamd import WamdMetadata
 
-TIMESTAMP_SOURCE_FILENAME = "filename"
-TIMESTAMP_SOURCE_METADATA = "metadata"
-
 
 class NoTimestampError(Exception):
     """Neither the filename nor the embedded metadata yields a timestamp."""
+
+
+class InvalidTimestampSourceError(ValueError):
+    """`timestamp_source` isn't a recognised `TimestampSource` value.
+
+    `merge_metadata` is a library function (spec D3): a future caller (a
+    watcher, a web upload) may call it directly, without going through
+    `Config.from_env`'s own validation — so this validates explicitly rather
+    than silently treating anything that isn't `TimestampSource.FILENAME` as
+    `TimestampSource.METADATA`.
+    """
+
+    def __init__(self, value: object) -> None:
+        self.value = value
+        valid = ", ".join(s.value for s in TimestampSource)
+        super().__init__(
+            f"{value!r} is not a valid timestamp source. Valid options: {valid}.",
+        )
 
 
 _T = TypeVar("_T")
@@ -133,10 +148,13 @@ def merge_metadata(
     guano: GuanoMetadata | None,
     wamd: WamdMetadata | None,
     filename: FilenameParse | None,
-    timestamp_source: str = TIMESTAMP_SOURCE_FILENAME,
+    timestamp_source: TimestampSource = TimestampSource.FILENAME,
     default_timezone: tzinfo = UTC,
 ) -> RecordingMetadata:
     """Merge every available source. Raises NoTimestampError if none yields a time.
+
+    Raises InvalidTimestampSourceError if `timestamp_source` isn't a
+    recognised `TimestampSource` value.
 
     `filename_at`, `metadata_at`, and `recorded_at` are all made aware by
     `_borrow_offset`: `default_timezone` is used only when NEITHER candidate
@@ -146,6 +164,11 @@ def merge_metadata(
     borrowed instead. See `_borrow_offset` for the full reasoning (task-11 fix
     round 1, priority 1).
     """
+    try:
+        source = TimestampSource(timestamp_source)
+    except ValueError as exc:
+        raise InvalidTimestampSourceError(timestamp_source) from exc
+
     raw_filename_at = filename.timestamp if filename else None
     raw_metadata_at = _first(
         getattr(guano, "timestamp", None),
@@ -161,7 +184,7 @@ def merge_metadata(
 
     preferred, fallback = (
         (filename_at, metadata_at)
-        if timestamp_source == TIMESTAMP_SOURCE_FILENAME
+        if source is TimestampSource.FILENAME
         else (metadata_at, filename_at)
     )
     recorded_at = preferred if preferred is not None else fallback

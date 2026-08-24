@@ -4,11 +4,18 @@ import os
 import stat
 import sys
 import time
+from datetime import timedelta, timezone
 from pathlib import Path
 
 import pytest
 
-from fledermap.ingest.scan import scan
+from fledermap.domain.metadata import ScannedFile
+from fledermap.ingest.scan import (
+    INCOMPLETE_SCAN_REASONS,
+    SkipReason,
+    scan,
+    scan_with_skips,
+)
 from tests.fixtures import build_wav, fmt_payload, wamd_payload
 
 
@@ -147,3 +154,115 @@ def test_unreadable_file_does_not_abort_the_whole_scan(tmp_path: Path) -> None:
 
     assert len(results) == 1
     assert results[0].path.name == "MYODAU_20150623_213547.wav"
+
+
+# --- Priority 1 (whole-branch review): SkipReason splits deliberate ---------
+# exclusion from genuine unknowns, so the mass-disappearance guard's
+# `skipped` count only reflects the latter.
+
+
+def test_deliberate_exclusions_are_distinguished_from_genuine_unknowns(
+    tmp_path: Path,
+) -> None:
+    """The review's reproduced scenario: a Syncthing marker, a sync temp-suffixed
+    file, and a plain non-recording file are deliberate, permanent exclusions —
+    distinct from SkipReason.UNSETTLED (which implies a retry might resolve it).
+    A genuinely non-audio file keeps SkipReason.NOT_A_WAV.
+    """
+    (tmp_path / ".stfolder").write_bytes(b"")
+    _emt_file(tmp_path, "EPTSER_20150610_215446.wav.syncthing")
+    readme = tmp_path / "readme.txt"
+    readme.write_text("not a recording")
+    old = time.time() - 3600
+    os.utime(readme, (old, old))
+    _emt_file(tmp_path, "MYODAU_20150623_213547.wav", audio=b"\x09\x08" * 32)
+
+    results = list(scan_with_skips(tmp_path))
+    skipped = {item[0].name: item[1] for item in results if isinstance(item, tuple)}
+    scanned_names = {
+        item.path.name for item in results if isinstance(item, ScannedFile)
+    }
+
+    assert skipped[".stfolder"] == SkipReason.EXCLUDED
+    assert skipped["EPTSER_20150610_215446.wav.syncthing"] == SkipReason.EXCLUDED
+    assert skipped["readme.txt"] == SkipReason.NOT_A_WAV
+    assert scanned_names == {"MYODAU_20150623_213547.wav"}
+
+
+def test_incomplete_scan_reasons_are_the_genuine_unknowns() -> None:
+    """The single source of truth `cli/main.py` consults: only reasons where a
+    retry might resolve the picture count toward an incomplete scan.
+    Deliberate, permanent exclusions (EXCLUDED, NOT_A_WAV) never do.
+    """
+    assert INCOMPLETE_SCAN_REASONS == {
+        SkipReason.UNSETTLED,
+        SkipReason.UNREADABLE,
+        SkipReason.UNPARSEABLE,
+    }
+
+
+def test_oserror_during_settle_check_is_reported_as_unreadable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An OSError from a pre-read `path.stat()` call (`is_file()`, or the
+    settle-age check) must be caught and reported as a skip, not raised out
+    of the generator and aborting the whole scan (Priority 1, finding 4)."""
+    flaky = _emt_file(tmp_path, "EPTSER_20150610_215446.wav")
+    fine = _emt_file(tmp_path, "MYODAU_20150623_213547.wav", audio=b"\x09\x08" * 32)
+    original_stat = Path.stat
+
+    def sometimes_flaky_stat(
+        self: Path,
+        *,
+        follow_symlinks: bool = True,
+    ) -> os.stat_result:
+        if self == flaky:
+            msg = "simulated I/O error"
+            raise OSError(msg)
+        return original_stat(self, follow_symlinks=follow_symlinks)
+
+    monkeypatch.setattr(Path, "stat", sometimes_flaky_stat)
+
+    results = list(scan_with_skips(tmp_path))
+    skipped = {item[0].name: item[1] for item in results if isinstance(item, tuple)}
+    scanned_names = {
+        item.path.name for item in results if isinstance(item, ScannedFile)
+    }
+
+    assert skipped[flaky.name] == SkipReason.UNREADABLE
+    assert scanned_names == {fine.name}
+
+
+# --- Priority 2 (whole-branch review): default_timezone reaches production --
+
+
+def test_default_timezone_reaches_a_recording_with_no_offset_evidence(
+    tmp_path: Path,
+) -> None:
+    """Spec section 11: `default_timezone` must be configurable end to end.
+    A recording whose filename and metadata BOTH carry naive timestamps (no
+    offset evidence anywhere) must have `recorded_at` (and `filename_at`,
+    `metadata_at`) carry the configured offset — not just accept the
+    parameter somewhere unused (Priority 2)."""
+    path = tmp_path / "EPTSER_20150610_215446.wav"
+    path.write_bytes(
+        build_wav(
+            [
+                (b"fmt ", fmt_payload()),
+                (b"data", b"\x01\x02" * 32),
+                (b"wamd", wamd_payload(timestamp="2015-06-10 09:54:54")),
+            ],
+        ),
+    )
+    old = time.time() - 3600
+    os.utime(path, (old, old))
+    eastern = timezone(timedelta(hours=-5))
+
+    result = next(iter(scan(tmp_path, default_timezone=eastern)))
+
+    assert result.metadata.recorded_at.utcoffset() == timedelta(hours=-5)
+    assert result.metadata.filename_at is not None
+    assert result.metadata.filename_at.utcoffset() == timedelta(hours=-5)
+    assert result.metadata.metadata_at is not None
+    assert result.metadata.metadata_at.utcoffset() == timedelta(hours=-5)

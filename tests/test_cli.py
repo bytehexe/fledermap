@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 import os
+import stat
+import sys
 import time
 from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
-from sqlalchemy import text
+from sqlalchemy import select, text
+from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.cli.main import EXIT_SWEEP_REFUSED, cli
 from fledermap.store.db import make_engine
+from fledermap.store.models import Recording
 from tests.fixtures import build_wav, fmt_payload, wamd_payload
 
 pytestmark = pytest.mark.db
@@ -216,6 +220,72 @@ def test_mass_disappearance_refuses_sweep_with_a_distinct_message(
     assert "skipped during scan" not in result.output
 
 
+def test_excluded_files_do_not_refuse_the_sweep(
+    clean_database_url: str,
+    tmp_path: Path,
+) -> None:
+    """The whole-branch review's headline finding, reproduced and fixed:
+    an archive shaped the way spec section 6 itself describes (a Syncthing
+    `.stfolder` marker, a `.stignore` file, and an ordinary non-recording
+    file alongside real recordings) must not make the mass-disappearance
+    guard refuse — those are deliberate, permanent exclusions, not an
+    incomplete picture of what's present (Priority 1)."""
+    archive = _archive(tmp_path)
+    session_dir = archive / "Session_20130401_053030"
+    (archive / ".stfolder").write_bytes(b"")
+    (session_dir / ".stignore").write_text("*.tmp\n")
+    readme = session_dir / "readme.txt"
+    readme.write_text("not a recording")
+    old = time.time() - 3600
+    os.utime(readme, (old, old))
+
+    result = CliRunner().invoke(
+        cli,
+        ["ingest", str(archive)],
+        env={"FLEDERMAP_DATABASE_URL": clean_database_url},
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "created 2" in result.output
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits only")
+@pytest.mark.skipif(
+    hasattr(os, "geteuid") and os.geteuid() == 0,
+    reason="root ignores permission bits",
+)
+def test_unreadable_file_still_refuses_the_sweep(
+    clean_database_url: str,
+    tmp_path: Path,
+) -> None:
+    """Refining what counts as an incomplete scan must not turn the guard off
+    entirely: a genuinely unreadable file (SkipReason.UNREADABLE) is a
+    genuine unknown and must still refuse the sweep (Priority 1)."""
+    archive = _archive(tmp_path)
+    session_dir = archive / "Session_20130401_053030"
+    unreadable = session_dir / "PIPPIP_20150610_215500.wav"
+    unreadable.write_bytes(
+        build_wav([(b"fmt ", fmt_payload()), (b"data", b"\x03\x04" * 32)]),
+    )
+    old = time.time() - 3600
+    os.utime(unreadable, (old, old))
+    unreadable.chmod(0o000)
+
+    try:
+        result = CliRunner().invoke(
+            cli,
+            ["ingest", str(archive)],
+            env={"FLEDERMAP_DATABASE_URL": clean_database_url},
+        )
+    finally:
+        unreadable.chmod(stat.S_IRUSR | stat.S_IWUSR)
+
+    assert result.exit_code == EXIT_SWEEP_REFUSED, result.output
+    assert "created 2" in result.output
+    assert "skipped 1" in result.output
+    assert "skipped during scan" in result.output
+
+
 def test_no_sweep_flag_bypasses_the_refusal_entirely(
     clean_database_url: str,
     tmp_path: Path,
@@ -240,3 +310,63 @@ def test_no_sweep_flag_bypasses_the_refusal_entirely(
     assert result.exit_code == 0, result.output
     assert "recordings absent" not in result.output
     assert "flagged" not in result.output
+
+
+def _snapshot_tree(root: Path) -> dict[str, tuple[float, int, bool]]:
+    """Every path under `root`, plus enough stat info to notice any change:
+    mtime, size, and whether it's a directory. A dict keyed by relative path
+    also catches a new file appearing or an existing one disappearing, not
+    just a modification to a file already known about."""
+    return {
+        str(p.relative_to(root)): (p.stat().st_mtime, p.stat().st_size, p.is_dir())
+        for p in root.rglob("*")
+    }
+
+
+def test_cli_ingest_does_not_modify_the_archive_tree(
+    clean_database_url: str,
+    tmp_path: Path,
+) -> None:
+    """D16: ingest must be strictly read-only on the archive. The existing
+    scan-level test only checks one file's mtime/bytes through `scan()`
+    alone, and wouldn't notice a new file created elsewhere in the tree, or
+    anything written during an error path. This snapshots the ENTIRE archive
+    tree before and after a full CLI `ingest` run (whole-branch review,
+    Minor F)."""
+    archive = _archive(tmp_path)
+    before = _snapshot_tree(archive)
+
+    result = CliRunner().invoke(
+        cli,
+        ["ingest", str(archive)],
+        env={"FLEDERMAP_DATABASE_URL": clean_database_url},
+    )
+    assert result.exit_code == 0, result.output
+
+    after = _snapshot_tree(archive)
+    assert after == before
+
+
+def test_gps_less_recording_ingests_with_null_geom(
+    clean_database_url: str,
+    tmp_path: Path,
+) -> None:
+    """Phase exit criterion: 'recordings without GPS ingest successfully with
+    geom IS NULL' — the mechanism is correct and each half is tested
+    separately elsewhere, but this proves the conjunction through the actual
+    CLI (whole-branch review, Minor E)."""
+    archive = _archive_with_n_files(tmp_path, 1)  # fmt/data only: no GUANO, no wamd
+
+    result = CliRunner().invoke(
+        cli,
+        ["ingest", str(archive)],
+        env={"FLEDERMAP_DATABASE_URL": clean_database_url},
+    )
+    assert result.exit_code == 0, result.output
+    assert "created 1" in result.output
+
+    engine = make_engine(clean_database_url)
+    with OrmSession(engine) as session:
+        recording = session.scalars(select(Recording)).one()
+        assert recording.geom is None
+    engine.dispose()

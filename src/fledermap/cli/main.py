@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session as OrmSession
 from alembic import command as alembic_command
 from fledermap.config import Config, ConfigError
 from fledermap.domain.metadata import ScannedFile
-from fledermap.ingest.scan import scan_with_skips
+from fledermap.ingest.scan import INCOMPLETE_SCAN_REASONS, scan_with_skips
 from fledermap.services.ingest import (
     IncompleteScanError,
     MassDisappearanceError,
@@ -106,15 +106,20 @@ def ingest(ctx: click.Context, archive: Path, sweep: bool) -> None:
 
         scanned = []
         skipped = 0
+        incomplete_skips = 0
         for item in scan_with_skips(
             config.archive_root,
             timestamp_source=config.timestamp_source,
+            default_timezone=config.default_timezone,
         ):
             if isinstance(item, ScannedFile):
                 scanned.append(item)
                 seen.add(item.audio_hash)
             else:
+                _, reason = item
                 skipped += 1
+                if reason in INCOMPLETE_SCAN_REASONS:
+                    incomplete_skips += 1
 
         report = commit_scan(session, scanned, archive_root=config.archive_root)
         session.commit()
@@ -135,7 +140,7 @@ def ingest(ctx: click.Context, archive: Path, sweep: bool) -> None:
 
         if sweep:
             try:
-                flagged = sweep_missing(session, seen, skipped=skipped)
+                flagged = sweep_missing(session, seen, skipped=incomplete_skips)
                 session.commit()
                 if flagged:
                     click.echo(f"flagged {flagged} recording(s) as missing")
