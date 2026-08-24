@@ -51,14 +51,32 @@ the URL: several of these overlap in subject and disagree in detail.
 | [GUANO specification](https://github.com/riggsd/guano-spec) ([spec document](https://github.com/riggsd/guano-spec/blob/master/guano_specification.md)) | The open bat-acoustics metadata standard — the `guan` RIFF sub-chunk, its UTF-8 `Key: Value` layout, and the core field names. | What `src/fledermap/ingest/guano_read.py` implements. |
 | [Wildlife Acoustics GUANO Metadata Namespace](https://www.wildlifeacoustics.com/SCHEMA/GUANO.html) | The vendor's own `WA|` -namespaced GUANO extension fields. | Vendor extensions to the standard above, not a competing format. |
 | [guano-py](https://github.com/riggsd/guano-py) | Reference Python implementation of GUANO reading and writing. | Useful for cross-checking our parser's behaviour on edge cases. |
-| [`wamd2guano.py`](https://github.com/riggsd/guano-py/blob/master/bin/wamd2guano.py) | **A reference decoder for the undocumented `wamd` chunk.** | Wildlife Acoustics never documented `wamd`; ours was decoded by hex-dumping real files (spec D18). This is an independent implementation to check our type IDs against — see the note below. |
+| [`wamd2guano.py`](https://github.com/riggsd/guano-py/blob/master/bin/wamd2guano.py) | **A reference decoder for the undocumented `wamd` chunk.** | Wildlife Acoustics never documented `wamd`; ours was decoded by hex-dumping real files (spec D18). Cross-checked against this independent implementation — see below. |
 
-> **`wamd` cross-check — open item.** `src/fledermap/ingest/wamd.py` derives its
-> type IDs (`0x01` model, `0x03` app version, `0x04` device, `0x05` timestamp,
-> `0x06` position, `0x0b` auto ID, `0x0c` manual ID) from two simulator-generated
-> sample files. `wamd2guano.py` is an independent decoding of the same chunk and
-> should be compared against it. Agreement would retire a real risk; disagreement
-> would be worth knowing before real recordings arrive.
+> **`wamd` cross-check — done, R1 substantially narrowed.** `src/fledermap/ingest/wamd.py`'s
+> type IDs, derived from two simulator-generated sample files, were compared against
+> `wamd2guano.py`'s `WAMD_IDS` table (fetched 2026-08-24). Five of seven IDs match
+> exactly on both number and meaning: `0x01` model, `0x05` timestamp, `0x0b` auto_id,
+> `0x0c` manual_id, and `0x06` (ours "position", theirs "gpsfirst" — same field, theirs
+> is just more precise about it being the *first* GPS fix).
+>
+> Two are worth a closer look:
+> - **`0x03`** — ours "app version", theirs "firmware". Different label, plausibly the
+>   same slot used differently: on the samples this holds an app build string ("App
+>   3.1.10"), not detector firmware, which fits the two files being simulator output
+>   rather than real hardware. Watch this specifically on the first real-hardware
+>   recording — it may carry an actual firmware version there instead.
+> - **`0x04`** — ours "device", theirs "**prefix**". This looked like a real
+>   disagreement (a filename prefix is a very different thing from a device name), but
+>   our own sample data resolves it: the real decoded value at this offset is the
+>   literal string `"iPhone Simulator"`, which cannot be a filename prefix (EMT
+>   filenames use species codes — `EPTSER`, `NoID`, `NOISE` — as prefixes, never a
+>   device name). "device" is the empirically better-supported reading for at least
+>   this generation of the format; `wamd2guano.py`'s "prefix" label may reflect a
+>   different firmware version or hardware line than these two samples.
+>
+> Both remaining questions are pinned to spec R1 rather than left loose here, and both
+> resolve automatically the moment a real-hardware recording is ingested (phase 0b).
 
 ## Classifiers (additional identification sources, not yet built)
 

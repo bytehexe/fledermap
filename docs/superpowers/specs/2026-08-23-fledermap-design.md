@@ -450,6 +450,18 @@ payload`.
 with a `WGS84` prefix and a literal `(null)` for missing elevation — parse
 defensively.
 
+**Cross-checked against an independent decoder (2026-08-24).** `guano-py`'s
+`wamd2guano.py` gives its own `WAMD_IDS` mapping for the same chunk. Five of
+seven fields above match it exactly, by both ID and meaning. `0x03` matches by
+ID with a different label (`firmware` there, `app version` here) — plausibly
+the same slot read differently depending on whether the writer is simulator or
+real hardware. `0x04` also matches by ID but disagrees on label (`prefix`
+there, `device` here); this table's own example value, `iPhone Simulator`,
+settles it in this table's favour — that string cannot be a filename prefix
+(EMT filenames prefix with a species code, never a device name). Full
+reasoning in `docs/references.md`. Neither remaining question changes the
+mapping above; both are open for phase 0b to confirm on real hardware.
+
 **Measured during implementation (2026-08-23), refining the timestamp picture.**
 Once the filename and `wamd` parsers both existed, the disagreement could be
 quantified rather than eyeballed:
