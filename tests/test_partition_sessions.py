@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.derive.sessions import partition_sessions
 from fledermap.domain.codes import SessionKind
-from fledermap.store.models import Recording, Session
+from fledermap.store.models import Recording, Session, SessionMergeProposal
 
 pytestmark = pytest.mark.db
 
@@ -214,3 +214,78 @@ def test_already_sessioned_recordings_are_untouched(engine: Engine) -> None:
 
         assert report.created == 0
         assert report.extended == 0
+
+
+def test_recording_between_two_sessions_within_gap_of_both_raises_a_proposal(
+    engine: Engine,
+) -> None:
+    with OrmSession(engine) as session:
+        base = datetime(2026, 8, 21, 21, tzinfo=UTC)
+        early = Session(
+            started_at=base,
+            ended_at=base,
+            kind=SessionKind.STATIONARY,
+            detector_key="EMT\x1f1",
+        )
+        late = Session(
+            started_at=base + timedelta(hours=8),
+            ended_at=base + timedelta(hours=8),
+            kind=SessionKind.STATIONARY,
+            detector_key="EMT\x1f1",
+        )
+        session.add_all([early, late])
+        session.flush()
+        # 4h after `early`, 4h before `late` — within a 6h gap of both.
+        bridging = _recording(
+            "a",
+            base + timedelta(hours=4),
+            make="EMT",
+            serial="1",
+        )
+        session.add(bridging)
+        session.commit()
+
+        report = partition_sessions(session, session_gap=timedelta(hours=6))
+        session.commit()
+
+        assert report.merge_proposals == 1
+        assert len(session.scalars(select(Session)).all()) == 2  # no third session
+        session.refresh(bridging)
+        assert bridging.session_id == early.id  # joins the earlier of the two
+
+        proposal = session.scalars(select(SessionMergeProposal)).one()
+        assert proposal.session_a_id == early.id
+        assert proposal.session_b_id == late.id
+        assert proposal.bridging_recording_id == bridging.id
+        assert proposal.resolved_at is None
+        assert proposal.resolution is None
+
+
+def test_recording_close_to_only_one_neighbor_does_not_raise_a_proposal(
+    engine: Engine,
+) -> None:
+    with OrmSession(engine) as session:
+        base = datetime(2026, 8, 21, 21, tzinfo=UTC)
+        early = Session(
+            started_at=base,
+            ended_at=base,
+            kind=SessionKind.STATIONARY,
+            detector_key="EMT\x1f1",
+        )
+        late = Session(
+            started_at=base + timedelta(hours=20),
+            ended_at=base + timedelta(hours=20),
+            kind=SessionKind.STATIONARY,
+            detector_key="EMT\x1f1",
+        )
+        session.add_all([early, late])
+        session.flush()
+        # 1h after `early`, 19h before `late` — within gap of only `early`.
+        session.add(_recording("a", base + timedelta(hours=1), make="EMT", serial="1"))
+        session.commit()
+
+        report = partition_sessions(session, session_gap=timedelta(hours=6))
+        session.commit()
+
+        assert report.merge_proposals == 0
+        assert session.scalars(select(SessionMergeProposal)).all() == []

@@ -5,19 +5,20 @@ from __future__ import annotations
 import bisect
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import SessionKind
-from fledermap.store.models import Recording, Session
+from fledermap.store.models import Recording, Session, SessionMergeProposal
 
 
 @dataclass
 class SessionPartitionReport:
     created: int = 0
     extended: int = 0
+    merge_proposals: int = 0
 
 
 def _detector_key(make: str | None, serial: str | None) -> str:
@@ -110,6 +111,17 @@ def partition_sessions(
                 prev_session.ended_at = recording.recorded_at
                 recording.session_id = prev_session.id
                 report.extended += 1
+                if joins_next:
+                    assert next_session is not None  # joins_next implies this
+                    db_session.add(
+                        SessionMergeProposal(
+                            session_a_id=prev_session.id,
+                            session_b_id=next_session.id,
+                            bridging_recording_id=recording.id,
+                            detected_at=datetime.now(UTC),
+                        ),
+                    )
+                    report.merge_proposals += 1
             elif joins_next:
                 assert next_session is not None  # joins_next implies this
                 next_session.started_at = recording.recorded_at
