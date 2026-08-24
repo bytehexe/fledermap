@@ -506,3 +506,13 @@ def test_emt_sources_membership_uses_stringenum_semantics() -> None:
     Confirmed rather than assumed (task-11 amendments, judgement calls)."""
     assert IdSource.EMT_WAMD in _EMT_SOURCES
     assert "emt.wamd" in {s.value for s in _EMT_SOURCES}
+
+
+def test_emt_sources_stays_exactly_the_emt_prefixed_id_sources() -> None:
+    """`_EMT_SOURCES` happens to equal exactly the `emt.`-prefixed `IdSource`
+    members today, but nothing enforced that stays true — and the branch
+    already shipped a bug of exactly this shape once (`EMT_MANUAL` initially
+    wasn't in this set, so it was never superseded). This is the guard
+    against a future `IdSource` member repeating the same mismatch
+    (whole-branch review, Minor D)."""
+    assert _EMT_SOURCES == {s for s in IdSource if s.value.startswith("emt.")}

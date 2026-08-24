@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import Engine, select
+from sqlalchemy import Engine, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as OrmSession
 
@@ -55,6 +55,13 @@ def test_geometry_may_be_null(engine: Engine) -> None:
 
 
 def test_identifications_cascade_from_recording(engine: Engine) -> None:
+    """`identification.recording_id` is declared `ondelete="CASCADE"`
+    (models.py): deleting a Recording row must delete its Identification
+    rows with it, at the database level. Deletes via raw SQL rather than the
+    ORM session — the ORM's OWN `cascade="all, delete-orphan"` would make
+    this pass even if the FK's `ondelete="CASCADE"` were missing, which is
+    not what this test's name promises to prove (whole-branch review,
+    Minor G)."""
     with OrmSession(engine) as session:
         rec = _recording()
         rec.identifications = [
@@ -72,9 +79,15 @@ def test_identifications_cascade_from_recording(engine: Engine) -> None:
         ]
         session.add(rec)
         session.commit()
+        recording_id = rec.id
+
+    assert recording_id is not None
+    with engine.begin() as conn:
+        conn.execute(text("DELETE FROM recording WHERE id = :id"), {"id": recording_id})
 
     with OrmSession(engine) as session:
-        assert len(session.scalars(select(Recording)).one().identifications) == 2
+        assert session.scalars(select(Recording)).all() == []
+        assert session.scalars(select(Identification)).all() == []
 
 
 def test_both_timestamp_columns_persist(engine: Engine) -> None:

@@ -6,6 +6,7 @@ import pytest
 from sqlalchemy import Engine, text
 from testcontainers.community.postgres import PostgresContainer
 
+from fledermap.store import db
 from fledermap.store.db import make_engine
 from fledermap.store.models import Base
 
@@ -23,6 +24,6 @@ def engine(postgis_url: str) -> Iterator[Engine]:
     with eng.begin() as conn:
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
     Base.metadata.drop_all(eng)
-    Base.metadata.create_all(eng)
+    db.create_all(eng)
     yield eng
     eng.dispose()

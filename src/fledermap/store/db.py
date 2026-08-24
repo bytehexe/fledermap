@@ -9,7 +9,6 @@ poiidx uses `poiidx_bats_db`. They are separate databases by design (spec D11).
 from __future__ import annotations
 
 from sqlalchemy import Engine, create_engine
-from sqlalchemy.orm import sessionmaker
 
 from fledermap.store.models import Base
 
@@ -17,10 +16,6 @@ from fledermap.store.models import Base
 def make_engine(url: str, *, echo: bool = False) -> Engine:
     """Create an engine for Fledermap's own database."""
     return create_engine(url, echo=echo, future=True)
-
-
-def session_factory(engine: Engine) -> sessionmaker:
-    return sessionmaker(bind=engine, expire_on_commit=False)
 
 
 def create_all(engine: Engine) -> None:
