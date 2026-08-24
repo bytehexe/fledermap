@@ -12,7 +12,31 @@ the URL: several of these overlap in subject and disagree in detail.
 | Source | Authoritative for | Notes |
 |---|---|---|
 | [Wildlife Acoustics — Bat Auto-ID Supported Species and Abbreviated Codes](https://answers.wildlifeacoustics.com/r/en-US/Bat-Auto-ID-Performance-and-Supported-Species/Bat-Auto-ID-Supported-Species-and-Abbreviated-Codes) | The codes the **Echo Meter Touch and Kaleidoscope actually emit**. This is the vocabulary `taxa_eu.yaml` maps. | **Species-level only** — it defines no genus or group codes. `MYOSPP` was invented against this list and had to be removed. 31 European species; we currently map 10. |
-| [NABat — List of Species Codes](https://www.nabatmonitoring.org/species-codes) | North American Bat Monitoring Program codes. | **A different vocabulary — do not mix.** NABat uses 4-character codes (`MYSE`, `MYSO`); the EMT European list uses 6 (`PIPPIP`, `EPTSER`). This is exactly why `taxon_code` is per-source (spec D10) rather than one universal key. |
+| [NABat — List of Species Codes](https://www.nabatmonitoring.org/species-codes) | North American Bat Monitoring Program codes. | Lists **two codes per species**: a four-letter and a six-letter form (*Eptesicus fuscus* is both `EPFU` and `EPTFUS`). Both belong to one authority — see the note below before treating them as separate sources. |
+
+> **NABat's six-letter codes appear to BE the Wildlife Acoustics codes**, not
+> merely a similar scheme. Every species checkable in both lists matches exactly:
+> *Antrozous pallidus* `ANTPAL`, *Eptesicus fuscus* `EPTFUS`, *Euderma maculatum*
+> `EUDMAC`. Both are genus-3 + species-3, and the EMT supports 38 US/Canada
+> species, so the overlap is large.
+>
+> **The genuinely distinct system is NABat's four-letter form** (`EPFU`, `ANPA`,
+> `EUMA`) — a different construction with no counterpart in the WA list.
+>
+> **If NABat data is ever ingested, split along that line** — a `nabat4` source
+> for the four-letter codes, and the six-letter codes folded into whatever source
+> already holds the WA vocabulary — rather than one `nabat` source holding both.
+> Storing the six-letter codes a second time under their own source would
+> duplicate rows that mean the same thing.
+>
+> A caveat that keeps `taxon_code` per-source worthwhile regardless: two
+> independently maintained registries are not *guaranteed* to stay in step. The
+> construction rule is not injective, so colliding species need a tiebreak, and
+> nothing binds the two bodies to pick the same one. Per-source keying costs one
+> column and means we never have to bet on their agreeing.
+>
+> Note this also makes the source name `emt` slightly wrong for a vocabulary two
+> authorities share. Not worth renaming until NABat data actually arrives.
 
 ## File formats
 

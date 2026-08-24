@@ -88,8 +88,9 @@ the timezone half of D17 stay open until real field recordings exist.
 Never hand-enter a species code. The Wildlife Acoustics list (see
 @docs/references.md) is **species-level only** — no genus or group codes exist.
 `MYOSPP` was invented by the plan, survived a review as "plausible", and had to be
-removed. NABat's codes are a *different* vocabulary (4-character, North American);
-that is why `taxon_code` is per-source rather than one universal key.
+removed. NABat's *six*-letter codes appear to be the same vocabulary as the WA ones;
+its *four*-letter codes are the genuinely separate system. `taxon_code` is
+per-source so the two never have to be reconciled.
 
 An unmapped label is not a failure: it resolves to `None` and lands in the review
 queue by design (spec section 5). A *wrong* mapping is far worse than a missing
