@@ -46,6 +46,14 @@ def seed_taxonomy(session: OrmSession) -> int:
             ).one_or_none()
             if exists is None:
                 session.add(TaxonCode(source=source, code=code, taxon_id=taxon.id))
+            elif exists.taxon_id != taxon.id:
+                # The bundled YAML is the source of truth for reference data, so
+                # a code moved between taxa (a corrected mapping) must follow.
+                # `uq_taxon_code` guarantees the code is unique, NOT that it
+                # still points where the current YAML says — without this the
+                # stale row survives silently and resolve_code keeps returning
+                # the old taxon.
+                exists.taxon_id = taxon.id
 
     return created
 
