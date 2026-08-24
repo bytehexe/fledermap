@@ -1,0 +1,61 @@
+taxa:
+  - scientific_name: Pipistrellus pipistrellus
+    rank: species
+    common_name_de: Zwergfledermaus
+    common_name_en: Common pipistrelle
+    codes: {emt: PIPPIP}
+  - scientific_name: Pipistrellus pygmaeus
+    rank: species
+    common_name_de: Mückenfledermaus
+    common_name_en: Soprano pipistrelle
+    codes: {emt: PIPPYG}
+  - scientific_name: Pipistrellus nathusii
+    rank: species
+    common_name_de: Rauhautfledermaus
+    common_name_en: Nathusius' pipistrelle
+    codes: {emt: PIPNAT}
+  - scientific_name: Nyctalus noctula
+    rank: species
+    common_name_de: Abendsegler
+    common_name_en: Common noctule
+    codes: {emt: NYCNOC}
+  - scientific_name: Nyctalus leisleri
+    rank: species
+    common_name_de: Kleinabendsegler
+    common_name_en: Leisler's bat
+    codes: {emt: NYCLEI}
+  - scientific_name: Eptesicus serotinus
+    rank: species
+    common_name_de: Breitflügelfledermaus
+    common_name_en: Serotine
+    codes: {emt: EPTSER}
+  - scientific_name: Myotis daubentonii
+    rank: species
+    common_name_de: Wasserfledermaus
+    common_name_en: Daubenton's bat
+    codes: {emt: MYODAU}
+  - scientific_name: Myotis myotis
+    rank: species
+    common_name_de: Großes Mausohr
+    common_name_en: Greater mouse-eared bat
+    codes: {emt: MYOMYO}
+  - scientific_name: Barbastella barbastellus
+    rank: species
+    common_name_de: Mopsfledermaus
+    common_name_en: Western barbastelle
+    codes: {emt: BARBAR}
+  - scientific_name: Plecotus auritus
+    rank: species
+    common_name_de: Braunes Langohr
+    common_name_en: Brown long-eared bat
+    codes: {emt: PLEAUR}
+  - scientific_name: Myotis
+    rank: genus
+    common_name_de: Mausohren
+    common_name_en: Mouse-eared bats
+    codes: {emt: MYOSPP}
+  - scientific_name: Nyctaloid
+    rank: group
+    common_name_de: Nyctaloid
+    common_name_en: Nyctaloid
+    codes: {}
