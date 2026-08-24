@@ -9,7 +9,6 @@ does not get this for free from SQLAlchemy the way a JSONB column does).
 from __future__ import annotations
 
 import math
-import struct
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -17,7 +16,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import assert_never
 
-from geoalchemy2.elements import WKBElement, WKTElement
+from geoalchemy2.elements import WKTElement
 from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
 
@@ -27,6 +26,7 @@ from fledermap.domain.metadata import (
     RecordingMetadata,
     ScannedFile,
 )
+from fledermap.store.geo import decode_point
 from fledermap.store.models import Identification, Recording
 from fledermap.store.seed import resolve_code
 
@@ -70,8 +70,6 @@ _METADATA_FIELDS = (
     "device",
     "note",
 )
-
-_WKB_SRID_FLAG = 0x20000000
 
 
 class IngestOutcome(StrEnum):
@@ -213,31 +211,6 @@ def _apply_identifications(
     return changed
 
 
-def _decode_point(elem: object | None) -> tuple[float, float] | None:
-    """Decode a stored geography Point's raw WKB payload into (lon, lat).
-
-    `geoalchemy2`'s own `to_shape` needs shapely, which nothing else in this
-    project requires — see task-11 report for that trade-off. A Point's WKB
-    layout (order byte, type word, an optional SRID word, then two doubles in
-    the record's own endianness) is a stable OGC-specified format, not an
-    implementation detail of this driver, so decoding it directly is safe.
-    Skipping the geometry-type check on the type word is safe specifically
-    BECAUSE `Recording.geom` (models.py) is declared `geometry_type="POINT"`:
-    the column's typmod constrains every value that can ever reach this
-    decoder to a Point, so there is no other WKB shape this could be handed
-    (task-11 fix round 1, priority 6).
-    """
-    if not isinstance(elem, WKBElement):
-        return None
-    data = elem.data
-    raw = bytes.fromhex(data) if isinstance(data, str) else bytes(data)
-    endian = "<" if raw[0] == 1 else ">"
-    (geom_type,) = struct.unpack_from(endian + "I", raw, 1)
-    offset = 9 if geom_type & _WKB_SRID_FLAG else 5
-    lon, lat = struct.unpack_from(endian + "dd", raw, offset)
-    return (lon, lat)
-
-
 def _position_changed(recording: Recording, m: RecordingMetadata) -> bool:
     # Keep-last-known-position rule: an incoming `None` position (metadata that
     # failed to parse, or a source that never carries one) is reported as
@@ -250,7 +223,7 @@ def _position_changed(recording: Recording, m: RecordingMetadata) -> bool:
     # are not (task-11 fix round 1, priority 6).
     if m.latitude is None or m.longitude is None:
         return False
-    return _decode_point(recording.geom) != (m.longitude, m.latitude)
+    return decode_point(recording.geom) != (m.longitude, m.latitude)
 
 
 def _apply_metadata(recording: Recording, scanned: ScannedFile) -> bool:

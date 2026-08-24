@@ -19,6 +19,7 @@ classifiers = [
 dependencies = [
   "sqlalchemy>=2.0",
   "geoalchemy2",
+  "shapely",
   "alembic",
   "psycopg2-binary",
   "click",
