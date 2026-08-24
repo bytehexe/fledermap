@@ -1339,7 +1339,7 @@ def test_session_kind_round_trips_to_python_type(engine: Engine) -> None:
                 started_at=datetime(2026, 8, 21, 21, tzinfo=UTC),
                 ended_at=datetime(2026, 8, 21, 23, tzinfo=UTC),
                 kind=SessionKind.STATIONARY,
-                detector_key="EMT\x001",
+                detector_key="EMT\x1f1",
             ),
         )
         session.commit()
@@ -1499,7 +1499,7 @@ def test_recording_extends_an_existing_session_from_a_previous_run(
             started_at=base,
             ended_at=base,
             kind=SessionKind.STATIONARY,
-            detector_key="EMT\x001",
+            detector_key="EMT\x1f1",
         )
         session.add(existing)
         session.flush()
@@ -1525,7 +1525,7 @@ def test_old_recording_close_only_to_a_later_existing_session_joins_it_backward(
             started_at=base,
             ended_at=base,
             kind=SessionKind.STATIONARY,
-            detector_key="EMT\x001",
+            detector_key="EMT\x1f1",
         )
         session.add(later)
         session.flush()
@@ -1548,7 +1548,7 @@ def test_already_sessioned_recordings_are_untouched(engine: Engine) -> None:
             started_at=datetime(2026, 8, 21, 21, tzinfo=UTC),
             ended_at=datetime(2026, 8, 21, 21, tzinfo=UTC),
             kind=SessionKind.STATIONARY,
-            detector_key="EMT\x001",
+            detector_key="EMT\x1f1",
         )
         session.add(existing)
         session.flush()
@@ -1606,11 +1606,20 @@ def _detector_key(make: str | None, serial: str | None) -> str:
 
     Both can be absent — not every source carries full metadata — so they're
     grouped together under one key rather than raising; a session still needs a
-    home. `\\x00` separates the two fields: it cannot appear in either (both are
-    plain text from GUANO/wamd/filename parsing), unlike a printable separator
-    such as ":" which conceivably could appear inside a free-text `make`.
+    home. `\\x1f` (ASCII Unit Separator — historically designed for exactly this,
+    a field separator unlikely to appear in real text) separates the two
+    fields: it cannot appear in either (both are plain text from GUANO/wamd/
+    filename parsing), unlike a printable separator such as ":" which
+    conceivably could appear inside a free-text `make`. NOT `\\x00`: Postgres
+    (via psycopg2) unconditionally rejects a NUL byte in a text value —
+    `ValueError: A string literal cannot contain NUL (0x00) characters.` —
+    which would crash on essentially every session ever created, since
+    `detector_key` is written to a real `text` column. Caught during Task 5's
+    implementation (its own test needed a `detector_key` value and hit this
+    immediately); verified directly against a live Postgres before fixing
+    this plan. `\\x1f` round-trips through Postgres text with no issue.
     """
-    return f"{make or ''}\x00{serial or ''}"
+    return f"{make or ''}\x1f{serial or ''}"
 
 
 def partition_sessions(
@@ -1752,13 +1761,13 @@ def test_recording_between_two_sessions_within_gap_of_both_raises_a_proposal(
             started_at=base,
             ended_at=base,
             kind=SessionKind.STATIONARY,
-            detector_key="EMT\x001",
+            detector_key="EMT\x1f1",
         )
         late = Session(
             started_at=base + timedelta(hours=8),
             ended_at=base + timedelta(hours=8),
             kind=SessionKind.STATIONARY,
-            detector_key="EMT\x001",
+            detector_key="EMT\x1f1",
         )
         session.add_all([early, late])
         session.flush()
@@ -1794,13 +1803,13 @@ def test_recording_close_to_only_one_neighbor_does_not_raise_a_proposal(
             started_at=base,
             ended_at=base,
             kind=SessionKind.STATIONARY,
-            detector_key="EMT\x001",
+            detector_key="EMT\x1f1",
         )
         late = Session(
             started_at=base + timedelta(hours=20),
             ended_at=base + timedelta(hours=20),
             kind=SessionKind.STATIONARY,
-            detector_key="EMT\x001",
+            detector_key="EMT\x1f1",
         )
         session.add_all([early, late])
         session.flush()
@@ -2046,7 +2055,7 @@ def _stationary_session(db_session: OrmSession) -> Session:
         started_at=datetime(2026, 8, 21, 21, tzinfo=UTC),
         ended_at=datetime(2026, 8, 21, 23, tzinfo=UTC),
         kind=SessionKind.STATIONARY,
-        detector_key="EMT\x001",
+        detector_key="EMT\x1f1",
     )
     db_session.add(s)
     db_session.flush()
@@ -2111,7 +2120,7 @@ def test_transect_recordings_are_excluded(engine: Engine) -> None:
             started_at=datetime(2026, 8, 21, 21, tzinfo=UTC),
             ended_at=datetime(2026, 8, 21, 23, tzinfo=UTC),
             kind=SessionKind.TRANSECT,
-            detector_key="EMT\x001",
+            detector_key="EMT\x1f1",
         )
         session.add(transect)
         session.flush()
@@ -2585,5 +2594,5 @@ design doc to say so rather than leave it silently contradicted by this plan.
 
 **Known judgment calls surfaced inline, not hidden:** the `site_min_points=3` default
 (confirmed with the user during design review), the tie-break rule in bridging
-detection (always joins the earlier session), and `_detector_key`'s `\x00` separator
+detection (always joins the earlier session), and `_detector_key`'s `\x1f` separator
 for recordings missing `make`/`serial`.
