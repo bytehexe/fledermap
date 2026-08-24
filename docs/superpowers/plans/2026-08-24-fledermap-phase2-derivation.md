@@ -1691,6 +1691,15 @@ def partition_sessions(
             elif joins_next:
                 assert next_session is not None  # joins_next implies this
                 next_session.started_at = recording.recorded_at
+                # Keep the bisect cache in sync: `starts[idx]` mirrors
+                # `next_session.started_at` (next_session IS existing[idx]).
+                # Without this, a SECOND recording in the same run that also
+                # backward-extends this same session bisects against the
+                # stale value and can overwrite started_at with something
+                # that leaves an earlier recording of this run outside the
+                # session's own persisted bounds — reproduced against a real
+                # Postgres instance, caught in Task 6's review.
+                starts[idx] = next_session.started_at
                 recording.session_id = next_session.id
                 report.extended += 1
             else:
