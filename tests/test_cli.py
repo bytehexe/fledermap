@@ -228,7 +228,8 @@ def test_no_sweep_flag_bypasses_the_refusal_entirely(
     runner = CliRunner()
     env = {"FLEDERMAP_DATABASE_URL": clean_database_url}
 
-    runner.invoke(cli, ["ingest", str(archive)], env=env)
+    first = runner.invoke(cli, ["ingest", str(archive)], env=env)
+    assert first.exit_code == 0, first.output
 
     session_dir = archive / "Session_20130401_053030"
     for i in range(4):
