@@ -7,8 +7,8 @@ from sqlalchemy import Engine, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as OrmSession
 
-from fledermap.domain.codes import IdSource, Verdict
-from fledermap.store.models import Identification, Recording
+from fledermap.domain.codes import IdSource, SessionKind, Verdict
+from fledermap.store.models import Identification, Recording, Session
 
 pytestmark = pytest.mark.db
 
@@ -124,6 +124,33 @@ def test_enum_columns_round_trip_to_python_type(engine: Engine) -> None:
         assert isinstance(loaded.verdict, Verdict)
         assert loaded.source is IdSource.EMT_WAMD
         assert loaded.verdict is Verdict.SPECIES
+
+
+def test_session_kind_round_trips_to_python_type(engine: Engine) -> None:
+    """A plain String column would come back as `str`, not the enum — mirrors
+    `test_enum_columns_round_trip_to_python_type` above, written before `kind`
+    became an enum (phase 2, task 5)."""
+    with OrmSession(engine) as session:
+        session.add(
+            Session(
+                started_at=datetime(2026, 8, 21, 21, tzinfo=UTC),
+                ended_at=datetime(2026, 8, 21, 23, tzinfo=UTC),
+                kind=SessionKind.STATIONARY,
+                # Not "EMT\x001" as in the brief/plan's fixture: Postgres text
+                # columns categorically reject embedded NUL bytes (see this
+                # task's report — a real defect found in the plan's Task 6
+                # `_detector_key` design, flagged separately, out of scope to
+                # fix here). This test's subject is `kind`'s round-trip, not
+                # `detector_key`'s content.
+                detector_key="EMT1",
+            ),
+        )
+        session.commit()
+
+    with OrmSession(engine) as session:
+        loaded = session.scalars(select(Session)).one()
+        assert isinstance(loaded.kind, SessionKind)
+        assert loaded.kind is SessionKind.STATIONARY
 
 
 def test_duplicate_claim_with_null_source_version_rejected(engine: Engine) -> None:

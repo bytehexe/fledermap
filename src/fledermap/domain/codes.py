@@ -38,6 +38,25 @@ class IdSource(StrEnum):
     MANUAL = "manual"
 
 
+class SessionKind(StrEnum):
+    """Whether a session was stationary monitoring or a walked transect.
+
+    User-set (parent spec section 9); every session derived without a UI to set
+    it defaults to STATIONARY. A closed, two-member vocabulary — CHECK-enforced,
+    like `Verdict`.
+    """
+
+    STATIONARY = "stationary"
+    TRANSECT = "transect"
+
+
+class MergeResolution(StrEnum):
+    """How a human resolved a `SessionMergeProposal`. NULL means still open."""
+
+    MERGED = "merged"
+    REJECTED = "rejected"
+
+
 class TimestampSource(StrEnum):
     """Which candidate `merge_metadata` prefers for `recorded_at` (spec D17).
 

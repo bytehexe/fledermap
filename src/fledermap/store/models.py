@@ -23,7 +23,7 @@ from sqlalchemy.orm import (
     relationship,
 )
 
-from fledermap.domain.codes import IdSource, Verdict
+from fledermap.domain.codes import IdSource, MergeResolution, SessionKind, Verdict
 
 
 class Base(DeclarativeBase):
@@ -64,6 +64,9 @@ class Recording(Base):
     guano_raw: Mapped[dict] = mapped_column(JSONB, default=dict)
 
     session_id: Mapped[int | None] = mapped_column(ForeignKey("session.id"))
+    site_id: Mapped[int | None] = mapped_column(
+        ForeignKey("site.id", ondelete="SET NULL"),
+    )
     ingested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     missing_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -175,6 +178,81 @@ class Session(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     ended_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    kind: Mapped[str] = mapped_column(String(16), default="stationary")
+    # Closed, two-value vocabulary — CHECK-enforced (matches `Verdict`'s pattern;
+    # phase-2 fix, task 5 — `kind` shipped in phase 1 without a constraint).
+    kind: Mapped[SessionKind] = mapped_column(
+        SAEnum(
+            SessionKind,
+            native_enum=False,
+            length=16,
+            create_constraint=True,
+            values_callable=lambda enum_cls: [e.value for e in enum_cls],
+        ),
+        default=SessionKind.STATIONARY,
+    )
     detector_key: Mapped[str | None] = mapped_column(String(160), index=True)
     note: Mapped[str | None] = mapped_column(Text)
+    weather: Mapped[str | None] = mapped_column(Text)
+    effort: Mapped[str | None] = mapped_column(Text)
+
+
+class Site(Base):
+    """A derived cluster of stationary recordings — a projection, not an entity.
+
+    Truncated and rebuilt wholesale by `services.derive.derive_sites` (spec
+    section 7). `name`/`admin_path` are schema now, populated by Phase 3's poiidx
+    naming job — this phase never writes them.
+    """
+
+    __tablename__ = "site"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    centroid: Mapped[object] = mapped_column(
+        Geography(geometry_type="POINT", srid=4326),
+    )
+    radius_m: Mapped[float] = mapped_column(Float)
+    recording_count: Mapped[int] = mapped_column(Integer)
+    first_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    name: Mapped[str | None] = mapped_column(Text)
+    admin_path: Mapped[str | None] = mapped_column(Text)
+
+
+class SiteNameCache(Base):
+    """Keyed on rounded coordinates; survives site rebuilds so re-derivation
+    never re-triggers a Geofabrik download (spec section 7). Unused until
+    Phase 3."""
+
+    __tablename__ = "site_name_cache"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    geohash: Mapped[str] = mapped_column(String(16), unique=True, index=True)
+    name: Mapped[str] = mapped_column(Text)
+    admin_path: Mapped[str | None] = mapped_column(Text)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class SessionMergeProposal(Base):
+    """A bridging recording connected two already-persisted sessions.
+
+    Never auto-merged (spec section 7) — this row is what a future UI (Phase 5)
+    surfaces for a human to accept or reject.
+    """
+
+    __tablename__ = "session_merge_proposal"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    session_a_id: Mapped[int] = mapped_column(ForeignKey("session.id"))
+    session_b_id: Mapped[int] = mapped_column(ForeignKey("session.id"))
+    bridging_recording_id: Mapped[int] = mapped_column(ForeignKey("recording.id"))
+    detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolution: Mapped[MergeResolution | None] = mapped_column(
+        SAEnum(
+            MergeResolution,
+            native_enum=False,
+            length=16,
+            create_constraint=True,
+            values_callable=lambda enum_cls: [e.value for e in enum_cls],
+        ),
+    )

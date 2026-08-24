@@ -10,15 +10,15 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from alembic.autogenerate import compare_metadata
-from alembic.config import Config
-from alembic.migration import MigrationContext
 from sqlalchemy import Engine, text
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.exc import IntegrityError
 
 from alembic import command
-from fledermap.domain.codes import IdSource, Verdict
+from alembic.autogenerate import compare_metadata
+from alembic.config import Config
+from alembic.migration import MigrationContext
+from fledermap.domain.codes import IdSource, MergeResolution, SessionKind, Verdict
 from fledermap.store.db import make_engine
 from fledermap.store.models import Base
 
@@ -158,6 +158,116 @@ def test_migrated_verdict_check_accepts_every_verdict(migrated_engine: Engine) -
         stored = conn.scalar(text("SELECT count(*) FROM identification"))
 
     assert stored == len(Verdict)
+
+
+def test_migrated_kind_check_is_enforced(migrated_engine: Engine) -> None:
+    """`kind` is a closed two-value vocabulary (phase 2, task 5) — the one
+    constraint `_comparable` excludes from the drift comparison."""
+    with pytest.raises(IntegrityError), migrated_engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO session (started_at, ended_at, kind)"
+                " VALUES (now(), now(), 'not_a_kind')"
+            )
+        )
+
+
+def test_migrated_kind_check_accepts_every_kind(migrated_engine: Engine) -> None:
+    with migrated_engine.begin() as conn:
+        for kind in SessionKind:
+            conn.execute(
+                text(
+                    "INSERT INTO session (started_at, ended_at, kind)"
+                    " VALUES (now(), now(), :kind)"
+                ),
+                {"kind": kind.value},
+            )
+        stored = conn.scalar(text("SELECT count(*) FROM session"))
+
+    assert stored == len(SessionKind)
+
+
+def test_migrated_resolution_check_is_enforced(migrated_engine: Engine) -> None:
+    with migrated_engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO session (started_at, ended_at, kind)"
+                " VALUES (now(), now(), 'stationary')"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO session (started_at, ended_at, kind)"
+                " VALUES (now(), now(), 'stationary')"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO recording (audio_hash, path, recorded_at, guano_raw)"
+                " VALUES ('r' || repeat('0', 63), 'x.wav', now(), '{}'::jsonb)"
+            )
+        )
+
+    with pytest.raises(IntegrityError), migrated_engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO session_merge_proposal"
+                " (session_a_id, session_b_id, bridging_recording_id, detected_at,"
+                "  resolution)"
+                " SELECT s1.id, s2.id, r.id, now(), 'not_a_resolution'"
+                " FROM session s1, session s2, recording r"
+                " WHERE s1.id != s2.id LIMIT 1"
+            )
+        )
+
+
+def test_migrated_resolution_check_accepts_every_resolution(
+    migrated_engine: Engine,
+) -> None:
+    with migrated_engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO session (started_at, ended_at, kind)"
+                " VALUES (now(), now(), 'stationary')"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO session (started_at, ended_at, kind)"
+                " VALUES (now(), now(), 'stationary')"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO recording (audio_hash, path, recorded_at, guano_raw)"
+                " VALUES ('s' || repeat('0', 63), 'x.wav', now(), '{}'::jsonb)"
+            )
+        )
+        for resolution in MergeResolution:
+            conn.execute(
+                text(
+                    "INSERT INTO session_merge_proposal"
+                    " (session_a_id, session_b_id, bridging_recording_id,"
+                    "  detected_at, resolution)"
+                    " SELECT s1.id, s2.id, r.id, now(), :resolution"
+                    " FROM session s1, session s2, recording r"
+                    " WHERE s1.id != s2.id LIMIT 1"
+                ),
+                {"resolution": resolution.value},
+            )
+        stored = conn.scalar(text("SELECT count(*) FROM session_merge_proposal"))
+        # NULL resolution (still open) must also be accepted by the CHECK.
+        conn.execute(
+            text(
+                "INSERT INTO session_merge_proposal"
+                " (session_a_id, session_b_id, bridging_recording_id, detected_at)"
+                " SELECT s1.id, s2.id, r.id, now()"
+                " FROM session s1, session s2, recording r"
+                " WHERE s1.id != s2.id LIMIT 1"
+            )
+        )
+
+    assert stored == len(MergeResolution)
 
 
 def _migration_idsource_literal() -> list[str]:
