@@ -214,3 +214,28 @@ def test_mass_disappearance_refuses_sweep_with_a_distinct_message(
     assert result.exit_code == EXIT_SWEEP_REFUSED, result.output
     assert "recordings absent" in result.output
     assert "skipped during scan" not in result.output
+
+
+def test_no_sweep_flag_bypasses_the_refusal_entirely(
+    clean_database_url: str,
+    tmp_path: Path,
+) -> None:
+    """`--no-sweep` must skip `sweep_missing` altogether, not just suppress its
+    warning — the same archive state that trips
+    `EXIT_SWEEP_REFUSED` above must exit 0 here, with the ingest itself still
+    landing (task-13, review, minor: `--no-sweep` was previously untested)."""
+    archive = _archive_with_n_files(tmp_path, 12)
+    runner = CliRunner()
+    env = {"FLEDERMAP_DATABASE_URL": clean_database_url}
+
+    runner.invoke(cli, ["ingest", str(archive)], env=env)
+
+    session_dir = archive / "Session_20130401_053030"
+    for i in range(4):
+        (session_dir / f"NoID_20150610_{215400 + i:06d}.wav").unlink()
+
+    result = runner.invoke(cli, ["ingest", "--no-sweep", str(archive)], env=env)
+
+    assert result.exit_code == 0, result.output
+    assert "recordings absent" not in result.output
+    assert "flagged" not in result.output

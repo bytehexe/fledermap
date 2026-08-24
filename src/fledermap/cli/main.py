@@ -26,13 +26,24 @@ from fledermap.store.seed import seed_taxonomy
 # the layout `tests/test_migrations.py` already assumes.
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
-# Distinct from ConfigError's exit code (1, via click.ClickException): the
-# ingest itself succeeded and was committed, but the missing-file sweep was
-# refused. That is a real operational event a cron job or monitoring script
-# should be able to notice without parsing stdout, so it gets its own nonzero
-# exit code rather than folding into exit 0. See task-13 report, judgement
-# call, for the reasoning.
-EXIT_SWEEP_REFUSED = 2
+# Distinct from ConfigError's exit code (1, via click.ClickException) AND from
+# Click's OWN reserved exit code 2 (click.exceptions.UsageError — raised for a
+# nonexistent ARCHIVE path, a missing argument, or an unrecognised option,
+# since `--sweep/--no-sweep` and the `ARCHIVE` argument both go through
+# Click's own parsing). Reusing 2 would make "you mistyped the path, nothing
+# happened" and "ingest succeeded, sweep refused" indistinguishable to a
+# caller checking only the exit code — defeating the reason this has its own
+# code at all. Picked 3 specifically to stay clear of Click's reserved 0/1/2
+# (confirmed via `click.exceptions.ClickException.exit_code == 1` and
+# `UsageError.exit_code == 2` against the installed version).
+#
+# The ingest itself succeeded and was committed when this fires — only the
+# missing-file sweep was refused. That is a real operational event a cron job
+# or monitoring script should be able to notice without parsing stdout, so it
+# gets its own nonzero exit code rather than folding into exit 0. Stated in
+# `ingest`'s docstring too, so it surfaces in `--help` rather than living only
+# in this comment. See task-13 report, judgement call, for the full reasoning.
+EXIT_SWEEP_REFUSED = 3
 
 
 def _run_migrations(database_url: str) -> None:
@@ -73,7 +84,13 @@ def cli() -> None:
 )
 @click.pass_context
 def ingest(ctx: click.Context, archive: Path, sweep: bool) -> None:
-    """Scan ARCHIVE and write recordings to the database. Read-only on ARCHIVE."""
+    """Scan ARCHIVE and write recordings to the database. Read-only on ARCHIVE.
+
+    Exit codes: 0 on success. 1 if configuration is invalid (nothing was
+    written). 3 if the ingest itself succeeded and was committed, but the
+    missing-file sweep was refused (too many recordings vanished at once, or
+    some files were still settling) — check the warning on stderr for which.
+    """
     try:
         config = Config.from_env(archive)
     except ConfigError as exc:
