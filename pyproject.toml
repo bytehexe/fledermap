@@ -65,9 +65,6 @@ detached = true
 extra-dependencies = ["ruff"]
 
 [tool.pytest.ini_options]
-filterwarnings = [
-  "ignore::DeprecationWarning:testcontainers.*",
-]
 markers = [
   "db: requires a PostGIS container",
 ]

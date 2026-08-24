@@ -14,6 +14,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import (
     DeclarativeBase,
@@ -84,6 +85,10 @@ class Identification(Base):
             "source_version",
             "raw_label",
             name="uq_identification_source_claim",
+            # Postgres treats NULLs as distinct by default, so without this a
+            # source that reports no version (filename IDs, manual annotations)
+            # could insert unlimited duplicates of the same claim.
+            postgresql_nulls_not_distinct=True,
         ),
     )
 
@@ -92,9 +97,42 @@ class Identification(Base):
         ForeignKey("recording.id", ondelete="CASCADE"),
         index=True,
     )
-    source: Mapped[IdSource] = mapped_column(String(32))
+    # `source` is deliberately open: the design plans BatDetect2, BattyBirdNET
+    # and Kaleidoscope as further sources. A CHECK constraint would force a
+    # schema migration for every new classifier, so keep the typing and skip
+    # the constraint.
+    #
+    # values_callable: SQLAlchemy's Enum type persists the member *name*
+    # (e.g. "EMT_WAMD") by default, not `.value` (e.g. "emt.wamd"). Our
+    # StrEnum's dotted-lowercase values are the canonical on-disk vocabulary
+    # (a plain `String` column previously stored exactly those, since a
+    # StrEnum instance *is* its value as a string) — without this the switch
+    # to `Enum` would silently rewrite that representation.
+    source: Mapped[IdSource] = mapped_column(
+        SAEnum(
+            IdSource,
+            native_enum=False,
+            length=32,
+            create_constraint=False,
+            values_callable=lambda enum_cls: [e.value for e in enum_cls],
+        ),
+    )
     source_version: Mapped[str | None] = mapped_column(String(64))
-    verdict: Mapped[Verdict] = mapped_column(String(16))
+    # `verdict` is a closed vocabulary — species / no_id / noise. A CHECK
+    # constraint is correct here and will not need revisiting.
+    #
+    # create_constraint=True: this SQLAlchemy version defaults
+    # `create_constraint` to False, so it must be requested explicitly or no
+    # constraint is emitted at all — confirmed by inspecting the DDL.
+    verdict: Mapped[Verdict] = mapped_column(
+        SAEnum(
+            Verdict,
+            native_enum=False,
+            length=16,
+            create_constraint=True,
+            values_callable=lambda enum_cls: [e.value for e in enum_cls],
+        ),
+    )
     taxon_id: Mapped[int | None] = mapped_column(ForeignKey("taxon.id"))
     raw_label: Mapped[str | None] = mapped_column(String(128))
     confidence: Mapped[float | None] = mapped_column(Float)

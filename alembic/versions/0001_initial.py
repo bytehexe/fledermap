@@ -23,6 +23,10 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     """Upgrade schema."""
+    # Idempotent, and makes the migration self-sufficient rather than relying
+    # on an undocumented manual prerequisite. If the DB role lacks the
+    # privilege this fails immediately and visibly.
+    op.execute("CREATE EXTENSION IF NOT EXISTS postgis")
     op.create_table(
         "session",
         sa.Column("id", sa.Integer(), nullable=False),
@@ -110,9 +114,41 @@ def upgrade() -> None:
         "identification",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("recording_id", sa.Integer(), nullable=False),
-        sa.Column("source", sa.String(length=32), nullable=False),
+        # source: no CHECK constraint (create_constraint=False) — the design
+        # plans further sources (BatDetect2, BattyBirdNET, Kaleidoscope) and a
+        # constraint would force a migration for each new classifier.
+        sa.Column(
+            "source",
+            sa.Enum(
+                "emt.guano",
+                "emt.wamd",
+                "emt.filename",
+                "batdetect2",
+                "battybirdnet",
+                "kaleidoscope",
+                "manual",
+                name="idsource",
+                native_enum=False,
+                length=32,
+                create_constraint=False,
+            ),
+            nullable=False,
+        ),
         sa.Column("source_version", sa.String(length=64), nullable=True),
-        sa.Column("verdict", sa.String(length=16), nullable=False),
+        # verdict: closed vocabulary — CHECK constraint enforced.
+        sa.Column(
+            "verdict",
+            sa.Enum(
+                "species",
+                "no_id",
+                "noise",
+                name="verdict",
+                native_enum=False,
+                length=16,
+                create_constraint=True,
+            ),
+            nullable=False,
+        ),
         sa.Column("taxon_id", sa.Integer(), nullable=True),
         sa.Column("raw_label", sa.String(length=128), nullable=True),
         sa.Column("confidence", sa.Float(), nullable=True),
@@ -127,6 +163,7 @@ def upgrade() -> None:
             "source_version",
             "raw_label",
             name="uq_identification_source_claim",
+            postgresql_nulls_not_distinct=True,
         ),
     )
     op.create_index(

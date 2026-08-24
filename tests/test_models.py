@@ -91,3 +91,54 @@ def test_both_timestamp_columns_persist(engine: Engine) -> None:
         found = session.scalars(select(Recording)).one()
         assert found.filename_at != found.metadata_at
         assert found.timestamp_disagreement_s == pytest.approx(43192.0)
+
+
+def test_enum_columns_round_trip_to_python_type(engine: Engine) -> None:
+    """A plain String column would come back as `str`, not the enum (review item 1)."""
+    with OrmSession(engine) as session:
+        rec = _recording()
+        rec.identifications = [
+            Identification(
+                source=IdSource.EMT_WAMD, verdict=Verdict.SPECIES, raw_label="EPTSER"
+            ),
+        ]
+        session.add(rec)
+        session.commit()
+
+    with OrmSession(engine) as session:
+        loaded = session.scalars(select(Identification)).one()
+        assert isinstance(loaded.source, IdSource)
+        assert isinstance(loaded.verdict, Verdict)
+        assert loaded.source is IdSource.EMT_WAMD
+        assert loaded.verdict is Verdict.SPECIES
+
+
+def test_duplicate_claim_with_null_source_version_rejected(engine: Engine) -> None:
+    """Postgres treats NULLs as distinct by default; `source_version` is nullable
+    for exactly the sources (filename IDs, manual annotations) that most need the
+    constraint to hold (review item 2)."""
+    with OrmSession(engine) as session:
+        rec = _recording()
+        session.add(rec)
+        session.commit()
+        recording_id = rec.id
+
+    with OrmSession(engine) as session:
+        session.add(
+            Identification(
+                recording_id=recording_id,
+                source=IdSource.MANUAL,
+                verdict=Verdict.SPECIES,
+                raw_label="EPTSER",
+            ),
+        )
+        session.add(
+            Identification(
+                recording_id=recording_id,
+                source=IdSource.MANUAL,
+                verdict=Verdict.SPECIES,
+                raw_label="EPTSER",
+            ),
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()

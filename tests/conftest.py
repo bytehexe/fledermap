@@ -4,7 +4,7 @@ from collections.abc import Iterator
 
 import pytest
 from sqlalchemy import Engine, text
-from testcontainers.postgres import PostgresContainer
+from testcontainers.community.postgres import PostgresContainer
 
 from fledermap.store.db import make_engine
 from fledermap.store.models import Base
