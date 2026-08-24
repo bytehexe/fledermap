@@ -241,3 +241,17 @@ def test_nan_session_gap_raises_config_error(
     monkeypatch.setenv(ENV_SESSION_GAP_HOURS, "nan")
     with pytest.raises(ConfigError, match=ENV_SESSION_GAP_HOURS):
         Config.from_env(tmp_path)
+
+
+def test_nan_site_eps_raises_config_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Same `not x > 0` guard, same NaN hazard, as
+    `test_nan_session_gap_raises_config_error` — `site_eps_m` reaches
+    scikit-learn's DBSCAN `eps` parameter instead of `timedelta`, but a bare
+    `<= 0` check would just as surely let `nan` through uncaught."""
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_SITE_EPS_M, "nan")
+    with pytest.raises(ConfigError, match=ENV_SITE_EPS_M):
+        Config.from_env(tmp_path)
