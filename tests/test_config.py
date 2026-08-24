@@ -9,6 +9,9 @@ import pytest
 from fledermap.config import (
     ENV_DATABASE_URL,
     ENV_DEFAULT_TIMEZONE,
+    ENV_SESSION_GAP_HOURS,
+    ENV_SITE_EPS_M,
+    ENV_SITE_MIN_POINTS,
     ENV_TIMESTAMP_SOURCE,
     Config,
     ConfigError,
@@ -108,4 +111,68 @@ def test_malformed_timezone_key_raises_config_error_not_valueerror(
     monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
     monkeypatch.setenv(ENV_DEFAULT_TIMEZONE, "")
     with pytest.raises(ConfigError):
+        Config.from_env(tmp_path)
+
+
+def test_default_session_gap_is_six_hours(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.delenv(ENV_SESSION_GAP_HOURS, raising=False)
+    config = Config.from_env(tmp_path)
+    assert config.session_gap_hours == 6.0
+
+
+def test_session_gap_is_configurable(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_SESSION_GAP_HOURS, "4.5")
+    config = Config.from_env(tmp_path)
+    assert config.session_gap_hours == 4.5
+
+
+def test_invalid_session_gap_raises_config_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_SESSION_GAP_HOURS, "not-a-number")
+    with pytest.raises(ConfigError, match="not-a-number"):
+        Config.from_env(tmp_path)
+
+
+def test_default_site_eps_and_min_points(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.delenv(ENV_SITE_EPS_M, raising=False)
+    monkeypatch.delenv(ENV_SITE_MIN_POINTS, raising=False)
+    config = Config.from_env(tmp_path)
+    assert config.site_eps_m == 75.0
+    assert config.site_min_points == 3
+
+
+def test_site_eps_and_min_points_are_configurable(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_SITE_EPS_M, "50")
+    monkeypatch.setenv(ENV_SITE_MIN_POINTS, "5")
+    config = Config.from_env(tmp_path)
+    assert config.site_eps_m == 50.0
+    assert config.site_min_points == 5
+
+
+def test_invalid_site_min_points_raises_config_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_SITE_MIN_POINTS, "not-an-int")
+    with pytest.raises(ConfigError, match="not-an-int"):
         Config.from_env(tmp_path)
