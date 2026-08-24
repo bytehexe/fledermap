@@ -167,11 +167,17 @@ via environment variables.
 
 ## 8. Testing
 
-- **Pure-function unit tests**, no database: `LocalProjection` and `GeoCluster`
-  (ported — largely re-running mkmapdiary's existing math tests, `test_geo_cluster_math.py`,
-  against our copy) and `partition_sessions()`'s gap arithmetic in isolation.
+- **Pure-function unit tests**, no database: `LocalProjection`, `GeoCluster` (ported —
+  largely re-running mkmapdiary's existing math tests, `test_geo_cluster_math.py`,
+  against our copy), and `cluster_points()` (Task 8's DBSCAN wrapper — takes and
+  returns plain arrays, no ORM involved).
 - **DB-backed tests** (`pytest.mark.db`, matching the existing Phase 1 pattern) for
-  session/site persistence and merge-proposal detection end to end.
+  everything that persists or reads state: `partition_sessions()`, site persistence,
+  and merge-proposal detection end to end. `partition_sessions()`'s gap decision
+  bisects against real, possibly-just-flushed `Session` rows (a new session created
+  mid-run must be visible to the next recording's bisect) — the same reason
+  `sweep_missing` (Phase 1) is DB-backed rather than split into a pure core, not an
+  oversight to fix later.
 - **Phase-exit regression test (parent spec §15's own exit criterion):** "clustering
   regression test passes at both latitudes" — one fixture dataset centred near a
   high-latitude point (e.g. Germany, ~50°N, small UTM distortion) and one near the
