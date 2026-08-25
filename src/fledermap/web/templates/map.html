@@ -12,14 +12,15 @@
   <form id="filters">
     <label>From <input type="date" name="from" x-model="from"></label>
     <label>To <input type="date" name="to" x-model="to"></label>
-    <label>Taxon <input type="text" name="taxon" x-model="taxon"></label>
-    <label>Session <input type="text" name="session" x-model="session"></label>
+    <label>Taxon <input type="number" name="taxon" x-model="taxon"></label>
+    <label>Session <input type="number" name="session" x-model="session"></label>
     <label>Source
       <select name="source" x-model="source">
         <option value="">Any</option>
         <option value="emt.guano">EMT GUANO</option>
         <option value="emt.wamd">EMT WAMD</option>
         <option value="emt.filename">EMT filename</option>
+        <option value="emt.manual">EMT manual</option>
       </select>
     </label>
     <label>Verdict

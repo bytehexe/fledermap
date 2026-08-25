@@ -38,3 +38,7 @@ def test_map_page_includes_the_filter_form(engine: Engine, tmp_path: Path) -> No
     assert 'name="to"' in html
     assert 'name="session"' in html
     assert 'name="source"' in html
+    # finding 7: emt.manual has real, produced data today and must be
+    # selectable, unlike `manual`, which nothing produces yet.
+    assert 'value="emt.manual"' in html
+    assert 'value="manual"' not in html
