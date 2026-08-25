@@ -60,12 +60,25 @@ extra-dependencies = [
 extra-dependencies = ["mypy>=1.0.0", "pytest>=7.0.0", "testcontainers>=4.15.0"]
 
 [tool.hatch.envs.types.scripts]
-check = "mypy --install-types --non-interactive {args:src/fledermap tests}"
+check = "mypy --install-types --non-interactive {args:src/fledermap tests scripts}"
 
 [tool.hatch.envs.ruff]
 skip-install = true
 detached = true
-extra-dependencies = ["ruff"]
+extra-dependencies = ["ruff==0.16.4"]
+
+# `hatch fmt` runs this env, which by default injects hatch's OWN bundled ruff
+# config (an older pinned version, 120-column line length) on top of ours —
+# disagreeing with `[tool.hatch.envs.ruff]` above (this project's own pinned
+# version, 88-column default) on both lint rules and formatting. `config-path
+# = "none"` disables that injection so this env falls back to the project's
+# own `[tool.ruff]` below, and pinning the same version as the `ruff` env
+# makes `hatch fmt`, `hatch run ruff:ruff`, and pre-commit produce identical
+# output. Do not add `extend` to `[tool.ruff]` — hatch's docs warn it defeats
+# `config-path = "none"`.
+[tool.hatch.envs.hatch-static-analysis]
+config-path = "none"
+dependencies = ["ruff==0.16.4"]
 
 # scikit-learn ships no `py.typed` marker and there is no `types-scikit-learn`
 # stub package, so mypy cannot resolve it by any other means. A SCOPED override

@@ -1,16 +1,24 @@
 repos:
-  - repo: https://github.com/adrienverge/yamllint
-    rev: v1.35.1
-    hooks:
-      - id: yamllint
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.6.9
-    hooks:
-      - id: ruff
-        args: [--fix]
-      - id: ruff-format
   - repo: local
     hooks:
+      - id: ruff-check
+        name: ruff check
+        # Same pinned env `hatch fmt`/`hatch run ruff:ruff` both resolve to
+        # (pyproject.toml's [tool.hatch.envs.ruff]) — not a separate mirror
+        # repo's own install, so there is exactly one ruff version in play.
+        entry: hatch run ruff:ruff check --fix
+        language: system
+        types: [python]
+      - id: ruff-format
+        name: ruff format
+        entry: hatch run ruff:ruff format
+        language: system
+        types: [python]
+      - id: yaml-check
+        name: yaml check (syntax + duplicate keys)
+        entry: hatch run python scripts/check_yaml.py
+        language: system
+        types: [yaml]
       - id: mypy
         name: mypy
         entry: hatch run types:check
@@ -21,7 +29,8 @@ repos:
         entry: hatch test
         language: system
         pass_filenames: false
-  - repo: https://github.com/jorisroovers/gitlint
-    rev: v0.19.1
-    hooks:
-      - id: gitlint
+      - id: commit-msg-conventional
+        name: commit message follows Conventional Commits
+        entry: hatch run python scripts/check_commit_msg.py
+        language: system
+        stages: [commit-msg]
