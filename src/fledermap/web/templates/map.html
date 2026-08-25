@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Fledermap</title>
+  <link rel="stylesheet" href="{{ url_for('vendor.static', filename='leaflet.css') }}">
+  <link rel="stylesheet" href="{{ url_for('vendor.static', filename='MarkerCluster.css') }}">
+  <link rel="stylesheet" href="{{ url_for('vendor.static', filename='MarkerCluster.Default.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+</head>
+<body x-data="filterForm()">
+  <form id="filters">
+    <label>From <input type="date" name="from" x-model="from"></label>
+    <label>To <input type="date" name="to" x-model="to"></label>
+    <label>Taxon <input type="text" name="taxon" x-model="taxon"></label>
+    <label>Session <input type="text" name="session" x-model="session"></label>
+    <label>Source
+      <select name="source" x-model="source">
+        <option value="">Any</option>
+        <option value="emt.guano">EMT GUANO</option>
+        <option value="emt.wamd">EMT WAMD</option>
+        <option value="emt.filename">EMT filename</option>
+      </select>
+    </label>
+    <label>Verdict
+      <select name="verdict" x-model="verdict">
+        <option value="">Species only (default)</option>
+        <option value="noise">Noise</option>
+        <option value="no_id">No ID</option>
+        <option value="all">All</option>
+      </select>
+    </label>
+  </form>
+
+  <div id="map"></div>
+
+  <script src="{{ url_for('vendor.static', filename='leaflet.js') }}"></script>
+  <script src="{{ url_for('vendor.static', filename='leaflet.markercluster.js') }}"></script>
+  <script src="{{ url_for('vendor.static', filename='htmx.min.js') }}"></script>
+  <script src="{{ url_for('vendor.static', filename='alpine.min.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
