@@ -103,11 +103,18 @@ def render_spectrogram(
 Bat calls span roughly 9 kHz–212 kHz across the EU species this project targets
 (spec's own species list, `docs/references.md`); `max_freq_hz` defaults to
 128 kHz to cover the practical range without wasting resolution on near-silent
-bins above it. `window_ms`/`overlap` are STFT tuning, not correctness — a
-short window favours time resolution over frequency resolution, appropriate for
-short, fast bat calls. All defaults are revisitable without a schema change
-(`params_hash` exists precisely so a settings change invalidates old renders
-without needing a migration).
+bins above it. This happens to equal the Nyquist frequency of the bundled
+EMT sample rate (256 kHz ÷ 2) — coincidence worth naming so nobody mistakes it
+for the reason. **`render_spectrogram` clamps its actual upper bound to
+`min(params.max_freq_hz, source_sample_rate / 2)` at render time**, read from
+the WAV header, not the fixed constant unconditionally — a recording at a
+different sample rate (a different or future detector, a different EMT
+setting) must never be asked to render frequency bins above its own Nyquist
+limit, which don't exist in the data. `window_ms`/`overlap` are STFT tuning,
+not correctness — a short window favours time resolution over frequency
+resolution, appropriate for short, fast bat calls. All defaults are
+revisitable without a schema change (`params_hash` exists precisely so a
+settings change invalidates old renders without needing a migration).
 
 ## 5. `media/preview.py`
 
