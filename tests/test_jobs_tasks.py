@@ -197,10 +197,12 @@ def test_duplicate_defer_with_the_same_queueing_lock_is_refused(
     audio_hash = "h4" * 32
 
     render_spectrogram_task.configure(
+        lock=spectrogram_lock_key(audio_hash),
         queueing_lock=spectrogram_lock_key(audio_hash),
     ).defer(audio_hash=audio_hash)
 
     with pytest.raises(procrastinate.exceptions.AlreadyEnqueued):
         render_spectrogram_task.configure(
+            lock=spectrogram_lock_key(audio_hash),
             queueing_lock=spectrogram_lock_key(audio_hash),
         ).defer(audio_hash=audio_hash)
