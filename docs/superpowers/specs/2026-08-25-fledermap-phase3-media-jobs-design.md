@@ -52,14 +52,53 @@ surfaces.
   exists first (e.g. `procrastinate_jobs` present in `information_schema.tables`)
   and only call the apply method when it is absent — restoring the same
   idempotent "safe to run every time" property Alembic already has, rather than
-  assuming Procrastinate gives it for free. The exact sync-callable entry point
-  for a sync (`SQLAlchemyPsycopg2Connector`-based) `App` was not fully resolved
-  from documentation alone (`apply_schema_async` is confirmed to exist; whether
-  there is a separate sync `apply_schema` or the sync `App` bridges it
-  automatically needs a direct check against the installed package, e.g.
-  `python -c "import procrastinate; help(procrastinate.App)"`, before writing
-  the actual call) — the implementing task's brief says so explicitly rather
-  than baking in an unverified method name.
+  assuming Procrastinate gives it for free.
+  **Resolved empirically against a real Postgres 16 container, not left as an
+  open question:** `SchemaManager.apply_schema()` is a real, directly-callable
+  sync method — but calling it exactly as documented
+  (`app.schema_manager.apply_schema()`) FAILS against a real database with
+  `psycopg2.errors.SyntaxError: too many parameters specified for RAISE`.
+  Root cause, confirmed by reading the actual generated SQL: `apply_schema()`
+  unconditionally runs `schema_sql.replace("%", "%%")` before executing it —
+  presumably correct for whichever DBAPI call path Procrastinate's other
+  connectors normally use (which apparently always pass a params argument,
+  even an empty one, making a bare `%` significant to psycopg2) — but this
+  quietly breaks the schema's own, unrelated `RAISE '...(job id: %)', job_id`
+  statements (PL/pgSQL's own use of `%` as a format placeholder), turning a
+  single real placeholder into an escaped literal (`%%`, zero placeholders)
+  while still passing `job_id` as an argument — hence "too many parameters."
+  **Confirmed working fix, verified end-to-end:** fetch the UNESCAPED SQL via
+  `schema_manager.get_schema()` and execute it through a raw psycopg2 cursor
+  obtained from `engine.raw_connection()`, calling `cursor.execute(sql)` with
+  **no params argument at all** — not even an empty one. Going through
+  SQLAlchemy's own `exec_driver_sql`/`connection.execute` still implicitly
+  supplies an empty params structure that re-triggers the same problem
+  (confirmed by testing that path too and watching it fail differently:
+  `TypeError: ...immutabledict is not a sequence`). `ensure_schema` (plan
+  Task 4) uses this confirmed recipe directly, not Procrastinate's own
+  `apply_schema()`.
+- **The `fledermap worker` process needs its own, separate async-capable
+  connector — it cannot reuse the sync `SQLAlchemyPsycopg2Connector` used for
+  deferring jobs.** This corrects the original assumption in this document's
+  first draft (`§6` originally proposed one shared connector for everything).
+  Confirmed both from Procrastinate's own docs ("An asynchronous connector is
+  always required for running the worker or the Procrastinate CLI...
+  Synchronous connectors are restricted to deferring jobs") and empirically:
+  calling `app.run_worker(...)` on an App opened with
+  `SQLAlchemyPsycopg2Connector` raises `SyncConnectorConfigurationError`
+  outright. **Confirmed working shape, verified end-to-end against a real
+  Postgres container:** keep ONE `App` instance for task registration
+  (`@app.task` decorations, shared by both defer-side code and the worker —
+  Procrastinate's tasks are bound to the App they're declared against, not to
+  a specific connector), and swap in an async connector only for the
+  duration of running the worker, via `App.replace_connector` — a documented,
+  fully generic context manager (not specific to any one connector type):
+  `with app.replace_connector(PsycopgConnector(conninfo=database_url)) as
+  worker_app: worker_app.run_worker(...)`. This needs `psycopg[binary,pool]`
+  (psycopg **3**, distinct from the `psycopg2-binary` this project already
+  depends on for its own SQLAlchemy engine) as a new dependency, used ONLY by
+  the `worker` command — `enqueue_media`/`backfill_media`/`ingest`'s defer
+  calls never touch it.
 
 ## 3. Module layout
 
@@ -161,10 +200,25 @@ from procrastinate import App
 from procrastinate.contrib.sqlalchemy import SQLAlchemyPsycopg2Connector
 
 def make_job_app(engine: Engine) -> App:
-    """One Procrastinate App per process, sharing this project's own
-    SQLAlchemy engine/connection pool (`SQLAlchemyPsycopg2Connector`) — no
-    second connection pool, no asyncio, consistent with every other
-    synchronous, psycopg2-backed piece of this project."""
+    """One Procrastinate App shared by defer-side code (enqueue_media,
+    backfill_media, ingest's own defer call) via SQLAlchemyPsycopg2Connector
+    -- sharing this project's own SQLAlchemy engine/connection pool, no
+    second connection pool, no asyncio for THIS side. This App is also where
+    every @app.task lives (jobs/tasks.py) -- tasks are bound to the App
+    object they're declared against, not to a specific connector, so the
+    SAME app (and its already-registered tasks) is reused by the worker
+    process too, just with its connector swapped for the duration of the
+    run (see below) -- there is exactly one App per process, never two."""
+
+
+def ensure_schema(app: App) -> None:
+    """Procrastinate's own schema-apply is NOT idempotent (it errors if
+    already applied) AND its own apply_schema()/apply_schema_async() methods
+    are broken against a real Postgres server (see the deviations section
+    above for the confirmed root cause and fix). Checks information_schema
+    for procrastinate_jobs first; if absent, executes
+    app.schema_manager.get_schema() via a raw psycopg2 cursor with no params
+    argument, matching the confirmed working recipe exactly."""
 ```
 
 Queues, matching parent spec §4's table exactly: `media` (this phase's two
@@ -172,6 +226,19 @@ tasks), `geo` and `classify` declared as known queue names but with no task
 registered against them yet — explicitly out of scope for this phase (site
 naming via poiidx, and any classifier integration, are later work; the spec
 itself calls the classify queue "queue slot exists, no integration").
+
+**Running the worker needs a second, async-capable connector — confirmed
+empirically, not assumed** (see the deviations section above for the full
+finding): `SQLAlchemyPsycopg2Connector` can defer jobs but cannot run a
+worker (`app.run_worker(...)` raises `SyncConnectorConfigurationError`
+outright). The `worker` CLI command (§9) builds a second connector,
+`procrastinate.PsycopgConnector(conninfo=config.database_url)` (psycopg 3,
+genuinely async — a new dependency, `psycopg[binary,pool]`, used only by this
+one command), and runs the worker via `with app.replace_connector(async_connector)
+as worker_app: worker_app.run_worker(...)` — the SAME App object (and its
+already-`@app.task`-registered tasks from `jobs/tasks.py`), connector swapped
+only for the duration of that call. `enqueue_media`/`backfill_media`/`ingest`
+never touch this second connector at all.
 
 ## 7. `jobs/tasks.py` — locking
 
@@ -305,6 +372,27 @@ install_signal_handlers=False, listen_notify=False` — since a real, waiting
 worker legitimately wants signal handling and NOTIFY-based low latency, but a
 one-shot catch-up run (test or manual) needs neither.
 
+**`worker` builds the second, async-capable connector described in §6 and
+swaps it in for the run:**
+
+```python
+async_connector = procrastinate.PsycopgConnector(conninfo=config.database_url)
+with jobs_app.replace_connector(async_connector) as worker_app:
+    worker_app.run_worker(
+        wait=wait,
+        install_signal_handlers=wait,
+        listen_notify=wait,
+        additional_context={
+            "archive_root": config.archive_root,
+            "media_root": config.media_root,
+            "engine": engine,
+        },
+    )
+```
+
+`ingest`/`enqueue-media` never construct a `PsycopgConnector` at all — only
+`worker` does, since only running the worker requires one (§6).
+
 ## 10. Config additions
 
 ```python
@@ -390,3 +478,5 @@ inspection already gives (the job-status strip is Phase 5).
 | P3-5 | Both tasks deferred with combined `lock` + `queueing_lock`, keyed per task type per (audio_hash, params_hash) | `queueing_lock` alone doesn't cover a job already in "doing"; combining both closes the duplicate-enqueue race Procrastinate doesn't handle automatically |
 | P3-6 | `backfill_media` checks disk state, not Procrastinate's job table, to decide what needs enqueueing | Job history isn't a reliable durable record (jobs can be configured to auto-delete); disk state is the actual source of truth for "has this been rendered" |
 | P3-7 | `media_root` is a required config value, distinct from `archive_root` | Writing into the archive would violate D16's read-only invariant; where media lives is a real deployment decision, not safe to default silently |
+| P3-8 | `ensure_schema` executes Procrastinate's schema SQL via a raw psycopg2 cursor with no params argument, not `app.schema_manager.apply_schema()` | `apply_schema()`'s own `%`→`%%` escaping breaks a legitimate single `%` inside the schema's own `RAISE '...%', arg` statements — confirmed by reproducing the exact Postgres error against a live container and tracing it to that escaping step |
+| P3-9 | `fledermap worker` builds a second, async `PsycopgConnector` (psycopg 3) and runs via `app.replace_connector(...)`, rather than reusing the sync `SQLAlchemyPsycopg2Connector` everything else uses | Confirmed both from Procrastinate's own docs and empirically that `run_worker()` requires an async connector and raises `SyncConnectorConfigurationError` on a sync one — the App and its registered tasks are still shared (one process, one App), only the connector is swapped for the worker's run |
