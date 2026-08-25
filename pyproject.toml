@@ -69,7 +69,21 @@ extra-dependencies = [
 extra-dependencies = ["mypy>=1.0.0", "pytest>=7.0.0", "testcontainers>=4.15.0"]
 
 [tool.hatch.envs.types.scripts]
-check = "mypy --install-types --non-interactive {args:src/fledermap tests scripts}"
+# --explicit-package-bases: without it, mypy resolves scripts/fetch_vendor_assets.py
+# to two different module names -- "fetch_vendor_assets" (passed directly via the
+# `scripts` root arg) and "scripts.fetch_vendor_assets" (reached through
+# tests/test_fetch_vendor_assets.py's `from scripts.fetch_vendor_assets import ...`,
+# same namespace-package resolution pytest itself uses) -- and refuses to check the
+# file at all ("Source file found twice under different module names"). The flag
+# makes mypy resolve both paths to the same fully-qualified name -- but it needs
+# MYPYPATH=src too, or it does the same thing to src/fledermap: without a
+# recognized package base under `src`, --explicit-package-bases falls back to cwd
+# (the repo root) and names the *first* arg's files "src.fledermap...", while every
+# other file still reaches the installed `fledermap` package as "fledermap..." --
+# a second, larger version of the same conflict. MYPYPATH=src gives `src` itself as
+# the recognized base, so files under it resolve to "fledermap...", matching how
+# they're imported everywhere else in the project.
+check = "MYPYPATH=src mypy --install-types --non-interactive --explicit-package-bases {args:src/fledermap tests scripts}"
 
 [tool.hatch.envs.ruff]
 skip-install = true
