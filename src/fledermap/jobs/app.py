@@ -4,11 +4,24 @@ connector.
 One `App` per process (design spec §6): `jobs/tasks.py`'s module-level `app`
 (built here, via `make_job_app`) is shared by BOTH defer-side code
 (`SQLAlchemyPsycopg2Connector`, opened against this project's own SQLAlchemy
-engine -- no second connection pool for that side) and the worker
-(`app.replace_connector(make_worker_connector(...))`, swapped in only for the
-duration of `run_worker`). Tasks are bound to the App object they're declared
-against, not to a specific connector, which is what makes sharing one App
-across both roles possible.
+engine -- no second connection pool for that side) and the worker, which
+swaps in `make_worker_connector(...)` only for the duration of `run_worker`
+by using `replace_connector` as a CONTEXT MANAGER, not a bare call --
+`replace_connector` is `@contextlib.contextmanager`, so its connector-swap
+only happens on `__enter__` and is undone on exit:
+
+    with app.replace_connector(make_worker_connector(database_url)) as worker_app:
+        worker_app.run_worker(...)
+
+A bare `app.replace_connector(make_worker_connector(...))` statement (no
+`with`) constructs the generator and immediately discards it -- the swap
+never runs, silently. `replace_connector` also does not open or connect the
+connector it's given; the connector passed in (here, a `PsycopgConnector`
+constructed with `conninfo=...`) must already be ready to use as
+constructed, same as `SQLAlchemyPsycopg2Connector` is opened separately via
+`app.open(engine)` on the defer side. Tasks are bound to the App object
+they're declared against, not to a specific connector, which is what makes
+sharing one App across both roles possible.
 
 Two things below were CONFIRMED, not assumed, against a real Postgres 16
 container before this plan was written (design spec §2 has the full
@@ -44,9 +57,17 @@ def make_job_app() -> procrastinate.App:
     """Construct the App with its connector, but do NOT open it against an
     engine yet -- mirrors `SQLAlchemyPsycopg2Connector()`'s own documented
     pattern (constructed with no DSN/engine, opened separately once the real
-    one is known). Every caller must `app.open(engine)` (defer-side) or
-    `app.replace_connector(make_worker_connector(...))` (worker-side) before
-    actually deferring or running anything."""
+    one is known). Every caller must either `app.open(engine)` (defer-side)
+    or, worker-side, use `replace_connector` as a context manager (it is
+    `@contextlib.contextmanager`; a bare call without `with` never swaps the
+    connector):
+
+        with app.replace_connector(make_worker_connector(database_url)) as worker_app:
+            worker_app.run_worker(...)
+
+    `replace_connector` does not open/connect the connector it's given --
+    pass it one that is already ready to use as constructed, e.g.
+    `make_worker_connector`'s `PsycopgConnector(conninfo=...)`."""
     return procrastinate.App(connector=SQLAlchemyPsycopg2Connector())
 
 
