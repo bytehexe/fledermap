@@ -43,6 +43,23 @@ surfaces.
   programmatically at the same point Alembic's migration runs, keeps the
   "run one command, your DB is ready" property for the end user without taking on
   that maintenance burden.
+  **Checked against Procrastinate's own source (`schema.py`/`cli.py`):**
+  `SchemaManager.apply_schema_async()` is the real underlying call (`procrastinate
+  schema --apply` just wraps it) — but the CLI's own docstring warns "This won't
+  work if the schema has already been applied," i.e. it is **not** safe to call
+  unconditionally on every startup the way `alembic upgrade head` is. The
+  implementing task must therefore check whether Procrastinate's schema already
+  exists first (e.g. `procrastinate_jobs` present in `information_schema.tables`)
+  and only call the apply method when it is absent — restoring the same
+  idempotent "safe to run every time" property Alembic already has, rather than
+  assuming Procrastinate gives it for free. The exact sync-callable entry point
+  for a sync (`SQLAlchemyPsycopg2Connector`-based) `App` was not fully resolved
+  from documentation alone (`apply_schema_async` is confirmed to exist; whether
+  there is a separate sync `apply_schema` or the sync `App` bridges it
+  automatically needs a direct check against the installed package, e.g.
+  `python -c "import procrastinate; help(procrastinate.App)"`, before writing
+  the actual call) — the implementing task's brief says so explicitly rather
+  than baking in an unverified method name.
 
 ## 3. Module layout
 
@@ -276,6 +293,17 @@ how a command that doesn't touch files already behaves in this codebase.
 own default (`wait=True`). `enqueue-media` is a one-shot command an operator
 runs once after upgrading past this phase, or any time media params change and
 a full re-render is wanted.
+
+**`worker` gets a `--wait/--no-wait` flag** (default `--wait`), matching the
+existing `--sweep/--no-sweep` pattern on `ingest`. A blocking command can't be
+driven through `CliRunner().invoke()` the way `ingest`/`derive`'s tests do —
+`--no-wait` exists so tests can exercise the real CLI command end-to-end
+(defer a job via `ingest`, then run `worker ARCHIVE --no-wait` and assert the
+file landed) rather than only testing `app.run_worker()` directly. `--no-wait`
+implies Procrastinate's own documented testing recipe — `wait=False,
+install_signal_handlers=False, listen_notify=False` — since a real, waiting
+worker legitimately wants signal handling and NOTIFY-based low latency, but a
+one-shot catch-up run (test or manual) needs neither.
 
 ## 10. Config additions
 
