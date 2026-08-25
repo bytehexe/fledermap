@@ -26,6 +26,13 @@ to it when you find a new source.
 - **`FLEDERMAP_MEDIA_ROOT` is required (Phase 3)**, and is a *separate* directory from the
   archive root. The archive is read-only (D16); derived media is written only under the media
   root.
+- **`FLEDERMAP_STATIC_ROOT` is optional (Phase 4)**, unlike `FLEDERMAP_MEDIA_ROOT` above —
+  it defaults to a `platformdirs` cache directory, since fetched vendor JS/CSS is small and
+  regenerable rather than an operator's deliberate data-placement decision. Before
+  `fledermap serve` will have working vendor assets, `hatch run python
+  scripts/fetch_vendor_assets.py` must be run once (it needs real network access, so it is
+  never part of the test suite's own execution path) — skip it and every vendor
+  `<script>`/`<link>` on the map page 404s with no explanation.
 
 ## Tooling
 

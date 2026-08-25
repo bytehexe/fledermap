@@ -256,8 +256,8 @@ def worker(archive: Path, wait: bool) -> None:
 @click.option("--host", default="127.0.0.1", help="Interface to bind.")
 @click.option("--port", default=5000, type=int, help="Port to listen on.")
 def serve(host: str, port: int) -> None:
-    """Run the web map. Reads FLEDERMAP_DATABASE_URL and (optionally)
-    FLEDERMAP_STATIC_ROOT/FLEDERMAP_MEDIA_ROOT."""
+    """Run the web map. Reads FLEDERMAP_DATABASE_URL and FLEDERMAP_MEDIA_ROOT
+    (both required) and, optionally, FLEDERMAP_STATIC_ROOT."""
     try:
         config = Config.from_env(Path.cwd())
     except ConfigError as exc:
