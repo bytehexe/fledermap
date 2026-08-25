@@ -30,6 +30,7 @@ dependencies = [
   "scikit-learn",
   "platformdirs",
   "pillow",
+  "flask",
   # Pinned to a minor range, not left open: `jobs/app.py`'s `ensure_schema`
   # reaches into `app.schema_manager.get_schema()` (a semi-internal surface)
   # to work around a confirmed upstream bug in `apply_schema()`, and it only

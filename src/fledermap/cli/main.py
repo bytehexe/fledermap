@@ -27,6 +27,7 @@ from fledermap.services.ingest import (
 from fledermap.services.media import backfill_media, enqueue_media
 from fledermap.store.db import make_engine
 from fledermap.store.seed import seed_taxonomy
+from fledermap.web.app import create_app
 
 # Repo root: src/fledermap/cli/main.py -> cli -> fledermap -> src -> repo root.
 # `alembic/` lives at the repo root, not inside the installed package, mirroring
@@ -249,6 +250,23 @@ def worker(archive: Path, wait: bool) -> None:
                 "engine": engine,
             },
         )
+
+
+@cli.command()
+@click.option("--host", default="127.0.0.1", help="Interface to bind.")
+@click.option("--port", default=5000, type=int, help="Port to listen on.")
+def serve(host: str, port: int) -> None:
+    """Run the web map. Reads FLEDERMAP_DATABASE_URL and (optionally)
+    FLEDERMAP_STATIC_ROOT/FLEDERMAP_MEDIA_ROOT."""
+    try:
+        config = Config.from_env(Path.cwd())
+    except ConfigError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    engine = make_engine(config.database_url)
+    _run_migrations(config.database_url)
+    app = create_app(engine, config.static_root)
+    app.run(host=host, port=port)
 
 
 @cli.command(name="enqueue-media")

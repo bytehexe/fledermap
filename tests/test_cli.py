@@ -543,3 +543,24 @@ def test_enqueue_media_command_reports_disk_gap_but_avoids_duplicate_jobs(
     # own defer attempts were all refused by queueing_lock, even though the
     # reported count above doesn't reflect that.
     assert count == 4
+
+
+def test_serve_command_starts_without_error(
+    clean_database_url: str,
+    tmp_path: Path,
+) -> None:
+    """Doesn't actually start listening (app.run() blocks) -- confirms the
+    command builds a real Flask app and exits cleanly when given --help,
+    proving Config/engine/create_app wiring doesn't raise before that point."""
+    runner = CliRunner()
+    env = {
+        "FLEDERMAP_DATABASE_URL": clean_database_url,
+        "FLEDERMAP_MEDIA_ROOT": str(tmp_path / "media"),
+        "FLEDERMAP_STATIC_ROOT": str(tmp_path / "static"),
+    }
+
+    result = runner.invoke(cli, ["serve", "--help"], env=env)
+
+    assert result.exit_code == 0, result.output
+    assert "--host" in result.output
+    assert "--port" in result.output
