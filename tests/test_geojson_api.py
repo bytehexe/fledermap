@@ -167,3 +167,39 @@ def test_invalid_bbox_returns_400(engine: Engine, tmp_path: Path) -> None:
 
     assert response.status_code == 400
     assert "bbox" in response.get_json()["error"]
+
+
+def test_non_numeric_four_part_bbox_returns_400(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    client = _app_client(engine, tmp_path)
+
+    response = client.get("/api/recordings.geojson?bbox=a,b,c,d")
+
+    assert response.status_code == 400
+    assert "bbox" in response.get_json()["error"]
+
+
+def test_invalid_taxon_param_returns_400_not_500(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    client = _app_client(engine, tmp_path)
+
+    response = client.get("/api/recordings.geojson?taxon=notanumber")
+
+    assert response.status_code == 400
+    assert "error" in response.get_json()
+
+
+def test_invalid_verdict_param_returns_400_not_500(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    client = _app_client(engine, tmp_path)
+
+    response = client.get("/api/recordings.geojson?verdict=bogus")
+
+    assert response.status_code == 400
+    assert "error" in response.get_json()

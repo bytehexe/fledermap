@@ -27,10 +27,13 @@ def _parse_bbox(raw: str | None) -> BBox | None:
     if raw is None:
         return None
     parts = raw.split(",")
+    msg = "bbox must be 4 comma-separated numbers: min_lon,min_lat,max_lon,max_lat"
     if len(parts) != 4:
-        msg = "bbox must be 4 comma-separated numbers: min_lon,min_lat,max_lon,max_lat"
         raise ValueError(msg)
-    min_lon, min_lat, max_lon, max_lat = (float(p) for p in parts)
+    try:
+        min_lon, min_lat, max_lon, max_lat = (float(p) for p in parts)
+    except ValueError:
+        raise ValueError(msg) from None
     return (min_lon, min_lat, max_lon, max_lat)
 
 
@@ -104,6 +107,11 @@ def recordings_geojson() -> ResponseReturnValue:
         bbox = _parse_bbox(flask.request.args.get("bbox"))
         source_raw = flask.request.args.get("source")
         source = IdSource(source_raw) if source_raw else None
+        date_from = _parse_datetime(flask.request.args.get("from"))
+        date_to = _parse_datetime(flask.request.args.get("to"))
+        taxon_id = _parse_int(flask.request.args.get("taxon"))
+        verdict = _parse_verdict(flask.request.args.get("verdict"))
+        session_id = _parse_int(flask.request.args.get("session"))
     except ValueError as exc:
         return flask.jsonify({"error": str(exc)}), 400
 
@@ -112,11 +120,11 @@ def recordings_geojson() -> ResponseReturnValue:
         recordings = filtered_recordings(
             session,
             bbox=bbox,
-            date_from=_parse_datetime(flask.request.args.get("from")),
-            date_to=_parse_datetime(flask.request.args.get("to")),
-            taxon_id=_parse_int(flask.request.args.get("taxon")),
-            verdict=_parse_verdict(flask.request.args.get("verdict")),
-            session_id=_parse_int(flask.request.args.get("session")),
+            date_from=date_from,
+            date_to=date_to,
+            taxon_id=taxon_id,
+            verdict=verdict,
+            session_id=session_id,
             source=source,
         )
         truncated = len(recordings) > MAX_FEATURES
@@ -131,6 +139,8 @@ def recordings_geojson() -> ResponseReturnValue:
 def sites_geojson() -> ResponseReturnValue:
     try:
         bbox = _parse_bbox(flask.request.args.get("bbox"))
+        date_from = _parse_datetime(flask.request.args.get("from"))
+        date_to = _parse_datetime(flask.request.args.get("to"))
     except ValueError as exc:
         return flask.jsonify({"error": str(exc)}), 400
 
@@ -139,8 +149,8 @@ def sites_geojson() -> ResponseReturnValue:
         sites = filtered_sites(
             session,
             bbox=bbox,
-            date_from=_parse_datetime(flask.request.args.get("from")),
-            date_to=_parse_datetime(flask.request.args.get("to")),
+            date_from=date_from,
+            date_to=date_to,
         )
         truncated = len(sites) > MAX_FEATURES
         features = [_site_feature(s) for s in sites[:MAX_FEATURES]]
