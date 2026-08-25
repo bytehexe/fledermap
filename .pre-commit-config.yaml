@@ -1,3 +1,9 @@
+# Without this, a hook with no explicit `stages:` runs at EVERY installed git
+# hook type — since both `pre-commit` and `commit-msg` are installed here,
+# every hook below except the commit-msg one (which sets its own `stages:`)
+# would otherwise run twice per commit, doubling the full test suite's cost.
+default_stages: [pre-commit]
+
 repos:
   - repo: local
     hooks:
