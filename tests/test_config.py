@@ -9,6 +9,7 @@ import pytest
 from fledermap.config import (
     ENV_DATABASE_URL,
     ENV_DEFAULT_TIMEZONE,
+    ENV_MEDIA_ROOT,
     ENV_SESSION_GAP_HOURS,
     ENV_SITE_EPS_M,
     ENV_SITE_MIN_POINTS,
@@ -33,6 +34,7 @@ def test_default_timestamp_source_is_filename(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
     monkeypatch.delenv(ENV_TIMESTAMP_SOURCE, raising=False)
     config = Config.from_env(tmp_path)
     assert config.timestamp_source == TimestampSource.FILENAME
@@ -43,6 +45,7 @@ def test_metadata_timestamp_source_is_accepted(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
     monkeypatch.setenv(ENV_TIMESTAMP_SOURCE, TimestampSource.METADATA)
     config = Config.from_env(tmp_path)
     assert config.timestamp_source == TimestampSource.METADATA
@@ -70,6 +73,7 @@ def test_default_timezone_defaults_to_utc(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
     monkeypatch.delenv(ENV_DEFAULT_TIMEZONE, raising=False)
     config = Config.from_env(tmp_path)
     assert config.default_timezone == UTC
@@ -80,6 +84,7 @@ def test_valid_iana_zone_name_is_accepted(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
     monkeypatch.setenv(ENV_DEFAULT_TIMEZONE, "Europe/Berlin")
     config = Config.from_env(tmp_path)
     assert config.default_timezone == ZoneInfo("Europe/Berlin")
@@ -119,6 +124,7 @@ def test_default_session_gap_is_six_hours(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
     monkeypatch.delenv(ENV_SESSION_GAP_HOURS, raising=False)
     config = Config.from_env(tmp_path)
     assert config.session_gap_hours == 6.0
@@ -129,6 +135,7 @@ def test_session_gap_is_configurable(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
     monkeypatch.setenv(ENV_SESSION_GAP_HOURS, "4.5")
     config = Config.from_env(tmp_path)
     assert config.session_gap_hours == 4.5
@@ -149,6 +156,7 @@ def test_default_site_eps_and_min_points(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
     monkeypatch.delenv(ENV_SITE_EPS_M, raising=False)
     monkeypatch.delenv(ENV_SITE_MIN_POINTS, raising=False)
     config = Config.from_env(tmp_path)
@@ -161,6 +169,7 @@ def test_site_eps_and_min_points_are_configurable(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
     monkeypatch.setenv(ENV_SITE_EPS_M, "50")
     monkeypatch.setenv(ENV_SITE_MIN_POINTS, "5")
     config = Config.from_env(tmp_path)
@@ -255,3 +264,29 @@ def test_nan_site_eps_raises_config_error(
     monkeypatch.setenv(ENV_SITE_EPS_M, "nan")
     with pytest.raises(ConfigError, match=ENV_SITE_EPS_M):
         Config.from_env(tmp_path)
+
+
+def test_missing_media_root_raises(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.delenv(ENV_MEDIA_ROOT, raising=False)
+
+    with pytest.raises(ConfigError, match=ENV_MEDIA_ROOT):
+        Config.from_env(tmp_path)
+
+
+def test_media_root_is_resolved_to_an_absolute_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    relative = "some/media/dir"
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(ENV_MEDIA_ROOT, relative)
+
+    config = Config.from_env(tmp_path)
+
+    assert config.media_root == (tmp_path / relative).resolve()
+    assert config.media_root.is_absolute()

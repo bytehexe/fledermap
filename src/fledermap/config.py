@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 import zoneinfo
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, tzinfo
 from pathlib import Path
 
@@ -22,6 +22,7 @@ ENV_DEFAULT_TIMEZONE = "FLEDERMAP_DEFAULT_TIMEZONE"
 ENV_SESSION_GAP_HOURS = "FLEDERMAP_SESSION_GAP_HOURS"
 ENV_SITE_EPS_M = "FLEDERMAP_SITE_EPS_M"
 ENV_SITE_MIN_POINTS = "FLEDERMAP_SITE_MIN_POINTS"
+ENV_MEDIA_ROOT = "FLEDERMAP_MEDIA_ROOT"
 
 
 class ConfigError(Exception):
@@ -45,6 +46,20 @@ class Config:
     session_gap_hours: float = 6.0
     site_eps_m: float = 75.0
     site_min_points: int = 3
+    # Required, not defaulted (matching database_url, not session_gap_hours):
+    # where derived media lives is a real deployment decision (disk space,
+    # backup policy), and it must be distinct from archive_root -- writing
+    # into the archive would violate D16's read-only invariant on the source
+    # tree. NOT platformdirs: that solves "guess a per-user data directory,"
+    # the wrong question for a self-hosted server process where an explicit,
+    # operator-named path is what makes a Docker volume mount trivial
+    # (design spec §10). `Path()` is a sentinel default only -- direct
+    # `Config(...)` construction without a real value is obviously wrong
+    # (current directory) rather than a class-definition-time error, since
+    # a required field with no default cannot follow the several already-
+    # defaulted fields above it in this dataclass. `from_env`, the only path
+    # real code uses, always supplies a real value or raises first.
+    media_root: Path = field(default=Path())
 
     @classmethod
     def from_env(cls, archive_root: Path) -> Config:
@@ -140,6 +155,16 @@ class Config:
                 )
                 raise ConfigError(msg)
 
+        media_root_raw = os.environ.get(ENV_MEDIA_ROOT)
+        if not media_root_raw:
+            msg = (
+                f"{ENV_MEDIA_ROOT} is not set. Point it at a directory for "
+                "derived media (spectrograms, previews) -- distinct from "
+                "the archive, which ingest never writes to (D16)."
+            )
+            raise ConfigError(msg)
+        media_root = Path(media_root_raw).resolve()
+
         return cls(
             database_url=url,
             archive_root=archive_root.resolve(),
@@ -148,4 +173,5 @@ class Config:
             session_gap_hours=session_gap_hours,
             site_eps_m=site_eps_m,
             site_min_points=site_min_points,
+            media_root=media_root,
         )
