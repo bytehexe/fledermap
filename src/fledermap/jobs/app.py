@@ -50,7 +50,7 @@ from __future__ import annotations
 import procrastinate
 from procrastinate.contrib.sqlalchemy import SQLAlchemyPsycopg2Connector
 from sqlalchemy import text
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Engine, make_url
 
 
 def make_job_app() -> procrastinate.App:
@@ -101,12 +101,39 @@ def ensure_schema(app: procrastinate.App, engine: Engine) -> None:
 
 def make_worker_connector(database_url: str) -> procrastinate.PsycopgConnector:
     """An async-capable connector for running the worker -- see module
-    docstring point 2. `database_url` is this project's own
-    `Config.database_url`, which is always a bare `postgresql://...` URL with
-    no explicit driver suffix (confirmed: every producer of this value in
-    this codebase -- `Config.from_env`, `tests/test_config.py` -- uses that
-    form, and `store.db.make_engine` passes it to `create_engine()`
-    unmodified). `PsycopgConnector` takes a plain `conninfo` string in that
-    same form, so `database_url` is passed straight through with no
-    stripping needed."""
-    return procrastinate.PsycopgConnector(conninfo=database_url)
+    docstring point 2.
+
+    Task 4's original docstring here claimed `database_url` is always a bare
+    `postgresql://...` URL with no driver suffix, "confirmed" by grepping
+    `Config.from_env` and `tests/test_config.py`. That grep checked the wrong
+    thing: it looked at how `config.py` itself builds the string, not at what
+    actually gets fed into `FLEDERMAP_DATABASE_URL` when this project's own
+    tests drive a real Postgres. `tests/conftest.py`'s `postgis_url` fixture
+    -- the ONLY source of a real database URL anywhere in this test suite --
+    is `testcontainers`' own `container.get_connection_url()`, which returns
+    a SQLAlchemy-style `postgresql+psycopg2://...` URL, `+psycopg2` suffix
+    and all. `tests/test_cli.py`'s CLI tests set that value directly as
+    `FLEDERMAP_DATABASE_URL`, so it reaches `Config.database_url` unmodified
+    (`config.py` never rewrites it) and unmodified again here.
+
+    `PsycopgConnector.conninfo` is a libpq DSN/URI, which understands plain
+    `postgresql://` but NOT SQLAlchemy's `+driver` dialect syntax -- passed
+    through unstripped, `psycopg` raised `missing "=" after
+    "postgresql+psycopg2://..." in connection info string` (confirmed by
+    running the Task 8 `worker` CLI command against exactly this fixture,
+    the first thing in this codebase to actually exercise `make_worker_connector`
+    against a real, non-bare URL). `store.db.make_engine`/SQLAlchemy's own
+    `create_engine()` has no trouble with the `+psycopg2` suffix -- it's a
+    SQLAlchemy-specific annotation SQLAlchemy itself understands -- so this
+    mismatch is invisible anywhere else `database_url` is used, which is
+    exactly why Task 4's incomplete grep didn't surface it.
+
+    `make_url(...).set(drivername="postgresql")` normalises either shape (a
+    bare `postgresql://...` URL round-trips unchanged) down to a plain
+    `postgresql://` URI libpq accepts; `render_as_string(hide_password=False)`
+    is required because `str(URL)` masks the password with `***`, which would
+    silently break every worker's auth."""
+    conninfo = make_url(database_url).set(drivername="postgresql")
+    return procrastinate.PsycopgConnector(
+        conninfo=conninfo.render_as_string(hide_password=False),
+    )

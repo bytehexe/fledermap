@@ -447,3 +447,111 @@ def test_derive_command_is_idempotent(
     assert result.exit_code == 0, result.output
     # Second run: nothing left unsessioned to partition, no new sessions.
     assert "sessions: created 0  extended 0  merge proposals 0" in result.output
+
+
+def test_ingest_enqueues_media_jobs_for_created_recordings(
+    clean_database_url: str,
+    tmp_path: Path,
+) -> None:
+    archive = _archive(tmp_path)
+    env = {
+        "FLEDERMAP_DATABASE_URL": clean_database_url,
+        "FLEDERMAP_MEDIA_ROOT": str(tmp_path / "media"),
+    }
+    runner = CliRunner()
+
+    result = runner.invoke(cli, ["ingest", str(archive)], env=env)
+
+    assert result.exit_code == 0, result.output
+
+    engine = make_engine(clean_database_url)
+    with engine.connect() as conn:
+        count = conn.execute(
+            text("SELECT count(*) FROM procrastinate_jobs WHERE status = 'todo'"),
+        ).scalar()
+    engine.dispose()
+    # _archive() writes 2 distinct recordings -> 2 hashes -> 4 jobs (spectrogram + preview each).
+    assert count == 4
+
+
+def test_worker_no_wait_processes_queued_jobs_and_writes_media(
+    clean_database_url: str,
+    tmp_path: Path,
+) -> None:
+    archive = _archive(tmp_path)
+    media_root = tmp_path / "media"
+    env = {
+        "FLEDERMAP_DATABASE_URL": clean_database_url,
+        "FLEDERMAP_MEDIA_ROOT": str(media_root),
+    }
+    runner = CliRunner()
+    runner.invoke(cli, ["ingest", str(archive)], env=env)
+
+    result = runner.invoke(cli, ["worker", str(archive), "--no-wait"], env=env)
+
+    assert result.exit_code == 0, result.output
+    spectrograms = list(media_root.glob("*/*/spectrogram-*.webp"))
+    previews = list(media_root.glob("*/*/preview-*.opus"))
+    assert len(spectrograms) == 2
+    assert len(previews) == 2
+
+
+def test_enqueue_media_command_reports_disk_gap_but_avoids_duplicate_jobs(
+    clean_database_url: str,
+    tmp_path: Path,
+) -> None:
+    """Named for the REAL, empirically observed outcome (see
+    task-8-report.md), not the brief's original guess: the brief's own test
+    name assumed "reports zero after ingest already enqueued", but running
+    `ingest` then `enqueue-media` with no worker in between actually reports
+    "enqueued 2" -- investigated below rather than left as a loose
+    `"enqueued 0" or "enqueued 2"` assertion.
+
+    `backfill_media` (design spec P3-6, deliberate) checks disk state, NOT
+    Procrastinate's job table, to decide what to report -- "job history isn't
+    a reliable durable record ... disk state is the actual source of truth
+    for 'has this been rendered'". No worker has run, so no media files exist
+    on disk yet, so `backfill_media` correctly sees both recordings as
+    "nothing rendered" and its RETURNED COUNT is `len(missing) == 2`,
+    unconditionally -- that count is computed BEFORE `enqueue_media` is even
+    called, so it can't reflect what `enqueue_media` does with those hashes
+    underneath.
+
+    `enqueue_media`'s `queueing_lock` (keyed identically to the lock
+    `ingest`'s own defer already used) IS still doing real work independently
+    of that reported count: it refuses `enqueue-media`'s 4 duplicate `defer()`
+    attempts (`AlreadyEnqueued`, caught and ignored) because the original
+    `ingest`-triggered jobs are still `todo`. That's confirmed below by
+    `procrastinate_jobs` still holding exactly the original 4 rows, not 8 --
+    proving no duplicate job rows were created even though the CLI's reported
+    "enqueued 2" doesn't say so.
+
+    So `backfill_media`'s disk check and `queueing_lock` are two independent
+    mechanisms answering two different questions ("does this look done?" vs.
+    "is a job already in flight for this?"), and this scenario exercises
+    both landing on different answers at once -- not a bug, since P3-6
+    explicitly chose disk state as backfill's source of truth, accepting
+    that its count can overstate work already in flight."""
+    archive = _archive(tmp_path)
+    env = {
+        "FLEDERMAP_DATABASE_URL": clean_database_url,
+        "FLEDERMAP_MEDIA_ROOT": str(tmp_path / "media"),
+    }
+    runner = CliRunner()
+    runner.invoke(cli, ["ingest", str(archive)], env=env)
+
+    result = runner.invoke(cli, ["enqueue-media"], env=env)
+
+    assert result.exit_code == 0, result.output
+    assert "enqueued 2" in result.output
+
+    engine = make_engine(clean_database_url)
+    with engine.connect() as conn:
+        count = conn.execute(
+            text("SELECT count(*) FROM procrastinate_jobs WHERE status = 'todo'"),
+        ).scalar()
+    engine.dispose()
+    # Still exactly the 4 original ingest-triggered jobs -- enqueue-media's
+    # own defer attempts were all refused by queueing_lock, even though the
+    # reported count above doesn't reflect that.
+    assert count == 4

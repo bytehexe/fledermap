@@ -14,6 +14,8 @@ from fledermap.config import Config, ConfigError
 from fledermap.derive.sessions import partition_sessions
 from fledermap.domain.metadata import ScannedFile
 from fledermap.ingest.scan import INCOMPLETE_SCAN_REASONS, scan_with_skips
+from fledermap.jobs.app import ensure_schema, make_worker_connector
+from fledermap.jobs.tasks import app as jobs_app
 from fledermap.services.derive import derive_sites
 from fledermap.services.ingest import (
     IncompleteScanError,
@@ -21,6 +23,7 @@ from fledermap.services.ingest import (
     commit_scan,
     sweep_missing,
 )
+from fledermap.services.media import backfill_media, enqueue_media
 from fledermap.store.db import make_engine
 from fledermap.store.seed import seed_taxonomy
 
@@ -101,6 +104,8 @@ def ingest(ctx: click.Context, archive: Path, sweep: bool) -> None:
 
     engine = make_engine(config.database_url)
     _run_migrations(config.database_url)
+    jobs_app.open(engine)
+    ensure_schema(jobs_app, engine)
 
     seen: set[str] = set()
     with OrmSession(engine) as session:
@@ -126,6 +131,8 @@ def ingest(ctx: click.Context, archive: Path, sweep: bool) -> None:
 
         report = commit_scan(session, scanned, archive_root=config.archive_root)
         session.commit()
+
+        enqueue_media(report.created_hashes, engine)
 
         click.echo(
             f"created {report.created}  unchanged {report.unchanged}  "
@@ -193,3 +200,64 @@ def derive() -> None:
         click.echo(
             f"sites: {site_report.site_count}  unclustered {site_report.unclustered}",
         )
+
+
+@cli.command()
+@click.argument(
+    "archive",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+)
+@click.option(
+    "--wait/--no-wait",
+    default=True,
+    help="Keep running until stopped (default), or process the current "
+    "queue once and exit.",
+)
+def worker(archive: Path, wait: bool) -> None:
+    """Run the media job worker. Reads and writes files under ARCHIVE and
+    the configured media root; requires the same ARCHIVE path `ingest` uses
+    to resolve `Recording.path` to a real file.
+    """
+    try:
+        config = Config.from_env(archive)
+    except ConfigError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    engine = make_engine(config.database_url)
+    _run_migrations(config.database_url)
+    ensure_schema(jobs_app, engine)
+
+    async_connector = make_worker_connector(config.database_url)
+    with jobs_app.replace_connector(async_connector) as worker_app:
+        worker_app.run_worker(
+            wait=wait,
+            install_signal_handlers=wait,
+            listen_notify=wait,
+            additional_context={
+                "archive_root": config.archive_root,
+                "media_root": config.media_root,
+                "engine": engine,
+            },
+        )
+
+
+@cli.command(name="enqueue-media")
+def enqueue_media_command() -> None:
+    """Backfill media jobs for recordings with nothing on disk yet -- for
+    recordings ingested before this phase existed, or after a media-params
+    change that invalidates old renders."""
+    try:
+        config = Config.from_env(Path.cwd())
+    except ConfigError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    engine = make_engine(config.database_url)
+    _run_migrations(config.database_url)
+    jobs_app.open(engine)
+    ensure_schema(jobs_app, engine)
+
+    with OrmSession(engine) as session:
+        count = backfill_media(session, config.media_root)
+        session.commit()
+
+    click.echo(f"enqueued {count}")
