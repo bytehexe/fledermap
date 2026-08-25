@@ -1525,11 +1525,16 @@ def backfill_media(db_session: OrmSession, media_root: Path) -> int:
     return len(missing)
 ```
 
-`db_session.get_bind()` is typed to return `Engine | Connection` — the
-`assert isinstance(engine, Engine)` narrows it for both mypy and a real
-runtime check, matching this project's established pattern of explicit
-assert-loop narrowing over `# type: ignore` (see `services/derive.py`'s
-precedent from Phase 2). Every caller of `backfill_media` in this codebase
+`db_session.get_bind()` is confirmed (via `inspect.signature`) to return
+`Union[Engine, Connection]` — the `assert isinstance(engine, Engine)`
+narrows it for both mypy and a real runtime check, per this project's
+stated rule (CLAUDE.md's tooling section): bind the wider type, assert
+the narrower one, then dereference — never `# type: ignore`. (An earlier
+draft of this note cited a `services/derive.py` precedent for this exact
+pattern; grepped and found no `assert isinstance` anywhere in this
+codebase, so that citation was wrong and has been removed — the rule
+being followed is the general project-wide one, not a specific prior
+instance of it.) Every caller of `backfill_media` in this codebase
 constructs its session directly from an `Engine` (`OrmSession(engine)`), so
 this assertion is not expected to ever fail in practice — it documents and
 enforces the assumption rather than silently trusting it.
