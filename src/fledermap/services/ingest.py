@@ -102,10 +102,16 @@ class IngestReport:
     identifications_added: int = 0
     identifications_superseded: int = 0
     unmapped_labels: set[str] = field(default_factory=set)
-    # Every audio_hash that resulted in a CREATED outcome this call — the
-    # brand-new recordings, as opposed to ones merely moved/updated/replaced.
-    # Task 8 (cli/main.py) needs exactly this set to know which recordings are
-    # new enough to need media (spectrograms, waveforms) generated for them;
+    # Every audio_hash that got a brand-new Recording row this call — CREATED
+    # (unknown hash, unknown path) *or* REPLACED (unknown hash at an already-
+    # known path). Both outcomes insert a fresh row via the same `existing is
+    # None` branch in `commit_scan`, and REPLACED's new hash has had media
+    # rendered for it exactly as never as CREATED's — the old row at that path
+    # survives untouched (spec section 6), it doesn't inherit the new row's
+    # media. MOVED/UPDATED/UNCHANGED reuse an existing row whose hash was
+    # already seen by an earlier scan, so they're excluded. Task 8
+    # (cli/main.py) needs exactly this set to know which recordings are new
+    # enough to need media (spectrograms, waveforms) generated for them;
     # `created` (the count) can't answer that, only this list of hashes can.
     created_hashes: list[str] = field(default_factory=list)
 
@@ -132,6 +138,9 @@ class IngestReport:
                 self.moved += 1
             case IngestOutcome.REPLACED:
                 self.replaced += 1
+                # Same brand-new-row rationale as CREATED above — see
+                # `created_hashes`'s field comment.
+                self.created_hashes.append(audio_hash)
             case _:
                 assert_never(outcome)
 

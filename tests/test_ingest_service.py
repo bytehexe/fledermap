@@ -459,6 +459,22 @@ def test_replaced_file_marks_old_row_missing_and_creates_new_row(
         assert recs["a" * 64].path == recs["b" * 64].path
 
 
+def test_created_hashes_includes_replaced_recordings(engine: Engine) -> None:
+    """REPLACED (same path, new hash) inserts a brand-new row via the exact
+    same code path as CREATED — the new hash has never had media rendered for
+    it either, so it belongs in `created_hashes` too, not just CREATED's."""
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        commit_scan(session, [_scanned(digest="a" * 64)], archive_root=ROOT)
+        session.commit()
+
+        report = commit_scan(session, [_scanned(digest="b" * 64)], archive_root=ROOT)
+        session.commit()
+
+        assert report.replaced == 1
+        assert report.created_hashes == ["b" * 64]
+
+
 def test_second_replacement_at_the_same_path_does_not_crash(engine: Engine) -> None:
     """Before the fix: `Recording.path` is indexed but not unique, and a
     REPLACED row keeps its old `path`, so after one replacement two rows share
