@@ -159,6 +159,25 @@ def test_clamps_max_freq_to_the_recordings_own_nyquist_limit(tmp_path: Path) -> 
         )
 
 
+def test_a_very_short_recording_renders_without_warning(
+    tmp_path: Path,
+    recwarn: pytest.WarningsRecorder,
+) -> None:
+    """32 samples at 256 kHz (0.125 ms) -- shorter than even one default
+    3 ms analysis window. This is the exact shape of the CLI's own shared
+    `_archive()` test fixture (tests/test_cli.py), which writes recordings
+    this short. Without clamping nperseg to the signal's own length,
+    scipy.signal.spectrogram silently shrinks it but raises a UserWarning
+    doing so -- a defect under this project's pristine-test-output rule."""
+    wav_path = tmp_path / "tiny.wav"
+    _sine_wav(wav_path, samplerate=256_000, duration_s=32 / 256_000)
+    out_path = tmp_path / "spectrogram.webp"
+
+    render_spectrogram(wav_path, out_path)  # must not raise
+
+    assert len(recwarn) == 0, [str(w.message) for w in recwarn]
+
+
 def test_writes_atomically_leaving_no_temp_file_behind(tmp_path: Path) -> None:
     wav_path = tmp_path / "call.wav"
     _sine_wav(wav_path)
@@ -264,7 +283,15 @@ def render_spectrogram(
     """
     samples, samplerate = _read_pcm(wav_path)
 
-    nperseg = max(int(samplerate * params.window_ms / 1000), 8)
+    # Clamp to the signal's own length -- without this, a very short (or
+    # truncated/corrupt) recording makes nperseg > len(samples), and
+    # scipy.signal.spectrogram silently shrinks it back down itself but
+    # raises a UserWarning while doing so. This project's test output must
+    # stay warning-free (a warning is a defect), so the clamp happens here,
+    # before scipy ever sees an oversized nperseg -- not just to keep tests
+    # quiet, but because a genuinely short/corrupt file reaching this code
+    # in production shouldn't warn either.
+    nperseg = min(max(int(samplerate * params.window_ms / 1000), 8), len(samples))
     noverlap = int(nperseg * params.overlap)
     freqs, _times, sxx = signal.spectrogram(
         samples,
@@ -307,7 +334,7 @@ def render_spectrogram(
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `hatch test tests/test_spectrogram.py -v`
-Expected: PASS (6/6)
+Expected: PASS (7/7)
 
 - [ ] **Step 6: Full verification**
 
@@ -1215,41 +1242,39 @@ git commit -m "feat: render_spectrogram_task/make_preview_task with lock+queuein
 - [ ] **Step 1: Write the failing test**
 
 ```python
-# add to tests/test_ingest_service.py -- find the existing test that exercises
-# an unknown-hash CREATED scan (search for "IngestOutcome.CREATED" or a test
-# asserting report.created == 1) and add this alongside it, reusing whatever
-# scan-fixture helper that existing test already uses:
+# add to tests/test_ingest_service.py -- this test file's existing
+# ScannedFile-building helper is `_scanned(digest=..., name=..., ...)`
+# (confirmed by reading the file: it builds a synthetic ScannedFile against
+# the module-level `ROOT = Path("/archive")` constant, no real file is ever
+# written to disk -- commit_scan only uses archive_root to compute a
+# relative path string, it never opens the file). Add these two tests
+# alongside the existing CREATED-outcome test:
 
 def test_created_hashes_records_every_newly_created_audio_hash(
-    engine: Engine, tmp_path: Path,
+    engine: Engine,
 ) -> None:
-    scanned = [_scanned_file(tmp_path, "a.wav"), _scanned_file(tmp_path, "b.wav")]
+    a = _scanned(digest="a" * 64, name="EPTSER_20150610_215446.wav")
+    b = _scanned(digest="b" * 64, name="EPTSER_20150610_215447.wav")
 
     with OrmSession(engine) as session:
-        report = commit_scan(session, scanned, archive_root=tmp_path)
+        report = commit_scan(session, [a, b], archive_root=ROOT)
 
-    assert sorted(report.created_hashes) == sorted(
-        item.audio_hash for item in scanned
-    )
+    assert sorted(report.created_hashes) == sorted([a.audio_hash, b.audio_hash])
 
 
-def test_created_hashes_excludes_unchanged_recordings(
-    engine: Engine, tmp_path: Path,
-) -> None:
-    scanned = [_scanned_file(tmp_path, "a.wav")]
+def test_created_hashes_excludes_unchanged_recordings(engine: Engine) -> None:
+    a = _scanned(digest="a" * 64)
 
     with OrmSession(engine) as session:
-        commit_scan(session, scanned, archive_root=tmp_path)
+        commit_scan(session, [a], archive_root=ROOT)
         session.commit()
-        second_report = commit_scan(session, scanned, archive_root=tmp_path)
+        second_report = commit_scan(session, [a], archive_root=ROOT)
 
     assert second_report.created_hashes == []
 ```
 
-Replace `_scanned_file(...)` with whatever this test file's existing
-`ScannedFile`-building helper is actually called — check the top of
-`tests/test_ingest_service.py` for its real name and signature before
-writing these two tests, and match its exact call shape.
+`ROOT` and `_scanned` are both already defined at module level in this test
+file — no new import needed for either.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
