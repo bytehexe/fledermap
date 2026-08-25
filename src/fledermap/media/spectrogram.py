@@ -66,7 +66,7 @@ def render_spectrogram(
     wav_path: Path,
     out_path: Path,
     *,
-    params: SpectrogramParams | None = None,
+    params: SpectrogramParams = SpectrogramParams(),
 ) -> None:
     """Render `wav_path`'s spectrogram to `out_path` as a WebP image.
 
@@ -81,8 +81,6 @@ def render_spectrogram(
     (design spec §7's duplicate-enqueue protection is the queue-level half of
     this; this is the filesystem-level half).
     """
-    if params is None:
-        params = SpectrogramParams()
     samples, samplerate = _read_pcm(wav_path)
 
     # Clamp to the signal's own length -- without this, a very short (or

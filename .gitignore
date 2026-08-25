@@ -2,8 +2,8 @@
 .superpowers/
 
 # Never commit recordings or derived artefacts
-archive/
-media/
+/archive/
+/media/
 *.wav
 *.WAV
 
