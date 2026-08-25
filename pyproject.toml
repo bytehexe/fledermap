@@ -29,6 +29,8 @@ dependencies = [
   "scipy",
   "scikit-learn",
   "pillow",
+  "procrastinate",
+  "psycopg[binary,pool]",
 ]
 
 [project.scripts]
