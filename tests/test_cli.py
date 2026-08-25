@@ -7,6 +7,7 @@ import time
 from collections.abc import Iterator
 from pathlib import Path
 
+import flask
 import pytest
 from click.testing import CliRunner
 from sqlalchemy import select, text
@@ -548,10 +549,27 @@ def test_enqueue_media_command_reports_disk_gap_but_avoids_duplicate_jobs(
 def test_serve_command_starts_without_error(
     clean_database_url: str,
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Doesn't actually start listening (app.run() blocks) -- confirms the
-    command builds a real Flask app and exits cleanly when given --help,
-    proving Config/engine/create_app wiring doesn't raise before that point."""
+    """`--help` is an eager Click option: it prints help and exits *before*
+    the command callback runs, so invoking with `--help` alone would prove
+    nothing about `Config.from_env`/`make_engine`/`_run_migrations`/
+    `create_app` actually completing. Instead this patches `Flask.run` to a
+    non-blocking recorder and invokes `serve` for real, so the whole wiring
+    up to (but not including) actually listening runs and can be asserted
+    on."""
+    calls: list[tuple[str | None, int | None]] = []
+
+    def fake_run(
+        self: flask.Flask,
+        host: str | None = None,
+        port: int | None = None,
+        **_kwargs: object,
+    ) -> None:
+        calls.append((host, port))
+
+    monkeypatch.setattr(flask.Flask, "run", fake_run)
+
     runner = CliRunner()
     env = {
         "FLEDERMAP_DATABASE_URL": clean_database_url,
@@ -559,8 +577,9 @@ def test_serve_command_starts_without_error(
         "FLEDERMAP_STATIC_ROOT": str(tmp_path / "static"),
     }
 
-    result = runner.invoke(cli, ["serve", "--help"], env=env)
+    result = runner.invoke(
+        cli, ["serve", "--host", "0.0.0.0", "--port", "5001"], env=env
+    )
 
     assert result.exit_code == 0, result.output
-    assert "--host" in result.output
-    assert "--port" in result.output
+    assert calls == [("0.0.0.0", 5001)]
