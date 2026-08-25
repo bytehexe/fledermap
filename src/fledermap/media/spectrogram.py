@@ -48,6 +48,12 @@ class SpectrogramParams:
         return hashlib.sha256(payload.encode("ascii")).hexdigest()[:16]
 
 
+# The one settings instance the whole project renders and names files with.
+# Kept as a single shared object so `params_hash` cannot diverge between the
+# code that WRITES a spectrogram and the code that looks for one on disk.
+DEFAULT_SPECTROGRAM_PARAMS = SpectrogramParams()
+
+
 def _read_pcm(wav_path: Path) -> tuple[np.ndarray, int]:
     """Read mono or multi-channel 16-bit PCM as a 1-D float array (channels
     averaged down to mono for spectrogram purposes) plus the file's own

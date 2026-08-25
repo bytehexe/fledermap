@@ -29,7 +29,12 @@ dependencies = [
   "scipy",
   "scikit-learn",
   "pillow",
-  "procrastinate",
+  # Pinned to a minor range, not left open: `jobs/app.py`'s `ensure_schema`
+  # reaches into `app.schema_manager.get_schema()` (a semi-internal surface)
+  # to work around a confirmed upstream bug in `apply_schema()`, and it only
+  # ever APPLIES the schema -- it never runs Procrastinate's own versioned
+  # migrations, so a library upgrade needs a deliberate, manual schema step.
+  "procrastinate>=3.9,<4",
   "psycopg[binary,pool]",
 ]
 

@@ -20,6 +20,12 @@ to it when you find a new source.
 - **`hatch run` brace-substitutes its arguments.** `hatch run python -c "...{x.name}..."` dies
   with `Unknown context field`. Put throwaway code in a file and run the file.
 - Run `git` unsandboxed; sandboxed git config writes leave a stale `.git/config.lock`.
+- **`ffmpeg` and `ffprobe` must be installed and on `PATH`.** `media/preview.py` shells out to
+  `ffmpeg` for Opus encoding and the preview tests read back with `ffprobe`. Missing, they fail
+  loudly with `FileNotFoundError` — deliberately not skipped, so the gap can't hide.
+- **`FLEDERMAP_MEDIA_ROOT` is required (Phase 3)**, and is a *separate* directory from the
+  archive root. The archive is read-only (D16); derived media is written only under the media
+  root.
 
 ## Tooling
 
@@ -65,6 +71,11 @@ to it when you find a new source.
   migration per classifier.
 - A `mapped_column(String(...))` annotated `Mapped[SomeEnum]` type-checks but does **not**
   round-trip: reads come back as plain `str` and `.value` raises `AttributeError`.
+- **Procrastinate's schema has no upgrade path here.** `jobs/app.py`'s `ensure_schema` only ever
+  *applies* the schema — it returns immediately if `procrastinate_jobs` exists and never runs
+  Procrastinate's own versioned migrations. Bumping the `procrastinate` dependency (pinned
+  `>=3.9,<4` for this reason) therefore means running those migrations against every existing
+  database **by hand**; Alembic does not cover them.
 
 ## Migrations
 

@@ -500,38 +500,26 @@ def test_enqueue_media_command_reports_disk_gap_but_avoids_duplicate_jobs(
     clean_database_url: str,
     tmp_path: Path,
 ) -> None:
-    """Named for the REAL, empirically observed outcome (see
-    task-8-report.md), not the brief's original guess: the brief's own test
-    name assumed "reports zero after ingest already enqueued", but running
-    `ingest` then `enqueue-media` with no worker in between actually reports
-    "enqueued 2" -- investigated below rather than left as a loose
-    `"enqueued 0" or "enqueued 2"` assertion.
+    """`ingest` then `enqueue-media`, with no worker in between, reports
+    "enqueued 2" while creating no new job rows at all. Both halves are
+    correct, because two independent mechanisms are answering two different
+    questions.
 
-    `backfill_media` (design spec P3-6, deliberate) checks disk state, NOT
-    Procrastinate's job table, to decide what to report -- "job history isn't
-    a reliable durable record ... disk state is the actual source of truth
-    for 'has this been rendered'". No worker has run, so no media files exist
-    on disk yet, so `backfill_media` correctly sees both recordings as
-    "nothing rendered" and its RETURNED COUNT is `len(missing) == 2`,
-    unconditionally -- that count is computed BEFORE `enqueue_media` is even
-    called, so it can't reflect what `enqueue_media` does with those hashes
-    underneath.
+    `backfill_media`'s count comes from DISK state (design spec P3-6:
+    Procrastinate's job history is not a reliable durable record, so disk is
+    the source of truth for "has this been rendered"). No worker has run, so
+    nothing is rendered, so both recordings count as missing -- and that
+    count is computed BEFORE `enqueue_media` is called, so it cannot reflect
+    what happens to those hashes afterwards.
 
-    `enqueue_media`'s `queueing_lock` (keyed identically to the lock
-    `ingest`'s own defer already used) IS still doing real work independently
-    of that reported count: it refuses `enqueue-media`'s 4 duplicate `defer()`
-    attempts (`AlreadyEnqueued`, caught and ignored) because the original
-    `ingest`-triggered jobs are still `todo`. That's confirmed below by
-    `procrastinate_jobs` still holding exactly the original 4 rows, not 8 --
-    proving no duplicate job rows were created even though the CLI's reported
-    "enqueued 2" doesn't say so.
+    `queueing_lock` answers "is a job already in flight for this?" and
+    refuses all 4 duplicate `defer()` attempts with `AlreadyEnqueued` (caught
+    and ignored), because `ingest`'s own jobs are still `todo`. Hence the
+    row-count assertion below: still 4, not 8.
 
-    So `backfill_media`'s disk check and `queueing_lock` are two independent
-    mechanisms answering two different questions ("does this look done?" vs.
-    "is a job already in flight for this?"), and this scenario exercises
-    both landing on different answers at once -- not a bug, since P3-6
-    explicitly chose disk state as backfill's source of truth, accepting
-    that its count can overstate work already in flight."""
+    So the reported count can overstate work already in flight. That is the
+    accepted cost of P3-6's choice, not a bug -- asserted explicitly here so
+    a future reader doesn't "fix" it."""
     archive = _archive(tmp_path)
     env = {
         "FLEDERMAP_DATABASE_URL": clean_database_url,

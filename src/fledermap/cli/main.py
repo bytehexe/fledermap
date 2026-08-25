@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 from pathlib import Path
 
@@ -104,7 +105,9 @@ def ingest(ctx: click.Context, archive: Path, sweep: bool) -> None:
 
     engine = make_engine(config.database_url)
     _run_migrations(config.database_url)
-    jobs_app.open(engine)
+    # No `jobs_app.open(engine)` here: `enqueue_media` opens it itself, by
+    # contract. `ensure_schema` uses `engine` directly and does not need an
+    # opened connector either.
     ensure_schema(jobs_app, engine)
 
     seen: set[str] = set()
@@ -218,6 +221,13 @@ def worker(archive: Path, wait: bool) -> None:
     the configured media root; requires the same ARCHIVE path `ingest` uses
     to resolve `Recording.path` to a real file.
     """
+    # Procrastinate logs worker startup and every per-job event at INFO. With
+    # no handler and the root logger at its WARNING default, a long-lived
+    # `worker` daemon is completely silent until something crashes. Scoped to
+    # this command deliberately: `ingest`/`derive` are short-lived, report
+    # through `click.echo`, and were not asked to change their output.
+    logging.basicConfig(level=logging.INFO)
+
     try:
         config = Config.from_env(archive)
     except ConfigError as exc:
@@ -253,7 +263,7 @@ def enqueue_media_command() -> None:
 
     engine = make_engine(config.database_url)
     _run_migrations(config.database_url)
-    jobs_app.open(engine)
+    # `backfill_media` -> `enqueue_media` opens `jobs_app` itself.
     ensure_schema(jobs_app, engine)
 
     with OrmSession(engine) as session:

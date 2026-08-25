@@ -19,10 +19,8 @@ from fledermap.jobs.tasks import (
     render_spectrogram_task,
     spectrogram_lock_key,
 )
-from fledermap.media.spectrogram import SpectrogramParams
+from fledermap.media.paths import preview_path, spectrogram_path
 from fledermap.store.models import Recording
-
-_SPECTROGRAM_PARAMS_HASH = SpectrogramParams().params_hash
 
 
 def enqueue_media(created_hashes: list[str], engine: Engine) -> None:
@@ -56,19 +54,30 @@ def _has_media(media_root: Path, audio_hash: str) -> bool:
     """Disk existence, not a Procrastinate job-history query (design spec
     §8, decision P3-6): the job table isn't a reliable durable record
     (Procrastinate can be configured to delete completed jobs), and disk
-    state is what actually determines whether a recording needs work."""
-    recording_dir = media_root / audio_hash[:2] / audio_hash
-    spectrogram = recording_dir / f"spectrogram-{_SPECTROGRAM_PARAMS_HASH}.webp"
-    preview = recording_dir / "preview-v1.opus"
-    return spectrogram.exists() and preview.exists()
+    state is what actually determines whether a recording needs work.
+
+    Both paths come from `media.paths`, the same helpers the tasks write
+    through -- this check is only meaningful while it agrees with them
+    exactly."""
+    return (
+        spectrogram_path(media_root, audio_hash).exists()
+        and preview_path(media_root, audio_hash).exists()
+    )
 
 
 def backfill_media(db_session: OrmSession, media_root: Path) -> int:
     """Enqueue media for every recording that doesn't already have both
-    files on disk at the current params. Returns the count enqueued."""
+    files on disk at the current params. Returns the count enqueued.
+
+    Recordings flagged missing are excluded: `jobs.tasks._resolve_recording`
+    raises `FileNotFoundError` for anything with `missing_since` set, so
+    without this filter a `sweep_missing` that flags N recordings would make
+    the next backfill defer 2N jobs guaranteed to fail every retry."""
     engine = db_session.get_bind()
     assert isinstance(engine, Engine), "db_session must be bound to an Engine"
-    hashes = db_session.scalars(select(Recording.audio_hash)).all()
+    hashes = db_session.scalars(
+        select(Recording.audio_hash).where(Recording.missing_since.is_(None)),
+    ).all()
     missing = [h for h in hashes if not _has_media(media_root, h)]
     enqueue_media(missing, engine)
     return len(missing)

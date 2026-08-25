@@ -2,12 +2,9 @@ from __future__ import annotations
 
 import json
 import math
-import shutil
 import struct
 import subprocess
 from pathlib import Path
-
-import pytest
 
 from fledermap.media.preview import make_preview
 
@@ -66,12 +63,6 @@ def _ffprobe_stream_info(path: Path) -> dict[str, object]:
     data = json.loads(result.stdout)
     stream: dict[str, object] = data["streams"][0]
     return stream
-
-
-pytestmark = pytest.mark.skipif(
-    shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
-    reason="ffmpeg/ffprobe not installed",
-)
 
 
 def test_preview_duration_is_roughly_ten_times_the_source(tmp_path: Path) -> None:

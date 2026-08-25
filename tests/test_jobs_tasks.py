@@ -54,8 +54,8 @@ def _run_worker(engine: Engine, **kwargs: object) -> None:
     override, so the base connector's `open_async` raises
     `SyncConnectorConfigurationError` -- confirmed by direct execution against
     a real Postgres container, and exactly what `fledermap.jobs.app`'s module
-    docstring already documents (Task 4, confirmed against a real Postgres
-    container). Swap in the async `PsycopgConnector` for the duration of the
+    docstring already documents. Swap in the async `PsycopgConnector` for the
+    duration of the
     worker run only, via `replace_connector` as a context manager, per that
     module's documented pattern -- `engine`'s URL is reduced to a bare
     `postgresql://` DSN (stripping the `+psycopg2` driver suffix SQLAlchemy's
@@ -138,53 +138,108 @@ def test_make_preview_task_writes_a_file(engine: Engine, tmp_path: Path) -> None
     assert len(produced) == 1
 
 
-def test_task_fails_permanently_for_a_missing_source_file(
-    engine: Engine,
-    tmp_path: Path,
-) -> None:
-    archive_root = tmp_path / "archive"
-    media_root = tmp_path / "media"
-    # No file written -- recording.path points nowhere.
+def _defer_doomed_spectrogram_job(engine: Engine, audio_hash: str) -> int:
+    """A recording flagged missing, with no file on disk, deferred for
+    rendering -- guaranteed to raise `FileNotFoundError` on every attempt."""
     jobs_app.open(engine)
     ensure_schema(jobs_app, engine)
 
     with OrmSession(engine) as session:
         recording = _make_recording(
             session,
-            audio_hash="h3" * 32,
+            audio_hash=audio_hash,
             path="never_written.wav",
         )
         recording.missing_since = datetime(2026, 8, 25, tzinfo=UTC)
         session.commit()
-        audio_hash = recording.audio_hash
 
-    job_id = render_spectrogram_task.configure(
+    return render_spectrogram_task.configure(
         lock=spectrogram_lock_key(audio_hash),
         queueing_lock=spectrogram_lock_key(audio_hash),
     ).defer(audio_hash=audio_hash)
+
+
+def _drain_once(engine: Engine, tmp_path: Path) -> None:
+    """One `wait=False` worker pass: process whatever is due right now, then
+    exit. A job scheduled into the future by the retry backoff is NOT due,
+    so it is left untouched."""
     _run_worker(
         engine,
         wait=False,
         install_signal_handlers=False,
         listen_notify=False,
         additional_context={
-            "archive_root": archive_root,
-            "media_root": media_root,
+            "archive_root": tmp_path / "archive",
+            "media_root": tmp_path / "media",
             "engine": engine,
         },
     )
 
-    # `procrastinate_jobs` lives in the same (session-scoped) Postgres
-    # container as every other test in this module -- it is NOT recreated by
-    # the per-test `engine` fixture (that only drops/creates this project's
-    # own ORM tables), so filtering by `job_id` (not `task_name`) is required
-    # to avoid picking up another test's row for the same task.
+
+def _job_row(engine: Engine, job_id: int) -> tuple[str, int, bool]:
+    """(status, attempts, is_scheduled_in_the_future) for one job."""
     with engine.connect() as conn:
-        status = conn.execute(
-            text("SELECT status FROM procrastinate_jobs WHERE id = :job_id"),
+        row = conn.execute(
+            text(
+                "SELECT status, attempts, "
+                "coalesce(scheduled_at > now(), false) AS deferred "
+                "FROM procrastinate_jobs WHERE id = :job_id",
+            ),
             {"job_id": job_id},
-        ).scalar()
+        ).one()
+    return str(row.status), int(row.attempts), bool(row.deferred)
+
+
+def test_task_retry_backs_off_instead_of_firing_immediately(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """Design spec §7 asks for exponential backoff. A bare `retry=3` would
+    leave every wait parameter at 0, so every attempt would burn inside this
+    single worker pass; with `exponential_wait` set, the first failure
+    reschedules the job into the future instead."""
+    job_id = _defer_doomed_spectrogram_job(engine, "h3" * 32)
+
+    _drain_once(engine, tmp_path)
+
+    status, attempts, deferred = _job_row(engine, job_id)
+    assert status == "todo"  # retrying, not finished
+    assert attempts == 1  # exactly one attempt was made, not all three
+    assert deferred is True  # and the next one is not due yet
+
+
+def test_task_fails_permanently_for_a_missing_source_file(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """It still ends `failed`, not retried forever. The backoff is skipped
+    over by pulling `scheduled_at` back to now between passes rather than
+    sleeping out the real 2s + 4s + 8s, which would put fourteen idle seconds
+    into the suite to prove something the test above already proves."""
+    job_id = _defer_doomed_spectrogram_job(engine, "h5" * 32)
+
+    for _ in range(6):  # generous bound; the run below needs 4 passes
+        _drain_once(engine, tmp_path)
+        status, _, _ = _job_row(engine, job_id)
+        if status != "todo":
+            break
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE procrastinate_jobs SET scheduled_at = now() "
+                    "WHERE id = :job_id",
+                ),
+                {"job_id": job_id},
+            )
+
+    status, attempts, _ = _job_row(engine, job_id)
     assert status == "failed"
+    # Bounded, not an unbounded retry loop. 4, not 3, because Procrastinate's
+    # `max_attempts` counts RETRIES scheduled, not runs performed: `attempts`
+    # is incremented by `procrastinate_retry_job` and again by
+    # `procrastinate_finish_job`, so a `max_attempts=3` job runs the original
+    # plus 3 retries and lands on 4.
+    assert attempts == 4
 
 
 def test_duplicate_defer_with_the_same_queueing_lock_is_refused(
