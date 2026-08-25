@@ -28,6 +28,7 @@ dependencies = [
   "pyproj",
   "scipy",
   "scikit-learn",
+  "platformdirs",
   "pillow",
   # Pinned to a minor range, not left open: `jobs/app.py`'s `ensure_schema`
   # reaches into `app.schema_manager.get_schema()` (a semi-internal surface)

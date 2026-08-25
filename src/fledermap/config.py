@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, tzinfo
 from pathlib import Path
 
+import platformdirs
+
 from fledermap.domain.codes import TimestampSource
 
 ENV_DATABASE_URL = "FLEDERMAP_DATABASE_URL"
@@ -23,10 +25,26 @@ ENV_SESSION_GAP_HOURS = "FLEDERMAP_SESSION_GAP_HOURS"
 ENV_SITE_EPS_M = "FLEDERMAP_SITE_EPS_M"
 ENV_SITE_MIN_POINTS = "FLEDERMAP_SITE_MIN_POINTS"
 ENV_MEDIA_ROOT = "FLEDERMAP_MEDIA_ROOT"
+ENV_STATIC_ROOT = "FLEDERMAP_STATIC_ROOT"
 
 
 class ConfigError(Exception):
     """Required configuration is absent or invalid."""
+
+
+def resolve_static_root() -> Path:
+    """Where fetched vendor JS/CSS assets (Leaflet, HTMX, Alpine -- see
+    scripts/fetch_vendor_assets.py) live. Optional, unlike `media_root`: these
+    are small, regenerable, non-precious cache-like files, not an operator's
+    deliberate data-placement decision, so a `platformdirs` cache-dir default
+    is the right fit here in a way it wasn't for `media_root` (design spec
+    P4-5). A standalone function, not a `Config` method, so the fetch script
+    can call it without building a full `Config` (which requires
+    `archive_root`, irrelevant to fetching static assets)."""
+    raw = os.environ.get(ENV_STATIC_ROOT)
+    if raw:
+        return Path(raw).resolve()
+    return Path(platformdirs.user_cache_dir("fledermap")).resolve()
 
 
 @dataclass(frozen=True)
@@ -60,6 +78,12 @@ class Config:
     # defaulted fields above it in this dataclass. `from_env`, the only path
     # real code uses, always supplies a real value or raises first.
     media_root: Path = field(default=Path())
+    # Optional (see resolve_static_root's docstring for why this differs from
+    # media_root's required-with-a-sentinel shape). default_factory, not a
+    # plain default, so it's actually called at construction time and picks
+    # up whatever FLEDERMAP_STATIC_ROOT is set to at that moment -- including
+    # in tests that monkeypatch the env var before calling `from_env`.
+    static_root: Path = field(default_factory=resolve_static_root)
 
     @classmethod
     def from_env(cls, archive_root: Path) -> Config:

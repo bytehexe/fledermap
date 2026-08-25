@@ -13,9 +13,11 @@ from fledermap.config import (
     ENV_SESSION_GAP_HOURS,
     ENV_SITE_EPS_M,
     ENV_SITE_MIN_POINTS,
+    ENV_STATIC_ROOT,
     ENV_TIMESTAMP_SOURCE,
     Config,
     ConfigError,
+    resolve_static_root,
 )
 from fledermap.domain.codes import TimestampSource
 
@@ -290,3 +292,50 @@ def test_media_root_is_resolved_to_an_absolute_path(
 
     assert config.media_root == (tmp_path / relative).resolve()
     assert config.media_root.is_absolute()
+
+
+def test_static_root_defaults_via_platformdirs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+    monkeypatch.delenv(ENV_STATIC_ROOT, raising=False)
+
+    config = Config.from_env(tmp_path)
+
+    import platformdirs
+
+    assert (
+        config.static_root == Path(platformdirs.user_cache_dir("fledermap")).resolve()
+    )
+
+
+def test_static_root_respects_explicit_env_var(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+    explicit = tmp_path / "static"
+    monkeypatch.setenv(ENV_STATIC_ROOT, str(explicit))
+
+    config = Config.from_env(tmp_path)
+
+    assert config.static_root == explicit.resolve()
+
+
+def test_resolve_static_root_matches_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """scripts/fetch_vendor_assets.py (Task 3) calls resolve_static_root()
+    directly, without building a full Config -- this pins that it agrees with
+    what Config.static_root resolves to, given the same environment."""
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+    monkeypatch.setenv(ENV_STATIC_ROOT, str(tmp_path / "static"))
+
+    config = Config.from_env(tmp_path)
+
+    assert resolve_static_root() == config.static_root
