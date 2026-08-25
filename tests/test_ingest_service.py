@@ -88,6 +88,29 @@ def test_new_file_is_created(engine: Engine) -> None:
         assert session.scalar(select(func.count()).select_from(Recording)) == 1
 
 
+def test_created_hashes_records_every_newly_created_audio_hash(
+    engine: Engine,
+) -> None:
+    a = _scanned(digest="a" * 64, name="EPTSER_20150610_215446.wav")
+    b = _scanned(digest="b" * 64, name="EPTSER_20150610_215447.wav")
+
+    with OrmSession(engine) as session:
+        report = commit_scan(session, [a, b], archive_root=ROOT)
+
+    assert sorted(report.created_hashes) == sorted([a.audio_hash, b.audio_hash])
+
+
+def test_created_hashes_excludes_unchanged_recordings(engine: Engine) -> None:
+    a = _scanned(digest="a" * 64)
+
+    with OrmSession(engine) as session:
+        commit_scan(session, [a], archive_root=ROOT)
+        session.commit()
+        second_report = commit_scan(session, [a], archive_root=ROOT)
+
+    assert second_report.created_hashes == []
+
+
 def test_ingest_is_idempotent(engine: Engine) -> None:
     """Run twice, nothing changes. The defining property of spec section 6."""
     with OrmSession(engine) as session:

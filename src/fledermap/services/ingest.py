@@ -102,16 +102,28 @@ class IngestReport:
     identifications_added: int = 0
     identifications_superseded: int = 0
     unmapped_labels: set[str] = field(default_factory=set)
+    # Every audio_hash that resulted in a CREATED outcome this call — the
+    # brand-new recordings, as opposed to ones merely moved/updated/replaced.
+    # Task 8 (cli/main.py) needs exactly this set to know which recordings are
+    # new enough to need media (spectrograms, waveforms) generated for them;
+    # `created` (the count) can't answer that, only this list of hashes can.
+    created_hashes: list[str] = field(default_factory=list)
 
-    def record(self, outcome: IngestOutcome) -> None:
+    def record(self, outcome: IngestOutcome, *, audio_hash: str) -> None:
         # An explicit match, not `setattr(self, outcome.value, ...)`: the
         # setattr form only works because every enum value happens to equal a
         # field name, with nothing enforcing that stays true. `assert_never`
         # makes mypy flag it if a new `IngestOutcome` member is ever added
         # without a matching counter (task-11 amendments, judgement calls).
+        #
+        # `audio_hash` is required, not defaulted to `None`, so that a call
+        # site added for a non-CREATED outcome without a hash in scope fails
+        # at the call (a `TypeError`) instead of silently leaving
+        # `created_hashes` incomplete for CREATED sites that forget it.
         match outcome:
             case IngestOutcome.CREATED:
                 self.created += 1
+                self.created_hashes.append(audio_hash)
             case IngestOutcome.UNCHANGED:
                 self.unchanged += 1
             case IngestOutcome.UPDATED:
@@ -340,6 +352,7 @@ def commit_scan(
                 IngestOutcome.REPLACED
                 if replaced is not None
                 else IngestOutcome.CREATED,
+                audio_hash=item.audio_hash,
             )
             continue
 
@@ -359,11 +372,11 @@ def commit_scan(
         )
 
         if moved:
-            report.record(IngestOutcome.MOVED)
+            report.record(IngestOutcome.MOVED, audio_hash=item.audio_hash)
         elif metadata_changed or ids_changed:
-            report.record(IngestOutcome.UPDATED)
+            report.record(IngestOutcome.UPDATED, audio_hash=item.audio_hash)
         else:
-            report.record(IngestOutcome.UNCHANGED)
+            report.record(IngestOutcome.UNCHANGED, audio_hash=item.audio_hash)
 
     return report
 
