@@ -30,8 +30,10 @@ def enqueue_media(created_hashes: list[str], engine: Engine) -> None:
     §7. Called from `cli/main.py`'s `ingest` command AFTER `session.commit()`
     succeeds -- not from inside `commit_scan`, which does not commit, so
     nothing can be picked up by a worker for a row that isn't durably
-    committed yet. `jobs_app` must already be `.open(engine)`-ed by the
-    caller before this runs (CLI commands do this once at startup)."""
+    committed yet. Opens `jobs_app` against `engine` itself -- callers do NOT
+    need to pre-open it -- since both `backfill_media` and the CLI `ingest`
+    command call this, and each would otherwise have to duplicate that
+    step."""
     jobs_app.open(engine)
     for audio_hash in created_hashes:
         try:
