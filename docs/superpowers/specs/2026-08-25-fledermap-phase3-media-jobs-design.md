@@ -1,0 +1,329 @@
+# Fledermap Phase 3 (Media + jobs) — design
+
+Parent spec: `docs/superpowers/specs/2026-08-23-fledermap-design.md` (§4 architecture,
+§7 derivation pitfalls for precedent, §8 media, §12 constraints, §13 testing, §14 v1
+excludes, §15 phasing — "3 · Media + jobs: Procrastinate running; spectrograms and
+÷10 previews generated on ingest").
+
+## 1. Scope
+
+Given a `Recording` row (Phase 1) with a real, readable source file, generate and
+persist two derived media artifacts per recording: a spectrogram (WebP) and a
+time-expanded ÷10 preview (Opus). Wire this through a Postgres-backed job queue
+(Procrastinate) so generation happens asynchronously, off the ingest critical path.
+
+Still no web surface — this phase is headless, like Phases 1–2. The `fledermap
+worker` process and a small CLI backfill command are the only new user-facing
+surfaces.
+
+## 2. Deviations from the parent spec, decided during brainstorming
+
+- **Spectrogram rendering is written fresh, not ported from batogram.** The parent
+  spec (§2) names batogram as "build on, not reimplement," matching how
+  `mkmapdiary`'s `LocalProjection`/`GeoCluster` were ported in Phase 2. Checked:
+  unlike `mkmapdiary`, there is no local batogram checkout, and batogram itself
+  (`jmears63/batogram`, MIT, on PyPI) is a Tkinter GUI application the author
+  describes as "in fairly rapid flux" with no stable, separable library API — not
+  a clean porting target the way GeoCluster/LocalProjection were. A spectrogram
+  (STFT via `scipy.signal`, log-magnitude, a small colormap) is small and
+  well-understood enough to write directly against `scipy`/`numpy`/`Pillow`
+  without meaningfully more risk than porting unstable code would carry.
+- **Opus encoding shells out to `ffmpeg`**, not a Python libopus binding. Chosen
+  over `pyogg`/`opuslib` for maturity: ffmpeg is one well-known binary dependency
+  (already the kind of external service this project depends on, alongside
+  Postgres/PostGIS), where the Python bindings are comparatively unmaintained and
+  would still need manual container muxing.
+- **Procrastinate's own schema is applied via its own API, not vendored into
+  Alembic.** Procrastinate ships its schema as versioned raw SQL, not SQLAlchemy
+  metadata Alembic can autogenerate against. Hand-vendoring it into an Alembic
+  migration would need manual re-sync on every Procrastinate upgrade, with no
+  automated drift check — a worse version of exactly the blind spot
+  `tests/test_migrations.py`'s `_comparable` filter already exists to manage
+  narrowly. Keeping Procrastinate's schema on its own lifecycle, applied
+  programmatically at the same point Alembic's migration runs, keeps the
+  "run one command, your DB is ready" property for the end user without taking on
+  that maintenance burden.
+
+## 3. Module layout
+
+```
+fledermap/
+  media/
+    __init__.py
+    spectrogram.py   render_spectrogram()
+    preview.py       make_preview()
+  jobs/
+    __init__.py
+    app.py           Procrastinate App, SQLAlchemyPsycopg2Connector
+    tasks.py         render_spectrogram_task, make_preview_task
+  services/
+    ingest.py        (modified) IngestReport.created_hashes; defer call sites
+    media.py         (new) enqueue_media(), backfill_media()
+  cli/
+    main.py          (modified) `worker` command, `enqueue-media` command
+```
+
+`media/` stays pure — no DB session, no Procrastinate import, no queue awareness.
+It takes file paths in, writes file paths out. `jobs/tasks.py` is the only place
+that bridges `Recording` rows to `media/`'s functions.
+
+## 4. `media/spectrogram.py`
+
+```python
+@dataclass(frozen=True)
+class SpectrogramParams:
+    window_ms: float = 3.0
+    overlap: float = 0.5
+    max_freq_hz: float = 128_000.0
+    width_px: int = 1024
+    height_px: int = 512
+
+    @property
+    def params_hash(self) -> str:
+        """Short, stable hash of every field — the on-disk filename's
+        `<params>` component. Changing any field invalidates existing
+        renders without touching `audio_hash` (spec §8)."""
+
+
+def render_spectrogram(
+    wav_path: Path,
+    out_path: Path,
+    *,
+    params: SpectrogramParams = SpectrogramParams(),
+) -> None:
+    """Read PCM via stdlib `wave`, STFT via `scipy.signal.spectrogram`,
+    log-magnitude normalised to [0, 1], mapped through a small hand-written
+    numpy colormap LUT (no matplotlib dependency solely for colour tables),
+    written as WebP via Pillow. Writes to a temp file in `out_path`'s parent
+    directory, then `os.replace()`s onto `out_path` — atomic on the same
+    filesystem, so a concurrent reader never sees a partial file and two
+    concurrent writers (however that happened) never interleave."""
+```
+
+Bat calls span roughly 9 kHz–212 kHz across the EU species this project targets
+(spec's own species list, `docs/references.md`); `max_freq_hz` defaults to
+128 kHz to cover the practical range without wasting resolution on near-silent
+bins above it. `window_ms`/`overlap` are STFT tuning, not correctness — a
+short window favours time resolution over frequency resolution, appropriate for
+short, fast bat calls. All defaults are revisitable without a schema change
+(`params_hash` exists precisely so a settings change invalidates old renders
+without needing a migration).
+
+## 5. `media/preview.py`
+
+```python
+def make_preview(wav_path: Path, out_path: Path) -> None:
+    """Read the WAV header via stdlib `wave`, rewrite ONLY the declared frame
+    rate to one tenth (no resampling — the PCM samples are untouched, per
+    spec §8's "nearly free": 256 kHz becomes 25.6 kHz, so a 45 kHz
+    Pipistrellus lands at 4.5 kHz, audible). Write the relabelled WAV to a
+    temp file, then invoke `ffmpeg -y -i <temp.wav> -c:a libopus <out_path>`
+    via `subprocess.run(..., check=True)`. Same atomic temp-file-then-replace
+    pattern as `render_spectrogram` for the final `.opus` output; the
+    intermediate relabelled WAV is a private tempfile, cleaned up in a
+    `finally`."""
+```
+
+No `SpectrogramParams`-style params object: the ÷10 ratio is fixed by the parent
+spec and not exposed as a setting in v1. `preview-<params>.opus`'s `<params>`
+component is therefore a fixed literal (e.g. `preview-v1.opus`), not a computed
+hash — still versioned by the filename so a future ratio change gets a new
+filename without touching `audio_hash`.
+
+## 6. `jobs/app.py`
+
+```python
+from procrastinate import App
+from procrastinate.contrib.sqlalchemy import SQLAlchemyPsycopg2Connector
+
+def make_job_app(engine: Engine) -> App:
+    """One Procrastinate App per process, sharing this project's own
+    SQLAlchemy engine/connection pool (`SQLAlchemyPsycopg2Connector`) — no
+    second connection pool, no asyncio, consistent with every other
+    synchronous, psycopg2-backed piece of this project."""
+```
+
+Queues, matching parent spec §4's table exactly: `media` (this phase's two
+tasks), `geo` and `classify` declared as known queue names but with no task
+registered against them yet — explicitly out of scope for this phase (site
+naming via poiidx, and any classifier integration, are later work; the spec
+itself calls the classify queue "queue slot exists, no integration").
+
+## 7. `jobs/tasks.py` — locking
+
+```python
+@app.task(queue="media")
+def render_spectrogram_task(audio_hash: str) -> None: ...
+
+@app.task(queue="media")
+def make_preview_task(audio_hash: str) -> None: ...
+```
+
+Each resolves `audio_hash` → `Recording` → real path (`archive_root / recording.path`).
+If the file is missing (`recording.missing_since is not None`, or the read
+itself fails) the task raises — Procrastinate's own retry policy is configured
+with a small fixed retry count (e.g. 3, exponential backoff) then permanent
+failure, visible later via the job-status strip (Phase 5). No infinite retry
+loop against a file that is never coming back (D16: deletion is permanent).
+
+**Duplicate-enqueue protection (the race the human partner asked about
+directly):** Procrastinate's own atomic `fetch_job` (select-and-mark-as-doing
+in one DB operation) already guarantees a single job row is only ever picked
+up by one worker — nothing to add there. What Procrastinate does **not** do
+automatically is prevent the *same real-world unit of work* from being
+deferred as two separate job rows (e.g. `commit_scan`'s own defer racing
+`enqueue-media`'s backfill sweep seeing the same not-yet-enqueued recording).
+Both tasks are deferred with a lock key computed by the *caller*
+(`enqueue_media`, §8) — `params_hash` is never a task argument, since v1's
+spectrogram/preview parameters are fixed code constants, not per-recording or
+end-user-configurable (§12):
+
+```python
+spectrogram_params_hash = SpectrogramParams().params_hash  # fixed for this build
+render_spectrogram_task.configure(
+    lock=f"spectrogram:{audio_hash}:{spectrogram_params_hash}",
+    queueing_lock=f"spectrogram:{audio_hash}:{spectrogram_params_hash}",
+).defer(audio_hash=audio_hash)
+
+make_preview_task.configure(
+    lock=f"preview:{audio_hash}:v1",
+    queueing_lock=f"preview:{audio_hash}:v1",
+).defer(audio_hash=audio_hash)
+```
+
+`queueing_lock` refuses a second "todo" row with the same key
+(`AlreadyEnqueued`, caught and ignored at the call site); `lock` additionally
+serialises execution for that key even past the point where the first job has
+already moved to "doing" — so two jobs for the same (recording, params) never
+run concurrently regardless of timing. Keyed per task type (`spectrogram:`/
+`preview:` prefix) so the two real tasks for one recording still run in
+parallel; only genuine duplicates serialise. Combined with both functions'
+own atomic temp-file-then-`os.replace()` writes (§4–5), this closes the race
+at both the queue level and the filesystem level.
+
+## 8. `services/ingest.py` and `services/media.py`
+
+`IngestReport` (existing dataclass, `src/fledermap/services/ingest.py`) gains:
+
+```python
+created_hashes: list[str] = field(default_factory=list)
+```
+
+populated alongside the existing `self.created += 1` in `IngestReport.record()`
+— additive, no existing field removed or renamed.
+
+New `services/media.py`:
+
+```python
+def enqueue_media(created_hashes: list[str]) -> None:
+    """Defer both tasks (locked/queueing-locked as above) for each hash. Called
+    from `cli/main.py`'s `ingest` command AFTER `session.commit()` succeeds —
+    not from inside `commit_scan` itself, which does not commit — so nothing
+    can be picked up by a worker for a row that isn't durably committed yet."""
+
+def backfill_media(db_session: OrmSession, media_root: Path) -> int:
+    """For every Recording, check whether its current-params media files
+    already exist on disk under `media_root`; if not, enqueue_media([hash]).
+    Disk existence, not a Procrastinate job-history query: the job table isn't
+    a reliable 'was this ever rendered' record (Procrastinate can be
+    configured to delete completed jobs), and disk state is what actually
+    determines whether a recording needs work. Returns the count enqueued."""
+```
+
+## 9. CLI (`cli/main.py`)
+
+```
+fledermap worker            # app.run_worker() — blocking, listens on `media`
+fledermap enqueue-media     # backfill_media() — one-shot, prints count enqueued
+```
+
+`worker` runs until a stop signal (`ctrl+c`/SIGTERM), matching Procrastinate's
+own default (`wait=True`). `enqueue-media` is a one-shot command an operator
+runs once after upgrading past this phase, or any time media params change and
+a full re-render is wanted.
+
+## 10. Config additions
+
+```python
+media_root: Path   # required, own FLEDERMAP_MEDIA_ROOT env var, no default
+```
+
+**Naming collision to be aware of, not a design problem in itself:** the parent
+spec uses "media" for two unrelated things — `fledermap/media/` (§4, the
+*Python source package* added in §3 above, living under `src/`) and
+`media/<hash[:2]>/<hash>/...` (§8, the *runtime storage tree* an operator
+points `FLEDERMAP_MEDIA_ROOT` at). They never collide on disk (one is under
+this repo's `src/`, the other is wherever the operator configures — never
+defaulted to a path under the repo), but are worth naming explicitly here so
+an implementer or reviewer doesn't conflate "the media module" with "the
+media directory."
+
+Required rather than defaulted (matching `database_url`'s treatment, not
+`session_gap_hours`'s): where derived media lives is a real deployment decision
+(disk space, backup policy), and it must be a location distinct from
+`archive_root` — writing into the archive would violate D16's read-only
+invariant on the source tree.
+
+**Not `platformdirs`.** That library solves "guess a sensible per-user data
+directory on the machine this process happens to run on" — the right tool for
+a desktop app, wrong fit for a self-hosted *server* process. Inside a
+container, "the user's data directory" is an arbitrary, meaningless path (some
+service account's home), and what actually matters operationally is a
+predictable, explicit path the operator names once and mounts a volume at —
+exactly what an explicit required config value already gives, with no
+platform-detection layer in between. This also keeps `media_root` consistent
+with `archive_root` and `database_url`, both already explicit, required,
+operator-supplied paths/URLs with no auto-detected default. Whatever the
+eventual deployment story turns out to be (this design doesn't need to commit
+to it), an explicit path is what makes `FLEDERMAP_MEDIA_ROOT=/data/media` a
+one-line Docker volume mount — auto-detected platform dirs would work against
+that, not for it.
+
+`ffmpeg` is resolved from `PATH`, not independently configurable in v1 (YAGNI —
+add an env var later only if a real deployment needs a nonstandard binary
+location).
+
+## 11. Testing
+
+- `media/`'s two functions get direct unit tests against tiny synthesized WAV
+  fixtures (matching Phase 1's guano-py convention) — no DB, no queue,
+  no Procrastinate import. Assert real output: a spectrogram's WebP decodes to
+  the expected pixel dimensions; a preview's Opus file, probed via `ffprobe`,
+  reports a sample rate of the original ÷10 and a nonzero duration.
+- Job execution is tested against the real testcontainers Postgres — **not**
+  Procrastinate's `InMemoryConnector`, to stay consistent with this project's
+  established "tests verify real behavior" convention (matching every DB test
+  in Phases 1–2). Pattern: defer a task, then
+  `app.run_worker(wait=False, install_signal_handlers=False, listen_notify=False)`,
+  then assert the expected file exists (or, for the missing-file case, that the
+  job is marked failed after its retry budget).
+- Duplicate-enqueue regression test: defer the same task twice with the same
+  lock/queueing_lock keys before running a worker; assert only one job row
+  ends up in "todo" (the second `defer()` either raises `AlreadyEnqueued` and
+  is caught, or is asserted to raise — whichever the implementation chooses,
+  the test pins the actual contract).
+- `ffmpeg` must be present wherever tests run; noted as a new test-environment
+  requirement (Docker test image / dev container gets one `apt-get install
+  ffmpeg` line — this plan does not touch CI/Docker files if none exist yet,
+  only documents the requirement).
+
+## 12. Explicitly out of scope for Phase 3
+
+Any web surface (Phases 4–5) · the `geo` queue / poiidx site naming (queue name
+reserved, no task) · the `classify` queue / any classifier integration (v2,
+per parent spec §14) · configurable spectrogram/preview parameters exposed to
+an end user (params exist as code constants with a hash, not a settings UI) ·
+job-status reporting beyond what `hatch test`/manual `procrastinate` CLI
+inspection already gives (the job-status strip is Phase 5).
+
+## 13. Decisions made in this document
+
+| # | Decision | Rationale |
+|---|---|---|
+| P3-1 | Spectrogram rendering written fresh (scipy/numpy/Pillow), not ported from batogram | No local checkout, batogram is GUI-shaped and explicitly unstable, not a clean porting target |
+| P3-2 | Preview's Opus encoding shells out to ffmpeg | Mature, well-tested, one binary dependency vs. fragile Python libopus bindings |
+| P3-3 | Procrastinate's schema applied via its own API, kept out of the Alembic chain | Its schema is raw-SQL-versioned by its own releases; vendoring would need manual re-sync with no drift check |
+| P3-4 | Backfill command included in this phase (`fledermap enqueue-media`) | Recordings ingested in Phases 1–2, before this phase existed, would otherwise never get media |
+| P3-5 | Both tasks deferred with combined `lock` + `queueing_lock`, keyed per task type per (audio_hash, params_hash) | `queueing_lock` alone doesn't cover a job already in "doing"; combining both closes the duplicate-enqueue race Procrastinate doesn't handle automatically |
+| P3-6 | `backfill_media` checks disk state, not Procrastinate's job table, to decide what needs enqueueing | Job history isn't a reliable durable record (jobs can be configured to auto-delete); disk state is the actual source of truth for "has this been rendered" |
+| P3-7 | `media_root` is a required config value, distinct from `archive_root` | Writing into the archive would violate D16's read-only invariant; where media lives is a real deployment decision, not safe to default silently |
