@@ -159,12 +159,27 @@ itself calls the classify queue "queue slot exists, no integration").
 ## 7. `jobs/tasks.py` — locking
 
 ```python
-@app.task(queue="media")
-def render_spectrogram_task(audio_hash: str) -> None: ...
+@app.task(queue="media", pass_context=True)
+def render_spectrogram_task(context: procrastinate.JobContext, audio_hash: str) -> None: ...
 
-@app.task(queue="media")
-def make_preview_task(audio_hash: str) -> None: ...
+@app.task(queue="media", pass_context=True)
+def make_preview_task(context: procrastinate.JobContext, audio_hash: str) -> None: ...
 ```
+
+A task function is a plain module-level function — it only ever receives its
+`.defer()`-time keyword arguments (`audio_hash`), nothing else automatically.
+`archive_root`/`media_root`/the DB session factory are shared resources every
+task needs but none of them own, so they ride in via Procrastinate's own
+documented mechanism for exactly this case: `pass_context=True` on the task,
+reading `context.additional_context["archive_root"]` /
+`context.additional_context["media_root"]`, supplied once at
+`app.run_worker(additional_context={...})` — not a bare module-level global,
+and not re-read from `Config.from_env()` inside every task call. The engine
+rides the same way (`context.additional_context["engine"]`) — each task opens
+its own `with OrmSession(engine) as session:` for the duration of the call,
+matching every other short-lived session in this codebase (`cli/main.py`'s
+existing commands all do the same), rather than holding one session open for
+the worker's whole lifetime.
 
 Each resolves `audio_hash` → `Recording` → real path (`archive_root / recording.path`).
 If the file is missing (`recording.missing_since is not None`, or the read
@@ -240,9 +255,22 @@ def backfill_media(db_session: OrmSession, media_root: Path) -> int:
 ## 9. CLI (`cli/main.py`)
 
 ```
-fledermap worker            # app.run_worker() — blocking, listens on `media`
-fledermap enqueue-media     # backfill_media() — one-shot, prints count enqueued
+fledermap worker ARCHIVE     # app.run_worker() — blocking, listens on `media`
+fledermap enqueue-media      # backfill_media() — one-shot, prints count enqueued
 ```
+
+**`worker` takes the same `ARCHIVE` positional argument `ingest` does** —
+checked the existing `derive` command (Phase 2) for precedent first: it calls
+`Config.from_env(Path.cwd())`, passing the *current directory* as a throwaway
+`archive_root` value, which works there only because `derive` never actually
+reads `config.archive_root` for anything. `jobs/tasks.py`'s task bodies
+genuinely need the real archive root — to turn a `Recording.path` (stored
+relative, spec §6) into a real filesystem path to read — so `worker` cannot
+borrow that placeholder trick; it needs the operator's real archive path, the
+same one already passed to `ingest`. `enqueue-media` never opens a source
+file (only checks `media_root` and defers jobs, §8), so it follows `derive`'s
+existing `Config.from_env(Path.cwd())` precedent instead — consistent with
+how a command that doesn't touch files already behaves in this codebase.
 
 `worker` runs until a stop signal (`ctrl+c`/SIGTERM), matching Procrastinate's
 own default (`wait=True`). `enqueue-media` is a one-shot command an operator
