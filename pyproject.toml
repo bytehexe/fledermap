@@ -28,6 +28,7 @@ dependencies = [
   "pyproj",
   "scipy",
   "scikit-learn",
+  "pillow",
 ]
 
 [project.scripts]
