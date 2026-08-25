@@ -1,0 +1,206 @@
+# tests/test_map_query.py
+from __future__ import annotations
+
+from datetime import UTC, datetime
+
+import pytest
+from geoalchemy2.elements import WKTElement
+from sqlalchemy import Engine
+from sqlalchemy.orm import Session as OrmSession
+
+from fledermap.domain.codes import IdSource, Verdict
+from fledermap.services.map_query import filtered_recordings, filtered_sites
+from fledermap.store.models import Identification, Recording, Site, Taxon
+from fledermap.store.models import Session as AnnotationSession
+
+pytestmark = pytest.mark.db
+
+
+def _recording(
+    session: OrmSession,
+    *,
+    audio_hash: str,
+    lon: float = 10.0,
+    lat: float = 50.0,
+    recorded_at: datetime = datetime(2026, 8, 25, tzinfo=UTC),
+    verdict: Verdict | None = Verdict.SPECIES,
+    taxon_id: int | None = None,
+    source: IdSource = IdSource.EMT_GUANO,
+    session_id: int | None = None,
+    missing: bool = False,
+) -> Recording:
+    r = Recording(
+        audio_hash=audio_hash,
+        path=f"{audio_hash}.wav",
+        recorded_at=recorded_at,
+        geom=WKTElement(f"POINT({lon} {lat})", srid=4326),
+        session_id=session_id,
+        missing_since=datetime(2026, 8, 25, tzinfo=UTC) if missing else None,
+    )
+    session.add(r)
+    session.flush()
+    if verdict is not None:
+        session.add(
+            Identification(
+                recording_id=r.id,
+                source=source,
+                verdict=verdict,
+                taxon_id=taxon_id,
+                first_seen_at=recorded_at,
+            ),
+        )
+    session.flush()
+    return r
+
+
+def test_excludes_missing_recordings(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        _recording(session, audio_hash="a" * 64, missing=True)
+        session.commit()
+
+        results = filtered_recordings(session)
+
+    assert results == []
+
+
+def test_date_range_filters_recordings(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        early = _recording(
+            session,
+            audio_hash="a" * 64,
+            recorded_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+        _recording(
+            session, audio_hash="b" * 64, recorded_at=datetime(2026, 8, 1, tzinfo=UTC)
+        )
+        session.commit()
+
+        results = filtered_recordings(
+            session,
+            date_from=datetime(2026, 1, 1, tzinfo=UTC),
+            date_to=datetime(2026, 2, 1, tzinfo=UTC),
+        )
+
+    assert [r.id for r in results] == [early.id]
+
+
+def test_bbox_filters_by_the_recordings_current_position(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        inside = _recording(session, audio_hash="a" * 64, lon=10.0, lat=50.0)
+        _recording(session, audio_hash="b" * 64, lon=100.0, lat=50.0)
+        session.commit()
+
+        results = filtered_recordings(session, bbox=(0.0, 40.0, 20.0, 60.0))
+
+    assert [r.id for r in results] == [inside.id]
+
+
+def test_default_verdict_excludes_noise_and_no_id(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        species = _recording(session, audio_hash="a" * 64, verdict=Verdict.SPECIES)
+        _recording(session, audio_hash="b" * 64, verdict=Verdict.NOISE)
+        _recording(session, audio_hash="c" * 64, verdict=Verdict.NO_ID)
+        _recording(
+            session, audio_hash="d" * 64, verdict=None
+        )  # no identification at all
+        session.commit()
+
+        results = filtered_recordings(session)
+
+    assert [r.id for r in results] == [species.id]
+
+
+def test_verdict_all_includes_everything(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        _recording(session, audio_hash="a" * 64, verdict=Verdict.SPECIES)
+        _recording(session, audio_hash="b" * 64, verdict=Verdict.NOISE)
+        _recording(session, audio_hash="c" * 64, verdict=None)
+        session.commit()
+
+        results = filtered_recordings(session, verdict="all")
+
+    assert len(results) == 3
+
+
+def test_explicit_verdict_filters_to_only_that_verdict(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        noise = _recording(session, audio_hash="a" * 64, verdict=Verdict.NOISE)
+        _recording(session, audio_hash="b" * 64, verdict=Verdict.SPECIES)
+        session.commit()
+
+        results = filtered_recordings(session, verdict=Verdict.NOISE)
+
+    assert [r.id for r in results] == [noise.id]
+
+
+def test_taxon_filters_by_current_best_taxon(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        wanted = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
+        other = Taxon(rank="species", scientific_name="Eptesicus serotinus")
+        session.add_all([wanted, other])
+        session.flush()
+        matching = _recording(session, audio_hash="a" * 64, taxon_id=wanted.id)
+        _recording(session, audio_hash="b" * 64, taxon_id=other.id)
+        session.commit()
+
+        results = filtered_recordings(session, taxon_id=wanted.id)
+
+    assert [r.id for r in results] == [matching.id]
+
+
+def test_session_id_filters_recordings(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        wanted = AnnotationSession(
+            started_at=datetime(2026, 1, 1, tzinfo=UTC),
+            ended_at=datetime(2026, 1, 2, tzinfo=UTC),
+        )
+        other = AnnotationSession(
+            started_at=datetime(2026, 1, 1, tzinfo=UTC),
+            ended_at=datetime(2026, 1, 2, tzinfo=UTC),
+        )
+        session.add_all([wanted, other])
+        session.flush()
+        matching = _recording(session, audio_hash="a" * 64, session_id=wanted.id)
+        _recording(session, audio_hash="b" * 64, session_id=other.id)
+        session.commit()
+
+        results = filtered_recordings(session, session_id=wanted.id)
+
+    assert [r.id for r in results] == [matching.id]
+
+
+def test_source_filters_by_a_non_superseded_identification_from_that_source(
+    engine: Engine,
+) -> None:
+    with OrmSession(engine) as session:
+        matching = _recording(session, audio_hash="a" * 64, source=IdSource.EMT_WAMD)
+        _recording(session, audio_hash="b" * 64, source=IdSource.EMT_GUANO)
+        session.commit()
+
+        results = filtered_recordings(session, source=IdSource.EMT_WAMD)
+
+    assert [r.id for r in results] == [matching.id]
+
+
+def test_filtered_sites_by_bbox_and_date(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        inside = Site(
+            centroid=WKTElement("POINT(10 50)", srid=4326),
+            radius_m=100.0,
+            recording_count=3,
+            first_at=datetime(2026, 1, 1, tzinfo=UTC),
+            last_at=datetime(2026, 1, 2, tzinfo=UTC),
+        )
+        outside = Site(
+            centroid=WKTElement("POINT(100 50)", srid=4326),
+            radius_m=100.0,
+            recording_count=1,
+            first_at=datetime(2026, 1, 1, tzinfo=UTC),
+            last_at=datetime(2026, 1, 2, tzinfo=UTC),
+        )
+        session.add_all([inside, outside])
+        session.commit()
+
+        results = filtered_sites(session, bbox=(0.0, 40.0, 20.0, 60.0))
+
+    assert [s.id for s in results] == [inside.id]
