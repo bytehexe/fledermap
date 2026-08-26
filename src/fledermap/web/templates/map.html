@@ -47,6 +47,7 @@
     </label>
     <input type="hidden" name="site" x-model="site">
   </form>
+  <button type="button" x-show="site" @click="fledermapFilterBySite('')">Clear site filter ×</button>
 
   <div id="map"></div>
 

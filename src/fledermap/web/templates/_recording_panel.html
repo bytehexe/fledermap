@@ -38,6 +38,12 @@
   </div>
   <div class="col context">
     <h3>Context</h3>
+    {% if recording_session %}
+    <p>Session: {{ recording_session.started_at.strftime('%Y-%m-%d %H:%M') }}–{{ recording_session.ended_at.strftime('%H:%M') }} ({{ recording_session.detector_key or 'unknown detector' }})</p>
+    {% endif %}
+    {% if site %}
+    <p>Site: <a href="#" hx-get="/sites/{{ site.id }}/panel" hx-target="#drawer-body">{{ site_label }}</a></p>
+    {% endif %}
     {% if previous %}
     <button type="button" hx-get="/recordings/{{ previous.audio_hash }}/panel?{{ filter_qs }}" hx-target="#drawer-body">← Previous</button>
     {% endif %}

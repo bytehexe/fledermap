@@ -10,6 +10,7 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import IdSource, Verdict
+from fledermap.media.paths import preview_path, spectrogram_path
 from fledermap.store.models import Identification, Recording, Site, Taxon
 from fledermap.store.models import Session as AnnotationSession
 from fledermap.web.app import create_app
@@ -176,6 +177,57 @@ def test_recording_panel_renders_identification_and_metadata(
     assert trigger["recording-selected"]["hash"] == "a" * 64
 
 
+def test_recording_panel_renders_identification_list_content(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Eptesicus serotinus")
+        session.add(taxon)
+        session.flush()
+        recording = Recording(
+            audio_hash="e" * 64,
+            path="e.wav",
+            recorded_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+            geom=WKTElement("POINT(10 50)", srid=4326),
+        )
+        session.add(recording)
+        session.flush()
+        session.add(
+            Identification(
+                recording_id=recording.id,
+                source=IdSource.EMT_GUANO,
+                source_version=None,
+                verdict=Verdict.SPECIES,
+                taxon_id=taxon.id,
+                raw_label="EPTSER",
+                first_seen_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+            ),
+        )
+        session.add(
+            Identification(
+                recording_id=recording.id,
+                source=IdSource.EMT_WAMD,
+                source_version=None,
+                verdict=Verdict.SPECIES,
+                taxon_id=taxon.id,
+                raw_label="EPTSER",
+                first_seen_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+                superseded_at=datetime(2026, 8, 25, 21, 5, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/recordings/{'e' * 64}/panel")
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert "emt.guano" in html
+    assert "EPTSER" in html
+    assert 'class="superseded"' in html
+
+
 def test_recording_panel_not_found_renders_gracefully(
     engine: Engine,
     tmp_path: Path,
@@ -217,6 +269,37 @@ def test_recording_panel_degrades_when_media_not_rendered(
     )
 
     assert "not processed yet" in html.lower()
+
+
+def test_recording_panel_renders_media_when_already_processed(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    media_root = tmp_path / "media"
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="f" * 64,
+                path="f.wav",
+                recorded_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+    spectrogram_path(media_root, "f" * 64).parent.mkdir(parents=True)
+    spectrogram_path(media_root, "f" * 64).write_bytes(b"fake-webp-bytes")
+    preview_path(media_root, "f" * 64).parent.mkdir(parents=True, exist_ok=True)
+    preview_path(media_root, "f" * 64).write_bytes(b"fake-opus-bytes")
+
+    app = create_app(engine, tmp_path / "static", media_root)
+    html = (
+        app.test_client()
+        .get(f"/recordings/{'f' * 64}/panel?verdict=all")
+        .get_data(as_text=True)
+    )
+
+    assert '<img class="spectrogram"' in html
+    assert "<audio controls" in html
 
 
 def test_recording_panel_shows_prev_next_within_filters(

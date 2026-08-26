@@ -16,14 +16,14 @@ html, body { height: 100%; margin: 0; }
   flex-direction: column;
   z-index: 1000;
 }
-#drawer.collapsed { height: auto; }
+#drawer.collapsed { height: auto !important; }
 #drawer.collapsed #drawer-body { display: none; }
 #drawer-handle { height: 6px; cursor: ns-resize; background: #ddd; }
 #drawer-header { display: flex; justify-content: flex-end; gap: 0.5rem; padding: 0.25rem 0.5rem; }
 #drawer-body { flex: 1; overflow: auto; padding: 0 1rem 1rem; }
 .panel-columns { display: flex; gap: 1rem; }
-.panel-columns .identifications { flex: 3; }
 .panel-columns .col { flex: 2; }
+.panel-columns .col.identifications { flex: 3; }
 .superseded { text-decoration: line-through; opacity: 0.6; }
 .spectrogram { width: 100%; display: block; }
 .audio-row { padding: 0.5rem 0; }

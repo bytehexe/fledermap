@@ -54,4 +54,4 @@ def preview(audio_hash: str) -> ResponseReturnValue:
     path = preview_path(media_root, audio_hash)
     if not path.exists():
         flask.abort(404)
-    return flask.send_file(path, mimetype="audio/opus")
+    return flask.send_file(path, mimetype="audio/ogg")

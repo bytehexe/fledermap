@@ -17,7 +17,7 @@ from fledermap.web.views.media import media_bp
 
 def create_app(engine: Engine, static_root: Path, media_root: Path) -> flask.Flask:
     """`static_root` is `Config.static_root` -- where
-    `scripts/fetch_vendor_assets.py` (Task 3) wrote Leaflet/HTMX/Alpine.
+    `services/vendor_assets.py`'s `ensure_vendor_assets` fetches Leaflet/HTMX/Alpine.
     Served from a dedicated `vendor` Blueprint (its own `static_folder`),
     kept separate from the app's own default static folder (which serves
     this package's own committed `app.js`/`app.css` -- Task 7) so the two

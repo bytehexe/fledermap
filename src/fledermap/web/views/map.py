@@ -18,7 +18,8 @@ from fledermap.services.map_query import (
     site_detail,
 )
 from fledermap.store.geo import decode_point
-from fledermap.store.models import Taxon
+from fledermap.store.models import Session as AnnotationSession
+from fledermap.store.models import Site, Taxon
 from fledermap.web.params import (
     fallback_site_label,
     parse_datetime,
@@ -82,6 +83,20 @@ def recording_panel(audio_hash: str) -> flask.Response:
             taxon = session.get(Taxon, best.taxon_id)
         point = decode_point(recording.geom)
 
+        recording_session = (
+            session.get(AnnotationSession, recording.session_id)
+            if recording.session_id
+            else None
+        )
+        site = session.get(Site, recording.site_id) if recording.site_id else None
+        site_label = None
+        if site is not None:
+            site_label = (
+                site.name
+                if site.name
+                else fallback_site_label(decode_point(site.centroid))
+            )
+
         html = flask.render_template(
             "_recording_panel.html",
             found=True,
@@ -93,6 +108,9 @@ def recording_panel(audio_hash: str) -> flask.Response:
             filter_qs=filter_qs,
             spectrogram_ready=spectrogram_path(media_root, audio_hash).exists(),
             preview_ready=preview_path(media_root, audio_hash).exists(),
+            recording_session=recording_session,
+            site=site,
+            site_label=site_label,
         )
 
     response = flask.make_response(html)
