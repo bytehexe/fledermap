@@ -329,3 +329,13 @@ def test_site_panel_has_show_only_this_site_button(
     html = app.test_client().get(f"/sites/{site_id}/panel").get_data(as_text=True)
 
     assert f"fledermapFilterBySite({site_id})" in html
+
+
+def test_map_page_includes_the_drawer_shell(engine: Engine, tmp_path: Path) -> None:
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    html = app.test_client().get("/").get_data(as_text=True)
+
+    assert 'id="drawer"' in html
+    assert 'id="drawer-body"' in html
+    assert "$store.drawer.open" in html
+    assert "$store.drawer.collapsed" in html
