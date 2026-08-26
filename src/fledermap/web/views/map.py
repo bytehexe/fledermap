@@ -8,7 +8,11 @@ import flask
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import IdSource
-from fledermap.media.paths import preview_path, spectrogram_path
+from fledermap.media.paths import oscillogram_path, preview_path, spectrogram_path
+from fledermap.media.spectrogram import (
+    DEFAULT_SPECTROGRAM_PARAMS,
+    effective_max_freq_hz,
+)
 from fledermap.services.current_best import current_best_identification
 from fledermap.services.map_query import (
     filtered_recordings,
@@ -97,6 +101,16 @@ def recording_panel(audio_hash: str) -> flask.Response:
                 else fallback_site_label(decode_point(site.centroid))
             )
 
+        max_freq_khz = None
+        if recording.samplerate_hz:
+            max_freq_khz = (
+                effective_max_freq_hz(
+                    recording.samplerate_hz,
+                    DEFAULT_SPECTROGRAM_PARAMS,
+                )
+                / 1000
+            )
+
         html = flask.render_template(
             "_recording_panel.html",
             found=True,
@@ -107,10 +121,13 @@ def recording_panel(audio_hash: str) -> flask.Response:
             next=following,
             filter_qs=filter_qs,
             spectrogram_ready=spectrogram_path(media_root, audio_hash).exists(),
+            oscillogram_ready=oscillogram_path(media_root, audio_hash).exists(),
             preview_ready=preview_path(media_root, audio_hash).exists(),
             recording_session=recording_session,
             site=site,
             site_label=site_label,
+            duration_s=recording.duration_s,
+            max_freq_khz=max_freq_khz,
         )
 
     response = flask.make_response(html)

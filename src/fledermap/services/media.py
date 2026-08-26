@@ -15,16 +15,18 @@ from fledermap.jobs.tasks import (
 )
 from fledermap.jobs.tasks import (
     make_preview_task,
+    oscillogram_lock_key,
     preview_lock_key,
+    render_oscillogram_task,
     render_spectrogram_task,
     spectrogram_lock_key,
 )
-from fledermap.media.paths import preview_path, spectrogram_path
+from fledermap.media.paths import oscillogram_path, preview_path, spectrogram_path
 from fledermap.store.models import Recording
 
 
 def enqueue_media(created_hashes: list[str], engine: Engine) -> None:
-    """Defer both tasks for each hash, locked/queueing-locked per design spec
+    """Defer all three tasks for each hash, locked/queueing-locked per design spec
     §7. Called from `cli/main.py`'s `ingest` command AFTER `session.commit()`
     succeeds -- not from inside `commit_scan`, which does not commit, so
     nothing can be picked up by a worker for a row that isn't durably
@@ -48,6 +50,13 @@ def enqueue_media(created_hashes: list[str], engine: Engine) -> None:
             ).defer(audio_hash=audio_hash)
         except procrastinate.exceptions.AlreadyEnqueued:
             pass
+        try:
+            render_oscillogram_task.configure(
+                lock=oscillogram_lock_key(audio_hash),
+                queueing_lock=oscillogram_lock_key(audio_hash),
+            ).defer(audio_hash=audio_hash)
+        except procrastinate.exceptions.AlreadyEnqueued:
+            pass
 
 
 def _has_media(media_root: Path, audio_hash: str) -> bool:
@@ -61,18 +70,19 @@ def _has_media(media_root: Path, audio_hash: str) -> bool:
     exactly."""
     return (
         spectrogram_path(media_root, audio_hash).exists()
+        and oscillogram_path(media_root, audio_hash).exists()
         and preview_path(media_root, audio_hash).exists()
     )
 
 
 def backfill_media(db_session: OrmSession, media_root: Path) -> int:
-    """Enqueue media for every recording that doesn't already have both
+    """Enqueue media for every recording that doesn't already have all three
     files on disk at the current params. Returns the count enqueued.
 
     Recordings flagged missing are excluded: `jobs.tasks._resolve_recording`
     raises `FileNotFoundError` for anything with `missing_since` set, so
     without this filter a `sweep_missing` that flags N recordings would make
-    the next backfill defer 2N jobs guaranteed to fail every retry."""
+    the next backfill defer 3N jobs guaranteed to fail every retry."""
     engine = db_session.get_bind()
     assert isinstance(engine, Engine), "db_session must be bound to an Engine"
     hashes = db_session.scalars(

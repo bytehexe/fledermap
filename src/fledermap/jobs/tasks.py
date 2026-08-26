@@ -17,7 +17,16 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.jobs.app import make_job_app
-from fledermap.media.paths import PREVIEW_VERSION, preview_path, spectrogram_path
+from fledermap.media.oscillogram import (
+    DEFAULT_OSCILLOGRAM_PARAMS,
+    render_oscillogram,
+)
+from fledermap.media.paths import (
+    PREVIEW_VERSION,
+    oscillogram_path,
+    preview_path,
+    spectrogram_path,
+)
 from fledermap.media.preview import make_preview
 from fledermap.media.spectrogram import DEFAULT_SPECTROGRAM_PARAMS, render_spectrogram
 from fledermap.store.models import Recording
@@ -45,6 +54,10 @@ _RETRY = procrastinate.RetryStrategy(max_attempts=3, exponential_wait=2)
 
 def spectrogram_lock_key(audio_hash: str) -> str:
     return f"spectrogram:{audio_hash}:{DEFAULT_SPECTROGRAM_PARAMS.params_hash}"
+
+
+def oscillogram_lock_key(audio_hash: str) -> str:
+    return f"oscillogram:{audio_hash}:{DEFAULT_OSCILLOGRAM_PARAMS.params_hash}"
 
 
 def preview_lock_key(audio_hash: str) -> str:
@@ -76,6 +89,23 @@ def render_spectrogram_task(
 
     out_path = spectrogram_path(media_root, audio_hash)
     render_spectrogram(wav_path, out_path, params=DEFAULT_SPECTROGRAM_PARAMS)
+
+
+@app.task(queue="media", pass_context=True, retry=_RETRY)
+def render_oscillogram_task(
+    context: procrastinate.JobContext,
+    audio_hash: str,
+) -> None:
+    archive_root: Path = context.additional_context["archive_root"]
+    media_root: Path = context.additional_context["media_root"]
+    engine = context.additional_context["engine"]
+
+    with OrmSession(engine) as session:
+        recording = _resolve_recording(session, audio_hash)
+        wav_path = archive_root / recording.path
+
+    out_path = oscillogram_path(media_root, audio_hash)
+    render_oscillogram(wav_path, out_path, params=DEFAULT_OSCILLOGRAM_PARAMS)
 
 
 @app.task(queue="media", pass_context=True, retry=_RETRY)

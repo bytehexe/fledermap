@@ -4,10 +4,15 @@ import math
 import struct
 from pathlib import Path
 
+import numpy as np
 import pytest
 from PIL import Image
 
-from fledermap.media.spectrogram import SpectrogramParams, render_spectrogram
+from fledermap.media.spectrogram import (
+    SpectrogramParams,
+    effective_max_freq_hz,
+    render_spectrogram,
+)
 
 
 def _sine_wav(
@@ -125,6 +130,106 @@ def test_a_very_short_recording_renders_without_warning(
     render_spectrogram(wav_path, out_path)  # must not raise
 
     assert len(recwarn) == 0, [str(w.message) for w in recwarn]
+
+
+def test_renders_rgb_not_grayscale(tmp_path: Path) -> None:
+    """The palette maps normalised power to colour, not a single grey
+    channel -- a loud tone must produce a pixel with unequal R/G/B (e.g. the
+    palette's yellow/red end), not a neutral grey triple."""
+    wav_path = tmp_path / "call.wav"
+    _sine_wav(wav_path)
+    out_path = tmp_path / "spectrogram.webp"
+
+    render_spectrogram(wav_path, out_path)
+
+    with Image.open(out_path) as img:
+        assert img.mode == "RGB"
+        pixels = np.asarray(img)
+        # At least one pixel must be distinctly non-grey (the loud tone's
+        # peak, coloured by the palette) -- proves colour mapping actually
+        # happened rather than R==G==B everywhere (a grey image saved as RGB).
+        spread = pixels.max(axis=-1).astype(int) - pixels.min(axis=-1).astype(int)
+        assert spread.max() > 20
+
+
+def test_quiet_background_is_not_washed_out_to_near_white(tmp_path: Path) -> None:
+    """Regression test for the log1p bug: a signal with a loud transient
+    tone against an otherwise-quiet background must render the quiet
+    background near the palette's floor colour (black), not washed toward
+    the bright end -- `log1p` on power values well below 1.0 barely
+    distinguishes them from the loud tone once min-max normalised, so most
+    of the image used to render either near-uniformly bright or with the
+    entire noise floor crushed into a razor-thin band at the very bottom of
+    the range. A proper dB-relative-to-peak scale with a fixed dynamic-range
+    floor keeps the noise floor visibly dark."""
+    wav_path = tmp_path / "call.wav"
+    _sine_wav(wav_path, duration_s=0.2)
+    out_path = tmp_path / "spectrogram.webp"
+
+    render_spectrogram(wav_path, out_path)
+
+    with Image.open(out_path) as img:
+        pixels = np.asarray(img).astype(int)
+        brightness = pixels.sum(axis=-1)  # 0 (black) .. 765 (white)
+        # The tone occupies a narrow frequency band; most of the image-time
+        # rows are far from it and must render dark (near the palette floor).
+        dark_fraction = (brightness < 100).mean()
+        assert dark_fraction > 0.5, (
+            f"only {dark_fraction:.0%} of pixels near-black -- background "
+            "isn't staying near the palette floor"
+        )
+
+
+def test_silence_renders_solid_black(tmp_path: Path) -> None:
+    """All-zero PCM must not divide by zero (peak power is 0) and must
+    render as the palette's floor colour throughout."""
+    wav_path = tmp_path / "silence.wav"
+    channels, bits, samplerate = 1, 16, 256_000
+    n_samples = int(samplerate * 0.05)
+    pcm = b"\x00\x00" * n_samples
+    byte_rate = samplerate * channels * bits // 8
+    block_align = channels * bits // 8
+    fmt_payload = struct.pack(
+        "<HHIIHH", 1, channels, samplerate, byte_rate, block_align, bits
+    )
+
+    def chunk(chunk_id: bytes, payload: bytes) -> bytes:
+        out = chunk_id + struct.pack("<I", len(payload)) + payload
+        if len(payload) % 2:
+            out += b"\x00"
+        return out
+
+    body = b"WAVE" + chunk(b"fmt ", fmt_payload) + chunk(b"data", pcm)
+    wav_path.write_bytes(b"RIFF" + struct.pack("<I", len(body)) + body)
+    out_path = tmp_path / "spectrogram.webp"
+
+    render_spectrogram(wav_path, out_path)  # must not raise (no div-by-zero)
+
+    with Image.open(out_path) as img:
+        pixels = np.asarray(img)
+        assert pixels.max() == 0
+
+
+def test_dynamic_range_db_participates_in_params_hash() -> None:
+    base = SpectrogramParams()
+    changed = SpectrogramParams(dynamic_range_db=base.dynamic_range_db + 1)
+
+    assert base.params_hash != changed.params_hash
+
+
+def test_palette_participates_in_params_hash() -> None:
+    base = SpectrogramParams()
+    changed = SpectrogramParams(palette="some_other_palette")
+
+    assert base.params_hash != changed.params_hash
+
+
+def test_effective_max_freq_hz_clamps_to_nyquist() -> None:
+    assert effective_max_freq_hz(44_100, SpectrogramParams()) == 22_050.0
+
+
+def test_effective_max_freq_hz_respects_the_params_ceiling() -> None:
+    assert effective_max_freq_hz(256_000, SpectrogramParams()) == 128_000.0
 
 
 def test_writes_atomically_leaving_no_temp_file_behind(tmp_path: Path) -> None:

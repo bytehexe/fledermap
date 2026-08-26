@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from fledermap.media.oscillogram import DEFAULT_OSCILLOGRAM_PARAMS, OscillogramParams
 from fledermap.media.spectrogram import DEFAULT_SPECTROGRAM_PARAMS, SpectrogramParams
 
 # The preview format's version, which is part of BOTH its filename and its
@@ -45,6 +46,19 @@ def spectrogram_path(
     return (
         recording_media_dir(media_root, audio_hash)
         / f"spectrogram-{params.params_hash}.webp"
+    )
+
+
+def oscillogram_path(
+    media_root: Path,
+    audio_hash: str,
+    params: OscillogramParams = DEFAULT_OSCILLOGRAM_PARAMS,
+) -> Path:
+    """Where `params`' oscillogram for `audio_hash` belongs -- same
+    hash-in-filename cache-invalidation shape as `spectrogram_path`."""
+    return (
+        recording_media_dir(media_root, audio_hash)
+        / f"oscillogram-{params.params_hash}.webp"
     )
 
 

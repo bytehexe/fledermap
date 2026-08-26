@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.jobs.app import ensure_schema
 from fledermap.jobs.tasks import app as jobs_app
-from fledermap.media.paths import preview_path, spectrogram_path
+from fledermap.media.paths import oscillogram_path, preview_path, spectrogram_path
 from fledermap.services.media import backfill_media, enqueue_media
 from fledermap.store.models import Recording
 
@@ -44,15 +44,15 @@ def _todo_job_count(engine: Engine, audio_hash: str) -> int:
     return int(count) if count is not None else 0
 
 
-def test_enqueue_media_defers_two_jobs_per_hash(engine: Engine) -> None:
+def test_enqueue_media_defers_three_jobs_per_hash(engine: Engine) -> None:
     jobs_app.open(engine)
     ensure_schema(jobs_app, engine)
 
     enqueue_media(["h1" * 32], engine)
 
     assert (
-        _todo_job_count(engine, "h1" * 32) == 2
-    )  # one spectrogram job, one preview job
+        _todo_job_count(engine, "h1" * 32) == 3
+    )  # one spectrogram job, one oscillogram job, one preview job
 
 
 def test_enqueue_media_ignores_a_duplicate_for_the_same_hash(engine: Engine) -> None:
@@ -63,8 +63,8 @@ def test_enqueue_media_ignores_a_duplicate_for_the_same_hash(engine: Engine) -> 
     enqueue_media(["h2" * 32], engine)  # must not raise, must not double the queue
 
     assert (
-        _todo_job_count(engine, "h2" * 32) == 2
-    )  # still just one spectrogram + one preview job
+        _todo_job_count(engine, "h2" * 32) == 3
+    )  # still just one spectrogram + one oscillogram + one preview job
 
 
 def test_backfill_media_enqueues_recordings_with_no_media_on_disk(
@@ -102,6 +102,7 @@ def test_backfill_media_skips_a_recording_with_existing_media(
         # divergence this test exists to catch.
         for path in (
             spectrogram_path(media_root, recording.audio_hash),
+            oscillogram_path(media_root, recording.audio_hash),
             preview_path(media_root, recording.audio_hash),
         ):
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -135,5 +136,5 @@ def test_backfill_media_skips_a_recording_flagged_missing(
 
     # Only the present recording; nothing deferred for the missing one.
     assert count == 1
-    assert _todo_job_count(engine, present_hash) == 2
+    assert _todo_job_count(engine, present_hash) == 3
     assert _todo_job_count(engine, gone_hash) == 0

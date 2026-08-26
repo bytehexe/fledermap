@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session as OrmSession
 
-from fledermap.media.paths import preview_path, spectrogram_path
+from fledermap.media.paths import oscillogram_path, preview_path, spectrogram_path
 from fledermap.store.models import Recording
 from fledermap.web.app import create_app
 
@@ -58,6 +58,53 @@ def test_spectrogram_404s_when_not_yet_rendered(engine: Engine, tmp_path: Path) 
 def test_spectrogram_404s_for_unknown_hash(engine: Engine, tmp_path: Path) -> None:
     app = create_app(engine, tmp_path / "static", tmp_path / "media")
     response = app.test_client().get(f"/media/{'c' * 64}/spectrogram.webp")
+
+    assert response.status_code == 404
+
+
+def test_oscillogram_serves_existing_file(engine: Engine, tmp_path: Path) -> None:
+    media_root = tmp_path / "media"
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="e" * 64,
+                path="e.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+    path = oscillogram_path(media_root, "e" * 64)
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"fake-webp-bytes")
+
+    app = create_app(engine, tmp_path / "static", media_root)
+    response = app.test_client().get(f"/media/{'e' * 64}/oscillogram.webp")
+
+    assert response.status_code == 200
+    assert response.data == b"fake-webp-bytes"
+
+
+def test_oscillogram_404s_when_not_yet_rendered(engine: Engine, tmp_path: Path) -> None:
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="f" * 64,
+                path="f.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/media/{'f' * 64}/oscillogram.webp")
+
+    assert response.status_code == 404
+
+
+def test_oscillogram_404s_for_unknown_hash(engine: Engine, tmp_path: Path) -> None:
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/media/{'g' * 64}/oscillogram.webp")
 
     assert response.status_code == 404
 

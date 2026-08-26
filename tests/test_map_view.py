@@ -10,7 +10,7 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import IdSource, Verdict
-from fledermap.media.paths import preview_path, spectrogram_path
+from fledermap.media.paths import oscillogram_path, preview_path, spectrogram_path
 from fledermap.store.models import Identification, Recording, Site, Taxon
 from fledermap.store.models import Session as AnnotationSession
 from fledermap.web.app import create_app
@@ -282,12 +282,16 @@ def test_recording_panel_renders_media_when_already_processed(
                 audio_hash="f" * 64,
                 path="f.wav",
                 recorded_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+                duration_s=0.5,
+                samplerate_hz=256_000,
             ),
         )
         session.commit()
 
     spectrogram_path(media_root, "f" * 64).parent.mkdir(parents=True)
     spectrogram_path(media_root, "f" * 64).write_bytes(b"fake-webp-bytes")
+    oscillogram_path(media_root, "f" * 64).parent.mkdir(parents=True, exist_ok=True)
+    oscillogram_path(media_root, "f" * 64).write_bytes(b"fake-webp-bytes")
     preview_path(media_root, "f" * 64).parent.mkdir(parents=True, exist_ok=True)
     preview_path(media_root, "f" * 64).write_bytes(b"fake-opus-bytes")
 
@@ -299,7 +303,36 @@ def test_recording_panel_renders_media_when_already_processed(
     )
 
     assert '<img class="spectrogram"' in html
+    assert '<img class="oscillogram"' in html
     assert "<audio controls" in html
+    # Frequency axis: 128kHz default ceiling clamped to 256kHz/2 Nyquist.
+    assert "128 kHz" in html
+    # Time axis: full 0.5s duration.
+    assert "0.50s" in html
+
+
+def test_recording_panel_oscillogram_degrades_when_not_yet_rendered(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="k" * 64,
+                path="k.wav",
+                recorded_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    html = (
+        app.test_client()
+        .get(f"/recordings/{'k' * 64}/panel?verdict=all")
+        .get_data(as_text=True)
+    )
+
+    assert "waveform not processed yet" in html.lower()
 
 
 def test_recording_panel_shows_prev_next_within_filters(

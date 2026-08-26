@@ -14,7 +14,9 @@ from fledermap.jobs.tasks import (
 )
 from fledermap.jobs.tasks import (
     make_preview_task,
+    oscillogram_lock_key,
     preview_lock_key,
+    render_oscillogram_task,
     render_spectrogram_task,
     spectrogram_lock_key,
 )
@@ -102,6 +104,43 @@ def test_render_spectrogram_task_writes_a_file(
 
     produced = list(
         media_root.glob(f"{audio_hash[:2]}/{audio_hash}/spectrogram-*.webp")
+    )
+    assert len(produced) == 1
+
+
+def test_render_oscillogram_task_writes_a_file(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    media_root = tmp_path / "media"
+    _write_wav(archive_root, "o.wav")
+    jobs_app.open(engine)
+    ensure_schema(jobs_app, engine)
+
+    with OrmSession(engine) as session:
+        recording = _make_recording(session, audio_hash="h9" * 32, path="o.wav")
+        session.commit()
+        audio_hash = recording.audio_hash
+
+    render_oscillogram_task.configure(
+        lock=oscillogram_lock_key(audio_hash),
+        queueing_lock=oscillogram_lock_key(audio_hash),
+    ).defer(audio_hash=audio_hash)
+    _run_worker(
+        engine,
+        wait=False,
+        install_signal_handlers=False,
+        listen_notify=False,
+        additional_context={
+            "archive_root": archive_root,
+            "media_root": media_root,
+            "engine": engine,
+        },
+    )
+
+    produced = list(
+        media_root.glob(f"{audio_hash[:2]}/{audio_hash}/oscillogram-*.webp")
     )
     assert len(produced) == 1
 

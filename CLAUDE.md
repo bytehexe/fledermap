@@ -210,3 +210,38 @@ owns and will pick up as its own task.
   files and rewrites metadata chunks — preserves it. Verified against real recordings.
 - `recorded_at` precedence is **provisional** (D17). `filename_at`, `metadata_at`, and
   `timestamp_disagreement_s` must all survive; removing any as "unused" is a defect.
+
+## Derived media rendering
+
+- **Never normalise a power/magnitude spectrum with `log1p` + min-max.** `media/spectrogram.py`
+  originally did exactly this and shipped visually broken: bat-call power spectra are almost
+  entirely background well below 1.0 in `scipy.signal.spectrogram`'s PSD units, and
+  `log1p(x) ≈ x` for `x ≪ 1` — barely logarithmic down there. The entire noise floor collapsed
+  to values indistinguishable from zero, so production spectrograms rendered almost solid black
+  with only a call's single loudest instant visible as a faint sliver — caught 2026-08-26 from a
+  real screenshot, not from any test (nothing had asserted on pixel brightness distribution
+  before). The fix is a proper dB scale relative to the recording's own peak
+  (`10*log10(power/peak)`), clipped to a fixed `dynamic_range_db` window and *then* normalised —
+  the same convention Audacity/batogram/Kaleidoscope use. `media/oscillogram.py`'s waveform
+  envelope has the analogous gotcha for amplitude: it normalises to the recording's own peak
+  amplitude too, deliberately, so a quiet call is still visible rather than a flat, near-invisible
+  line — do not "fix" that into a fixed int16-range reference.
+- **Every `SpectrogramParams`/`OscillogramParams` field must be something `params_hash` actually
+  hashes** (it iterates `dataclasses.fields(self)` generically) — a rendering-affecting knob added
+  outside that dataclass (e.g. a module-level constant) would silently break the
+  filename-based cache invalidation `media/paths.py` depends on.
+- **A third derived-media artifact type touches five places, all of which must move together**:
+  the pure renderer in `media/`, its path helper in `media/paths.py`, its Procrastinate task +
+  lock key in `jobs/tasks.py`, its enqueue call + `_has_media` disk check in `services/media.py`,
+  and its serving route in `web/views/media.py`. Missing any one of these means either the job
+  never runs, `backfill_media` never notices it's missing, or the browser gets a 404 for a file
+  that was actually rendered. `web/views/media.py`'s three routes now share one `_serve_derived`
+  helper — a second near-duplicate route was tolerated as a parked minor finding during Phase 5a;
+  a third made the duplication itself the more that finding's own resolution called for
+  extracting the helper.
+- **Spectrogram and oscillogram images are data plots, not photos.** They're displayed with
+  `object-fit: fill` (not `contain`), stretching independently on both axes to whatever box CSS
+  gives them — the rendered raster's `width_px`/`height_px` is a source-resolution choice, not a
+  display aspect ratio to preserve. The oscillogram gets a small fixed CSS height; the
+  spectrogram's CSS height is flexible (flexbox `flex: 1` inside `#drawer-body`), so it grows and
+  shrinks with the drawer's drag-resize while the oscillogram stays a compact strip above it.

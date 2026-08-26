@@ -128,10 +128,14 @@ unfixable = []
 mypy-init-return = true
 
 [tool.ruff.lint.flake8-bugbear]
-# SpectrogramParams is a frozen dataclass (immutable), so it's safe to call in
-# a default argument. Mirrors the scoped override pattern established by sklearn
-# mypy config: a small exception over reworking code around a linter's limitation.
-extend-immutable-calls = ["fledermap.media.spectrogram.SpectrogramParams"]
+# SpectrogramParams/OscillogramParams are frozen dataclasses (immutable), so
+# it's safe to call them in a default argument. Mirrors the scoped override
+# pattern established by sklearn mypy config: a small exception over
+# reworking code around a linter's limitation.
+extend-immutable-calls = [
+  "fledermap.media.spectrogram.SpectrogramParams",
+  "fledermap.media.oscillogram.OscillogramParams",
+]
 
 [tool.ruff.format]
 quote-style = "double"

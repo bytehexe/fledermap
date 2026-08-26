@@ -6,11 +6,40 @@
   <h2>{{ taxon.scientific_name if taxon else (best.verdict.value if best else "unidentified") }}</h2>
 </div>
 
-{% if spectrogram_ready %}
-<img class="spectrogram" src="{{ url_for('media.spectrogram', audio_hash=recording.audio_hash) }}" alt="Spectrogram">
-{% else %}
-<p class="media-placeholder">Spectrogram not processed yet.</p>
-{% endif %}
+<div class="waveform-grid">
+  <div class="axis-spacer"></div>
+  <div class="oscillogram-wrap">
+    {% if oscillogram_ready %}
+    <img class="oscillogram" src="{{ url_for('media.oscillogram', audio_hash=recording.audio_hash) }}" alt="Waveform">
+    {% else %}
+    <p class="media-placeholder media-placeholder-small">Waveform not processed yet.</p>
+    {% endif %}
+  </div>
+
+  <div class="axis-freq">
+    {% if max_freq_khz %}
+    <span>{{ "%.0f"|format(max_freq_khz) }} kHz</span>
+    <span>{{ "%.0f"|format(max_freq_khz / 2) }} kHz</span>
+    <span>0 kHz</span>
+    {% endif %}
+  </div>
+  <div class="spectrogram-wrap">
+    {% if spectrogram_ready %}
+    <img class="spectrogram" src="{{ url_for('media.spectrogram', audio_hash=recording.audio_hash) }}" alt="Spectrogram">
+    {% else %}
+    <p class="media-placeholder">Spectrogram not processed yet.</p>
+    {% endif %}
+  </div>
+
+  <div class="axis-spacer"></div>
+  <div class="axis-time">
+    {% if duration_s %}
+    <span>0.0s</span>
+    <span>{{ "%.2f"|format(duration_s / 2) }}s</span>
+    <span>{{ "%.2f"|format(duration_s) }}s</span>
+    {% endif %}
+  </div>
+</div>
 
 <div class="audio-row">
   {% if preview_ready %}

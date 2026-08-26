@@ -491,8 +491,9 @@ def test_ingest_enqueues_media_jobs_for_created_recordings(
             text("SELECT count(*) FROM procrastinate_jobs WHERE status = 'todo'"),
         ).scalar()
     engine.dispose()
-    # _archive() writes 2 distinct recordings -> 2 hashes -> 4 jobs (spectrogram + preview each).
-    assert count == 4
+    # _archive() writes 2 distinct recordings -> 2 hashes -> 6 jobs
+    # (spectrogram + oscillogram + preview each).
+    assert count == 6
 
 
 def test_worker_no_wait_processes_queued_jobs_and_writes_media(
@@ -512,8 +513,10 @@ def test_worker_no_wait_processes_queued_jobs_and_writes_media(
 
     assert result.exit_code == 0, result.output
     spectrograms = list(media_root.glob("*/*/spectrogram-*.webp"))
+    oscillograms = list(media_root.glob("*/*/oscillogram-*.webp"))
     previews = list(media_root.glob("*/*/preview-*.opus"))
     assert len(spectrograms) == 2
+    assert len(oscillograms) == 2
     assert len(previews) == 2
 
 
@@ -534,9 +537,9 @@ def test_enqueue_media_command_reports_disk_gap_but_avoids_duplicate_jobs(
     what happens to those hashes afterwards.
 
     `queueing_lock` answers "is a job already in flight for this?" and
-    refuses all 4 duplicate `defer()` attempts with `AlreadyEnqueued` (caught
+    refuses all 6 duplicate `defer()` attempts with `AlreadyEnqueued` (caught
     and ignored), because `ingest`'s own jobs are still `todo`. Hence the
-    row-count assertion below: still 4, not 8.
+    row-count assertion below: still 6, not 12.
 
     So the reported count can overstate work already in flight. That is the
     accepted cost of P3-6's choice, not a bug -- asserted explicitly here so
@@ -560,10 +563,10 @@ def test_enqueue_media_command_reports_disk_gap_but_avoids_duplicate_jobs(
             text("SELECT count(*) FROM procrastinate_jobs WHERE status = 'todo'"),
         ).scalar()
     engine.dispose()
-    # Still exactly the 4 original ingest-triggered jobs -- enqueue-media's
+    # Still exactly the 6 original ingest-triggered jobs -- enqueue-media's
     # own defer attempts were all refused by queueing_lock, even though the
     # reported count above doesn't reflect that.
-    assert count == 4
+    assert count == 6
 
 
 def test_serve_command_starts_without_error(

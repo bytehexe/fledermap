@@ -12,13 +12,14 @@ from __future__ import annotations
 import hashlib
 import os
 import tempfile
-import wave
 from dataclasses import dataclass, fields
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
 from scipy import signal
+
+from fledermap.media.wav_pcm import read_pcm
 
 
 @dataclass(frozen=True)
@@ -41,6 +42,18 @@ class SpectrogramParams:
     max_freq_hz: float = 128_000.0
     width_px: int = 1024
     height_px: int = 512
+    # dB below the recording's own loudest bin at which the palette bottoms
+    # out at its floor colour. 80 dB is the conventional audio-spectrogram
+    # window (Audacity, batogram): wide enough to show a call's full shape,
+    # narrow enough that the noise floor still reads as visibly dark rather
+    # than the near-black-vs-near-black smear log-magnitude min-max
+    # normalisation produced (see `_normalise`'s docstring).
+    dynamic_range_db: float = 80.0
+    # Named, not a raw function, so it's a plain hashable value in
+    # `params_hash` (a function reference is not a stable hash input across
+    # process restarts) and so a future second palette is just another
+    # string here, not a schema change.
+    palette: str = "black_blue_rainbow_red"
 
     @property
     def params_hash(self) -> str:
@@ -53,19 +66,51 @@ class SpectrogramParams:
 # code that WRITES a spectrogram and the code that looks for one on disk.
 DEFAULT_SPECTROGRAM_PARAMS = SpectrogramParams()
 
+# black -> blue -> cyan -> green -> yellow -> red. Deliberately starts at
+# black (the floor, i.e. "at or below the dynamic-range cutoff") rather than
+# a dark blue like matplotlib's "jet": the floor colour needs to read as
+# "nothing here", and black reads that way more clearly against a page
+# background than a dark colour does. Hand-rolled rather than pulling in
+# matplotlib (a heavy dependency this project otherwise has no use for) --
+# a piecewise-linear interpolation over a handful of anchor colours is a
+# five-line numpy function.
+_PALETTES: dict[str, tuple[tuple[float, tuple[int, int, int]], ...]] = {
+    "black_blue_rainbow_red": (
+        (0.00, (0, 0, 0)),
+        (0.25, (0, 0, 180)),
+        (0.50, (0, 180, 180)),
+        (0.65, (0, 200, 0)),
+        (0.80, (255, 230, 0)),
+        (1.00, (255, 0, 0)),
+    ),
+}
 
-def _read_pcm(wav_path: Path) -> tuple[np.ndarray, int]:
-    """Read mono or multi-channel 16-bit PCM as a 1-D float array (channels
-    averaged down to mono for spectrogram purposes) plus the file's own
-    sample rate."""
-    with wave.open(str(wav_path), "rb") as wav:
-        n_channels = wav.getnchannels()
-        samplerate = wav.getframerate()
-        raw = wav.readframes(wav.getnframes())
-    samples = np.frombuffer(raw, dtype=np.int16).astype(np.float64)
-    if n_channels > 1:
-        samples = samples.reshape(-1, n_channels).mean(axis=1)
-    return samples, samplerate
+
+def _palette_lut(name: str) -> np.ndarray:
+    """A 256x3 uint8 lookup table for `name`, built once per render (cheap:
+    256 rows) rather than cached, since palette changes are rare and this
+    keeps the function free of module-level mutable state."""
+    stops = _PALETTES[name]
+    positions = np.array([p for p, _ in stops])
+    channels = np.array([c for _, c in stops])
+    indices = np.linspace(0.0, 1.0, 256)
+    lut = np.stack(
+        [np.interp(indices, positions, channels[:, ch]) for ch in range(3)],
+        axis=-1,
+    )
+    return lut.astype(np.uint8)
+
+
+def effective_max_freq_hz(samplerate_hz: float, params: SpectrogramParams) -> float:
+    """The actual top of the rendered frequency axis for a recording at
+    `samplerate_hz`: `params.max_freq_hz` is a ceiling, clamped to this
+    recording's own Nyquist limit (design spec §4). Exposed as its own
+    function -- not just inlined in `render_spectrogram` -- because
+    `web/views/map.py` needs this exact number too, to label the frequency
+    axis correctly; a second, hand-copied formula there would drift from
+    this one silently the same way `media/paths.py`'s docstring warns about
+    for writer/reader path formulas."""
+    return min(params.max_freq_hz, samplerate_hz / 2)
 
 
 def render_spectrogram(
@@ -76,10 +121,12 @@ def render_spectrogram(
 ) -> None:
     """Render `wav_path`'s spectrogram to `out_path` as a WebP image.
 
-    STFT via `scipy.signal.spectrogram`, log-magnitude normalised to [0, 1],
-    rendered as a single-channel (grayscale) image -- the simplest possible
-    colormap, revisable later without a schema change (`params_hash` exists
-    precisely so a colour-scheme change would invalidate old renders cleanly).
+    STFT via `scipy.signal.spectrogram`, power converted to dB relative to
+    the recording's own peak, clipped to `params.dynamic_range_db` and
+    mapped through `params.palette`'s colour lookup table. Both are ordinary
+    `SpectrogramParams` fields, so changing either one is just a settings
+    change -- `params_hash` exists precisely so that invalidates old renders
+    cleanly, without a schema change or a manual cache bust.
 
     Writes to a temp file in `out_path`'s parent directory, then `os.replace`s
     onto `out_path` -- atomic on the same filesystem, so a concurrent reader
@@ -87,7 +134,7 @@ def render_spectrogram(
     (design spec §7's duplicate-enqueue protection is the queue-level half of
     this; this is the filesystem-level half).
     """
-    samples, samplerate = _read_pcm(wav_path)
+    samples, samplerate = read_pcm(wav_path)
 
     # Clamp to the signal's own length -- without this, a very short (or
     # truncated/corrupt) recording makes nperseg > len(samples), and
@@ -109,21 +156,38 @@ def render_spectrogram(
     # Never render frequency bins above this recording's own Nyquist limit --
     # a recording at a different sample rate must not be asked to render data
     # that doesn't exist (design spec §4).
-    max_freq = min(params.max_freq_hz, samplerate / 2)
+    max_freq = effective_max_freq_hz(samplerate, params)
     keep = freqs <= max_freq
     sxx = sxx[keep, :]
 
-    log_mag = np.log1p(sxx)
-    span = log_mag.max() - log_mag.min()
-    normalised = (
-        (log_mag - log_mag.min()) / span if span > 0 else np.zeros_like(log_mag)
-    )
+    # dB relative to this recording's own loudest bin, clipped to a fixed
+    # dynamic-range window and normalised to [0, 1] -- NOT `log1p` on raw
+    # power. Bat-call power spectra are almost entirely background well
+    # below 1.0 in scipy's PSD units; `log1p(x) ~= x` for `x << 1`, so a
+    # plain `log1p` + min-max normalise barely distinguishes the noise floor
+    # from itself and crushes it into a razor-thin band at the bottom of the
+    # range while only the single loudest bin of an actual call reaches any
+    # visible brightness -- production spectrograms rendered almost entirely
+    # black with a few faint slivers, confirmed against real recordings
+    # 2026-08-26. `10*log10` treats small values proportionally instead, the
+    # same convention Audacity/batogram/Kaleidoscope's spectrogram views use.
+    peak = sxx.max()
+    if peak > 0:
+        db = 10 * np.log10(np.maximum(sxx, 1e-300) / peak)
+        clipped = np.clip(db, -params.dynamic_range_db, 0.0)
+        normalised = (clipped + params.dynamic_range_db) / params.dynamic_range_db
+    else:
+        # All-zero signal: no peak to be relative to. Every bin is equally
+        # "silent" -- render the palette floor throughout, not a div-by-zero.
+        normalised = np.zeros_like(sxx)
 
     # Flip vertically: spectrogram's frequency axis increases with row index,
     # but an image's row 0 is its TOP -- without this, low frequencies would
     # render at the top of the image, high frequencies at the bottom.
-    pixels = (np.flipud(normalised) * 255).astype(np.uint8)
-    image = Image.fromarray(pixels, mode="L").resize(
+    indices = (np.flipud(normalised) * 255).astype(np.uint8)
+    lut = _palette_lut(params.palette)
+    rgb = lut[indices]
+    image = Image.fromarray(rgb, mode="RGB").resize(
         (params.width_px, params.height_px),
     )
 
