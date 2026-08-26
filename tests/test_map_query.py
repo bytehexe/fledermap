@@ -245,3 +245,51 @@ def test_list_sessions_orders_most_recent_first(engine: Engine) -> None:
         results = list_sessions(session)
 
     assert [s.id for s in results] == [newer.id, older.id]
+
+
+def test_filtered_recordings_by_site(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        site = Site(
+            centroid=WKTElement("POINT(10 50)", srid=4326),
+            radius_m=50.0,
+            recording_count=1,
+            first_at=datetime(2026, 8, 25, tzinfo=UTC),
+            last_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add(site)
+        session.flush()
+        at_site = _recording(session, audio_hash="a" * 64)
+        at_site.site_id = site.id
+        elsewhere = _recording(session, audio_hash="b" * 64)
+        session.add_all([at_site, elsewhere])
+        session.commit()
+        site_id = site.id
+
+        results = filtered_recordings(session, site_id=site_id, verdict="all")
+
+        assert {r.audio_hash for r in results} == {"a" * 64}
+
+
+def test_filtered_sites_by_id(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        wanted = Site(
+            centroid=WKTElement("POINT(10 50)", srid=4326),
+            radius_m=50.0,
+            recording_count=1,
+            first_at=datetime(2026, 8, 25, tzinfo=UTC),
+            last_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        other = Site(
+            centroid=WKTElement("POINT(11 51)", srid=4326),
+            radius_m=50.0,
+            recording_count=1,
+            first_at=datetime(2026, 8, 25, tzinfo=UTC),
+            last_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add_all([wanted, other])
+        session.commit()
+        wanted_id = wanted.id
+
+        results = filtered_sites(session, site_id=wanted_id)
+
+        assert [s.id for s in results] == [wanted_id]

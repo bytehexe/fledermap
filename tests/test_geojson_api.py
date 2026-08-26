@@ -374,3 +374,38 @@ def test_invalid_verdict_param_returns_400_not_500(
 
     assert response.status_code == 400
     assert "error" in response.get_json()
+
+
+def test_recordings_geojson_filters_by_site(engine: Engine, tmp_path: Path) -> None:
+    with OrmSession(engine) as session:
+        site = Site(
+            centroid=WKTElement("POINT(10 50)", srid=4326),
+            radius_m=50.0,
+            recording_count=1,
+            first_at=datetime(2026, 8, 25, tzinfo=UTC),
+            last_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add(site)
+        session.flush()
+        at_site = Recording(
+            audio_hash="a" * 64,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            geom=WKTElement("POINT(10 50)", srid=4326),
+            site_id=site.id,
+        )
+        elsewhere = Recording(
+            audio_hash="b" * 64,
+            path="b.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            geom=WKTElement("POINT(11 51)", srid=4326),
+        )
+        session.add_all([at_site, elsewhere])
+        session.commit()
+        site_id = site.id
+
+    client = _app_client(engine, tmp_path)
+    response = client.get(f"/api/recordings.geojson?verdict=all&site={site_id}")
+
+    hashes = {f["properties"]["audio_hash"] for f in response.get_json()["features"]}
+    assert hashes == {"a" * 64}

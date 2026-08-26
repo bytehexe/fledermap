@@ -5,7 +5,7 @@
 
 function filterForm() {
   return {
-    from: "", to: "", taxon: "", session: "", source: "", verdict: "",
+    from: "", to: "", taxon: "", session: "", source: "", verdict: "", site: "",
   };
 }
 

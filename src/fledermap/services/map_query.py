@@ -73,6 +73,7 @@ def filtered_recordings(
     taxon_id: int | None = None,
     verdict: Verdict | Literal["all"] | None = None,
     session_id: int | None = None,
+    site_id: int | None = None,
     source: IdSource | None = None,
 ) -> Sequence[Recording]:
     stmt = select(Recording).where(Recording.missing_since.is_(None))
@@ -82,6 +83,8 @@ def filtered_recordings(
         stmt = stmt.where(Recording.recorded_at <= date_to)
     if session_id is not None:
         stmt = stmt.where(Recording.session_id == session_id)
+    if site_id is not None:
+        stmt = stmt.where(Recording.site_id == site_id)
     if source is not None:
         stmt = stmt.where(
             Recording.identifications.any(
@@ -112,12 +115,15 @@ def filtered_sites(
     bbox: BBox | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
+    site_id: int | None = None,
 ) -> Sequence[Site]:
     stmt = select(Site)
     if date_from is not None:
         stmt = stmt.where(Site.last_at >= date_from)
     if date_to is not None:
         stmt = stmt.where(Site.first_at <= date_to)
+    if site_id is not None:
+        stmt = stmt.where(Site.id == site_id)
 
     sites = list(session.scalars(stmt).all())
 
