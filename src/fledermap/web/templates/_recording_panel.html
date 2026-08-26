@@ -1,0 +1,49 @@
+{# src/fledermap/web/templates/_recording_panel.html #}
+{% if not found %}
+<p>Recording not found — it may have been removed, or no longer matches the active filters.</p>
+{% else %}
+<div class="panel-header">
+  <h2>{{ taxon.scientific_name if taxon else (best.verdict.value if best else "unidentified") }}</h2>
+</div>
+
+{% if spectrogram_ready %}
+<img class="spectrogram" src="{{ url_for('media.spectrogram', audio_hash=recording.audio_hash) }}" alt="Spectrogram">
+{% else %}
+<p class="media-placeholder">Spectrogram not processed yet.</p>
+{% endif %}
+
+<div class="audio-row">
+  {% if preview_ready %}
+  <audio controls src="{{ url_for('media.preview', audio_hash=recording.audio_hash) }}"></audio>
+  {% else %}
+  <p class="media-placeholder">Audio preview not processed yet.</p>
+  {% endif %}
+</div>
+
+<div class="panel-columns">
+  <div class="col identifications">
+    <h3>Identifications</h3>
+    <ul>
+      {% for ident in recording.identifications %}
+      <li{% if ident.superseded_at %} class="superseded"{% endif %}>
+        {{ ident.source.value }}: {{ ident.raw_label or ident.verdict.value }}
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  <div class="col recording-meta">
+    <h3>Recording</h3>
+    <p>{{ recording.recorded_at.isoformat() }}</p>
+    <p>{{ recording.make }} {{ recording.model }}</p>
+  </div>
+  <div class="col context">
+    <h3>Context</h3>
+    {% if previous %}
+    <button type="button" hx-get="/recordings/{{ previous.audio_hash }}/panel?{{ filter_qs }}" hx-target="#drawer-body">← Previous</button>
+    {% endif %}
+    {% if next %}
+    <button type="button" hx-get="/recordings/{{ next.audio_hash }}/panel?{{ filter_qs }}" hx-target="#drawer-body">Next →</button>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
