@@ -2,86 +2,28 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, time
-from typing import Literal
-
 import flask
 from flask.typing import ResponseReturnValue
 from sqlalchemy.orm import Session as OrmSession
 
-from fledermap.domain.codes import IdSource, Verdict
+from fledermap.domain.codes import IdSource
 from fledermap.services.current_best import current_best_identification
 from fledermap.services.map_query import (
     MAX_FEATURES,
-    BBox,
     filtered_recordings,
     filtered_sites,
 )
 from fledermap.store.geo import decode_point
 from fledermap.store.models import Recording, Site, Taxon
+from fledermap.web.params import (
+    fallback_site_label,
+    parse_bbox,
+    parse_datetime,
+    parse_int,
+    parse_verdict,
+)
 
 api_bp = flask.Blueprint("api", __name__, url_prefix="/api")
-
-
-def _parse_bbox(raw: str | None) -> BBox | None:
-    if raw is None:
-        return None
-    parts = raw.split(",")
-    msg = "bbox must be 4 comma-separated numbers: min_lon,min_lat,max_lon,max_lat"
-    if len(parts) != 4:
-        raise ValueError(msg)
-    try:
-        min_lon, min_lat, max_lon, max_lat = (float(p) for p in parts)
-    except ValueError:
-        raise ValueError(msg) from None
-    return (min_lon, min_lat, max_lon, max_lat)
-
-
-def _parse_datetime(raw: str | None, *, end_of_day: bool = False) -> datetime | None:
-    """Parse a `from`/`to` query-param value.
-
-    Deliberate, minimal INTERIM policy for the `<input type="date">` case --
-    NOT a resolution of the project's open timezone question (spec D17,
-    risks R1-R3), just a decision not to make it silently worse here. A bare
-    `YYYY-MM-DD` value (no time component) is anchored to UTC rather than
-    left naive (which would make the boundary depend on the Postgres session
-    timezone against `Recording.recorded_at`'s `DateTime(timezone=True)`
-    column), and when it's the `to` bound it's treated as the END of that day
-    (23:59:59.999999 UTC) rather than midnight -- otherwise `to=2026-08-25`
-    would silently exclude every recording from the 25th itself. A value that
-    already carries a time and/or offset is left exactly as authored.
-    """
-    if not raw:
-        return None
-    parsed = datetime.fromisoformat(raw)
-    is_bare_date = len(raw) == 10 and "T" not in raw
-    if is_bare_date:
-        if end_of_day:
-            parsed = datetime.combine(parsed.date(), time(23, 59, 59, 999999))
-        parsed = parsed.replace(tzinfo=UTC)
-    return parsed
-
-
-def _parse_verdict(raw: str | None) -> Verdict | Literal["all"] | None:
-    if raw is None:
-        return None
-    if raw == "all":
-        return "all"
-    return Verdict(raw)
-
-
-def _parse_int(raw: str | None) -> int | None:
-    return int(raw) if raw else None
-
-
-def _fallback_site_label(point: tuple[float, float] | None) -> str:
-    """P4-1: Site.name is unpopulated until poiidx naming ships as its own
-    task -- fall back to a rounded-coordinate label rather than block this
-    phase on that unrelated integration."""
-    if point is None:
-        return "Site"
-    lon, lat = point
-    return f"{lat:.4f}, {lon:.4f}"
 
 
 def _recording_feature(recording: Recording, session: OrmSession) -> dict[str, object]:
@@ -121,7 +63,7 @@ def _site_feature(site: Site) -> dict[str, object]:
         ),
         "properties": {
             "id": site.id,
-            "name": site.name if site.name else _fallback_site_label(point),
+            "name": site.name if site.name else fallback_site_label(point),
             "radius_m": site.radius_m,
             "recording_count": site.recording_count,
         },
@@ -131,14 +73,14 @@ def _site_feature(site: Site) -> dict[str, object]:
 @api_bp.get("/recordings.geojson")
 def recordings_geojson() -> ResponseReturnValue:
     try:
-        bbox = _parse_bbox(flask.request.args.get("bbox"))
+        bbox = parse_bbox(flask.request.args.get("bbox"))
         source_raw = flask.request.args.get("source")
         source = IdSource(source_raw) if source_raw else None
-        date_from = _parse_datetime(flask.request.args.get("from"))
-        date_to = _parse_datetime(flask.request.args.get("to"), end_of_day=True)
-        taxon_id = _parse_int(flask.request.args.get("taxon"))
-        verdict = _parse_verdict(flask.request.args.get("verdict"))
-        session_id = _parse_int(flask.request.args.get("session"))
+        date_from = parse_datetime(flask.request.args.get("from"))
+        date_to = parse_datetime(flask.request.args.get("to"), end_of_day=True)
+        taxon_id = parse_int(flask.request.args.get("taxon"))
+        verdict = parse_verdict(flask.request.args.get("verdict"))
+        session_id = parse_int(flask.request.args.get("session"))
     except ValueError as exc:
         return flask.jsonify({"error": str(exc)}), 400
 
@@ -165,9 +107,9 @@ def recordings_geojson() -> ResponseReturnValue:
 @api_bp.get("/sites.geojson")
 def sites_geojson() -> ResponseReturnValue:
     try:
-        bbox = _parse_bbox(flask.request.args.get("bbox"))
-        date_from = _parse_datetime(flask.request.args.get("from"))
-        date_to = _parse_datetime(flask.request.args.get("to"), end_of_day=True)
+        bbox = parse_bbox(flask.request.args.get("bbox"))
+        date_from = parse_datetime(flask.request.args.get("from"))
+        date_to = parse_datetime(flask.request.args.get("to"), end_of_day=True)
     except ValueError as exc:
         return flask.jsonify({"error": str(exc)}), 400
 
