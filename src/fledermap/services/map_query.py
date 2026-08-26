@@ -109,6 +109,30 @@ def filtered_recordings(
     return results
 
 
+def neighbor_recordings(
+    recordings: Sequence[Recording],
+    audio_hash: str,
+) -> tuple[Recording | None, Recording | None] | None:
+    """The (previous, next) recording relative to `audio_hash` within
+    `recordings`, ordered by `recorded_at` -- `recordings` must already be
+    the filtered set the drawer is showing (design spec P5a-9: same filters
+    as the map, minus bbox). Either side is `None` at a boundary (no
+    wrap-around, P5a-10). Returns `None` entirely if `audio_hash` isn't in
+    `recordings` at all -- e.g. the filters changed while the drawer was
+    open and this recording no longer matches; the caller treats that the
+    same as 'not found'."""
+    ordered = sorted(recordings, key=lambda r: r.recorded_at)
+    index = next(
+        (i for i, r in enumerate(ordered) if r.audio_hash == audio_hash),
+        None,
+    )
+    if index is None:
+        return None
+    previous = ordered[index - 1] if index > 0 else None
+    following = ordered[index + 1] if index < len(ordered) - 1 else None
+    return previous, following
+
+
 def filtered_sites(
     session: OrmSession,
     *,

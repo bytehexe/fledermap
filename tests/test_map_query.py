@@ -14,6 +14,7 @@ from fledermap.services.map_query import (
     filtered_sites,
     list_sessions,
     list_taxa,
+    neighbor_recordings,
 )
 from fledermap.store.models import Identification, Recording, Site, Taxon
 from fledermap.store.models import Session as AnnotationSession
@@ -293,3 +294,49 @@ def test_filtered_sites_by_id(engine: Engine) -> None:
         results = filtered_sites(session, site_id=wanted_id)
 
         assert [s.id for s in results] == [wanted_id]
+
+
+# Tests for neighbor_recordings -- no database needed, pure function tests
+def _bare_recording(audio_hash: str, recorded_at: datetime) -> Recording:
+    """A Recording that's never touched a session -- neighbor_recordings only
+    reads audio_hash/recorded_at, so no DB round trip is needed to test it."""
+    return Recording(
+        audio_hash=audio_hash, path=f"{audio_hash}.wav", recorded_at=recorded_at
+    )
+
+
+def test_neighbor_recordings_finds_both_sides() -> None:
+    early = _bare_recording("a" * 64, datetime(2026, 8, 25, 20, 0, tzinfo=UTC))
+    middle = _bare_recording("b" * 64, datetime(2026, 8, 25, 21, 0, tzinfo=UTC))
+    late = _bare_recording("c" * 64, datetime(2026, 8, 25, 22, 0, tzinfo=UTC))
+
+    result = neighbor_recordings([late, early, middle], "b" * 64)
+
+    assert result is not None
+    previous, next_ = result
+    assert previous is not None and previous.audio_hash == "a" * 64
+    assert next_ is not None and next_.audio_hash == "c" * 64
+
+
+def test_neighbor_recordings_stops_at_the_start() -> None:
+    early = _bare_recording("a" * 64, datetime(2026, 8, 25, 20, 0, tzinfo=UTC))
+    late = _bare_recording("b" * 64, datetime(2026, 8, 25, 21, 0, tzinfo=UTC))
+
+    result = neighbor_recordings([early, late], "a" * 64)
+
+    assert result == (None, late)
+
+
+def test_neighbor_recordings_stops_at_the_end() -> None:
+    early = _bare_recording("a" * 64, datetime(2026, 8, 25, 20, 0, tzinfo=UTC))
+    late = _bare_recording("b" * 64, datetime(2026, 8, 25, 21, 0, tzinfo=UTC))
+
+    result = neighbor_recordings([early, late], "b" * 64)
+
+    assert result == (early, None)
+
+
+def test_neighbor_recordings_none_when_hash_not_in_set() -> None:
+    present = _bare_recording("a" * 64, datetime(2026, 8, 25, 20, 0, tzinfo=UTC))
+
+    assert neighbor_recordings([present], "z" * 64) is None
