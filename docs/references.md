@@ -78,6 +78,25 @@ the URL: several of these overlap in subject and disagree in detail.
 > Both remaining questions are pinned to spec R1 rather than left loose here, and both
 > resolve automatically the moment a real-hardware recording is ingested (phase 0b).
 
+> **`wamd` cross-check, continued — real hardware arrived, 2026-08-26.** Both open
+> questions above are now settled: `0x03` does hold a real firmware/app build string
+> on real hardware too (`"App 3.1.10"`, same shape as the simulator), and `0x04`
+> stayed `"Echo Meter Touch 2 Standard Android"` — a device name, confirming "device"
+> over `wamd2guano.py`'s "prefix" reading.
+>
+> New finding this cross-check exists to catch: **this device's `0x06` (position)
+> writes the wrong sign for longitude**, verified against real coordinates (Hannover,
+> Germany — positive/east is correct) while the standard `guan` chunk's `Loc Position`
+> field gets the same coordinate right in the same file. Checked against
+> `wamd2guano.py` specifically to rule out a documented sign convention we might be
+> missing: its GPS parser branches on format, and for the plain
+> `WGS84,<lat>,<lon>,<elev>` layout this device uses (its own "EMTouch format" branch,
+> as opposed to the `N`/`S`/`E`/`W`-suffixed branch it does negate) it takes the values
+> as literal signed floats, same as `ingest/wamd.py`'s `_parse_position`. The reference
+> decoder reads this field exactly the way we do and still gets the wrong hemisphere —
+> this is the device's own bug, not a convention mismatch in either decoder. Detail and
+> consequences in the design spec's R1 section.
+
 ## Classifiers (additional identification sources, not yet built)
 
 Per the design, species ID is not this project's problem — the EMT already does

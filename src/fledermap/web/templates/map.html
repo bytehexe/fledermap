@@ -12,8 +12,22 @@
   <form id="filters">
     <label>From <input type="date" name="from" x-model="from"></label>
     <label>To <input type="date" name="to" x-model="to"></label>
-    <label>Taxon <input type="number" name="taxon" x-model="taxon"></label>
-    <label>Session <input type="number" name="session" x-model="session"></label>
+    <label>Taxon
+      <select name="taxon" x-model="taxon">
+        <option value="">Any</option>
+        {% for taxon in taxa %}
+        <option value="{{ taxon.id }}">{{ taxon.scientific_name }}{% if taxon.common_name_en %} — {{ taxon.common_name_en }}{% endif %}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Session
+      <select name="session" x-model="session">
+        <option value="">Any</option>
+        {% for item in sessions %}
+        <option value="{{ item.id }}">{{ item.started_at.strftime('%Y-%m-%d %H:%M') }}–{{ item.ended_at.strftime('%H:%M') }} ({{ item.detector_key or 'unknown detector' }})</option>
+        {% endfor %}
+      </select>
+    </label>
     <label>Source
       <select name="source" x-model="source">
         <option value="">Any</option>

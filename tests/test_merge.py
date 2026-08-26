@@ -118,6 +118,56 @@ def test_noise_filename_yields_noise_verdict() -> None:
     assert Verdict.NOISE in verdicts
 
 
+def test_guano_no_id_sentinel_is_not_treated_as_species() -> None:
+    """Real field bug, 2026-08-26: GUANO's `Species Auto ID` field writes the
+    device's own 'No ID' sentinel (with a space) when it found nothing.
+    Before this fix, any truthy `auto_id` was unconditionally Verdict.SPECIES,
+    so this normal 'no bat here' result was misclassified as an unidentified
+    species -- and, since EMT_GUANO outranks EMT_FILENAME in
+    `current_best_identification`'s precedence, it silently outranked the
+    correctly-NO_ID claim already coming from the filename."""
+    from fledermap.ingest.guano_read import GuanoMetadata
+
+    guano = GuanoMetadata(auto_id="No ID")
+    result = merge_metadata(
+        guano=guano,
+        wamd=None,
+        filename=parse_emt_filename("NoID_20260826_173535.wav"),
+    )
+
+    guano_id = next(i for i in result.identifications if i.source == IdSource.EMT_GUANO)
+    assert guano_id.verdict == Verdict.NO_ID
+    assert guano_id.raw_label is None
+
+
+def test_wamd_noise_sentinel_is_not_treated_as_species() -> None:
+    """Same sentinel handling, `wamd`'s auto-ID field this time."""
+    result = merge_metadata(
+        guano=None,
+        wamd=parse_wamd(wamd_payload(auto_id="Noise")),
+        filename=None,
+    )
+
+    wamd_id = next(i for i in result.identifications if i.source == IdSource.EMT_WAMD)
+    assert wamd_id.verdict == Verdict.NOISE
+    assert wamd_id.raw_label is None
+
+
+def test_manual_id_sentinel_is_not_treated_as_species() -> None:
+    """The manual-ID field gets the same sentinel treatment as auto-ID."""
+    result = merge_metadata(
+        guano=None,
+        wamd=parse_wamd(wamd_payload(auto_id="EPTSER", manual_id="No ID")),
+        filename=None,
+    )
+
+    manual_id = next(
+        i for i in result.identifications if i.source == IdSource.EMT_MANUAL
+    )
+    assert manual_id.verdict == Verdict.NO_ID
+    assert manual_id.raw_label is None
+
+
 def test_position_prefers_guano_over_wamd() -> None:
     from fledermap.ingest.guano_read import GuanoMetadata
 

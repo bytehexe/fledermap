@@ -43,7 +43,19 @@ def iter_chunks(path: Path) -> Iterator[Chunk]:
             chunk_id = raw[0:4].decode("ascii", errors="replace")
             (size,) = struct.unpack("<I", raw[4:8])
             yield Chunk(chunk_id=chunk_id, offset=fh.tell(), size=size)
-            fh.seek(size + (size % 2), 1)
+            fh.seek(size, 1)
+            if size % 2:
+                # RIFF pads an odd-sized chunk with one `\x00` byte -- but real
+                # Echo Meter Touch 2 (Android) output doesn't write it (confirmed
+                # against real field recordings, 2026-08-26: a 605-byte `guan`
+                # chunk is immediately followed by the literal bytes `wamd`, no
+                # pad in between). Peek at the byte a compliant writer would have
+                # used as padding: if it's genuinely `\x00`, it was consumed as
+                # intended; otherwise it's the first byte of the next chunk's ID,
+                # so put it back.
+                maybe_pad = fh.read(1)
+                if len(maybe_pad) == 1 and maybe_pad != b"\x00":
+                    fh.seek(-1, 1)
 
 
 def read_chunk(path: Path, chunk: Chunk) -> bytes:

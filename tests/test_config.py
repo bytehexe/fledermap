@@ -7,9 +7,12 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from fledermap.config import (
+    ENV_CONFIG_FILE,
     ENV_DATABASE_URL,
     ENV_DEFAULT_TIMEZONE,
+    ENV_HOST,
     ENV_MEDIA_ROOT,
+    ENV_PORT,
     ENV_SESSION_GAP_HOURS,
     ENV_SITE_EPS_M,
     ENV_SITE_MIN_POINTS,
@@ -17,6 +20,7 @@ from fledermap.config import (
     ENV_TIMESTAMP_SOURCE,
     Config,
     ConfigError,
+    resolve_media_root,
     resolve_static_root,
 )
 from fledermap.domain.codes import TimestampSource
@@ -242,6 +246,160 @@ def test_zero_site_min_points_raises_config_error(
         Config.from_env(tmp_path)
 
 
+def test_default_port_is_5000(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+    monkeypatch.delenv(ENV_PORT, raising=False)
+    config = Config.from_env(tmp_path)
+    assert config.port == 5000
+
+
+def test_port_is_configurable_via_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+    monkeypatch.setenv(ENV_PORT, "8080")
+    config = Config.from_env(tmp_path)
+    assert config.port == 8080
+
+
+def test_invalid_port_raises_config_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_PORT, "not-a-port")
+    with pytest.raises(ConfigError, match=ENV_PORT):
+        Config.from_env(tmp_path)
+
+
+def test_zero_port_raises_config_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_PORT, "0")
+    with pytest.raises(ConfigError, match=ENV_PORT):
+        Config.from_env(tmp_path)
+
+
+def test_port_above_65535_raises_config_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_PORT, "65536")
+    with pytest.raises(ConfigError, match=ENV_PORT):
+        Config.from_env(tmp_path)
+
+
+def test_float_port_raises_config_error_not_truncates(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Same truncation hazard as `site_min_points` -- a config-file float
+    must raise, not silently become `int(8080.5) == 8080`."""
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    path = _write_config_file(tmp_path, "port = 8080.5\n")
+    monkeypatch.setenv(ENV_CONFIG_FILE, str(path))
+    with pytest.raises(ConfigError, match="port"):
+        Config.from_env(tmp_path)
+
+
+def test_config_file_supplies_port(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    path = _write_config_file(
+        tmp_path,
+        f'database_url = "postgresql://x/y"\n'
+        f'media_root = "{tmp_path / "media"}"\n'
+        "port = 8080\n",
+    )
+    monkeypatch.setenv(ENV_CONFIG_FILE, str(path))
+    monkeypatch.delenv(ENV_PORT, raising=False)
+
+    config = Config.from_env(tmp_path)
+
+    assert config.port == 8080
+
+
+def test_env_port_overrides_config_file_port(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    path = _write_config_file(
+        tmp_path,
+        f'database_url = "postgresql://x/y"\n'
+        f'media_root = "{tmp_path / "media"}"\n'
+        "port = 8080\n",
+    )
+    monkeypatch.setenv(ENV_CONFIG_FILE, str(path))
+    monkeypatch.setenv(ENV_PORT, "9090")
+
+    config = Config.from_env(tmp_path)
+
+    assert config.port == 9090
+
+
+def test_default_host_is_loopback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+    monkeypatch.delenv(ENV_HOST, raising=False)
+    config = Config.from_env(tmp_path)
+    assert config.host == "127.0.0.1"
+
+
+def test_host_is_configurable_via_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+    monkeypatch.setenv(ENV_HOST, "0.0.0.0")
+    config = Config.from_env(tmp_path)
+    assert config.host == "0.0.0.0"
+
+
+def test_config_file_supplies_host(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    path = _write_config_file(
+        tmp_path,
+        f'database_url = "postgresql://x/y"\n'
+        f'media_root = "{tmp_path / "media"}"\n'
+        'host = "0.0.0.0"\n',
+    )
+    monkeypatch.setenv(ENV_CONFIG_FILE, str(path))
+    monkeypatch.delenv(ENV_HOST, raising=False)
+
+    config = Config.from_env(tmp_path)
+
+    assert config.host == "0.0.0.0"
+
+
+def test_non_string_host_raises_config_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    path = _write_config_file(tmp_path, "host = 5\n")
+    monkeypatch.setenv(ENV_CONFIG_FILE, str(path))
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+
+    with pytest.raises(ConfigError, match="host"):
+        Config.from_env(tmp_path)
+
+
 def test_nan_session_gap_raises_config_error(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -268,15 +426,33 @@ def test_nan_site_eps_raises_config_error(
         Config.from_env(tmp_path)
 
 
-def test_missing_media_root_raises(
+def test_media_root_defaults_via_platformdirs(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
     monkeypatch.delenv(ENV_MEDIA_ROOT, raising=False)
 
-    with pytest.raises(ConfigError, match=ENV_MEDIA_ROOT):
-        Config.from_env(tmp_path)
+    config = Config.from_env(tmp_path)
+
+    import platformdirs
+
+    assert config.media_root == Path(platformdirs.user_data_dir("fledermap")).resolve()
+
+
+def test_resolve_media_root_matches_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Mirrors test_resolve_static_root_matches_config: resolve_media_root()
+    is callable standalone, and must agree with what Config.media_root
+    resolves to given the same environment."""
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+
+    config = Config.from_env(tmp_path)
+
+    assert resolve_media_root() == config.media_root
 
 
 def test_media_root_is_resolved_to_an_absolute_path(
@@ -292,6 +468,53 @@ def test_media_root_is_resolved_to_an_absolute_path(
 
     assert config.media_root == (tmp_path / relative).resolve()
     assert config.media_root.is_absolute()
+
+
+def test_media_root_expands_tilde(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_MEDIA_ROOT, "~/media")
+
+    config = Config.from_env(tmp_path)
+
+    assert config.media_root == (tmp_path / "media").resolve()
+
+
+def test_static_root_env_var_expands_tilde(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+    monkeypatch.setenv(ENV_STATIC_ROOT, "~/static")
+
+    config = Config.from_env(tmp_path)
+
+    assert config.static_root == (tmp_path / "static").resolve()
+
+
+def test_static_root_config_file_expands_tilde(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    path = _write_config_file(
+        tmp_path,
+        f'database_url = "postgresql://x/y"\n'
+        f'media_root = "{tmp_path / "media"}"\n'
+        'static_root = "~/static"\n',
+    )
+    monkeypatch.setenv(ENV_CONFIG_FILE, str(path))
+    monkeypatch.delenv(ENV_STATIC_ROOT, raising=False)
+
+    config = Config.from_env(tmp_path)
+
+    assert config.static_root == (tmp_path / "static").resolve()
+    assert resolve_static_root() == config.static_root
 
 
 def test_static_root_defaults_via_platformdirs(
@@ -329,13 +552,217 @@ def test_resolve_static_root_matches_config(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """scripts/fetch_vendor_assets.py (Task 3) calls resolve_static_root()
-    directly, without building a full Config -- this pins that it agrees with
-    what Config.static_root resolves to, given the same environment."""
+    """services/vendor_assets.py calls resolve_static_root() directly,
+    without building a full Config -- this pins that it agrees with what
+    Config.static_root resolves to, given the same environment."""
     monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
     monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
     monkeypatch.setenv(ENV_STATIC_ROOT, str(tmp_path / "static"))
 
     config = Config.from_env(tmp_path)
 
+    assert resolve_static_root() == config.static_root
+
+
+# --- config file ------------------------------------------------------------
+#
+# `conftest.py`'s autouse `_isolate_fledermap_config_file` fixture already
+# points FLEDERMAP_CONFIG_FILE at a nonexistent path for every test above --
+# these tests override it to point at a real file they write themselves.
+
+
+def _write_config_file(tmp_path: Path, contents: str) -> Path:
+    path = tmp_path / "config.toml"
+    path.write_text(contents)
+    return path
+
+
+def test_config_file_supplies_database_url_when_env_unset(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    path = _write_config_file(
+        tmp_path,
+        f'database_url = "postgresql://from-file/y"\n'
+        f'media_root = "{tmp_path / "media"}"\n',
+    )
+    monkeypatch.setenv(ENV_CONFIG_FILE, str(path))
+    monkeypatch.delenv(ENV_DATABASE_URL, raising=False)
+
+    config = Config.from_env(tmp_path)
+
+    assert config.database_url == "postgresql://from-file/y"
+
+
+def test_env_var_overrides_config_file_value(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    path = _write_config_file(
+        tmp_path,
+        f'database_url = "postgresql://from-file/y"\n'
+        f'media_root = "{tmp_path / "media"}"\n',
+    )
+    monkeypatch.setenv(ENV_CONFIG_FILE, str(path))
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://from-env/y")
+
+    config = Config.from_env(tmp_path)
+
+    assert config.database_url == "postgresql://from-env/y"
+
+
+def test_missing_config_file_at_default_location_is_not_an_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """No FLEDERMAP_CONFIG_FILE at all -- the conftest autouse fixture already
+    redirects the *default* platformdirs location into an empty directory,
+    so this exercises exactly that "nothing configured" path and pins that
+    it is not an error (unlike naming a file explicitly and having it be
+    absent -- see test_explicitly_named_missing_config_file_raises)."""
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+
+    config = Config.from_env(tmp_path)
+
+    assert config.database_url == "postgresql://x/y"
+
+
+def test_explicitly_named_missing_config_file_raises(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Distinct from the default-location case above: naming
+    FLEDERMAP_CONFIG_FILE explicitly is a request for that exact file, so its
+    absence is a real misconfiguration, not "no file configured"."""
+    missing = tmp_path / "does-not-exist.toml"
+    monkeypatch.setenv(ENV_CONFIG_FILE, str(missing))
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+
+    with pytest.raises(ConfigError, match=ENV_CONFIG_FILE):
+        Config.from_env(tmp_path)
+
+
+def test_malformed_toml_raises_config_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    path = _write_config_file(tmp_path, "database_url = not valid toml [[[\n")
+    monkeypatch.setenv(ENV_CONFIG_FILE, str(path))
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+
+    with pytest.raises(ConfigError, match="not valid TOML"):
+        Config.from_env(tmp_path)
+
+
+def test_config_file_unknown_key_raises_config_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A typo'd key (`sesion_gap_hours`) must fail loudly rather than being
+    silently ignored forever."""
+    path = _write_config_file(tmp_path, 'sesion_gap_hours = "4"\n')
+    monkeypatch.setenv(ENV_CONFIG_FILE, str(path))
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+
+    with pytest.raises(ConfigError, match="sesion_gap_hours"):
+        Config.from_env(tmp_path)
+
+
+def test_config_file_supplies_numeric_fields(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    path = _write_config_file(
+        tmp_path,
+        "session_gap_hours = 4.5\nsite_eps_m = 50\nsite_min_points = 5\n",
+    )
+    monkeypatch.setenv(ENV_CONFIG_FILE, str(path))
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+
+    config = Config.from_env(tmp_path)
+
+    assert config.session_gap_hours == 4.5
+    assert config.site_eps_m == 50.0
+    assert config.site_min_points == 5
+
+
+def test_config_file_float_site_min_points_raises_not_truncates(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """`int(3.5) == 3` would silently truncate a bad value -- this must raise
+    instead, the same as `test_invalid_site_min_points_raises_config_error`
+    does for the env-var path."""
+    path = _write_config_file(tmp_path, "site_min_points = 3.5\n")
+    monkeypatch.setenv(ENV_CONFIG_FILE, str(path))
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+
+    with pytest.raises(ConfigError, match="site_min_points"):
+        Config.from_env(tmp_path)
+
+
+def test_config_file_bool_session_gap_hours_raises(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    path = _write_config_file(tmp_path, "session_gap_hours = true\n")
+    monkeypatch.setenv(ENV_CONFIG_FILE, str(path))
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+
+    with pytest.raises(ConfigError, match="session_gap_hours"):
+        Config.from_env(tmp_path)
+
+
+def test_config_file_non_string_default_timezone_raises(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    path = _write_config_file(tmp_path, "default_timezone = 5\n")
+    monkeypatch.setenv(ENV_CONFIG_FILE, str(path))
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+
+    with pytest.raises(ConfigError, match="default_timezone"):
+        Config.from_env(tmp_path)
+
+
+def test_config_file_supplies_media_root(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    media = tmp_path / "media"
+    path = _write_config_file(
+        tmp_path,
+        f'database_url = "postgresql://x/y"\nmedia_root = "{media}"\n',
+    )
+    monkeypatch.setenv(ENV_CONFIG_FILE, str(path))
+    monkeypatch.delenv(ENV_MEDIA_ROOT, raising=False)
+
+    config = Config.from_env(tmp_path)
+
+    assert config.media_root == media.resolve()
+
+
+def test_config_file_supplies_static_root_and_resolve_static_root_agrees(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    static = tmp_path / "static"
+    path = _write_config_file(
+        tmp_path,
+        f'database_url = "postgresql://x/y"\n'
+        f'media_root = "{tmp_path / "media"}"\n'
+        f'static_root = "{static}"\n',
+    )
+    monkeypatch.setenv(ENV_CONFIG_FILE, str(path))
+    monkeypatch.delenv(ENV_STATIC_ROOT, raising=False)
+
+    config = Config.from_env(tmp_path)
+
+    assert config.static_root == static.resolve()
     assert resolve_static_root() == config.static_root

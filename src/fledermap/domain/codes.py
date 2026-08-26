@@ -17,6 +17,30 @@ class Verdict(StrEnum):
     NOISE = "noise"
 
 
+_SENTINEL_VERDICTS: dict[str, Verdict] = {
+    "noid": Verdict.NO_ID,
+    "noise": Verdict.NOISE,
+}
+
+
+def sentinel_verdict(label: str) -> Verdict | None:
+    """Classify one of the EMT's own non-species identification labels.
+
+    The device emits two spellings of the same two sentinels depending on
+    where they're read from: the filename convention writes `NoID`/`NOISE`
+    (no space), while GUANO's and wamd's `Species Auto ID`/`Species Manual
+    ID` fields write `No ID` (with a space) for the same "found nothing" case
+    -- confirmed against real field recordings, 2026-08-26, where both chunks
+    in the same file carried the literal string `No ID`. Comparing
+    whitespace- and case-insensitively unifies both spellings. Returns
+    `None` for anything else, i.e. a real species code -- callers keep that
+    text as `raw_label` for `resolve_code`; a sentinel match must not, or it
+    would show up as an unmapped label in the review queue for something
+    that was never meant to be a species code."""
+    normalized = "".join(label.split()).lower()
+    return _SENTINEL_VERDICTS.get(normalized)
+
+
 class IdSource(StrEnum):
     """Where an identification came from. Sources coexist; they never overwrite."""
 

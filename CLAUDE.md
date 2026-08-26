@@ -1,7 +1,9 @@
 # Fledermap — project notes
 
-Design authority: `docs/superpowers/specs/2026-08-23-fledermap-design.md` (decisions D1–D18,
-open risks R1–R3). Phase 1 plan is in `docs/superpowers/plans/`; its execution ledger is
+Design authority: `docs/superpowers/specs/2026-08-23-fledermap-design.md` (decisions D1–D18;
+R1–R3 all closed 2026-08-26 against real field recordings — see the spec's R1–R3 section for
+scope and a new device-specific `wamd` longitude-sign bug found in the process). Phase 1 plan
+is in `docs/superpowers/plans/`; its execution ledger is
 `.superpowers/sdd/*/progress.md` (gitignored, but it carries every ruling made during the build).
 
 Authoritative domain sources — species codes, names, file formats — live in
@@ -23,21 +25,52 @@ to it when you find a new source.
 - **`ffmpeg` and `ffprobe` must be installed and on `PATH`.** `media/preview.py` shells out to
   `ffmpeg` for Opus encoding and the preview tests read back with `ffprobe`. Missing, they fail
   loudly with `FileNotFoundError` — deliberately not skipped, so the gap can't hide.
-- **`FLEDERMAP_MEDIA_ROOT` is required (Phase 3)**, and is a *separate* directory from the
-  archive root. The archive is read-only (D16); derived media is written only under the media
-  root.
-- **`FLEDERMAP_STATIC_ROOT` is optional (Phase 4)**, unlike `FLEDERMAP_MEDIA_ROOT` above —
-  it defaults to a `platformdirs` cache directory, since fetched vendor JS/CSS is small and
-  regenerable rather than an operator's deliberate data-placement decision. Before
-  `fledermap serve` will have working vendor assets, `hatch run python
-  scripts/fetch_vendor_assets.py` must be run once (it needs real network access, so it is
-  never part of the test suite's own execution path) — skip it and every vendor
-  `<script>`/`<link>` on the map page 404s with no explanation.
+- **`FLEDERMAP_MEDIA_ROOT` is optional as of 2026-08-26**, and is a *separate* directory from
+  the archive root. The archive is read-only (D16); derived media is written only under the
+  media root. It falls back to a `platformdirs` *data* directory (not a cache directory — see
+  the next bullet) when unset, reversing Phase 3's original required-with-no-default decision
+  (dated deviation note in `docs/superpowers/specs/2026-08-25-fledermap-phase3-media-jobs-design.md`
+  §10). **Set it explicitly for any real deployment anyway**: the fallback path is still wrong
+  for a container, where "the user's data directory" is some arbitrary service-account home
+  inside the container's own ephemeral filesystem — not backed up, and gone on the next
+  `docker run` — exactly the failure mode the original required-with-no-default decision existed
+  to force an operator to notice at startup instead of silently losing derived media later.
+- **`FLEDERMAP_STATIC_ROOT` is optional (Phase 4)**, and unlike `FLEDERMAP_MEDIA_ROOT` above,
+  a silent default is actually *fine* for it — it defaults to a `platformdirs` cache directory,
+  since fetched vendor JS/CSS is small and regenerable rather than an operator's deliberate
+  data-placement decision. `fledermap serve`
+  fetches whatever's missing from it automatically on startup (`services/vendor_assets.py`'s
+  `ensure_vendor_assets`, needs real network access on a cold cache — never part of the test
+  suite's own execution path) — `fledermap fetch-assets` pre-warms it deliberately instead,
+  for an offline/air-gapped install or to force a full verified re-fetch. This logic lives in
+  the installed package, not `scripts/`: `scripts/` is dev-only git-hook tooling that is never
+  part of a built wheel, so code `serve` needs at runtime cannot live there (it used to, and
+  broke every real install — caught only because nothing had tried installing the package
+  itself yet).
+- **Every `FLEDERMAP_*` setting can also live in a TOML config file** (see `docs/setup.md`), at
+  a `platformdirs` config directory by default, or wherever `FLEDERMAP_CONFIG_FILE` names.
+  **Env var wins when both are set** — deliberate, since a future Docker deployment configures
+  purely through env and the file exists for standalone/local use, not to override the
+  container path. Naming `FLEDERMAP_CONFIG_FILE` explicitly and having it be absent is an
+  error; the default location being absent is not (same "optional, regenerable" shape as
+  `FLEDERMAP_STATIC_ROOT` above).
+- **`scripts/` never ships in the built package** — only `src/fledermap/` does (hatchling's
+  default src-layout packaging). `scripts/` is for dev-only tooling invoked from a checkout
+  (git hooks: `check_commit_msg.py`, `check_yaml.py`). Before treating "run this script
+  manually, it's documented" as merely a UX rough edge, check whether the script would even
+  exist for someone who installed the package rather than cloned the repo — `fetch_vendor_assets.py`
+  lived there and silently couldn't run for any real install until this was caught. Verify with
+  `hatch build -t wheel` + `python3 -m zipfile -l dist/*.whl`, not by inspecting the source tree.
 
 ## Tooling
 
 - `hatch run types:check` runs mypy over **`tests/` as well as `src/`**. Test code must
   type-check: bind an `X | None`, assert it is not None, then dereference. Not `# type: ignore`.
+- **A new `Config.from_env` field needs a test asserting the constructed `Config`'s attribute,
+  not just that parsing didn't raise.** mypy cannot catch a fully-validated local variable that
+  never reaches the final `cls(...)` call — `port` was parsed, range-checked, and then silently
+  dropped on the floor once, caught only because `test_port_is_configurable_via_env` asserted
+  `config.port == 8080` rather than merely that `Config.from_env` didn't error.
 - When mypy cannot resolve a third-party import, **add the package to the `types` env** in
   `pyproject.toml`. A global `ignore_missing_imports` has been rejected twice here — it
   blind-spots every future dependency.
@@ -133,8 +166,23 @@ member, confirm it fails). One that cannot fail is worse than no test.
 The two bundled sample recordings are **iPhone Simulator** output: no `guan` chunk at all (only
 `wamd`), and a `+02:00` metadata offset against New York coordinates. Their filename and metadata
 timestamps differ by 12 h minus a few seconds, which reads as an AM/PM fault in the simulator's
-writer. Do not generalise timestamp, timezone, or metadata behaviour from them — spec R1–R3 and
-the timezone half of D17 stay open until real field recordings exist.
+writer. Do not generalise timestamp, timezone, or metadata behaviour from them.
+
+**Real field recordings exist as of 2026-08-26** (`~/Bat Sessions/Session_20260826_173533`,
+Echo Meter Touch 2, Android — 10 files, none containing an identified bat). Spec R1, R2, and R3
+are all now **closed** for this device (see the spec's R1–R3 section for exact scope — one
+device/OS, one export pathway). R2 needed one on-device manual reclassification to get a
+before/after audio-hash pair; species content was never the blocker for any of the three. Two
+real bugs
+surfaced and were fixed: `ingest/riff.py`'s `iter_chunks` assumed every odd-sized chunk was
+followed by the RIFF spec's pad byte, which this device's odd-sized `guan` chunk doesn't get,
+desyncing everything parsed after it; and `ingest/merge.py` treated GUANO/wamd's own "No ID"/
+"Noise" sentinel strings (`Species Auto ID: No ID`) as an unmapped species code instead of
+recognising them the way the filename convention already did, which is why 9 of these 10 files
+showed up as "unidentified species" on the map instead of "No ID". Full writeup, including a new
+latent `wamd`-longitude-sign bug on this device (harmless today because GUANO's position is
+already preferred), is in the design spec's R1–R3 section — see there before touching
+`ingest/riff.py`, `ingest/merge.py`, or `domain/codes.py`'s `sentinel_verdict`.
 
 ## Species codes
 

@@ -27,7 +27,8 @@ from sqlalchemy.orm import Session as OrmSession
 from fledermap.domain.codes import IdSource, Verdict
 from fledermap.services.current_best import current_best_identification
 from fledermap.store.geo import decode_point
-from fledermap.store.models import Identification, Recording, Site
+from fledermap.store.models import Identification, Recording, Site, Taxon
+from fledermap.store.models import Session as AnnotationSession
 
 # This project's own established "tens to low thousands" scale assumption
 # (see module docstring) makes true server-side, zoom-aware clustering
@@ -123,3 +124,27 @@ def filtered_sites(
     if bbox is not None:
         sites = [s for s in sites if _within_bbox(decode_point(s.centroid), bbox)]
     return sites
+
+
+def list_taxa(session: OrmSession) -> Sequence[Taxon]:
+    """Every taxon, for the map's taxon filter dropdown (a numeric ID input
+    is not something a person can use -- feedback on the first UI pass).
+    Ordered by scientific_name so the dropdown reads alphabetically
+    regardless of insertion order. Not scoped to any rank: a group- or
+    genus-level taxon is as valid an identification, and so as valid a
+    filter target, as a species (docs/references.md)."""
+    stmt = select(Taxon).order_by(Taxon.scientific_name)
+    return list(session.scalars(stmt).all())
+
+
+def list_sessions(session: OrmSession) -> Sequence[AnnotationSession]:
+    """Every session, for the map's session filter dropdown. Unlike Taxon,
+    a session has no natural name -- the dropdown falls back to labelling by
+    date range and detector (design spec section 7's `detector_key`) -- and
+    no cap on how many can accumulate over time, unlike Taxon's small, fixed
+    set. Most recent first: filtering by session is almost always about
+    recent fieldwork, not the oldest deployment on record. Revisit with a
+    search/pagination UI if this list grows large enough that "most recent
+    first" stops being enough on its own."""
+    stmt = select(AnnotationSession).order_by(AnnotationSession.started_at.desc())
+    return list(session.scalars(stmt).all())

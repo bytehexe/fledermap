@@ -14,10 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import PurePath
 
-from fledermap.domain.codes import Verdict
-
-_NO_ID = "noid"
-_NOISE = "noise"
+from fledermap.domain.codes import Verdict, sentinel_verdict
 
 
 @dataclass(frozen=True)
@@ -49,11 +46,9 @@ def parse_emt_filename(name: str) -> FilenameParse | None:
     except ValueError:
         return None
 
-    lowered = ident.lower()
-    if lowered == _NO_ID:
-        return FilenameParse(code=None, verdict=Verdict.NO_ID, timestamp=timestamp)
-    if lowered == _NOISE:
-        return FilenameParse(code=None, verdict=Verdict.NOISE, timestamp=timestamp)
+    sentinel = sentinel_verdict(ident)
+    if sentinel is not None:
+        return FilenameParse(code=None, verdict=sentinel, timestamp=timestamp)
     if not ident:
         return None
     return FilenameParse(

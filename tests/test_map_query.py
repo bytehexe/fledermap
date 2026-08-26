@@ -9,7 +9,12 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import IdSource, Verdict
-from fledermap.services.map_query import filtered_recordings, filtered_sites
+from fledermap.services.map_query import (
+    filtered_recordings,
+    filtered_sites,
+    list_sessions,
+    list_taxa,
+)
 from fledermap.store.models import Identification, Recording, Site, Taxon
 from fledermap.store.models import Session as AnnotationSession
 
@@ -204,3 +209,39 @@ def test_filtered_sites_by_bbox_and_date(engine: Engine) -> None:
         results = filtered_sites(session, bbox=(0.0, 40.0, 20.0, 60.0))
 
     assert [s.id for s in results] == [inside.id]
+
+
+def test_list_taxa_orders_alphabetically_by_scientific_name(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        session.add_all(
+            [
+                Taxon(rank="species", scientific_name="Pipistrellus pipistrellus"),
+                Taxon(rank="species", scientific_name="Eptesicus serotinus"),
+            ],
+        )
+        session.commit()
+
+        results = list_taxa(session)
+
+    assert [t.scientific_name for t in results] == [
+        "Eptesicus serotinus",
+        "Pipistrellus pipistrellus",
+    ]
+
+
+def test_list_sessions_orders_most_recent_first(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        older = AnnotationSession(
+            started_at=datetime(2026, 1, 1, tzinfo=UTC),
+            ended_at=datetime(2026, 1, 2, tzinfo=UTC),
+        )
+        newer = AnnotationSession(
+            started_at=datetime(2026, 6, 1, tzinfo=UTC),
+            ended_at=datetime(2026, 6, 2, tzinfo=UTC),
+        )
+        session.add_all([older, newer])
+        session.commit()
+
+        results = list_sessions(session)
+
+    assert [s.id for s in results] == [newer.id, older.id]

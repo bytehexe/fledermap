@@ -1,14 +1,40 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from pathlib import Path
 
+import platformdirs
 import pytest
 from sqlalchemy import Engine, text
 from testcontainers.community.postgres import PostgresContainer
 
+from fledermap.config import ENV_CONFIG_FILE
 from fledermap.store import db
 from fledermap.store.db import make_engine
 from fledermap.store.models import Base
+
+
+@pytest.fixture(autouse=True)
+def _isolate_fledermap_config_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """`Config.from_env` (and `resolve_static_root`) now read an optional
+    config file at a `platformdirs` default location. Redirect that default
+    into an empty, per-test tmp_path directory (rather than setting
+    FLEDERMAP_CONFIG_FILE to a nonexistent path -- that names an *explicit*
+    file, which `_load_config_file` treats as a real misconfiguration when
+    absent) so a real `~/.config/fledermap/config.toml` left on the machine
+    running the suite -- plausible once this feature ships and someone
+    actually uses it -- can never leak into a test's expectations. Tests
+    exercising the file-reading path set FLEDERMAP_CONFIG_FILE explicitly,
+    which takes priority over this default."""
+    monkeypatch.delenv(ENV_CONFIG_FILE, raising=False)
+    monkeypatch.setattr(
+        platformdirs,
+        "user_config_dir",
+        lambda *_args, **_kwargs: str(tmp_path / "no-such-config-dir"),
+    )
 
 
 @pytest.fixture(scope="session")

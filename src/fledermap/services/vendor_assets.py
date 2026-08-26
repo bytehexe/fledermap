@@ -1,24 +1,29 @@
 """Fetch pinned-version JS/CSS assets into the configured static root
 (design spec section 5, decision P4-4).
 
-Run manually at setup/deploy time (documented in CLAUDE.md's Environment
-gotchas) -- needs network access, so it is NOT part of the test suite's own
-execution path (tests/test_fetch_vendor_assets.py exercises the
-verify/fetch/write logic against a fake response instead). Each asset's
-SHA-256 is checked against the downloaded bytes before anything is written;
-a mismatch means the CDN served something other than what was pinned when
-this script was last updated, and nothing is written for that asset.
+Lives in the installed package, not `scripts/` -- `scripts/` is dev-only
+tooling (git hooks) that never ships in a built wheel or sdist, so code that
+belongs to a real deployment (this does: `serve` needs it to run at all)
+cannot live there. `ensure_vendor_assets` is what `serve` calls automatically
+on startup when assets are missing (`static_root` is a cache, by design --
+see `Config.static_root`'s docstring -- and a cache that can't repopulate
+itself on demand isn't one); `fetch_all` unconditionally re-fetches every
+given asset and backs the explicit `fledermap fetch-assets` command, for
+pre-warming a deployment or an offline/air-gapped install ahead of time.
+
+Each asset's SHA-256 is checked against the downloaded bytes before anything
+is written; a mismatch means the CDN served something other than what was
+pinned when this module was last updated, and nothing is written for that
+asset. Auto-fetching on a cache miss doesn't relax this -- it's the same
+verified fetch either way, just triggered automatically instead of by hand.
 """
 
 from __future__ import annotations
 
 import hashlib
-import sys
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-
-from fledermap.config import resolve_static_root
 
 
 @dataclass(frozen=True)
@@ -109,6 +114,10 @@ def verify(data: bytes, expected_sha256: str) -> None:
 
 
 def fetch_all(vendor_dir: Path, assets: tuple[VendorAsset, ...] = ASSETS) -> None:
+    """Unconditionally fetch and verify every given asset, overwriting
+    whatever's already at its destination. Used for an explicit, deliberate
+    refresh (`fledermap fetch-assets`) -- `ensure_vendor_assets` below is
+    what runs automatically and only touches what's actually missing."""
     for asset in assets:
         with urllib.request.urlopen(asset.url) as response:
             data = response.read()
@@ -118,12 +127,21 @@ def fetch_all(vendor_dir: Path, assets: tuple[VendorAsset, ...] = ASSETS) -> Non
         dest.write_bytes(data)
 
 
-def main() -> int:
-    vendor_dir = resolve_static_root() / "vendor"
-    fetch_all(vendor_dir)
-    print(f"fetched {len(ASSETS)} assets into {vendor_dir}")
-    return 0
+def missing_assets(
+    vendor_dir: Path,
+    assets: tuple[VendorAsset, ...] = ASSETS,
+) -> tuple[VendorAsset, ...]:
+    return tuple(a for a in assets if not (vendor_dir / a.relative_path).exists())
 
 
-if __name__ == "__main__":
-    sys.exit(main())
+def ensure_vendor_assets(
+    vendor_dir: Path,
+    assets: tuple[VendorAsset, ...] = ASSETS,
+) -> tuple[VendorAsset, ...]:
+    """Fetch only what's missing -- idempotent, so calling this on every
+    `serve` startup costs nothing once the cache is warm. Returns the assets
+    that were actually fetched, so a caller can report what happened rather
+    than fetching silently."""
+    to_fetch = missing_assets(vendor_dir, assets)
+    fetch_all(vendor_dir, to_fetch)
+    return to_fetch

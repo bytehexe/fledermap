@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, tzinfo
 from typing import TypeVar
 
-from fledermap.domain.codes import IdSource, TimestampSource, Verdict
+from fledermap.domain.codes import IdSource, TimestampSource, Verdict, sentinel_verdict
 from fledermap.domain.metadata import ParsedIdentification, RecordingMetadata
 from fledermap.ingest.filename import FilenameParse
 from fledermap.ingest.guano_read import GuanoMetadata
@@ -93,6 +93,23 @@ def _borrow_offset(
     return value.replace(tzinfo=borrowed or default_timezone)
 
 
+def _claim(label: str) -> tuple[Verdict, str | None]:
+    """Classify one device-emitted auto/manual-ID label. A real species code
+    keeps its raw text, for `resolve_code` to look up later; one of the EMT's
+    own sentinels ('No ID', 'Noise') becomes its Verdict with no raw_label,
+    matching how the filename convention already handles the same two
+    non-species results (`ingest/filename.py`). Real field bug, 2026-08-26:
+    before this, any truthy `auto_id`/`manual_id` was unconditionally
+    Verdict.SPECIES, so the device's own 'No ID' answer was misclassified as
+    an unidentified species -- and, since EMT_GUANO/EMT_WAMD outrank
+    EMT_FILENAME in `current_best_identification`'s precedence, silently beat
+    out the filename's correctly-computed NO_ID claim."""
+    sentinel = sentinel_verdict(label)
+    if sentinel is not None:
+        return sentinel, None
+    return Verdict.SPECIES, label
+
+
 def _identifications(
     guano: GuanoMetadata | None,
     wamd: WamdMetadata | None,
@@ -117,15 +134,17 @@ def _identifications(
         if meta is None:
             continue
         if meta.auto_id:
+            verdict, raw_label = _claim(meta.auto_id)
             out.append(
                 ParsedIdentification(
                     source=source,
                     source_version=version,
-                    verdict=Verdict.SPECIES,
-                    raw_label=meta.auto_id,
+                    verdict=verdict,
+                    raw_label=raw_label,
                 ),
             )
         if meta.manual_id:
+            verdict, raw_label = _claim(meta.manual_id)
             out.append(
                 ParsedIdentification(
                     # Re-derived from the file on every scan, so it must be
@@ -135,8 +154,8 @@ def _identifications(
                     # fix round 1, priority 4).
                     source=IdSource.EMT_MANUAL,
                     source_version=None,
-                    verdict=Verdict.SPECIES,
-                    raw_label=meta.manual_id,
+                    verdict=verdict,
+                    raw_label=raw_label,
                 ),
             )
 

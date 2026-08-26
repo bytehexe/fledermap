@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import urllib.error
 from datetime import timedelta
 from pathlib import Path
 
@@ -11,7 +12,7 @@ from alembic.config import Config as AlembicConfig
 from sqlalchemy.orm import Session as OrmSession
 
 from alembic import command as alembic_command
-from fledermap.config import Config, ConfigError
+from fledermap.config import Config, ConfigError, resolve_static_root
 from fledermap.derive.sessions import partition_sessions
 from fledermap.domain.metadata import ScannedFile
 from fledermap.ingest.scan import INCOMPLETE_SCAN_REASONS, scan_with_skips
@@ -25,6 +26,12 @@ from fledermap.services.ingest import (
     sweep_missing,
 )
 from fledermap.services.media import backfill_media, enqueue_media
+from fledermap.services.vendor_assets import (
+    ASSETS,
+    IntegrityError,
+    ensure_vendor_assets,
+)
+from fledermap.services.vendor_assets import fetch_all as fetch_all_vendor_assets
 from fledermap.store.db import make_engine
 from fledermap.store.seed import seed_taxonomy
 from fledermap.web.app import create_app
@@ -73,6 +80,25 @@ def _run_migrations(database_url: str) -> None:
     cfg.set_main_option("script_location", str(_PROJECT_ROOT / "alembic"))
     cfg.set_main_option("sqlalchemy.url", database_url)
     alembic_command.upgrade(cfg, "head")
+
+
+def _fetch_missing_vendor_assets_or_die(vendor_dir: Path) -> None:
+    """`serve`'s automatic cache-warming: fetches only what's missing (a
+    warm cache costs nothing here -- see `ensure_vendor_assets`), and turns
+    a network/integrity failure into a clean `ClickException` instead of a
+    raw traceback, since this now runs on every `serve` startup rather than
+    only when a human deliberately invokes a fetch script."""
+    try:
+        fetched = ensure_vendor_assets(vendor_dir)
+    except (IntegrityError, urllib.error.URLError, OSError) as exc:
+        msg = (
+            f"could not fetch vendor assets into {vendor_dir}: {exc}. Run "
+            "`fledermap fetch-assets` once real network access is available, "
+            "or pre-warm this directory on another machine and copy it over."
+        )
+        raise click.ClickException(msg) from exc
+    if fetched:
+        click.echo(f"fetched {len(fetched)} vendor asset(s) into {vendor_dir}")
 
 
 @click.group()
@@ -253,20 +279,64 @@ def worker(archive: Path, wait: bool) -> None:
 
 
 @cli.command()
-@click.option("--host", default="127.0.0.1", help="Interface to bind.")
-@click.option("--port", default=5000, type=int, help="Port to listen on.")
-def serve(host: str, port: int) -> None:
+@click.option(
+    "--host",
+    default=None,
+    help="Interface to bind. Defaults to FLEDERMAP_HOST, then the config "
+    "file's 'host' setting, then 127.0.0.1 -- see Config.host.",
+)
+@click.option(
+    "--port",
+    default=None,
+    type=int,
+    help="Port to listen on. Defaults to FLEDERMAP_PORT, then the config "
+    "file's 'port' setting, then 5000 -- see Config.port.",
+)
+def serve(host: str | None, port: int | None) -> None:
     """Run the web map. Reads FLEDERMAP_DATABASE_URL and FLEDERMAP_MEDIA_ROOT
-    (both required) and, optionally, FLEDERMAP_STATIC_ROOT."""
+    (both required) and, optionally, FLEDERMAP_STATIC_ROOT, FLEDERMAP_HOST,
+    and FLEDERMAP_PORT. Vendor JS/CSS (Leaflet, HTMX, Alpine) are fetched
+    into FLEDERMAP_STATIC_ROOT automatically on first run, or whenever the
+    cache is missing something -- see `fetch-assets` to pre-warm that cache
+    (e.g. for an offline install) instead of fetching it at server startup.
+    """
     try:
         config = Config.from_env(Path.cwd())
     except ConfigError as exc:
         raise click.ClickException(str(exc)) from exc
 
+    _fetch_missing_vendor_assets_or_die(config.static_root / "vendor")
+
     engine = make_engine(config.database_url)
     _run_migrations(config.database_url)
     app = create_app(engine, config.static_root)
-    app.run(host=host, port=port)
+    app.run(
+        host=host if host is not None else config.host,
+        port=port if port is not None else config.port,
+    )
+
+
+@cli.command(name="fetch-assets")
+def fetch_assets() -> None:
+    """Fetch vendor JS/CSS (Leaflet, HTMX, Alpine) into FLEDERMAP_STATIC_ROOT.
+
+    `serve` already does this automatically for whatever's missing, so this
+    command is only for pre-warming the cache deliberately -- ahead of an
+    offline/air-gapped deployment, or to force a full re-fetch and overwrite
+    of everything, verified, even what's already present.
+
+    Uses `resolve_static_root()` directly, not `Config.from_env` -- this
+    command touches nothing but the static/vendor cache, so it has no
+    business demanding FLEDERMAP_DATABASE_URL/FLEDERMAP_MEDIA_ROOT the way
+    every other command here does.
+    """
+    vendor_dir = resolve_static_root() / "vendor"
+    try:
+        fetch_all_vendor_assets(vendor_dir)
+    except (IntegrityError, urllib.error.URLError, OSError) as exc:
+        msg = f"could not fetch vendor assets into {vendor_dir}: {exc}"
+        raise click.ClickException(msg) from exc
+    click.echo(f"fetched {len(ASSETS)} vendor asset(s) into {vendor_dir}")
 
 
 @cli.command(name="enqueue-media")

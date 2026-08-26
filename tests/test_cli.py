@@ -7,16 +7,36 @@ import time
 from collections.abc import Iterator
 from pathlib import Path
 
+import click
 import flask
 import pytest
 from click.testing import CliRunner
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session as OrmSession
 
-from fledermap.cli.main import EXIT_SWEEP_REFUSED, cli
+import fledermap.cli.main as cli_main
+from fledermap.cli.main import (
+    EXIT_SWEEP_REFUSED,
+    _fetch_missing_vendor_assets_or_die,
+    cli,
+)
+from fledermap.services.vendor_assets import ASSETS, IntegrityError, VendorAsset
 from fledermap.store.db import make_engine
 from fledermap.store.models import Recording
 from tests.fixtures import build_wav, fmt_payload, wamd_payload
+
+
+def _populate_vendor_cache(static_root: Path) -> None:
+    """Pre-warm `serve`'s vendor cache so its automatic
+    `ensure_vendor_assets` call finds nothing missing and never touches the
+    network -- real network access in a test run is exactly what this
+    project's test suite avoids everywhere else."""
+    vendor_dir = static_root / "vendor"
+    for asset in ASSETS:
+        dest = vendor_dir / asset.relative_path
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b"")
+
 
 pytestmark = pytest.mark.db
 
@@ -569,6 +589,7 @@ def test_serve_command_starts_without_error(
         calls.append((host, port))
 
     monkeypatch.setattr(flask.Flask, "run", fake_run)
+    _populate_vendor_cache(tmp_path / "static")
 
     runner = CliRunner()
     env = {
@@ -583,3 +604,128 @@ def test_serve_command_starts_without_error(
 
     assert result.exit_code == 0, result.output
     assert calls == [("0.0.0.0", 5001)]
+
+
+def test_serve_command_uses_configured_host_and_port_when_flags_omitted(
+    clean_database_url: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FLEDERMAP_HOST/FLEDERMAP_PORT (or the config file's `host`/`port`)
+    supply the defaults when `--host`/`--port` aren't given on the command
+    line -- explicit flags, as in `test_serve_command_starts_without_error`
+    above, still override them."""
+    calls: list[tuple[str | None, int | None]] = []
+
+    def fake_run(
+        self: flask.Flask,
+        host: str | None = None,
+        port: int | None = None,
+        **_kwargs: object,
+    ) -> None:
+        calls.append((host, port))
+
+    monkeypatch.setattr(flask.Flask, "run", fake_run)
+    _populate_vendor_cache(tmp_path / "static")
+
+    runner = CliRunner()
+    env = {
+        "FLEDERMAP_DATABASE_URL": clean_database_url,
+        "FLEDERMAP_MEDIA_ROOT": str(tmp_path / "media"),
+        "FLEDERMAP_STATIC_ROOT": str(tmp_path / "static"),
+        "FLEDERMAP_PORT": "9090",
+        "FLEDERMAP_HOST": "0.0.0.0",
+    }
+
+    result = runner.invoke(cli, ["serve"], env=env)
+
+    assert result.exit_code == 0, result.output
+    assert calls == [("0.0.0.0", 9090)]
+
+
+def test_fetch_missing_vendor_assets_or_die_reports_what_it_fetched(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    fetched = (
+        VendorAsset(url="https://x/a.js", sha256="0" * 64, relative_path="a.js"),
+    )
+    monkeypatch.setattr(cli_main, "ensure_vendor_assets", lambda _vendor_dir: fetched)
+
+    _fetch_missing_vendor_assets_or_die(tmp_path / "vendor")
+
+    assert "fetched 1 vendor asset(s)" in capsys.readouterr().out
+
+
+def test_fetch_missing_vendor_assets_or_die_is_silent_when_cache_is_warm(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(cli_main, "ensure_vendor_assets", lambda _vendor_dir: ())
+
+    _fetch_missing_vendor_assets_or_die(tmp_path / "vendor")
+
+    assert capsys.readouterr().out == ""
+
+
+def test_fetch_missing_vendor_assets_or_die_wraps_integrity_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def boom(_vendor_dir: Path) -> tuple[VendorAsset, ...]:
+        raise IntegrityError("bad hash")
+
+    monkeypatch.setattr(cli_main, "ensure_vendor_assets", boom)
+
+    with pytest.raises(click.ClickException, match="fledermap fetch-assets"):
+        _fetch_missing_vendor_assets_or_die(tmp_path / "vendor")
+
+
+def test_fetch_assets_command_does_not_require_database_or_media_env(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: an earlier version of this command went through
+    `Config.from_env`, which demanded FLEDERMAP_DATABASE_URL/FLEDERMAP_MEDIA_ROOT
+    even though `fetch-assets` touches neither -- exactly the friction this
+    command exists to avoid for someone pre-warming a deployment ahead of
+    setting up a database at all."""
+    calls: list[Path] = []
+    monkeypatch.setattr(
+        cli_main,
+        "fetch_all_vendor_assets",
+        lambda vendor_dir: calls.append(vendor_dir),
+    )
+
+    runner = CliRunner()
+    env = {
+        "FLEDERMAP_DATABASE_URL": None,
+        "FLEDERMAP_MEDIA_ROOT": None,
+        "FLEDERMAP_STATIC_ROOT": str(tmp_path / "static"),
+    }
+
+    result = runner.invoke(cli, ["fetch-assets"], env=env)
+
+    assert result.exit_code == 0, result.output
+    assert calls == [tmp_path / "static" / "vendor"]
+    assert f"fetched {len(ASSETS)} vendor asset(s)" in result.output
+
+
+def test_fetch_assets_command_reports_integrity_failure_cleanly(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def boom(_vendor_dir: Path) -> None:
+        raise IntegrityError("bad hash")
+
+    monkeypatch.setattr(cli_main, "fetch_all_vendor_assets", boom)
+
+    runner = CliRunner()
+    env = {"FLEDERMAP_STATIC_ROOT": str(tmp_path / "static")}
+
+    result = runner.invoke(cli, ["fetch-assets"], env=env)
+
+    assert result.exit_code != 0
+    assert "bad hash" in result.output

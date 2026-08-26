@@ -532,16 +532,95 @@ inconsistent — a `+0200` offset against New York coordinates, which would be
   holding two nights thirteen days apart. Derive sessions from timestamps only
   (D7); never parse folder names.
 
-### R2 — Does the EMT re-encode audio on re-ID? *(needs real field files)*
+**Phase 0b, 2026-08-26: first real field recordings arrived** (`Session_20260826_173533`,
+10 files, Echo Meter Touch 2 *Standard Android* — a different device/OS than the
+iPhone Simulator samples above). None contain an actual bat call (9× the device's own
+"No ID" verdict, 1× no auto-ID attempt at all), but every phase-0b sub-question below
+concerns the metadata/timestamp/position *plumbing*, not species content, so all but
+one are answerable without a real bat call:
+
+- **(a) `guan` alongside `wamd`? YES**, on this device — unlike the simulator samples,
+  every real file carries both chunks. Uncovered a real parser bug in the process:
+  `guan`'s chunk size is 605 (odd), and this device does **not** write the RIFF spec's
+  pad byte after an odd-sized chunk — `ingest/riff.py`'s `iter_chunks` assumed every
+  odd-sized chunk was followed by one, desyncing all chunk parsing after it and making
+  the real `wamd` chunk invisible under its own name. **Fixed** (peeks at the would-be
+  pad byte and only consumes it if it's actually `\x00`; `test_odd_sized_chunk_without_pad_byte_is_still_found`
+  pins it). This closes (a).
+- **(b) filename vs. metadata timestamps agree? YES**, exactly — e.g.
+  `NoID_20260826_173535.wav`'s filename reads `17:35:35`; both `guan` and `wamd` read
+  `2026-08-26 17:35:35+0200`. No trace of the simulator's 12-hour AM/PM fault. Since
+  the two sources agree bit-for-bit on wall-clock reading here, D17's filename-vs-metadata
+  precedence choice is moot for this device — either default produces the same
+  `recorded_at`. Closes (b) for this device; still worth confirming on other
+  hardware/OS combinations before treating the precedence question as universally moot.
+- **(e) does the metadata offset agree with the GPS position's civil zone? YES.**
+  `+02:00`, and the position (52.395°N, 9.740°E) is Hannover, Germany, which is CEST
+  (UTC+2) in late August — consistent, unlike the simulator's `+02:00` against New York
+  coordinates. Per this section's own text above: *"if it does, position-derived zone
+  lookup becomes the better long-term answer and this rule can be retired."* That
+  condition is now met on real hardware — worth a deliberate decision (not made here)
+  on whether to switch D17's zone rule over, or gather more devices/locations first
+  before generalising from one.
+- **(d) re-ID hash stability — closed.** This is R2 below in full; noted here only to
+  flag that it never depended on species content — an on-device manual correction of a
+  "No ID" file to "Noise" gave the before/after pair, no real bat needed.
+
+**New finding, not in the original R1 checklist: `wamd`'s own position field has a
+real longitude sign bug on this device.** For every one of the 10 files, `guan`'s
+`Loc Position` and `wamd`'s position type (`0x06`) describe the same physical spot but
+disagree in longitude's sign — e.g. `Loc Position: 52.3954537 9.7402683` (GUANO) against
+the literal wamd bytes `WGS84,52.3954537,-9.74027,102.19999694824219` (wamd) for the
+identical recording. Verified at the raw-byte level, not a parsing artifact on our
+side, and cross-checked against `wamd2guano.py` (the reference decoder for this
+undocumented chunk, docs/references.md) to rule out a documented sign convention we
+might be missing: its GPS parsing branches by format, and for the exact
+`WGS84,<lat>,<lon>,<elev>` layout this device uses (its own "EMTouch format" branch,
+as opposed to the `N`/`S`/`E`/`W`-suffixed branch it applies a sign correction to) it
+takes the values as literal signed floats with **no** negation — identical to what our
+own `_parse_position` already does. So the reference implementation reads this exactly
+the way we do and still lands on the wrong hemisphere: the device itself writes the
+wrong-signed value into its proprietary chunk while getting the standard GUANO field
+right, not a convention either decoder is missing.
+
+Currently harmless: `merge_metadata` already prefers GUANO's position over wamd's
+unconditionally (`test_position_prefers_guano_over_wamd`), and every real file so far
+carries both. It would matter only for a recording with a `wamd` chunk and no `guan`
+chunk — not observed on this device, but no design principle rules it out for some
+other EMT variant. Flagging rather than fixing: there is no way to *correct* wamd's
+sign without already trusting GUANO or GPS-fix corroboration to know which hemisphere
+is right, so any fix would just be "distrust wamd's longitude entirely," which is a
+real decision, not a bug patch.
+
+**R1 status: closed for the Echo Meter Touch 2, Android.** The original spike's `wamd`
+field mapping (types 0x00–0x0c) matches real hardware output exactly, byte for byte.
+Untested: an iOS device's real output, and any hardware running firmware old enough to
+predate the GUANO-chunk addition seen here.
+
+### R2 — Does the EMT re-encode audio on re-ID? *(closed, 2026-08-26)*
 
 `audio_hash` (D8) assumes re-ID rewrites **only** metadata and filename. If the
-app re-encodes, the hash changes and the identity scheme needs a fallback.
-Cannot be tested with bundled samples.
+app re-encodes, the hash changes and the identity scheme needs a fallback. **Closed**:
+after the initial ingest above, `NoID_20260826_174531.wav` was manually reclassified
+to "Noise" on-device and re-synced, arriving as `NOISE_20260826_174531.wav` — 22 bytes
+larger (metadata growth: `guan` 605→614 bytes, `wamd` 163→170 bytes), auto-ID
+untouched at `"No ID"` in both chunks, a new `manual_id` of `"NOISE"` added to both
+(a *third* spelling of the sentinel, this time no space — `sentinel_verdict`'s
+whitespace/case-insensitive match already covers it with no extra code). The already-ingested
+DB row's stored `audio_hash` for the original file —
+`0bb4fb84a7624cfa6617714d5df79d112dabbca389adec562f90d165f8c52262` — is a **byte-for-byte
+match** against `audio_hash()` recomputed from the renamed file. Not a prefix guess: the
+full 64-character digest, computed independently before and after the on-device edit,
+is identical. D8's foundational assumption holds on real hardware.
 
-### R3 — Does GPS survive the app's export path? *(needs real field files)*
+### R3 — Does GPS survive the app's export path? *(closed, 2026-08-26, for this device/pathway)*
 
 If `Loc Position` is stripped on export, the map has no data. Mitigated but not
-solved by recordings-without-GPS being first-class.
+solved by recordings-without-GPS being first-class. **Closed for the Echo Meter Touch
+2 (Android) → Syncthing pathway**: all 10 real files carry plausible, present GPS data
+in both `guan` and `wamd` — nothing was stripped. Scope is narrow, though: one
+device, one OS, one export/sync mechanism. A web-upload front end or a different
+device model reaching the archive by a different path is untested.
 
 ---
 
@@ -624,6 +703,26 @@ tripwires (§10) are re-checked at each boundary.
 
 Phases 1 and 2 are deliberately headless — the data model is the risky part, and
 it is far cheaper to get wrong before a UI depends on its shape.
+
+**Phase 6 should evaluate removing (or at least gating) the manual `ingest ARCHIVE`
+and `worker ARCHIVE` commands.** Both take the archive root as a bare operator-typed
+argument with nothing to check it against a prior invocation (`ingest` stores
+`Recording.path` relative to whatever root it's given; `worker` resolves that same
+relative path against whatever root *it's* given — see the Phase 3 media-jobs design,
+§9, for why `worker` cannot fall back to a throwaway root the way `derive` does).
+Nothing currently detects the two roots disagreeing. Two failure shapes follow from
+that, and they are not equally survivable: a wrong-but-nonexistent-at-that-relative-path
+root just makes `worker`'s task raise `FileNotFoundError` and fail loudly after
+retries; a wrong-but-*plausible* root — e.g. a stale checkout, a sibling copy, a typo
+that still resolves — resolves the relative path to a different real file and renders
+its spectrogram/preview as if it belonged to the wrong recording, with no error at
+all. Once the watcher owns one authoritative `archive_root` per running instance,
+keeping `ingest`/`worker` around as parallel, independently-rooted entry points
+re-opens exactly that risk for no remaining benefit — decide at Phase 6 design time
+whether to remove them outright, restrict them to the watcher's own configured root,
+or keep them for deliberate maintenance use (e.g. a full re-render after a media
+params change) behind an explicit consistency check. `enqueue-media` is unaffected:
+it never opens a source file, so it never resolves a path against `archive_root` at all.
 
 ## 16. Settled since first draft
 

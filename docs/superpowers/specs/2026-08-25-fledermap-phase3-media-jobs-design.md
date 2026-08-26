@@ -434,6 +434,29 @@ that, not for it.
 add an env var later only if a real deployment needs a nonstandard binary
 location).
 
+**Deviation, 2026-08-26: `media_root` reversed to optional.** The
+required-with-no-default decision above is reversed — `media_root` now falls
+back to `platformdirs.user_data_dir("fledermap")` when unset
+(`config.py`'s `resolve_media_root`), matching `static_root`'s shape rather
+than `database_url`'s. Deliberately a *data* directory, not the *cache*
+directory `static_root` uses: derived media is expensive to regenerate even
+though it's re-derivable in principle, unlike the small, freely-refetchable
+vendor assets `static_root` holds.
+
+The container objection above still holds and is not being disputed here —
+"the user's data directory" is still an arbitrary, effectively meaningless
+path inside a container, still not what you want a Docker volume mounted at.
+The trade being made is a smaller default-friendliness gain (local/standalone
+use, and every other `FLEDERMAP_*` setting except `database_url` and
+`archive_root` already tolerates a default) against that known-bad fallback
+in the one deployment shape (a container where the operator forgot to set
+`FLEDERMAP_MEDIA_ROOT`) where it actually bites — silently, since a wrong
+media path fails softly (derived media just lands in, and is later lost
+from, the wrong place) rather than the loud startup error the original
+required-field design existed to force. `docs/setup.md` and `CLAUDE.md` both
+carry an explicit "set this anyway for a real deployment" warning for exactly
+that reason; nothing in code enforces it.
+
 ## 11. Testing
 
 - `media/`'s two functions get direct unit tests against tiny synthesized WAV

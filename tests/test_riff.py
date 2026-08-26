@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import struct
 from pathlib import Path
 
 import pytest
@@ -44,6 +45,29 @@ def test_odd_sized_chunk_is_padded(tmp_path: Path) -> None:
     )
 
     assert [c.chunk_id for c in iter_chunks(path)] == ["fmt ", "guan", "data"]
+
+
+def test_odd_sized_chunk_without_pad_byte_is_still_found(tmp_path: Path) -> None:
+    """Real Echo Meter Touch 2 (Android) output does not write the RIFF pad
+    byte after an odd-sized chunk -- confirmed against real field recordings,
+    2026-08-26 (a `guan` chunk of size 605 is immediately followed by the
+    literal bytes `wamd`, no `\\x00` in between). Unlike
+    `test_odd_sized_chunk_is_padded` above, this file has no pad byte at all;
+    the next chunk's header starts right after the odd-sized payload."""
+    body = b"WAVE"
+    body += b"fmt " + struct.pack("<I", len(fmt_payload())) + fmt_payload()
+    body += b"guan" + struct.pack("<I", 3) + b"abc"  # odd size, no pad byte
+    body += b"data" + struct.pack("<I", 2) + b"\x00\x00"
+    path = tmp_path / "unpadded.wav"
+    path.write_bytes(b"RIFF" + struct.pack("<I", len(body)) + body)
+
+    chunks = list(iter_chunks(path))
+
+    assert [c.chunk_id for c in chunks] == ["fmt ", "guan", "data"]
+    guan = next(c for c in chunks if c.chunk_id == "guan")
+    assert read_chunk(path, guan) == b"abc"
+    data = next(c for c in chunks if c.chunk_id == "data")
+    assert read_chunk(path, data) == b"\x00\x00"
 
 
 def test_read_chunk_returns_payload(tmp_path: Path) -> None:
