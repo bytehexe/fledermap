@@ -15,10 +15,16 @@ from fledermap.services.map_query import (
     list_sessions,
     list_taxa,
     neighbor_recordings,
+    site_detail,
 )
 from fledermap.store.geo import decode_point
 from fledermap.store.models import Taxon
-from fledermap.web.params import parse_datetime, parse_int, parse_verdict
+from fledermap.web.params import (
+    fallback_site_label,
+    parse_datetime,
+    parse_int,
+    parse_verdict,
+)
 
 views_bp = flask.Blueprint("views", __name__, template_folder="../templates")
 
@@ -101,3 +107,20 @@ def recording_panel(audio_hash: str) -> flask.Response:
             },
         )
     return response
+
+
+@views_bp.get("/sites/<int:site_id>/panel")
+def site_panel(site_id: int) -> str:
+    engine = flask.current_app.config["ENGINE"]
+    with OrmSession(engine) as session:
+        detail = site_detail(session, site_id)
+        if detail is None:
+            return flask.render_template("_site_panel.html", found=False)
+        point = decode_point(detail.site.centroid)
+        label = detail.site.name if detail.site.name else fallback_site_label(point)
+        return flask.render_template(
+            "_site_panel.html",
+            found=True,
+            detail=detail,
+            label=label,
+        )

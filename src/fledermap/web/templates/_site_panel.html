@@ -1,0 +1,33 @@
+{# src/fledermap/web/templates/_site_panel.html #}
+{% if not found %}
+<p>Site not found.</p>
+{% else %}
+<div class="panel-header">
+  <h2>{{ label }}</h2>
+  <button type="button" onclick="fledermapFilterBySite({{ detail.site.id }})">Show only this site</button>
+</div>
+
+<div class="panel-columns">
+  <div class="col species-breakdown">
+    <h3>Species</h3>
+    <ul>
+      {% for taxon, count in detail.species_counts %}
+      <li>{{ taxon.scientific_name }}: {{ count }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  <div class="col site-stats">
+    <h3>Site</h3>
+    <p>{{ detail.site.recording_count }} recordings</p>
+    <p>{{ detail.site.admin_path or "" }}</p>
+  </div>
+  <div class="col sessions">
+    <h3>Sessions</h3>
+    <ul>
+      {% for s in detail.sessions %}
+      <li>{{ s.started_at.strftime('%Y-%m-%d %H:%M') }}–{{ s.ended_at.strftime('%H:%M') }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+{% endif %}

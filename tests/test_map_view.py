@@ -10,7 +10,7 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import IdSource, Verdict
-from fledermap.store.models import Identification, Recording, Taxon
+from fledermap.store.models import Identification, Recording, Site, Taxon
 from fledermap.store.models import Session as AnnotationSession
 from fledermap.web.app import create_app
 
@@ -253,3 +253,79 @@ def test_recording_panel_shows_prev_next_within_filters(
 
     assert f"/recordings/{'a' * 64}/panel" in html
     assert f"/recordings/{'c' * 64}/panel" in html
+
+
+def test_site_panel_renders_species_breakdown_and_sessions(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        site = Site(
+            centroid=WKTElement("POINT(10 50)", srid=4326),
+            radius_m=50.0,
+            recording_count=1,
+            first_at=datetime(2026, 8, 25, tzinfo=UTC),
+            last_at=datetime(2026, 8, 25, tzinfo=UTC),
+            name="Behind the barn",
+        )
+        taxon = Taxon(rank="species", scientific_name="Eptesicus serotinus")
+        session.add_all([site, taxon])
+        session.flush()
+        recording = Recording(
+            audio_hash="a" * 64,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+            site_id=site.id,
+        )
+        session.add(recording)
+        session.flush()
+        session.add(
+            Identification(
+                recording_id=recording.id,
+                source=IdSource.EMT_GUANO,
+                source_version=None,
+                verdict=Verdict.SPECIES,
+                taxon_id=taxon.id,
+                raw_label="EPTSER",
+                first_seen_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+        site_id = site.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    html = app.test_client().get(f"/sites/{site_id}/panel").get_data(as_text=True)
+
+    assert "Behind the barn" in html
+    assert "Eptesicus serotinus" in html
+
+
+def test_site_panel_not_found_renders_gracefully(
+    engine: Engine, tmp_path: Path
+) -> None:
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get("/sites/999999/panel")
+
+    assert response.status_code == 200
+    assert "not found" in response.get_data(as_text=True).lower()
+
+
+def test_site_panel_has_show_only_this_site_button(
+    engine: Engine, tmp_path: Path
+) -> None:
+    with OrmSession(engine) as session:
+        site = Site(
+            centroid=WKTElement("POINT(10 50)", srid=4326),
+            radius_m=50.0,
+            recording_count=0,
+            first_at=datetime(2026, 8, 25, tzinfo=UTC),
+            last_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add(site)
+        session.commit()
+        site_id = site.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    html = app.test_client().get(f"/sites/{site_id}/panel").get_data(as_text=True)
+
+    assert f"fledermapFilterBySite({site_id})" in html
