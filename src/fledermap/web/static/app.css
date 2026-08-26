@@ -16,9 +16,18 @@ html, body {
   background: var(--color-bg);
 }
 
-#map { height: calc(100vh - 4rem); width: 100%; }
+/* Flex column, not a fixed `#map` height minus an assumed filter-bar height:
+   #filters wraps to more than one line at narrow widths or once enough
+   filters/chips are present, and a hardcoded subtraction (the previous
+   `calc(100vh - 4rem)`) then undercounts its real height -- total content
+   exceeds 100vh and the whole page scrolls vertically. Flex lets #map
+   always take exactly whatever's left over, regardless of how tall
+   #filters actually renders. */
+body { display: flex; flex-direction: column; }
+#map { flex: 1 1 auto; width: 100%; }
 
 #filters {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 0.75rem;
@@ -53,6 +62,8 @@ button:hover { background: var(--color-bg-subtle); border-color: var(--color-acc
 button:disabled { cursor: default; opacity: 0.5; }
 
 #site-filter-chip {
+  align-self: flex-start;
+  margin: 0.4rem 1rem;
   display: flex;
   align-items: center;
   gap: 0.4rem;
