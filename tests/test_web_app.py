@@ -18,7 +18,7 @@ def test_create_app_registers_vendor_static_blueprint(
     vendor_dir.mkdir(parents=True)
     (vendor_dir / "leaflet.js").write_text("/* fake */")
 
-    app = create_app(engine, tmp_path / "static")
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
     client = app.test_client()
 
     response = client.get("/static/vendor/leaflet.js")
@@ -28,6 +28,6 @@ def test_create_app_registers_vendor_static_blueprint(
 
 
 def test_create_app_stores_the_engine_on_config(tmp_path: Path, engine: Engine) -> None:
-    app = create_app(engine, tmp_path / "static")
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
 
     assert app.config["ENGINE"] is engine

@@ -18,7 +18,7 @@ pytestmark = pytest.mark.db
 
 
 def _app_client(engine: Engine, tmp_path: Path) -> flask.testing.FlaskClient:
-    app = create_app(engine, tmp_path / "static")
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
     return app.test_client()
 
 

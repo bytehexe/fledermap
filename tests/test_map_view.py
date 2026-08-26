@@ -15,7 +15,7 @@ pytestmark = pytest.mark.db
 
 
 def test_map_page_renders_the_leaflet_shell(engine: Engine, tmp_path: Path) -> None:
-    app = create_app(engine, tmp_path / "static")
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
     client = app.test_client()
 
     response = client.get("/")
@@ -30,7 +30,7 @@ def test_map_page_renders_the_leaflet_shell(engine: Engine, tmp_path: Path) -> N
 
 
 def test_map_page_includes_the_filter_form(engine: Engine, tmp_path: Path) -> None:
-    app = create_app(engine, tmp_path / "static")
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
     client = app.test_client()
 
     response = client.get("/")
@@ -61,7 +61,7 @@ def test_taxon_filter_is_a_dropdown_of_real_taxa(
         session.commit()
         taxon_id = taxon.id
 
-    app = create_app(engine, tmp_path / "static")
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
     client = app.test_client()
 
     response = client.get("/")
@@ -84,7 +84,7 @@ def test_taxon_option_includes_common_name_when_present(
         session.add(taxon)
         session.commit()
 
-    app = create_app(engine, tmp_path / "static")
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
     client = app.test_client()
 
     html = client.get("/").get_data(as_text=True)
@@ -105,7 +105,7 @@ def test_session_filter_is_a_dropdown_labelled_by_date_range_and_detector(
         session.commit()
         session_id = annotation_session.id
 
-    app = create_app(engine, tmp_path / "static")
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
     client = app.test_client()
 
     html = client.get("/").get_data(as_text=True)
@@ -127,7 +127,7 @@ def test_session_option_falls_back_when_detector_key_is_missing(
         session.add(annotation_session)
         session.commit()
 
-    app = create_app(engine, tmp_path / "static")
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
     client = app.test_client()
 
     html = client.get("/").get_data(as_text=True)
