@@ -32,6 +32,18 @@ function colorForFeature(props) {
   return "#333333";
 }
 
+// Step 0: Register the drawer's Alpine store
+document.addEventListener("alpine:init", () => {
+  Alpine.store("drawer", { open: false, collapsed: false });
+});
+
+// Step 3: Add the site-filter bridge function
+window.fledermapFilterBySite = function (siteId) {
+  const input = document.querySelector('#filters [name="site"]');
+  input.value = siteId;
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+};
+
 document.addEventListener("DOMContentLoaded", () => {
   const map = L.map("map").setView([51.0, 10.0], 6);
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -54,6 +66,9 @@ document.addEventListener("DOMContentLoaded", () => {
     return params;
   }
 
+  const recordingLayersByHash = new Map();
+  let highlightedRecordingLayer = null;
+
   async function refreshRecordings(params) {
     let response;
     try {
@@ -68,16 +83,38 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     const recordingsData = await response.json();
     recordingsLayer.clearLayers();
+    recordingLayersByHash.clear();
+    highlightedRecordingLayer = null;
     L.geoJSON(recordingsData, {
-      pointToLayer: (feature, latlng) =>
-        L.circleMarker(latlng, { color: colorForFeature(feature.properties) })
-          .bindPopup(
-            `${feature.properties.taxon_name ?? "unidentified"}<br>` +
-            `${feature.properties.verdict ?? "unknown"} ` +
-            `(${feature.properties.source ?? "no source"})<br>` +
-            feature.properties.recorded_at,
-          ),
+      pointToLayer: (feature, latlng) => {
+        const marker = L.circleMarker(latlng, { color: colorForFeature(feature.properties) })
+          .on("click", () => openRecordingPanel(feature.properties.audio_hash, params));
+        recordingLayersByHash.set(feature.properties.audio_hash, marker);
+        return marker;
+      },
     }).eachLayer((layer) => recordingsLayer.addLayer(layer));
+  }
+
+  function openRecordingPanel(audioHash, params) {
+    htmx.ajax("GET", `/recordings/${audioHash}/panel?${params}`, {
+      target: "#drawer-body",
+      swap: "innerHTML",
+    });
+    Alpine.store("drawer").open = true;
+    Alpine.store("drawer").collapsed = false;
+  }
+
+  // P5a-6: prev/next must pan AND highlight, not just pan -- otherwise the
+  // drawer and the map can visibly disagree about which recording is current.
+  function highlightRecording(audioHash) {
+    if (highlightedRecordingLayer) {
+      highlightedRecordingLayer.setStyle({ weight: 1 });
+    }
+    const marker = recordingLayersByHash.get(audioHash);
+    if (marker) {
+      marker.setStyle({ weight: 4 });
+      highlightedRecordingLayer = marker;
+    }
   }
 
   async function refreshSites(params) {
@@ -97,11 +134,17 @@ document.addEventListener("DOMContentLoaded", () => {
     L.geoJSON(sitesData, {
       pointToLayer: (feature, latlng) =>
         L.circle(latlng, { radius: feature.properties.radius_m, color: "blue" })
-          .bindPopup(
-            `${feature.properties.name}<br>` +
-            `${feature.properties.recording_count} recordings`,
-          ),
+          .on("click", () => openSitePanel(feature.properties.id)),
     }).eachLayer((layer) => sitesLayer.addLayer(layer));
+  }
+
+  function openSitePanel(siteId) {
+    htmx.ajax("GET", `/sites/${siteId}/panel`, {
+      target: "#drawer-body",
+      swap: "innerHTML",
+    });
+    Alpine.store("drawer").open = true;
+    Alpine.store("drawer").collapsed = false;
   }
 
   // The two fetches run independently -- one endpoint erroring (e.g. a bad
@@ -115,5 +158,28 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   document.getElementById("filters").addEventListener("input", refresh);
+
+  // Step 2: Listen for recording-selected to pan and highlight
+  document.body.addEventListener("recording-selected", (event) => {
+    const { latitude, longitude, hash } = event.detail;
+    if (latitude != null && longitude != null) {
+      map.panTo([latitude, longitude]);
+    }
+    highlightRecording(hash);
+  });
+
+  // Step 4: Add drag-resize on the handle
+  const drawer = document.getElementById("drawer");
+  const handle = document.getElementById("drawer-handle");
+  let dragging = false;
+
+  handle.addEventListener("mousedown", () => { dragging = true; });
+  document.addEventListener("mouseup", () => { dragging = false; });
+  document.addEventListener("mousemove", (event) => {
+    if (!dragging) return;
+    const newHeight = window.innerHeight - event.clientY;
+    drawer.style.height = `${Math.max(120, Math.min(newHeight, window.innerHeight - 80))}px`;
+  });
+
   refresh();
 });
