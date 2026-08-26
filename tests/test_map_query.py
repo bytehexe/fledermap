@@ -15,6 +15,7 @@ from fledermap.services.map_query import (
     list_sessions,
     list_taxa,
     neighbor_recordings,
+    site_detail,
 )
 from fledermap.store.models import Identification, Recording, Site, Taxon
 from fledermap.store.models import Session as AnnotationSession
@@ -340,3 +341,51 @@ def test_neighbor_recordings_none_when_hash_not_in_set() -> None:
     present = _bare_recording("a" * 64, datetime(2026, 8, 25, 20, 0, tzinfo=UTC))
 
     assert neighbor_recordings([present], "z" * 64) is None
+
+
+def test_site_detail_breaks_down_species_and_lists_sessions(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        site = Site(
+            centroid=WKTElement("POINT(10 50)", srid=4326),
+            radius_m=50.0,
+            recording_count=2,
+            first_at=datetime(2026, 8, 25, tzinfo=UTC),
+            last_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        taxon = Taxon(rank="species", scientific_name="Eptesicus serotinus")
+        annotation_session = AnnotationSession(
+            started_at=datetime(2026, 8, 25, 20, 0, tzinfo=UTC),
+            ended_at=datetime(2026, 8, 25, 23, 0, tzinfo=UTC),
+        )
+        session.add_all([site, taxon, annotation_session])
+        session.flush()
+
+        r1 = _recording(
+            session,
+            audio_hash="a" * 64,
+            taxon_id=taxon.id,
+            session_id=annotation_session.id,
+        )
+        r1.site_id = site.id
+        r2 = _recording(
+            session,
+            audio_hash="b" * 64,
+            taxon_id=taxon.id,
+            session_id=annotation_session.id,
+        )
+        r2.site_id = site.id
+        session.add_all([r1, r2])
+        session.commit()
+        site_id, taxon_id, session_id = site.id, taxon.id, annotation_session.id
+
+        detail = site_detail(session, site_id)
+
+        assert detail is not None
+        assert detail.site.id == site_id
+        assert detail.species_counts == [(session.get(Taxon, taxon_id), 2)]
+        assert [s.id for s in detail.sessions] == [session_id]
+
+
+def test_site_detail_returns_none_for_unknown_site(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        assert site_detail(session, 999999) is None

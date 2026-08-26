@@ -18,6 +18,7 @@ that logic into SQL would duplicate it.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
 
@@ -178,3 +179,58 @@ def list_sessions(session: OrmSession) -> Sequence[AnnotationSession]:
     first" stops being enough on its own."""
     stmt = select(AnnotationSession).order_by(AnnotationSession.started_at.desc())
     return list(session.scalars(stmt).all())
+
+
+@dataclass(frozen=True)
+class SiteDetail:
+    """Everything the site drawer panel needs, assembled in one query pass
+    rather than the template making N+1 lookups."""
+
+    site: Site
+    species_counts: list[tuple[Taxon, int]]
+    sessions: Sequence[AnnotationSession]
+
+
+def site_detail(session: OrmSession, site_id: int) -> SiteDetail | None:
+    """Assemble site detail for the drawer panel: the site, its species
+    breakdown (sorted by count descending), and the sessions that touched it."""
+    site = session.get(Site, site_id)
+    if site is None:
+        return None
+
+    recordings = session.scalars(
+        select(Recording).where(
+            Recording.site_id == site_id,
+            Recording.missing_since.is_(None),
+        ),
+    ).all()
+
+    counts: dict[int, int] = {}
+    for recording in recordings:
+        best = current_best_identification(recording)
+        if best is not None and best.taxon_id is not None:
+            counts[best.taxon_id] = counts.get(best.taxon_id, 0) + 1
+
+    taxa_by_id = {}
+    if counts:
+        taxa_by_id = {
+            t.id: t
+            for t in session.scalars(
+                select(Taxon).where(Taxon.id.in_(counts)),
+            ).all()
+        }
+    species_counts = sorted(
+        ((taxa_by_id[tid], n) for tid, n in counts.items()),
+        key=lambda pair: -pair[1],
+    )
+
+    session_ids = {r.session_id for r in recordings if r.session_id is not None}
+    sessions: Sequence[AnnotationSession] = []
+    if session_ids:
+        sessions = session.scalars(
+            select(AnnotationSession)
+            .where(AnnotationSession.id.in_(session_ids))
+            .order_by(AnnotationSession.started_at.desc()),
+        ).all()
+
+    return SiteDetail(site=site, species_counts=species_counts, sessions=sessions)
