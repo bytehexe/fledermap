@@ -251,6 +251,31 @@ button:disabled { cursor: default; opacity: 0.5; }
   border-radius: 6px;
 }
 .merge-badge { color: #b7791f; font-size: 0.8rem; }
+/* Bare `<label>Text <input></label>` markup is inline by default, so with no
+   stacking rule the browser spreads Kind/Note/Weather/Save left-to-right
+   across whatever width the flex column happens to have -- visibly wrong on
+   the session detail page (screenshot-caught 2026-08-27), since
+   `.session-detail-columns .col`'s `flex: 1 1 260px` lets the edit column
+   grow well past a comfortable form width. Used by both the edit form and
+   the merge banner's combined note/weather form. */
+.stacked-form label {
+  display: block;
+  margin-bottom: 0.6rem;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.stacked-form select,
+.stacked-form textarea {
+  display: block;
+  width: 100%;
+  max-width: 320px;
+  margin-top: 0.25rem;
+  font-weight: normal;
+  font-family: inherit;
+  font-size: 0.9rem;
+}
+.stacked-form textarea { min-height: 4.5rem; resize: vertical; }
+.stacked-form button { margin-top: 0.2rem; }
 #sessions-table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
 #sessions-table th, #sessions-table td {
   text-align: left;

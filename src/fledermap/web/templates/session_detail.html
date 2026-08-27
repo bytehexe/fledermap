@@ -21,7 +21,7 @@
         <a href="/?session={{ detail.session.id }}">View on full map</a>
       </div>
       <div class="col session-edit-col">
-        <form method="post" action="/sessions/{{ detail.session.id }}">
+        <form class="stacked-form" method="post" action="/sessions/{{ detail.session.id }}">
           <label>Kind
             <select name="kind">
               <option value="stationary" {% if detail.session.kind.value == 'stationary' %}selected{% endif %}>Stationary</option>
@@ -46,7 +46,7 @@
         <a href="/sessions/{{ op.counterpart.id }}">#{{ op.counterpart.id }}</a>
         ({{ op.counterpart.started_at.strftime('%Y-%m-%d %H:%M') }}–{{ op.counterpart.ended_at.strftime('%H:%M') }}).
       </p>
-      <form method="post" action="/sessions/merge-proposals/{{ op.proposal.id }}/resolve">
+      <form class="stacked-form" method="post" action="/sessions/merge-proposals/{{ op.proposal.id }}/resolve">
         <label>Combined note
           <textarea name="note">{% if detail.session.note and op.counterpart.note %}{{ detail.session.note }}
 ---
