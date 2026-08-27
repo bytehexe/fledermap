@@ -188,6 +188,23 @@ an FK violation rather than silently orphaning the other proposal's foreign key.
 ("resolve the other pending proposal on this session first") rather than letting a
 raw `IntegrityError` surface as a 500.
 
+**Correction found during implementation (Task 6).** This edge case as originally
+written was incomplete in a way that mattered a lot more than it let on: the FK
+hazard above isn't only a *second, chained* proposal's problem — the proposal
+*being resolved* also references `session_b` via its own `session_b_id`, and that
+reference is still live at the moment `session_b` would be deleted. Without
+repointing it first, `DELETE FROM session WHERE id = :session_b_id` fails on
+**every** merge, not just a chained one — the implementer found this via TDD when
+the plan's own basic single-proposal merge test failed. The fix: `resolve_merge_proposal`
+repoints the resolving proposal's own `session_b_id` to `session_a.id` *before*
+deleting `session_b`, so only a genuinely separate, still-open proposal can still
+raise the chained-proposal `MergeConflictError` this section describes. Verified
+safe by grepping every reader of `session_a_id`/`session_b_id` in the codebase:
+nothing reads a *resolved* proposal's `session_b_id` expecting it to still equal
+the deleted session's id (`open_proposal_session_ids`/`session_detail` both filter
+on `resolution IS NULL` already, so a resolved row's repointed value is never
+surfaced as if it were still open).
+
 ## 6. Kind: persisted auto-classification, and dropping `effort`
 
 **`effort` is dropped outright**, not carried into this slice's edit form. Grepped
