@@ -57,21 +57,29 @@ body { display: flex; flex-direction: row; }
 main.main-content { padding: 0 1.5rem 1.5rem; overflow-y: auto; }
 main.main-content h1 { margin-top: 1rem; }
 
-/* session_detail.html's back-link and detector line render with browser
-   defaults today -- no project color at all. The back-link rule is scoped to
-   main.main-content rather than a bare `a` selector so it doesn't reach into
-   map.html's or sessions_list.html's unrelated links; the detector line gets
-   its own .detail-meta class rather than a bare `p` selector because
-   main.main-content also contains the merge-banner's alert <p>, which must
-   stay full-weight, not fade to muted text alongside it. */
-main.main-content > a:first-child { color: var(--color-accent); }
+/* session_detail.html's links and detector line render with browser defaults
+   today -- no project color at all. Scoped to #session-detail (an id on that
+   page's <main>, not the shared main.main-content class/tag) so it colors
+   ALL of that page's links -- back-link, "View on full map", and the
+   merge-banner's counterpart link -- without also reaching sessions_list.html's
+   own table-row links, which share the main.main-content tag+class but must
+   stay out of scope here. (Originally scoped to `main.main-content >
+   a:first-child`, coloring only the back-link -- final review caught that
+   this left the page's other two links at browser-default blue, a new
+   inconsistency worse than the uniform unstyled state before Task 3; also
+   fixes that selector's fragility, since :first-child silently breaks if
+   anything is ever inserted above the link.) The detector line keeps its own
+   .detail-meta class rather than a bare `p` selector because #session-detail
+   also contains the merge-banner's alert <p>, which must stay full-weight,
+   not fade to muted text alongside it. */
+#session-detail a { color: var(--color-accent); }
 .detail-meta { color: var(--color-muted); }
 
 #map { flex: 1 1 auto; width: 100%; }
 
 /* Shared by any horizontal toolbar of filter controls (map.html's #filters,
    sessions_list.html's #session-filters) -- see docs/style-guide.md. Both
-   forms sit inside a `.main-content` flex column (app.css:56, a class rule
+   forms sit inside a `.main-content` flex column (the `.main-content` class rule
    that reaches both map.html's <div class="main-content"> and
    sessions_list.html's <main class="main-content">), but flex items default
    to flex-grow: 0 -- neither form stretches without an explicit flex: ... 1

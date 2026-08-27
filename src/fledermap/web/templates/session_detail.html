@@ -8,7 +8,7 @@
 </head>
 <body>
   {% include "_nav.html" %}
-  <main class="main-content">
+  <main class="main-content" id="session-detail">
     <a href="/sessions">← Back to sessions</a>
     <h1>
       Session: {{ detail.session.started_at.strftime('%Y-%m-%d %H:%M') }} – {{ detail.session.ended_at.strftime('%H:%M') }}

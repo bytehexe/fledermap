@@ -28,15 +28,17 @@ add it to `:root` and document it here in the same change.
 
 Not an enforced scale — match the range already in use:
 
-- **Container padding:** `0.75rem`–`1rem` (e.g. `#sidebar { padding: 0.75rem 0.5rem; }`,
+- **Container padding:** `0.5rem`–`1rem` (e.g. `#sidebar { padding: 0.75rem 0.5rem; }`,
   `.filter-bar { padding: 0.6rem 1rem; }`)
 - **Internal gaps** (flex `gap`, spacing between sibling controls): `0.4rem`–`0.75rem`
 - **Tight label-to-control spacing:** `0.25rem`–`0.6rem` (e.g. `.stacked-form label { margin-bottom: 0.6rem; }`)
 
 ## Form controls
 
-Global element selectors in `app.css` already give every `<input>`/`<select>`/`<button>` inside
-`.filter-bar` this look; nothing extra is needed to opt in beyond using the class:
+`.filter-bar select, .filter-bar input` gives filter-bar controls this look — it's scoped to
+the class, not global, so a form outside `.filter-bar` doesn't get it automatically (e.g.
+`.stacked-form`'s `select`/`textarea` rule only sets layout — display/width/margin/font — not
+this styling; a form outside `.filter-bar` renders unstyled input/select chrome today):
 
 ```css
 border: 1px solid var(--color-border);
@@ -48,10 +50,24 @@ font: inherit;
 font-size: 0.9rem;
 ```
 
-Bare `button` elements anywhere in the app already get a matching bordered look plus `:hover`/
-`:disabled` states (`app.css`, global `button` rule) — no class needed for buttons.
+`button` is the one form control styled globally (`app.css`'s bare `button` rule, plus
+`:hover`/`:disabled` states) — any `<button>` anywhere in the app gets this automatically, no
+class needed:
+
+```css
+font-size: 0.85rem;
+padding: 0.35rem 0.75rem;
+border: 1px solid var(--color-border);
+border-radius: 4px;
+background: var(--color-bg);
+color: var(--color-text);
+cursor: pointer;
+```
 
 ## Shared classes
+
+The two documented here are the ones this guide has promoted so far under the "promote on second
+use" rule below — not an exhaustive list of every class used on more than one element.
 
 ### `.filter-bar`
 
