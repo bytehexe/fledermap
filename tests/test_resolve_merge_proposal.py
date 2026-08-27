@@ -226,6 +226,60 @@ def test_merge_does_not_reclassify_a_locked_session_a(engine: Engine) -> None:
         assert merged_a.kind_locked is True
 
 
+def test_merge_with_omitted_note_and_weather_falls_back_to_session_b(
+    engine: Engine,
+) -> None:
+    """Important fix: `note=None`/`weather=None` (the field entirely absent
+    from a POST, not the browser's normal pre-filled flow) must not silently
+    drop `session_b`'s note/weather the moment `session_b` is deleted --
+    fall back to combining whatever each side already has."""
+    with OrmSession(engine) as session:
+        a = _session(BASE, BASE.replace(hour=21))
+        b = _session(
+            BASE.replace(day=21),
+            BASE.replace(day=21, hour=1),
+            note="b's note",
+            weather="b's weather",
+        )
+        session.add_all([a, b])
+        session.flush()
+        session.add(
+            Recording(
+                audio_hash="a0".rjust(64, "0"),
+                path="a0.wav",
+                recorded_at=BASE,
+                session_id=a.id,
+            ),
+        )
+        session.flush()
+        bridging = session.scalars(
+            select(Recording).where(Recording.session_id == a.id)
+        ).one()
+        proposal = SessionMergeProposal(
+            session_a_id=a.id,
+            session_b_id=b.id,
+            bridging_recording_id=bridging.id,
+            detected_at=BASE,
+        )
+        session.add(proposal)
+        session.commit()
+
+        resolve_merge_proposal(
+            session,
+            proposal.id,
+            action="merge",
+            note=None,
+            weather=None,
+            transect_distance_m=150.0,
+        )
+        session.commit()
+
+        merged_a = session.get(Session, a.id)
+        assert merged_a is not None
+        assert merged_a.note == "b's note"
+        assert merged_a.weather == "b's weather"
+
+
 def test_unknown_proposal_id_raises(engine: Engine) -> None:
     with OrmSession(engine) as session:
         with pytest.raises(ProposalNotFoundError):
@@ -321,3 +375,63 @@ def test_chained_proposal_raises_merge_conflict(engine: Engine) -> None:
         assert refreshed is not None
         assert refreshed.resolution is None
         assert session.get(Session, b.id) is not None
+
+
+def test_resolved_proposal_referencing_session_b_is_repointed_not_blocking(
+    engine: Engine,
+) -> None:
+    """Critical fix: an already-RESOLVED (here, REJECTED) proposal from an
+    earlier, unrelated pairing that still names `session_b` on one side must
+    not permanently block a later, currently-open merge of that same
+    `session_b` -- unlike an open chained proposal (covered above), a
+    resolved one can never be surfaced or resolved again through the UI, so
+    it must be repointed at `session_a` instead of left dangling."""
+    with OrmSession(engine) as session:
+        a, b, real_proposal = _make_proposal(session)
+
+        # An unrelated third session `d`, whose earlier (now-rejected)
+        # proposal happens to name `b` as ITS session_b too.
+        d = _session(BASE.replace(day=25), BASE.replace(day=25))
+        session.add(d)
+        session.flush()
+        session.add(
+            Recording(
+                audio_hash="d0".rjust(64, "0"),
+                path="d0.wav",
+                recorded_at=BASE.replace(day=25),
+                session_id=d.id,
+            ),
+        )
+        session.flush()
+        bridging_d = session.scalars(
+            select(Recording).where(Recording.session_id == d.id)
+        ).one()
+        unrelated_proposal = SessionMergeProposal(
+            session_a_id=d.id,
+            session_b_id=b.id,
+            bridging_recording_id=bridging_d.id,
+            detected_at=BASE,
+            resolution=MergeResolution.REJECTED,
+            resolved_at=BASE,
+        )
+        session.add(unrelated_proposal)
+        session.commit()
+        unrelated_proposal_id = unrelated_proposal.id
+
+        result = resolve_merge_proposal(
+            session,
+            real_proposal.id,
+            action="merge",
+            note=None,
+            weather=None,
+            transect_distance_m=150.0,
+        )
+        session.commit()
+
+        assert result == a.id
+        assert session.get(Session, b.id) is None  # b really got merged away
+
+        refreshed_unrelated = session.get(SessionMergeProposal, unrelated_proposal_id)
+        assert refreshed_unrelated is not None
+        assert refreshed_unrelated.session_a_id == d.id  # untouched side
+        assert refreshed_unrelated.session_b_id == a.id  # repointed off b

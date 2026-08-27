@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as OrmSession
 
@@ -58,16 +58,23 @@ def filtered_sessions(
     date_from: datetime | None = None,
     date_to: datetime | None = None,
     open_proposals_only: bool = False,
+    open_ids: set[int] | None = None,
 ) -> Sequence[SessionListRow]:
     stmt = select(AnnotationSession).order_by(AnnotationSession.started_at.desc())
     if detector:
-        stmt = stmt.where(AnnotationSession.detector_key.ilike(f"%{detector}%"))
+        # A literal `%`/`_` in user input is otherwise interpreted as an
+        # ILIKE wildcard rather than a literal character -- e.g. a bare `%`
+        # would match every session. Postgres's default ILIKE escape
+        # character is backslash, so no ESCAPE clause override is needed.
+        escaped = detector.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        stmt = stmt.where(AnnotationSession.detector_key.ilike(f"%{escaped}%"))
     if date_from is not None:
         stmt = stmt.where(AnnotationSession.started_at >= date_from)
     if date_to is not None:
         stmt = stmt.where(AnnotationSession.started_at <= date_to)
     if open_proposals_only:
-        open_ids = open_proposal_session_ids(db_session)
+        if open_ids is None:
+            open_ids = open_proposal_session_ids(db_session)
         if not open_ids:
             return []
         stmt = stmt.where(AnnotationSession.id.in_(open_ids))
@@ -212,8 +219,20 @@ def resolve_merge_proposal(
     session_a.ended_at = max(session_a.ended_at, session_b.ended_at)
     if note is not None:
         session_a.note = note
+    elif session_b.note:
+        session_a.note = (
+            f"{session_a.note}\n---\n{session_b.note}"
+            if session_a.note
+            else session_b.note
+        )
     if weather is not None:
         session_a.weather = weather
+    elif session_b.weather:
+        session_a.weather = (
+            f"{session_a.weather}\n---\n{session_b.weather}"
+            if session_a.weather
+            else session_b.weather
+        )
     reclassify_session(db_session, session_a, transect_distance_m=transect_distance_m)
 
     # This proposal's own `session_b_id` still points at `session_b`, and
@@ -223,6 +242,35 @@ def resolve_merge_proposal(
     # open proposal (design spec section 5's chained case) can still block
     # the delete and surface as `MergeConflictError`.
     proposal.session_b_id = session_a.id
+
+    # Any OTHER proposal -- from a past run, possibly already resolved --
+    # that also names `session_b` on either side has the same problem as
+    # this proposal's own `session_b_id` above: the FK has no `ON DELETE`,
+    # so it would block the delete below regardless of whether it's still
+    # open. An open one must keep blocking (design spec section 5's
+    # chained-proposal case, still correctly surfaced as
+    # `MergeConflictError`) -- but an ALREADY-RESOLVED one (REJECTED or
+    # MERGED) can never be un-resolved through the UI, so leaving its
+    # dangling reference to `session_b` would permanently block every
+    # future merge of `session_b` with an error message telling the user to
+    # resolve something that no longer appears anywhere. Repoint those the
+    # same way `session_b` itself no longer exists once merged.
+    other_proposals = db_session.scalars(
+        select(SessionMergeProposal).where(
+            SessionMergeProposal.id != proposal.id,
+            or_(
+                SessionMergeProposal.session_a_id == session_b.id,
+                SessionMergeProposal.session_b_id == session_b.id,
+            ),
+        ),
+    ).all()
+    for other in other_proposals:
+        if other.resolution is None:
+            continue
+        if other.session_a_id == session_b.id:
+            other.session_a_id = session_a.id
+        if other.session_b_id == session_b.id:
+            other.session_b_id = session_a.id
 
     db_session.delete(session_b)
     try:

@@ -10,6 +10,7 @@ from pathlib import Path
 import flask
 from sqlalchemy import Engine
 
+from fledermap.config import Config
 from fledermap.web.api.geojson import api_bp
 from fledermap.web.params import detector_label
 from fledermap.web.views.map import views_bp
@@ -21,7 +22,7 @@ def create_app(
     engine: Engine,
     static_root: Path,
     media_root: Path,
-    transect_distance_m: float = 150.0,
+    transect_distance_m: float = Config.transect_distance_m,
 ) -> flask.Flask:
     """`static_root` is `Config.static_root` -- where
     `services/vendor_assets.py`'s `ensure_vendor_assets` fetches Leaflet/HTMX/Alpine.

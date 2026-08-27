@@ -286,6 +286,84 @@ def _make_open_proposal(
     return a, b, proposal
 
 
+def test_merge_banner_note_textarea_omits_separator_when_only_one_side_has_text(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """Fix 3: pre-filling the merge banner's Combined note/weather boxes must
+    not write a literal "---" when only one side actually has text -- a user
+    accepting the merge without editing the box would otherwise persist that
+    literal separator as the surviving session's note."""
+    with OrmSession(engine) as session:
+        a = AnnotationSession(
+            started_at=datetime(2026, 8, 21, tzinfo=UTC),
+            ended_at=datetime(2026, 8, 21, 21, tzinfo=UTC),
+            kind=SessionKind.STATIONARY,
+            detector_key="EMT\x1f1",
+            note="only a has a note",
+        )
+        b = AnnotationSession(
+            started_at=datetime(2026, 8, 22, tzinfo=UTC),
+            ended_at=datetime(2026, 8, 22, tzinfo=UTC),
+            kind=SessionKind.STATIONARY,
+            detector_key="EMT\x1f1",
+        )
+        session.add_all([a, b])
+        session.flush()
+        session.add(
+            Recording(
+                audio_hash="a".rjust(64, "0"),
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 21, tzinfo=UTC),
+                session_id=a.id,
+            ),
+        )
+        session.flush()
+        bridging = session.scalars(
+            select(Recording).where(Recording.session_id == a.id)
+        ).one()
+        session.add(
+            SessionMergeProposal(
+                session_a_id=a.id,
+                session_b_id=b.id,
+                bridging_recording_id=bridging.id,
+                detected_at=datetime(2026, 8, 21, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+        session_id = a.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    response = client.get(f"/sessions/{session_id}")
+
+    html = response.get_data(as_text=True)
+    banner_start = html.index('class="merge-banner"')
+    start = html.index('<textarea name="note">', banner_start)
+    end = html.index("</textarea>", start)
+    note_textarea = html[start:end]
+    assert "only a has a note" in note_textarea
+    assert "---" not in note_textarea
+
+
+def test_merge_badge_in_sessions_list_links_to_session_detail(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        a, _b, _proposal = _make_open_proposal(session)
+        a_id = a.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    response = client.get("/sessions")
+
+    html = response.get_data(as_text=True)
+    assert f'<a class="merge-badge" href="/sessions/{a_id}">' in html
+
+
 def test_resolve_proposal_merge_redirects_to_session_a(
     engine: Engine,
     tmp_path: Path,

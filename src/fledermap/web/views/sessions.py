@@ -44,14 +44,15 @@ def sessions_list_page() -> flask.Response:
 
     engine = flask.current_app.config["ENGINE"]
     with OrmSession(engine) as session:
+        open_ids = open_proposal_session_ids(session)
         rows = filtered_sessions(
             session,
             detector=detector,
             date_from=date_from,
             date_to=date_to,
             open_proposals_only=open_only,
+            open_ids=open_ids,
         )
-        open_ids = open_proposal_session_ids(session)
         html = flask.render_template(
             "sessions_list.html",
             rows=rows,

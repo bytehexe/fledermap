@@ -49,6 +49,24 @@ def test_filtered_sessions_by_detector_substring(engine: Engine) -> None:
         assert rows[0].session.detector_key == "EMT\x1f1"
 
 
+def test_filtered_sessions_detector_percent_is_escaped_not_a_wildcard(
+    engine: Engine,
+) -> None:
+    """Fix (Minor D): an unescaped `%`/`_` in the detector filter is
+    interpreted as an ILIKE wildcard rather than a literal character -- a
+    bare `%` would otherwise match every session. None of the fixture's
+    `detector_key` values contain a literal `%`, so a working escape means
+    this filter returns nothing."""
+    with OrmSession(engine) as session:
+        base = datetime(2026, 8, 20, tzinfo=UTC)
+        session.add(_session("EMT\x1f1", base, base))
+        session.add(_session("Kaleidoscope\x1f2", base, base))
+        session.commit()
+
+        rows = filtered_sessions(session, detector="%")
+        assert rows == []
+
+
 def test_filtered_sessions_by_date_range(engine: Engine) -> None:
     with OrmSession(engine) as session:
         base = datetime(2026, 8, 20, tzinfo=UTC)

@@ -48,14 +48,14 @@
       </p>
       <form method="post" action="/sessions/merge-proposals/{{ op.proposal.id }}/resolve">
         <label>Combined note
-          <textarea name="note">{{ detail.session.note or '' }}
+          <textarea name="note">{% if detail.session.note and op.counterpart.note %}{{ detail.session.note }}
 ---
-{{ op.counterpart.note or '' }}</textarea>
+{{ op.counterpart.note }}{% else %}{{ detail.session.note or op.counterpart.note or '' }}{% endif %}</textarea>
         </label>
         <label>Combined weather
-          <textarea name="weather">{{ detail.session.weather or '' }}
+          <textarea name="weather">{% if detail.session.weather and op.counterpart.weather %}{{ detail.session.weather }}
 ---
-{{ op.counterpart.weather or '' }}</textarea>
+{{ op.counterpart.weather }}{% else %}{{ detail.session.weather or op.counterpart.weather or '' }}{% endif %}</textarea>
         </label>
         <button type="submit" name="action" value="merge">Accept merge</button>
         <button type="submit" name="action" value="reject">Reject</button>

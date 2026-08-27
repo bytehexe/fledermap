@@ -497,6 +497,59 @@ def test_extending_a_session_across_runs_reclassifies_it(engine: Engine) -> None
         assert extended.kind == SessionKind.TRANSECT
 
 
+def test_session_built_up_across_several_recordings_in_one_run_gets_correct_kind(
+    engine: Engine,
+) -> None:
+    """Regression for the deferred-reclassification perf fix (whole-branch
+    review): `reclassify_session` used to run once per recording landing in a
+    session, inside the per-recording loop; now it runs once per touched
+    session, after the loop. Three recordings joining the SAME new session in
+    one run, two of them far enough apart to cross the TRANSECT threshold,
+    proves the deferred call still sees the session's complete final
+    membership -- not just whichever recordings had landed by the time some
+    earlier, now-removed in-loop call happened to run."""
+    with OrmSession(engine) as session:
+        base = datetime(2026, 8, 21, 21, tzinfo=UTC)
+        session.add_all(
+            [
+                _recording(
+                    "a",
+                    base,
+                    make="EMT",
+                    serial="1",
+                    geom=WKTElement("POINT(10.0 51.0)", srid=4326),
+                ),
+                _recording(
+                    "b",
+                    base + timedelta(hours=1),
+                    make="EMT",
+                    serial="1",
+                    geom=None,
+                ),
+                _recording(
+                    "c",
+                    base + timedelta(hours=2),
+                    make="EMT",
+                    serial="1",
+                    geom=WKTElement("POINT(10.01 51.0)", srid=4326),  # ~700m away
+                ),
+            ],
+        )
+        session.commit()
+
+        report = partition_sessions(
+            session,
+            session_gap=timedelta(hours=6),
+            transect_distance_m=150.0,
+        )
+        session.commit()
+
+        assert report.created == 1
+        assert report.extended == 2
+        result = session.scalars(select(Session)).one()
+        assert result.kind == SessionKind.TRANSECT
+
+
 def test_locked_kind_survives_a_reclassifying_run(engine: Engine) -> None:
     """`existing` already has one GPS-bearing recording ~700m from the new one
     about to join it -- enough spread that an honest (unlocked) reclassification

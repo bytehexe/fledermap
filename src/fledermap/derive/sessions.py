@@ -96,7 +96,13 @@ def reclassify_session(
     if session_obj.kind_locked:
         return
     recordings = db_session.scalars(
-        select(Recording).where(Recording.session_id == session_obj.id),
+        select(Recording)
+        # `Recording.identifications` is `lazy="selectin"` and unused here --
+        # same guard `partition_sessions`'s own `unsessioned` query uses,
+        # for the same reason: without it every call eagerly loads every
+        # recording's identifications too.
+        .options(raiseload(Recording.identifications))
+        .where(Recording.session_id == session_obj.id),
     ).all()
     session_obj.kind = classify_kind(
         recordings,
@@ -131,6 +137,13 @@ def partition_sessions(
     # impossible anyway. Cross-RUN duplication is already prevented by only
     # ever reprocessing `session_id IS NULL` recordings.
     proposed_pairs: set[tuple[int, int]] = set()
+    # Classification depends only on final session membership, not on the
+    # order or count of intermediate calls -- so instead of reclassifying a
+    # session from scratch after every single recording lands in it (O(k^2)
+    # row loads for a session accumulating k recordings in one run), track
+    # which sessions were touched and reclassify each exactly once, after
+    # the loop below finishes.
+    touched_sessions: set[Session] = set()
 
     unsessioned = db_session.scalars(
         select(Recording)
@@ -167,11 +180,7 @@ def partition_sessions(
                 and prev_session.ended_at >= recording.recorded_at
             ):
                 recording.session_id = prev_session.id
-                reclassify_session(
-                    db_session,
-                    prev_session,
-                    transect_distance_m=transect_distance_m,
-                )
+                touched_sessions.add(prev_session)
                 report.extended += 1
                 continue
 
@@ -193,11 +202,7 @@ def partition_sessions(
                 assert prev_session is not None  # joins_prev implies this
                 prev_session.ended_at = recording.recorded_at
                 recording.session_id = prev_session.id
-                reclassify_session(
-                    db_session,
-                    prev_session,
-                    transect_distance_m=transect_distance_m,
-                )
+                touched_sessions.add(prev_session)
                 report.extended += 1
                 if joins_next:
                     assert next_session is not None  # joins_next implies this
@@ -223,11 +228,7 @@ def partition_sessions(
                 # stale value.
                 starts[idx] = next_session.started_at
                 recording.session_id = next_session.id
-                reclassify_session(
-                    db_session,
-                    next_session,
-                    transect_distance_m=transect_distance_m,
-                )
+                touched_sessions.add(next_session)
                 report.extended += 1
             else:
                 new_session = Session(
@@ -239,15 +240,18 @@ def partition_sessions(
                 db_session.add(new_session)
                 db_session.flush()
                 recording.session_id = new_session.id
-                reclassify_session(
-                    db_session,
-                    new_session,
-                    transect_distance_m=transect_distance_m,
-                )
+                touched_sessions.add(new_session)
                 report.created += 1
 
                 insert_at = bisect.bisect_right(starts, new_session.started_at)
                 existing.insert(insert_at, new_session)
                 starts.insert(insert_at, new_session.started_at)
+
+    for touched_session in touched_sessions:
+        reclassify_session(
+            db_session,
+            touched_session,
+            transect_distance_m=transect_distance_m,
+        )
 
     return report
