@@ -13,7 +13,7 @@
     <h1>
       Session: {{ detail.session.started_at.strftime('%Y-%m-%d %H:%M') }} – {{ detail.session.ended_at.strftime('%H:%M') }}
     </h1>
-    <p>Detector: {{ detail.session.detector_key or 'unknown detector' }}</p>
+    <p>Detector: {{ detail.session.detector_key | detector_label }}</p>
 
     <div class="session-detail-columns">
       <div class="col session-map-col">

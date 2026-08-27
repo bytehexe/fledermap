@@ -11,6 +11,7 @@ import flask
 from sqlalchemy import Engine
 
 from fledermap.web.api.geojson import api_bp
+from fledermap.web.params import detector_label
 from fledermap.web.views.map import views_bp
 from fledermap.web.views.media import media_bp
 from fledermap.web.views.sessions import sessions_bp
@@ -44,6 +45,7 @@ def create_app(
     app.config["ENGINE"] = engine
     app.config["MEDIA_ROOT"] = media_root
     app.config["TRANSECT_DISTANCE_M"] = transect_distance_m
+    app.jinja_env.filters["detector_label"] = detector_label
 
     vendor_bp = flask.Blueprint(
         "vendor",

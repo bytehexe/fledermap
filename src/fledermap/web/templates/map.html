@@ -26,7 +26,7 @@
         <select name="session" x-model="session">
           <option value="">Any</option>
           {% for item in sessions %}
-          <option value="{{ item.id }}">{{ item.started_at.strftime('%Y-%m-%d %H:%M') }}–{{ item.ended_at.strftime('%H:%M') }} ({{ item.detector_key or 'unknown detector' }})</option>
+          <option value="{{ item.id }}">{{ item.started_at.strftime('%Y-%m-%d %H:%M') }}–{{ item.ended_at.strftime('%H:%M') }} ({{ item.detector_key | detector_label }})</option>
           {% endfor %}
         </select>
       </label>

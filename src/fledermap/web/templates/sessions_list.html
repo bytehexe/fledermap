@@ -33,7 +33,7 @@
               {{ row.session.started_at.strftime('%Y-%m-%d %H:%M') }}–{{ row.session.ended_at.strftime('%H:%M') }}
             </a>
           </td>
-          <td>{{ row.session.detector_key or 'unknown detector' }}</td>
+          <td>{{ row.session.detector_key | detector_label }}</td>
           <td>{{ row.session.kind.value }}</td>
           <td>{{ row.recording_count }}</td>
           <td>{% if row.session.id in open_ids %}<span class="merge-badge">⚠ merge proposal</span>{% endif %}</td>

@@ -73,3 +73,26 @@ def fallback_site_label(point: tuple[float, float] | None) -> str:
         return "Site"
     lon, lat = point
     return f"{lat:.4f}, {lon:.4f}"
+
+
+def detector_label(detector_key: str | None) -> str:
+    """Display fallback for `Session.detector_key`, registered as the
+    `detector_label` Jinja filter (`web/app.py`) and used everywhere a
+    template shows a session's detector.
+
+    `detector_key` is always `f"{make}\\x1f{serial}"` (ASCII Unit Separator,
+    see `derive.sessions._detector_key`) -- never the empty string, even when
+    both `make` and `serial` are blank. A plain `detector_key or 'unknown
+    detector'` template expression can therefore never fall back: the raw
+    control character alone makes the string truthy, so it rendered directly
+    in the page instead of the intended fallback text -- visible on real
+    derived sessions with a blank serial (e.g. this project's own field
+    recordings) and caught only by a manual walkthrough against real data,
+    since the one existing test for this covered `detector_key is None`
+    (never produced by `derive.sessions`) rather than derive's real,
+    always-separator-bearing output. Replacing the separator with a space and
+    trimming reproduces the intended fallback for an all-blank key while
+    still showing whatever real make/serial text is present.
+    """
+    label = (detector_key or "").replace("\x1f", " ").strip()
+    return label or "unknown detector"
