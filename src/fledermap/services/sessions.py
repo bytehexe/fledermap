@@ -86,3 +86,60 @@ def filtered_sessions(
     return [
         SessionListRow(session=s, recording_count=counts.get(s.id, 0)) for s in sessions
     ]
+
+
+@dataclass(frozen=True)
+class OpenProposal:
+    """One unresolved `SessionMergeProposal` touching the session being
+    viewed, paired with the *other* session it names -- the detail page
+    banner never needs to re-derive which side is which."""
+
+    proposal: SessionMergeProposal
+    counterpart: AnnotationSession
+
+
+@dataclass(frozen=True)
+class SessionDetail:
+    session: AnnotationSession
+    recordings: Sequence[Recording]
+    open_proposals: Sequence[OpenProposal]
+
+
+def session_detail(db_session: OrmSession, session_id: int) -> SessionDetail | None:
+    """Assemble session detail for `/sessions/{id}`: the session, every
+    recording currently assigned to it (oldest first), and every unresolved
+    merge proposal naming it from either side (design spec section 5's
+    chained-proposal case: a session can appear in more than one)."""
+    session_obj = db_session.get(AnnotationSession, session_id)
+    if session_obj is None:
+        return None
+
+    recordings = db_session.scalars(
+        select(Recording)
+        .where(Recording.session_id == session_id)
+        .order_by(Recording.recorded_at),
+    ).all()
+
+    proposals = db_session.scalars(
+        select(SessionMergeProposal).where(
+            SessionMergeProposal.resolution.is_(None),
+            (SessionMergeProposal.session_a_id == session_id)
+            | (SessionMergeProposal.session_b_id == session_id),
+        ),
+    ).all()
+    open_proposals = []
+    for proposal in proposals:
+        counterpart_id = (
+            proposal.session_b_id
+            if proposal.session_a_id == session_id
+            else proposal.session_a_id
+        )
+        counterpart = db_session.get(AnnotationSession, counterpart_id)
+        assert counterpart is not None, "FK guarantees the counterpart session exists"
+        open_proposals.append(OpenProposal(proposal=proposal, counterpart=counterpart))
+
+    return SessionDetail(
+        session=session_obj,
+        recordings=recordings,
+        open_proposals=open_proposals,
+    )

@@ -10,6 +10,7 @@ from fledermap.domain.codes import MergeResolution, SessionKind
 from fledermap.services.sessions import (
     filtered_sessions,
     open_proposal_session_ids,
+    session_detail,
 )
 from fledermap.store.models import Recording, Session, SessionMergeProposal
 
@@ -180,3 +181,87 @@ def test_filtered_sessions_runs_with_multiple_rows(engine: Engine) -> None:
 
         rows = filtered_sessions(session)
         assert len(rows) == 2
+
+
+def test_session_detail_none_when_not_found(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        assert session_detail(session, 999) is None
+
+
+def test_session_detail_lists_recordings_oldest_first(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        base = datetime(2026, 8, 20, tzinfo=UTC)
+        s = _session("EMT\x1f1", base, base)
+        session.add(s)
+        session.flush()
+        session.add(
+            Recording(
+                audio_hash="b".rjust(64, "0"),
+                path="b.wav",
+                recorded_at=base.replace(hour=23),
+                session_id=s.id,
+            ),
+        )
+        session.add(
+            Recording(
+                audio_hash="a".rjust(64, "0"),
+                path="a.wav",
+                recorded_at=base.replace(hour=20),
+                session_id=s.id,
+            ),
+        )
+        session.commit()
+
+        detail = session_detail(session, s.id)
+        assert detail is not None
+        assert [r.audio_hash[-1] for r in detail.recordings] == ["a", "b"]
+
+
+def test_session_detail_no_open_proposals(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        base = datetime(2026, 8, 20, tzinfo=UTC)
+        s = _session("EMT\x1f1", base, base)
+        session.add(s)
+        session.commit()
+
+        detail = session_detail(session, s.id)
+        assert detail is not None
+        assert detail.open_proposals == []
+
+
+def test_session_detail_shows_open_proposal_from_either_side(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        base = datetime(2026, 8, 20, tzinfo=UTC)
+        a = _session("EMT\x1f1", base, base)
+        b = _session("EMT\x1f1", base.replace(day=21), base.replace(day=21))
+        session.add_all([a, b])
+        session.flush()
+        session.add(
+            Recording(
+                audio_hash="x".rjust(64, "0"),
+                path="x.wav",
+                recorded_at=base,
+                session_id=a.id,
+            ),
+        )
+        session.flush()
+        bridging = session.scalars(select(Recording)).one()
+        session.add(
+            SessionMergeProposal(
+                session_a_id=a.id,
+                session_b_id=b.id,
+                bridging_recording_id=bridging.id,
+                detected_at=base,
+            ),
+        )
+        session.commit()
+
+        detail_a = session_detail(session, a.id)
+        assert detail_a is not None
+        assert len(detail_a.open_proposals) == 1
+        assert detail_a.open_proposals[0].counterpart.id == b.id
+
+        detail_b = session_detail(session, b.id)
+        assert detail_b is not None
+        assert len(detail_b.open_proposals) == 1
+        assert detail_b.open_proposals[0].counterpart.id == a.id
