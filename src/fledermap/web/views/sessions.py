@@ -14,7 +14,9 @@ from fledermap.services.sessions import (
     AlreadyResolvedError,
     MergeConflictError,
     ProposalNotFoundError,
+    count_open_proposals,
     filtered_sessions,
+    list_detectors,
     open_proposal_session_ids,
     resolve_merge_proposal,
     session_detail,
@@ -57,10 +59,12 @@ def sessions_list_page() -> flask.Response:
             "sessions_list.html",
             rows=rows,
             open_ids=open_ids,
+            detectors=list_detectors(session),
             detector=detector or "",
             date_from=from_raw,
             date_to=to_raw,
             open_only=open_only,
+            open_proposal_count=count_open_proposals(session),
         )
     return flask.make_response(html)
 

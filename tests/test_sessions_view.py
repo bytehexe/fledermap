@@ -64,8 +64,113 @@ def test_sessions_list_filters_by_detector(engine: Engine, tmp_path: Path) -> No
     response = client.get("/sessions?detector=EMT")
 
     html = response.get_data(as_text=True)
-    assert "EMT" in html
-    assert "Kaleidoscope" not in html
+    # The detector *dropdown* legitimately lists every detector regardless
+    # of the current filter (so a person can switch to a different one) --
+    # only the *table* of matching rows should actually be narrowed.
+    table_html = html.split('<table id="sessions-table">')[1].split("</table>")[0]
+    assert "EMT" in table_html
+    assert "Kaleidoscope" not in table_html
+
+
+def test_sessions_list_detector_dropdown_pre_selects_the_current_filter(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        session.add(
+            AnnotationSession(
+                started_at=datetime(2026, 8, 21, tzinfo=UTC),
+                ended_at=datetime(2026, 8, 21, tzinfo=UTC),
+                kind=SessionKind.STATIONARY,
+                detector_key="EMT\x1f1",
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    response = client.get("/sessions?detector=EMT%1f1")
+
+    html = response.get_data(as_text=True)
+    assert 'value="EMT\x1f1" selected' in html
+
+
+def test_sessions_list_shows_open_proposal_count(
+    engine: Engine, tmp_path: Path
+) -> None:
+    with OrmSession(engine) as session:
+        a = AnnotationSession(
+            started_at=datetime(2026, 8, 21, tzinfo=UTC),
+            ended_at=datetime(2026, 8, 21, tzinfo=UTC),
+            kind=SessionKind.STATIONARY,
+            detector_key="EMT\x1f1",
+        )
+        b = AnnotationSession(
+            started_at=datetime(2026, 8, 22, tzinfo=UTC),
+            ended_at=datetime(2026, 8, 22, tzinfo=UTC),
+            kind=SessionKind.STATIONARY,
+            detector_key="EMT\x1f1",
+        )
+        session.add_all([a, b])
+        session.flush()
+        session.add(
+            Recording(
+                audio_hash="x".rjust(64, "0"),
+                path="x.wav",
+                recorded_at=datetime(2026, 8, 21, tzinfo=UTC),
+                session_id=a.id,
+            ),
+        )
+        session.flush()
+        bridging = session.scalars(select(Recording)).one()
+        session.add(
+            SessionMergeProposal(
+                session_a_id=a.id,
+                session_b_id=b.id,
+                bridging_recording_id=bridging.id,
+                detected_at=datetime(2026, 8, 21, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    response = client.get("/sessions")
+
+    html = response.get_data(as_text=True)
+    assert "Open merge proposals only (1)" in html
+
+
+def test_sessions_list_no_count_shown_when_no_open_proposals(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    response = client.get("/sessions")
+
+    html = response.get_data(as_text=True)
+    assert "Open merge proposals only" in html
+    assert "Open merge proposals only (" not in html
+
+
+def test_sessions_list_form_has_live_filter_and_url_sync_attributes(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    response = client.get("/sessions")
+
+    html = response.get_data(as_text=True)
+    assert 'hx-trigger="change, submit"' in html
+    assert 'hx-push-url="true"' in html
+    assert 'hx-target="#sessions-table-wrapper"' in html
+    assert 'hx-select="#sessions-table-wrapper"' in html
 
 
 def test_sessions_list_empty_state(engine: Engine, tmp_path: Path) -> None:

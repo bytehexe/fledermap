@@ -9,41 +9,72 @@
   {% include "_nav.html" %}
   <main class="main-content">
     <h1>Sessions</h1>
-    <form id="session-filters" method="get">
-      <label>Detector <input type="text" name="detector" value="{{ detector }}"></label>
+    <!-- Every field here is a discrete-value control (dropdown/date/
+         checkbox), so "change, submit" applies a filter the moment it's
+         set, no debouncing needed -- "submit" is kept alongside "change" so
+         the Filter button (a plain fallback, e.g. if JS never loads) still
+         works: an explicit hx-trigger replaces the element's default
+         trigger entirely rather than adding to it, and a <form>'s default
+         is "submit" alone, so leaving that off here would silently break
+         the button. hx-select re-extracts the wrapper from the full page
+         response rather than needing a separate fragment-only route.
+         hx-push-url gives /sessions shareable, back-button-able filter
+         URLs for free (verified against htmx's own docs: a GET form with
+         hx-push-url="true" pushes its resulting query string). -->
+    <form
+      id="session-filters"
+      method="get"
+      action="/sessions"
+      hx-get="/sessions"
+      hx-trigger="change, submit"
+      hx-target="#sessions-table-wrapper"
+      hx-select="#sessions-table-wrapper"
+      hx-push-url="true"
+    >
+      <label>Detector
+        <select name="detector">
+          <option value="">Any</option>
+          {% for key in detectors %}
+          <option value="{{ key }}" {% if key == detector %}selected{% endif %}>{{ key | detector_label }}</option>
+          {% endfor %}
+        </select>
+      </label>
       <label>From <input type="date" name="from" value="{{ date_from }}"></label>
       <label>To <input type="date" name="to" value="{{ date_to }}"></label>
       <label>
         <input type="checkbox" name="open_proposals" value="1" {% if open_only %}checked{% endif %}>
-        Open merge proposals only
+        Open merge proposals only{% if open_proposal_count %} ({{ open_proposal_count }}){% endif %}
       </label>
       <button type="submit">Filter</button>
     </form>
-    <table id="sessions-table">
-      <thead>
-        <tr>
-          <th>Date range</th><th>Detector</th><th>Kind</th><th>Recordings</th><th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in rows %}
-        <tr>
-          <td>
-            <a href="/sessions/{{ row.session.id }}">
-              {{ row.session.started_at.strftime('%Y-%m-%d %H:%M') }}–{{ row.session.ended_at.strftime('%H:%M') }}
-            </a>
-          </td>
-          <td>{{ row.session.detector_key | detector_label }}</td>
-          <td>{{ row.session.kind.value }}</td>
-          <td>{{ row.recording_count }}</td>
-          <td>{% if row.session.id in open_ids %}<a class="merge-badge" href="/sessions/{{ row.session.id }}">⚠ merge proposal</a>{% endif %}</td>
-        </tr>
-        {% else %}
-        <tr><td colspan="5">No sessions match these filters.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <div id="sessions-table-wrapper">
+      <table id="sessions-table">
+        <thead>
+          <tr>
+            <th>Date range</th><th>Detector</th><th>Kind</th><th>Recordings</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr>
+            <td>
+              <a href="/sessions/{{ row.session.id }}">
+                {{ row.session.started_at.strftime('%Y-%m-%d %H:%M') }}–{{ row.session.ended_at.strftime('%H:%M') }}
+              </a>
+            </td>
+            <td>{{ row.session.detector_key | detector_label }}</td>
+            <td>{{ row.session.kind.value }}</td>
+            <td>{{ row.recording_count }}</td>
+            <td>{% if row.session.id in open_ids %}<a class="merge-badge" href="/sessions/{{ row.session.id }}">⚠ merge proposal</a>{% endif %}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5">No sessions match these filters.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </main>
+  <script src="{{ url_for('vendor.static', filename='htmx.min.js') }}"></script>
   <script src="{{ url_for('vendor.static', filename='alpine.min.js') }}" defer></script>
 </body>
 </html>

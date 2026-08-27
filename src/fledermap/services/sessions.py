@@ -35,6 +35,50 @@ class SessionListRow:
     recording_count: int
 
 
+def count_open_proposals(db_session: OrmSession) -> int:
+    """How many unresolved `SessionMergeProposal` rows currently exist -- for
+    the sessions list's 'Open merge proposals only' filter label. Distinct
+    from `open_proposal_session_ids` below: that returns the union of
+    *sessions* touched by an open proposal (each side counts separately), a
+    different question from 'how many proposals need attention'."""
+    return (
+        db_session.scalar(
+            select(func.count())
+            .select_from(SessionMergeProposal)
+            .where(
+                SessionMergeProposal.resolution.is_(None),
+            ),
+        )
+        or 0
+    )
+
+
+def list_detectors(db_session: OrmSession) -> Sequence[str]:
+    """Every distinct `detector_key` currently in use, for the sessions
+    list's Detector filter dropdown -- mirrors `map_query.list_taxa`/
+    `list_sessions`'s "a numeric/opaque value is not something a person can
+    filter by, so build the dropdown from real data" convention.
+    `detector_key` is never NULL (`derive.sessions._detector_key` always
+    returns `f"{make or ''}\\x1f{serial or ''}"`), but an all-blank one
+    (bare `"\\x1f"`) has nothing a person could recognise or choose, so it's
+    excluded -- those sessions still show up via 'Any', just not as their
+    own option. Sorted by the raw key, which sorts primarily by `make`
+    (`\\x1f` occupies the same relative position for every value), close
+    enough to alphabetical-by-label for a short dropdown; not worth a
+    second sort key over the displayed `detector_label` for this."""
+    stmt = (
+        select(AnnotationSession.detector_key)
+        .distinct()
+        .where(AnnotationSession.detector_key != "\x1f")
+        .order_by(AnnotationSession.detector_key)
+    )
+    # `detector_key` is `Mapped[str | None]` at the type level (the column
+    # is nullable), even though `derive.sessions._detector_key` never
+    # actually writes NULL -- filtered rather than asserted, so this stays
+    # correct even if that guarantee ever changes.
+    return [key for key in db_session.scalars(stmt).all() if key is not None]
+
+
 def open_proposal_session_ids(db_session: OrmSession) -> set[int]:
     """Every session id currently part of at least one unresolved
     `SessionMergeProposal`, either side."""
