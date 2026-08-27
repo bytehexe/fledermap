@@ -5,7 +5,9 @@
 
 function filterForm() {
   return {
-    from: "", to: "", taxon: "", session: "", source: "", verdict: "", site: "",
+    from: "", to: "", taxon: "",
+    session: new URLSearchParams(window.location.search).get("session") || "",
+    source: "", verdict: "", site: "",
   };
 }
 

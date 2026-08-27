@@ -200,3 +200,28 @@ button:disabled { cursor: default; opacity: 0.5; }
 .panel-columns ul { margin: 0; padding-left: 1.1rem; }
 .panel-columns p { margin: 0 0 0.4rem; font-size: 0.9rem; }
 .superseded { text-decoration: line-through; opacity: 0.6; }
+
+.session-detail-columns { display: flex; gap: 1rem; margin: 1rem 0; flex-wrap: wrap; }
+.session-detail-columns .col { flex: 1 1 260px; }
+#session-mini-map {
+  width: 100%;
+  height: 220px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  margin-bottom: 0.4rem;
+}
+.merge-banner {
+  margin: 1rem 0;
+  padding: 0.75rem 1rem;
+  background: var(--color-bg-subtle);
+  border: 1px solid var(--color-accent);
+  border-radius: 6px;
+}
+.merge-badge { color: #b7791f; font-size: 0.8rem; }
+#sessions-table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+#sessions-table th, #sessions-table td {
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 0.9rem;
+}
