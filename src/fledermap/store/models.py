@@ -6,6 +6,7 @@ from datetime import datetime
 
 from geoalchemy2 import Geography
 from sqlalchemy import (
+    Boolean,
     DateTime,
     Float,
     ForeignKey,
@@ -193,7 +194,11 @@ class Session(Base):
     detector_key: Mapped[str | None] = mapped_column(String(160), index=True)
     note: Mapped[str | None] = mapped_column(Text)
     weather: Mapped[str | None] = mapped_column(Text)
-    effort: Mapped[str | None] = mapped_column(Text)
+    # True once a human has saved `kind` through the session detail form
+    # (design spec 2026-08-27-fledermap-phase5b-sessions-design.md section 6)
+    # -- freezes it against `derive/sessions.py`'s automatic reclassification
+    # from then on, regardless of whether the saved value actually changed.
+    kind_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
 class Site(Base):
