@@ -61,7 +61,7 @@
       <div id="drawer-handle"></div>
       <div id="drawer-header">
         <button type="button" @click="$store.drawer.collapsed = !$store.drawer.collapsed" aria-label="Collapse">▾</button>
-        <button type="button" @click="$store.drawer.open = false; $store.drawer.collapsed = false; document.getElementById('drawer-body').innerHTML = ''" aria-label="Close">×</button>
+        <button type="button" @click="fledermapCloseDrawer()" aria-label="Close">×</button>
       </div>
       <div id="drawer-body"></div>
     </div>

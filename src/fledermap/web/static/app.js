@@ -2,12 +2,30 @@
 // section 7, targeting parent spec section 10's tripwire #1 directly).
 // Filters update its existing layers in place via fetch() -- there is no
 // hx-swap anywhere near #map.
+//
+// The URL's query string mirrors the filter bar plus whichever drawer panel
+// is open (`recording=<hash>` or `panel=<site id>` -- distinct from the
+// `site` filter param, which narrows the marker set rather than naming an
+// open panel), kept in sync via the History API: every user-initiated
+// visible change -- a filter edit, opening/closing a drawer panel, prev/next
+// inside the drawer -- pushes its own history entry, so back/forward step
+// through recent selections one at a time. A `popstate` (history
+// navigation) restores state from the URL and re-fits the map to whatever's
+// now visible -- arriving via history is "opening" a remembered state, the
+// same treatment as a fresh page load, not a live in-place edit. Live
+// filter edits deliberately do NOT re-fit the map -- that would make it
+// jump around while a person is still adjusting filters.
 
 function filterForm() {
+  const params = new URLSearchParams(window.location.search);
   return {
-    from: "", to: "", taxon: "",
-    session: new URLSearchParams(window.location.search).get("session") || "",
-    source: "", verdict: "", site: "",
+    from: params.get("from") || "",
+    to: params.get("to") || "",
+    taxon: params.get("taxon") || "",
+    session: params.get("session") || "",
+    source: params.get("source") || "",
+    verdict: params.get("verdict") || "",
+    site: params.get("site") || "",
   };
 }
 
@@ -53,7 +71,10 @@ document.addEventListener("DOMContentLoaded", () => {
   }).addTo(map);
 
   const recordingsLayer = L.markerClusterGroup().addTo(map);
-  const sitesLayer = L.layerGroup().addTo(map);
+  // featureGroup, not plain layerGroup -- only FeatureGroup (and
+  // MarkerClusterGroup, which extends it) implements getBounds(), needed
+  // below to fit the view to whatever's actually loaded.
+  const sitesLayer = L.featureGroup().addTo(map);
   L.control.layers(null, {
     Recordings: recordingsLayer,
     Sites: sitesLayer,
@@ -66,6 +87,25 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!value) params.delete(key);
     }
     return params;
+  }
+
+  // Which drawer panel (if any) is currently open, so URL syncing knows
+  // what to encode alongside the filters.
+  let openPanel = null; // null | { kind: "recording", id: <hash> } | { kind: "site", id: <site id> }
+
+  function buildUrl() {
+    const params = query();
+    if (openPanel && openPanel.kind === "recording") {
+      params.set("recording", openPanel.id);
+    } else if (openPanel && openPanel.kind === "site") {
+      params.set("panel", openPanel.id);
+    }
+    const qs = params.toString();
+    return qs ? `?${qs}` : "/";
+  }
+
+  function pushUrl() {
+    history.pushState(null, "", buildUrl());
   }
 
   const recordingLayersByHash = new Map();
@@ -97,13 +137,15 @@ document.addEventListener("DOMContentLoaded", () => {
     }).eachLayer((layer) => recordingsLayer.addLayer(layer));
   }
 
-  function openRecordingPanel(audioHash, params) {
+  function openRecordingPanel(audioHash, params, { sync = true } = {}) {
     htmx.ajax("GET", `/recordings/${audioHash}/panel?${params}`, {
       target: "#drawer-body",
       swap: "innerHTML",
     });
     Alpine.store("drawer").open = true;
     Alpine.store("drawer").collapsed = false;
+    openPanel = { kind: "recording", id: audioHash };
+    if (sync) pushUrl();
   }
 
   // P5a-6: prev/next must pan AND highlight, not just pan -- otherwise the
@@ -140,23 +182,72 @@ document.addEventListener("DOMContentLoaded", () => {
     }).eachLayer((layer) => sitesLayer.addLayer(layer));
   }
 
-  function openSitePanel(siteId) {
+  function openSitePanel(siteId, { sync = true } = {}) {
     htmx.ajax("GET", `/sites/${siteId}/panel`, {
       target: "#drawer-body",
       swap: "innerHTML",
     });
     Alpine.store("drawer").open = true;
     Alpine.store("drawer").collapsed = false;
+    openPanel = { kind: "site", id: siteId };
+    if (sync) pushUrl();
+  }
+
+  // Closing the drawer also drops recording=/panel= from the URL, matching
+  // the "URL always reflects what's on screen" rule -- exposed on window so
+  // the close button's inline @click in map.html can reach it, the same
+  // pattern window.fledermapFilterBySite already uses.
+  window.fledermapCloseDrawer = function () {
+    Alpine.store("drawer").open = false;
+    Alpine.store("drawer").collapsed = false;
+    document.getElementById("drawer-body").innerHTML = "";
+    openPanel = null;
+    pushUrl();
+  };
+
+  function openPanelFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    const recordingHash = params.get("recording");
+    const sitePanelId = params.get("panel");
+    if (recordingHash) {
+      openRecordingPanel(recordingHash, query(), { sync: false });
+    } else if (sitePanelId) {
+      openSitePanel(sitePanelId, { sync: false });
+    }
   }
 
   // The two fetches run independently -- one endpoint erroring (e.g. a bad
   // filter value returning 400) must not prevent the other layer from
-  // refreshing, and must not throw out of `refresh()` and leave both layers
-  // stale.
+  // refreshing. Promise.allSettled (not Promise.all) is deliberate even
+  // though neither function currently throws (each already catches its own
+  // errors) -- it preserves that guarantee even if a future edit adds a
+  // throwing path.
+  async function refreshLayers(params) {
+    await Promise.allSettled([refreshRecordings(params), refreshSites(params)]);
+  }
+
+  // Fits the view to the union of whatever's currently loaded in both
+  // layers -- a no-op (leaves the current view alone) when neither layer
+  // has anything, same "degrade in place" convention the session mini-map
+  // already uses. maxZoom matches that same convention too, so a single
+  // point (or a tight cluster) doesn't zoom in absurdly close.
+  function fitToVisible() {
+    const bounds = L.latLngBounds();
+    bounds.extend(recordingsLayer.getBounds());
+    bounds.extend(sitesLayer.getBounds());
+    if (bounds.isValid()) {
+      map.fitBounds(bounds, { maxZoom: 15 });
+    }
+  }
+
+  // A live filter edit: refetch, then sync the URL to the new filter
+  // values (not waiting on the fetch, so the URL reflects what the user
+  // asked for immediately regardless of fetch latency/failure). Does NOT
+  // re-fit the map -- see the file header comment.
   function refresh() {
     const params = query();
-    void refreshRecordings(params);
-    void refreshSites(params);
+    void refreshLayers(params);
+    pushUrl();
   }
 
   document.getElementById("filters").addEventListener("input", refresh);
@@ -168,6 +259,10 @@ document.addEventListener("DOMContentLoaded", () => {
       map.panTo([latitude, longitude]);
     }
     highlightRecording(hash);
+    // prev/next inside the drawer swaps which recording's panel is showing
+    // -- the URL and history need to follow, same as a fresh marker click.
+    openPanel = { kind: "recording", id: hash };
+    pushUrl();
   });
 
   // Step 4: Add drag-resize on the handle
@@ -183,5 +278,26 @@ document.addEventListener("DOMContentLoaded", () => {
     drawer.style.height = `${Math.max(120, Math.min(newHeight, window.innerHeight - 80))}px`;
   });
 
-  refresh();
+  // Back/forward: restore the filter bar from the now-current URL (Alpine's
+  // reactive data, not just the DOM -- $data's properties are the actual
+  // bound state, so assigning to them updates the x-model'd inputs too),
+  // refetch, re-fit (a history jump is an "arrival", like initial load),
+  // and reopen whichever panel (if any) the restored URL names.
+  window.addEventListener("popstate", () => {
+    Object.assign(Alpine.$data(document.body), filterForm());
+    const params = query();
+    refreshLayers(params).then(() => {
+      fitToVisible();
+      Alpine.store("drawer").open = false;
+      Alpine.store("drawer").collapsed = false;
+      document.getElementById("drawer-body").innerHTML = "";
+      openPanel = null;
+      openPanelFromUrl();
+    });
+  });
+
+  refreshLayers(query()).then(() => {
+    fitToVisible();
+    openPanelFromUrl();
+  });
 });
