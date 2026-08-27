@@ -70,7 +70,7 @@ from sqlalchemy import (
 Run (no live database needed — `alembic revision` without `--autogenerate` only reads the versions directory to find head):
 
 ```bash
-cd /home/janna/projekte/bats && alembic revision -m "phase 5b session schema"
+hatch run alembic revision -m "phase 5b session schema"
 ```
 
 This creates `alembic/versions/<hash>_phase_5b_session_schema.py` with `down_revision = "e9a0c0f92971"` (current head) already filled in, and empty `upgrade()`/`downgrade()` stubs.
@@ -115,7 +115,7 @@ Expected: clean.
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /home/janna/projekte/bats && git add src/fledermap/store/models.py alembic/versions/
+git add src/fledermap/store/models.py alembic/versions/
 git commit -m "feat: drop Session.effort, add Session.kind_locked"
 ```
 
@@ -624,7 +624,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import Engine
+from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import MergeResolution, SessionKind
@@ -730,7 +730,7 @@ def test_open_proposals_only_filters_to_sessions_with_an_open_proposal(
             ),
         )
         session.flush()
-        bridging = session.query(Recording).one()
+        bridging = session.scalars(select(Recording)).one()
         session.add(
             SessionMergeProposal(
                 session_a_id=a.id, session_b_id=b.id,
@@ -757,7 +757,7 @@ def test_resolved_proposal_does_not_count_as_open(engine: Engine) -> None:
             ),
         )
         session.flush()
-        bridging = session.query(Recording).one()
+        bridging = session.scalars(select(Recording)).one()
         session.add(
             SessionMergeProposal(
                 session_a_id=a.id, session_b_id=b.id,
@@ -980,7 +980,7 @@ def test_session_detail_shows_open_proposal_from_either_side(engine: Engine) -> 
             ),
         )
         session.flush()
-        bridging = session.query(Recording).one()
+        bridging = session.scalars(select(Recording)).one()
         session.add(
             SessionMergeProposal(
                 session_a_id=a.id, session_b_id=b.id,
@@ -1087,7 +1087,7 @@ git commit -m "feat: session_detail -- recordings + open merge proposals for one
 ## Task 6: `services/sessions.py` — `resolve_merge_proposal`
 
 **Files:**
-- Create: `src/fledermap/services/sessions.py` (append)
+- Modify: `src/fledermap/services/sessions.py` (append)
 - Test: `tests/test_resolve_merge_proposal.py`
 
 **Interfaces:**
@@ -1153,7 +1153,7 @@ def _make_proposal(
             ),
         )
     db_session.flush()
-    bridging = db_session.query(Recording).filter_by(session_id=a.id).first()
+    bridging = db_session.scalars(select(Recording).where(Recording.session_id == a.id)).first()
     assert bridging is not None
     proposal = SessionMergeProposal(
         session_a_id=a.id, session_b_id=b.id,
@@ -1229,7 +1229,7 @@ def test_merge_reclassifies_session_a_when_unlocked(engine: Engine) -> None:
             ),
         )
         session.flush()
-        bridging = session.query(Recording).filter_by(session_id=a.id).one()
+        bridging = session.scalars(select(Recording).where(Recording.session_id == a.id)).one()
         proposal = SessionMergeProposal(
             session_a_id=a.id, session_b_id=b.id,
             bridging_recording_id=bridging.id, detected_at=BASE,
@@ -1265,7 +1265,7 @@ def test_merge_does_not_reclassify_a_locked_session_a(engine: Engine) -> None:
             ),
         )
         session.flush()
-        bridging = session.query(Recording).filter_by(session_id=a.id).one()
+        bridging = session.scalars(select(Recording).where(Recording.session_id == a.id)).one()
         proposal = SessionMergeProposal(
             session_a_id=a.id, session_b_id=b.id,
             bridging_recording_id=bridging.id, detected_at=BASE,
@@ -1338,7 +1338,7 @@ def test_chained_proposal_raises_merge_conflict(engine: Engine) -> None:
             ),
         )
         session.flush()
-        bridging_bc = session.query(Recording).filter_by(session_id=c.id).one()
+        bridging_bc = session.scalars(select(Recording).where(Recording.session_id == c.id)).one()
         second_proposal = SessionMergeProposal(
             session_a_id=b.id, session_b_id=c.id,
             bridging_recording_id=bridging_bc.id, detected_at=BASE,
@@ -2101,7 +2101,7 @@ def test_create_app_transect_distance_defaults_to_150(
     assert app.config["TRANSECT_DISTANCE_M"] == 150.0
 ```
 
-Add to `tests/test_sessions_view.py` (new imports: `from fledermap.domain.codes import MergeResolution`; `from fledermap.store.models import SessionMergeProposal`):
+Add to `tests/test_sessions_view.py` (new imports: `select` added to the existing `from sqlalchemy import Engine` line, making it `from sqlalchemy import Engine, select`; `from fledermap.domain.codes import MergeResolution`; `from fledermap.store.models import SessionMergeProposal`):
 
 ```python
 def _make_open_proposal(
@@ -2126,7 +2126,7 @@ def _make_open_proposal(
         ),
     )
     session.flush()
-    bridging = session.query(Recording).filter_by(session_id=a.id).one()
+    bridging = session.scalars(select(Recording).where(Recording.session_id == a.id)).one()
     proposal = SessionMergeProposal(
         session_a_id=a.id, session_b_id=b.id,
         bridging_recording_id=bridging.id,
