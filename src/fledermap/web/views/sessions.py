@@ -8,7 +8,15 @@ from __future__ import annotations
 import flask
 from sqlalchemy.orm import Session as OrmSession
 
-from fledermap.services.sessions import filtered_sessions, open_proposal_session_ids
+from fledermap.domain.codes import SessionKind
+from fledermap.services.current_best import current_best_identification
+from fledermap.services.sessions import (
+    filtered_sessions,
+    open_proposal_session_ids,
+    session_detail,
+)
+from fledermap.store.models import Session as AnnotationSession
+from fledermap.store.models import Taxon
 from fledermap.web.params import parse_datetime
 
 sessions_bp = flask.Blueprint(
@@ -50,3 +58,51 @@ def sessions_list_page() -> flask.Response:
             open_only=open_only,
         )
     return flask.make_response(html)
+
+
+@sessions_bp.get("/sessions/<int:session_id>")
+def session_detail_page(session_id: int) -> flask.Response:
+    engine = flask.current_app.config["ENGINE"]
+    with OrmSession(engine) as session:
+        detail = session_detail(session, session_id)
+        if detail is None:
+            return flask.make_response(("Session not found.", 404))
+
+        recordings_with_id = []
+        for recording in detail.recordings:
+            best = current_best_identification(recording)
+            taxon = None
+            if best is not None and best.taxon_id is not None:
+                taxon = session.get(Taxon, best.taxon_id)
+            recordings_with_id.append((recording, best, taxon))
+
+        html = flask.render_template(
+            "session_detail.html",
+            detail=detail,
+            recordings_with_id=recordings_with_id,
+        )
+    return flask.make_response(html)
+
+
+@sessions_bp.post("/sessions/<int:session_id>")
+def save_session(session_id: int) -> flask.Response:
+    kind_raw = flask.request.form.get("kind", "")
+    try:
+        kind = SessionKind(kind_raw)
+    except ValueError:
+        return flask.make_response((f"Invalid kind: {kind_raw!r}", 400))
+    note = flask.request.form.get("note") or None
+    weather = flask.request.form.get("weather") or None
+
+    engine = flask.current_app.config["ENGINE"]
+    with OrmSession(engine) as session:
+        session_obj = session.get(AnnotationSession, session_id)
+        if session_obj is None:
+            return flask.make_response(("Session not found.", 404))
+        session_obj.kind = kind
+        session_obj.note = note
+        session_obj.weather = weather
+        session_obj.kind_locked = True
+        session.commit()
+
+    return flask.make_response(flask.redirect(f"/sessions/{session_id}"))

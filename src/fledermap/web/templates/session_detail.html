@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Fledermap — Session {{ detail.session.id }}</title>
+  <link rel="stylesheet" href="{{ url_for('vendor.static', filename='leaflet.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+</head>
+<body>
+  {% include "_nav.html" %}
+  <main class="main-content">
+    <a href="/sessions">← Back to sessions</a>
+    <h1>
+      Session: {{ detail.session.started_at.strftime('%Y-%m-%d %H:%M') }} – {{ detail.session.ended_at.strftime('%H:%M') }}
+    </h1>
+    <p>Detector: {{ detail.session.detector_key or 'unknown detector' }}</p>
+
+    <div class="session-detail-columns">
+      <div class="col session-map-col">
+        <div id="session-mini-map" data-session-id="{{ detail.session.id }}"></div>
+        <a href="/?session={{ detail.session.id }}">View on full map</a>
+      </div>
+      <div class="col session-edit-col">
+        <form method="post" action="/sessions/{{ detail.session.id }}">
+          <label>Kind
+            <select name="kind">
+              <option value="stationary" {% if detail.session.kind.value == 'stationary' %}selected{% endif %}>Stationary</option>
+              <option value="transect" {% if detail.session.kind.value == 'transect' %}selected{% endif %}>Transect</option>
+            </select>
+          </label>
+          <label>Note
+            <textarea name="note">{{ detail.session.note or '' }}</textarea>
+          </label>
+          <label>Weather
+            <textarea name="weather">{{ detail.session.weather or '' }}</textarea>
+          </label>
+          <button type="submit">Save</button>
+        </form>
+      </div>
+    </div>
+
+    {% for op in detail.open_proposals %}
+    <div class="merge-banner">
+      <p>
+        ⚠ This session may merge with session
+        <a href="/sessions/{{ op.counterpart.id }}">#{{ op.counterpart.id }}</a>
+        ({{ op.counterpart.started_at.strftime('%Y-%m-%d %H:%M') }}–{{ op.counterpart.ended_at.strftime('%H:%M') }}).
+      </p>
+      <form method="post" action="/sessions/merge-proposals/{{ op.proposal.id }}/resolve">
+        <label>Combined note
+          <textarea name="note">{{ detail.session.note or '' }}
+---
+{{ op.counterpart.note or '' }}</textarea>
+        </label>
+        <label>Combined weather
+          <textarea name="weather">{{ detail.session.weather or '' }}
+---
+{{ op.counterpart.weather or '' }}</textarea>
+        </label>
+        <button type="submit" name="action" value="merge">Accept merge</button>
+        <button type="submit" name="action" value="reject">Reject</button>
+      </form>
+    </div>
+    {% endfor %}
+
+    <h2>Recordings in this session ({{ recordings_with_id|length }})</h2>
+    <ul id="session-recordings">
+      {% for recording, best, taxon in recordings_with_id %}
+      <li>
+        {{ recording.recorded_at.strftime('%Y-%m-%d %H:%M') }} —
+        {{ taxon.scientific_name if taxon else (best.verdict.value if best else "unidentified") }}
+      </li>
+      {% endfor %}
+    </ul>
+  </main>
+
+  <script src="{{ url_for('vendor.static', filename='leaflet.js') }}"></script>
+  <script src="{{ url_for('vendor.static', filename='alpine.min.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='session_map.js') }}"></script>
+</body>
+</html>
