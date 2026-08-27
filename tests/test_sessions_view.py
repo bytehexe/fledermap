@@ -143,18 +143,20 @@ def test_sessions_list_shows_open_proposal_count(
     assert "Open merge proposals only (1)" in html
 
 
-def test_sessions_list_no_count_shown_when_no_open_proposals(
+def test_sessions_list_shows_zero_count_when_no_open_proposals(
     engine: Engine,
     tmp_path: Path,
 ) -> None:
+    """The count is always shown, including zero -- a hidden-when-zero
+    count previously read as 'is this broken?' rather than 'there are
+    currently none' (feedback on the first live pass)."""
     app = create_app(engine, tmp_path / "static", tmp_path / "media")
     client = app.test_client()
 
     response = client.get("/sessions")
 
     html = response.get_data(as_text=True)
-    assert "Open merge proposals only" in html
-    assert "Open merge proposals only (" not in html
+    assert "Open merge proposals only (0)" in html
 
 
 def test_sessions_list_form_has_live_filter_and_url_sync_attributes(
@@ -167,10 +169,22 @@ def test_sessions_list_form_has_live_filter_and_url_sync_attributes(
     response = client.get("/sessions")
 
     html = response.get_data(as_text=True)
-    assert 'hx-trigger="change, submit"' in html
+    assert 'hx-trigger="change"' in html
     assert 'hx-push-url="true"' in html
     assert 'hx-target="#sessions-table-wrapper"' in html
     assert 'hx-select="#sessions-table-wrapper"' in html
+
+
+def test_sessions_list_has_no_filter_button(engine: Engine, tmp_path: Path) -> None:
+    """Live filtering (the form above) makes an explicit submit button
+    redundant -- removed on feedback from the first live pass."""
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    response = client.get("/sessions")
+
+    html = response.get_data(as_text=True)
+    assert "Filter</button>" not in html
 
 
 def test_sessions_list_empty_state(engine: Engine, tmp_path: Path) -> None:

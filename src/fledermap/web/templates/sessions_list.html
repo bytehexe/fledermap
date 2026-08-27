@@ -10,23 +10,20 @@
   <main class="main-content">
     <h1>Sessions</h1>
     <!-- Every field here is a discrete-value control (dropdown/date/
-         checkbox), so "change, submit" applies a filter the moment it's
-         set, no debouncing needed -- "submit" is kept alongside "change" so
-         the Filter button (a plain fallback, e.g. if JS never loads) still
-         works: an explicit hx-trigger replaces the element's default
-         trigger entirely rather than adding to it, and a <form>'s default
-         is "submit" alone, so leaving that off here would silently break
-         the button. hx-select re-extracts the wrapper from the full page
-         response rather than needing a separate fragment-only route.
-         hx-push-url gives /sessions shareable, back-button-able filter
-         URLs for free (verified against htmx's own docs: a GET form with
-         hx-push-url="true" pushes its resulting query string). -->
+         checkbox), so a plain "change" trigger applies a filter the moment
+         it's set -- no debouncing, and no Filter button needed (removed:
+         live filtering makes it redundant). hx-select re-extracts the
+         wrapper from the full page response rather than needing a separate
+         fragment-only route. hx-push-url gives /sessions shareable,
+         back-button-able filter URLs for free (verified against htmx's own
+         docs: a GET form with hx-push-url="true" pushes its resulting
+         query string). -->
     <form
       id="session-filters"
       method="get"
       action="/sessions"
       hx-get="/sessions"
-      hx-trigger="change, submit"
+      hx-trigger="change"
       hx-target="#sessions-table-wrapper"
       hx-select="#sessions-table-wrapper"
       hx-push-url="true"
@@ -43,9 +40,8 @@
       <label>To <input type="date" name="to" value="{{ date_to }}"></label>
       <label>
         <input type="checkbox" name="open_proposals" value="1" {% if open_only %}checked{% endif %}>
-        Open merge proposals only{% if open_proposal_count %} ({{ open_proposal_count }}){% endif %}
+        Open merge proposals only ({{ open_proposal_count }})
       </label>
-      <button type="submit">Filter</button>
     </form>
     <div id="sessions-table-wrapper">
       <table id="sessions-table">
