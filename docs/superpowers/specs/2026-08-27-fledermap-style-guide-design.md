@@ -130,15 +130,15 @@ Extract that pattern into a `.filter-bar` class:
 Everything that isn't the filter-bar pattern gets small, targeted rules in `app.css`, following
 existing conventions, no new shared classes:
 
-- `sessions_list.html`: the `<a>Back to sessions` link styling is inherited from browser
-  defaults with no project color — give it `color: var(--color-accent)` to match every other
-  link in the app (`.sidebar-link`, `.merge-badge` already do this). `<h1>` gets the same
-  top-margin treatment `main.main-content h1` already applies (verify it already covers this
-  page — it's a bare `main.main-content h1` selector, so it should; confirm during
-  implementation and only add a rule if it doesn't).
-- `session_detail.html`: same back-link fix; the `<p>Detector: ...</p>` line should use
-  `color: var(--color-muted)` to match how secondary metadata reads elsewhere (e.g.
-  `.panel-columns h3`, `#filters label`).
+- `session_detail.html`: it has the app's only "Back to sessions" link (`sessions_list.html` has
+  none — it's the top of the nav hierarchy, corrected here after grepping the actual templates;
+  the earlier draft of this section wrongly placed the link on both pages). The link's styling
+  is inherited from browser defaults with no project color — give it `color: var(--color-accent)`
+  to match every other link in the app (`.sidebar-link`, `.merge-badge` already do this). The
+  `<p>Detector: ...</p>` line should use `color: var(--color-muted)` to match how secondary
+  metadata reads elsewhere (e.g. `.panel-columns h3`, `#filters label`).
+- Both pages' `<h1>` already gets top-margin from the existing bare `main.main-content h1`
+  selector (`app.css:58`) — confirmed by inspection, no new rule needed.
 - Any other bare element found during implementation that clearly falls under an existing
   documented convention (a link that should be `--color-accent`, secondary text that should be
   `--color-muted`) gets fixed the same way — small, additive, cited against the guide.
