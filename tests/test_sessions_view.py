@@ -381,3 +381,14 @@ def test_resolve_proposal_invalid_action_returns_400(
     )
 
     assert response.status_code == 400
+
+
+def test_sessions_list_includes_the_sidebar(engine: Engine, tmp_path: Path) -> None:
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    response = client.get("/sessions")
+
+    html = response.get_data(as_text=True)
+    assert 'id="sidebar"' in html
+    assert 'href="/"' in html  # link back to the map

@@ -1,2 +1,14 @@
-{# src/fledermap/web/templates/_nav.html -- placeholder, replaced by Task 11 #}
-<nav id="sidebar"></nav>
+{# src/fledermap/web/templates/_nav.html -- included by map.html,
+   sessions_list.html, session_detail.html. Design spec section 8:
+   expanded by default at normal widths (this is the app's only standing
+   nav, so hiding it by default would just make /sessions harder to find);
+   auto-collapses below a responsive breakpoint, matching the "columns
+   stack on narrow screens" convention Phase 5a's drawer panels already
+   use, plus a manual toggle at any width. #}
+<nav id="sidebar"
+     x-data="{ collapsed: window.matchMedia('(max-width: 800px)').matches }"
+     :class="{ collapsed: collapsed }">
+  <button type="button" id="sidebar-toggle" @click="collapsed = !collapsed" aria-label="Toggle navigation">☰</button>
+  <a class="sidebar-link" href="/"><span class="label">🦇 Map</span></a>
+  <a class="sidebar-link" href="/sessions"><span class="label">Sessions</span></a>
+</nav>

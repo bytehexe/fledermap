@@ -9,59 +9,62 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
 </head>
 <body x-data="filterForm()">
-  <form id="filters">
-    <label>From <input type="date" name="from" x-model="from"></label>
-    <label>To <input type="date" name="to" x-model="to"></label>
-    <label>Taxon
-      <select name="taxon" x-model="taxon">
-        <option value="">Any</option>
-        {% for taxon in taxa %}
-        <option value="{{ taxon.id }}">{{ taxon.scientific_name }}{% if taxon.common_name_en %} — {{ taxon.common_name_en }}{% endif %}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>Session
-      <select name="session" x-model="session">
-        <option value="">Any</option>
-        {% for item in sessions %}
-        <option value="{{ item.id }}">{{ item.started_at.strftime('%Y-%m-%d %H:%M') }}–{{ item.ended_at.strftime('%H:%M') }} ({{ item.detector_key or 'unknown detector' }})</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>Source
-      <select name="source" x-model="source">
-        <option value="">Any</option>
-        <option value="emt.guano">EMT GUANO</option>
-        <option value="emt.wamd">EMT WAMD</option>
-        <option value="emt.filename">EMT filename</option>
-        <option value="emt.manual">EMT manual</option>
-      </select>
-    </label>
-    <label>Verdict
-      <select name="verdict" x-model="verdict">
-        <option value="">Species only (default)</option>
-        <option value="noise">Noise</option>
-        <option value="no_id">No ID</option>
-        <option value="all">All</option>
-      </select>
-    </label>
-    <input type="hidden" name="site" x-model="site">
-  </form>
-  <span id="site-filter-chip" x-show="site" x-cloak>
-    Site filter active
-    <button type="button" @click="fledermapFilterBySite('')">×</button>
-  </span>
+  {% include "_nav.html" %}
+  <div class="main-content" id="page-content">
+    <form id="filters">
+      <label>From <input type="date" name="from" x-model="from"></label>
+      <label>To <input type="date" name="to" x-model="to"></label>
+      <label>Taxon
+        <select name="taxon" x-model="taxon">
+          <option value="">Any</option>
+          {% for taxon in taxa %}
+          <option value="{{ taxon.id }}">{{ taxon.scientific_name }}{% if taxon.common_name_en %} — {{ taxon.common_name_en }}{% endif %}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Session
+        <select name="session" x-model="session">
+          <option value="">Any</option>
+          {% for item in sessions %}
+          <option value="{{ item.id }}">{{ item.started_at.strftime('%Y-%m-%d %H:%M') }}–{{ item.ended_at.strftime('%H:%M') }} ({{ item.detector_key or 'unknown detector' }})</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Source
+        <select name="source" x-model="source">
+          <option value="">Any</option>
+          <option value="emt.guano">EMT GUANO</option>
+          <option value="emt.wamd">EMT WAMD</option>
+          <option value="emt.filename">EMT filename</option>
+          <option value="emt.manual">EMT manual</option>
+        </select>
+      </label>
+      <label>Verdict
+        <select name="verdict" x-model="verdict">
+          <option value="">Species only (default)</option>
+          <option value="noise">Noise</option>
+          <option value="no_id">No ID</option>
+          <option value="all">All</option>
+        </select>
+      </label>
+      <input type="hidden" name="site" x-model="site">
+    </form>
+    <span id="site-filter-chip" x-show="site" x-cloak>
+      Site filter active
+      <button type="button" @click="fledermapFilterBySite('')">×</button>
+    </span>
 
-  <div id="map"></div>
+    <div id="map"></div>
 
-  <div id="drawer" x-show="$store.drawer.open" x-cloak
-       :class="{ collapsed: $store.drawer.collapsed }">
-    <div id="drawer-handle"></div>
-    <div id="drawer-header">
-      <button type="button" @click="$store.drawer.collapsed = !$store.drawer.collapsed" aria-label="Collapse">▾</button>
-      <button type="button" @click="$store.drawer.open = false; $store.drawer.collapsed = false; document.getElementById('drawer-body').innerHTML = ''" aria-label="Close">×</button>
+    <div id="drawer" x-show="$store.drawer.open" x-cloak
+         :class="{ collapsed: $store.drawer.collapsed }">
+      <div id="drawer-handle"></div>
+      <div id="drawer-header">
+        <button type="button" @click="$store.drawer.collapsed = !$store.drawer.collapsed" aria-label="Collapse">▾</button>
+        <button type="button" @click="$store.drawer.open = false; $store.drawer.collapsed = false; document.getElementById('drawer-body').innerHTML = ''" aria-label="Close">×</button>
+      </div>
+      <div id="drawer-body"></div>
     </div>
-    <div id="drawer-body"></div>
   </div>
 
   <script src="{{ url_for('vendor.static', filename='leaflet.js') }}"></script>

@@ -455,3 +455,14 @@ def test_map_page_includes_the_drawer_shell(engine: Engine, tmp_path: Path) -> N
     assert 'id="drawer-body"' in html
     assert "$store.drawer.open" in html
     assert "$store.drawer.collapsed" in html
+
+
+def test_map_page_includes_the_sidebar(engine: Engine, tmp_path: Path) -> None:
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    response = client.get("/")
+
+    html = response.get_data(as_text=True)
+    assert 'id="sidebar"' in html
+    assert 'href="/sessions"' in html
