@@ -35,10 +35,14 @@ Not an enforced scale — match the range already in use:
 
 ## Form controls
 
-`.filter-bar select, .filter-bar input` gives filter-bar controls this look — it's scoped to
-the class, not global, so a form outside `.filter-bar` doesn't get it automatically (e.g.
-`.stacked-form`'s `select`/`textarea` rule only sets layout — display/width/margin/font — not
-this styling; a form outside `.filter-bar` renders unstyled input/select chrome today):
+`.filter-bar select, .filter-bar input, .stacked-form select, .stacked-form textarea` gives
+these controls this look — it's scoped to those two classes, not global, so a control outside
+either renders unstyled browser-default chrome. `.filter-bar` and `.stacked-form` each also
+layer their own layout rules (padding/gap for the toolbar row; display/width/margin/font-weight
+for the stacked layout) on top of this shared block via the normal cascade — this is the
+"promote on second use" rule in action: `.stacked-form` was the second consumer to need this
+look, so the shared block grew to cover it instead of being duplicated under `.stacked-form`'s
+own selector:
 
 ```css
 border: 1px solid var(--color-border);

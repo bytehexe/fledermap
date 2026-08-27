@@ -100,8 +100,21 @@ main.main-content h1 { margin-top: 1rem; }
   border-bottom: 1px solid var(--color-border);
 }
 .filter-bar label { font-size: 0.85rem; color: var(--color-muted); }
+/* Bordered/background look for form controls -- documented in
+   docs/style-guide.md's "Form controls" section. Originally .filter-bar-only;
+   .stacked-form's select/textarea rule (further down) only ever set layout
+   (display/width/margin/font), so session_detail.html's edit form and the
+   merge-banner's note/weather form rendered with plain browser-default
+   control chrome -- exactly the gap the style guide's own "promote on second
+   use" rule exists for, since a second consumer (.stacked-form) now wants the
+   same look. Extended here rather than duplicated; the later, more specific
+   .stacked-form select/textarea rule still layers its own display/width/
+   margin-top/font-weight on top via the normal cascade (it appears after
+   this rule in the file, so its font-size/font-weight there correctly win). */
 .filter-bar select,
-.filter-bar input {
+.filter-bar input,
+.stacked-form select,
+.stacked-form textarea {
   font: inherit;
   font-size: 0.9rem;
   padding: 0.3rem 0.5rem;
