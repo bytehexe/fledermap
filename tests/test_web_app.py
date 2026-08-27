@@ -31,3 +31,26 @@ def test_create_app_stores_the_engine_on_config(tmp_path: Path, engine: Engine) 
     app = create_app(engine, tmp_path / "static", tmp_path / "media")
 
     assert app.config["ENGINE"] is engine
+
+
+def test_create_app_stores_transect_distance_on_config(
+    tmp_path: Path,
+    engine: Engine,
+) -> None:
+    app = create_app(
+        engine,
+        tmp_path / "static",
+        tmp_path / "media",
+        transect_distance_m=200.0,
+    )
+
+    assert app.config["TRANSECT_DISTANCE_M"] == 200.0
+
+
+def test_create_app_transect_distance_defaults_to_150(
+    tmp_path: Path,
+    engine: Engine,
+) -> None:
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+
+    assert app.config["TRANSECT_DISTANCE_M"] == 150.0

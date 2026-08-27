@@ -310,7 +310,12 @@ def serve(host: str | None, port: int | None) -> None:
 
     engine = make_engine(config.database_url)
     _run_migrations(config.database_url)
-    app = create_app(engine, config.static_root, config.media_root)
+    app = create_app(
+        engine,
+        config.static_root,
+        config.media_root,
+        transect_distance_m=config.transect_distance_m,
+    )
     app.run(
         host=host if host is not None else config.host,
         port=port if port is not None else config.port,

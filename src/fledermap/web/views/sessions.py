@@ -11,8 +11,12 @@ from sqlalchemy.orm import Session as OrmSession
 from fledermap.domain.codes import SessionKind
 from fledermap.services.current_best import current_best_identification
 from fledermap.services.sessions import (
+    AlreadyResolvedError,
+    MergeConflictError,
+    ProposalNotFoundError,
     filtered_sessions,
     open_proposal_session_ids,
+    resolve_merge_proposal,
     session_detail,
 )
 from fledermap.store.models import Session as AnnotationSession
@@ -106,3 +110,34 @@ def save_session(session_id: int) -> flask.Response:
         session.commit()
 
     return flask.make_response(flask.redirect(f"/sessions/{session_id}"))
+
+
+@sessions_bp.post("/sessions/merge-proposals/<int:proposal_id>/resolve")
+def resolve_proposal(proposal_id: int) -> flask.Response:
+    action = flask.request.form.get("action", "")
+    note = flask.request.form.get("note") or None
+    weather = flask.request.form.get("weather") or None
+
+    engine = flask.current_app.config["ENGINE"]
+    transect_distance_m = flask.current_app.config["TRANSECT_DISTANCE_M"]
+    with OrmSession(engine) as session:
+        try:
+            surviving_id = resolve_merge_proposal(
+                session,
+                proposal_id,
+                action=action,
+                note=note,
+                weather=weather,
+                transect_distance_m=transect_distance_m,
+            )
+        except ProposalNotFoundError:
+            return flask.make_response(("Merge proposal not found.", 404))
+        except AlreadyResolvedError as exc:
+            return flask.make_response((str(exc), 409))
+        except MergeConflictError as exc:
+            return flask.make_response((str(exc), 409))
+        except ValueError as exc:
+            return flask.make_response((str(exc), 400))
+        session.commit()
+
+    return flask.make_response(flask.redirect(f"/sessions/{surviving_id}"))

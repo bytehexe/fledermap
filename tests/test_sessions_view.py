@@ -4,11 +4,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from sqlalchemy import Engine
+from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session as OrmSession
 
-from fledermap.domain.codes import SessionKind
-from fledermap.store.models import Recording
+from fledermap.domain.codes import MergeResolution, SessionKind
+from fledermap.store.models import Recording, SessionMergeProposal
 from fledermap.store.models import Session as AnnotationSession
 from fledermap.web.app import create_app
 
@@ -244,3 +244,140 @@ def test_save_session_not_found_returns_404(engine: Engine, tmp_path: Path) -> N
     )
 
     assert response.status_code == 404
+
+
+def _make_open_proposal(
+    session: OrmSession,
+) -> tuple[AnnotationSession, AnnotationSession, SessionMergeProposal]:
+    a = AnnotationSession(
+        started_at=datetime(2026, 8, 21, tzinfo=UTC),
+        ended_at=datetime(2026, 8, 21, 21, tzinfo=UTC),
+        kind=SessionKind.STATIONARY,
+        detector_key="EMT\x1f1",
+    )
+    b = AnnotationSession(
+        started_at=datetime(2026, 8, 22, tzinfo=UTC),
+        ended_at=datetime(2026, 8, 22, tzinfo=UTC),
+        kind=SessionKind.STATIONARY,
+        detector_key="EMT\x1f1",
+    )
+    session.add_all([a, b])
+    session.flush()
+    session.add(
+        Recording(
+            audio_hash="a".rjust(64, "0"),
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 21, tzinfo=UTC),
+            session_id=a.id,
+        ),
+    )
+    session.flush()
+    bridging = session.scalars(
+        select(Recording).where(Recording.session_id == a.id)
+    ).one()
+    proposal = SessionMergeProposal(
+        session_a_id=a.id,
+        session_b_id=b.id,
+        bridging_recording_id=bridging.id,
+        detected_at=datetime(2026, 8, 21, tzinfo=UTC),
+    )
+    session.add(proposal)
+    session.commit()
+    return a, b, proposal
+
+
+def test_resolve_proposal_merge_redirects_to_session_a(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        a, _b, proposal = _make_open_proposal(session)
+        a_id, proposal_id = a.id, proposal.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    response = client.post(
+        f"/sessions/merge-proposals/{proposal_id}/resolve",
+        data={"action": "merge", "note": "combined", "weather": "combined"},
+    )
+
+    assert response.status_code == 302
+    assert response.location == f"/sessions/{a_id}"
+    with OrmSession(engine) as session:
+        refreshed = session.get(SessionMergeProposal, proposal_id)
+        assert refreshed is not None
+        assert refreshed.resolution == MergeResolution.MERGED
+
+
+def test_resolve_proposal_reject_redirects_to_session_a(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        a, _b, proposal = _make_open_proposal(session)
+        a_id, proposal_id = a.id, proposal.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    response = client.post(
+        f"/sessions/merge-proposals/{proposal_id}/resolve",
+        data={"action": "reject"},
+    )
+
+    assert response.status_code == 302
+    assert response.location == f"/sessions/{a_id}"
+
+
+def test_resolve_proposal_not_found_returns_404(engine: Engine, tmp_path: Path) -> None:
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    response = client.post(
+        "/sessions/merge-proposals/999/resolve",
+        data={"action": "reject"},
+    )
+
+    assert response.status_code == 404
+
+
+def test_resolve_proposal_already_resolved_returns_409(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        _a, _b, proposal = _make_open_proposal(session)
+        proposal.resolution = MergeResolution.REJECTED
+        proposal.resolved_at = datetime(2026, 8, 21, tzinfo=UTC)
+        session.commit()
+        proposal_id = proposal.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    response = client.post(
+        f"/sessions/merge-proposals/{proposal_id}/resolve",
+        data={"action": "merge"},
+    )
+
+    assert response.status_code == 409
+
+
+def test_resolve_proposal_invalid_action_returns_400(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        _a, _b, proposal = _make_open_proposal(session)
+        proposal_id = proposal.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    response = client.post(
+        f"/sessions/merge-proposals/{proposal_id}/resolve",
+        data={"action": "bogus"},
+    )
+
+    assert response.status_code == 400
