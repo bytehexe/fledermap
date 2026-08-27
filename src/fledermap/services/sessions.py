@@ -8,11 +8,14 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as OrmSession
 
+from fledermap.derive.sessions import reclassify_session
+from fledermap.domain.codes import MergeResolution
 from fledermap.store.models import Recording, SessionMergeProposal
 from fledermap.store.models import Session as AnnotationSession
 
@@ -143,3 +146,95 @@ def session_detail(db_session: OrmSession, session_id: int) -> SessionDetail | N
         recordings=recordings,
         open_proposals=open_proposals,
     )
+
+
+class ProposalNotFoundError(Exception):
+    """No `SessionMergeProposal` exists with the given id."""
+
+
+class AlreadyResolvedError(Exception):
+    """The proposal was already resolved (merged or rejected), by this
+    request or a concurrent one -- design spec section 10's "already
+    resolved by someone else" case. Checked before any mutation, so this
+    never partially re-applies a merge."""
+
+
+class MergeConflictError(Exception):
+    """`session_b` is still referenced by another open merge proposal, so it
+    can't be deleted until that one is resolved first (design spec section
+    5's chained-proposal edge case) -- `session_merge_proposal`'s FK columns
+    have no `ON DELETE`, so Postgres raises `IntegrityError` rather than
+    silently orphaning the other proposal; this turns that into a clean,
+    named error instead of a raw 500."""
+
+
+def resolve_merge_proposal(
+    db_session: OrmSession,
+    proposal_id: int,
+    *,
+    action: str,
+    note: str | None,
+    weather: str | None,
+    transect_distance_m: float,
+) -> int:
+    """Accept ("merge") or reject a `SessionMergeProposal`. Returns
+    `session_a_id` -- always safe to redirect to afterward, since
+    `session_a` is never deleted (only `session_b` is, and only on a
+    successful merge). Does not commit; the caller controls the transaction
+    boundary, matching every other `services/` function in this project."""
+    if action not in ("merge", "reject"):
+        msg = f"{action!r} is not a valid action (expected 'merge' or 'reject')."
+        raise ValueError(msg)
+
+    proposal = db_session.get(SessionMergeProposal, proposal_id)
+    if proposal is None:
+        raise ProposalNotFoundError(proposal_id)
+    if proposal.resolution is not None:
+        msg = "This merge proposal was already resolved."
+        raise AlreadyResolvedError(msg)
+
+    if action == "reject":
+        proposal.resolution = MergeResolution.REJECTED
+        proposal.resolved_at = datetime.now(UTC)
+        return proposal.session_a_id
+
+    session_a = db_session.get(AnnotationSession, proposal.session_a_id)
+    session_b = db_session.get(AnnotationSession, proposal.session_b_id)
+    assert session_a is not None, "FK guarantees this row exists"
+    assert session_b is not None, "FK guarantees this row exists"
+
+    db_session.execute(
+        update(Recording)
+        .where(Recording.session_id == session_b.id)
+        .values(session_id=session_a.id),
+    )
+    session_a.started_at = min(session_a.started_at, session_b.started_at)
+    session_a.ended_at = max(session_a.ended_at, session_b.ended_at)
+    if note is not None:
+        session_a.note = note
+    if weather is not None:
+        session_a.weather = weather
+    reclassify_session(db_session, session_a, transect_distance_m=transect_distance_m)
+
+    # This proposal's own `session_b_id` still points at `session_b`, and
+    # the FK has no `ON DELETE` clause -- deleting `session_b` below would
+    # be rejected by this row alone, even with no chained proposal in the
+    # picture. Repoint it at `session_a` first so only a genuinely OTHER
+    # open proposal (design spec section 5's chained case) can still block
+    # the delete and surface as `MergeConflictError`.
+    proposal.session_b_id = session_a.id
+
+    db_session.delete(session_b)
+    try:
+        db_session.flush()
+    except IntegrityError as exc:
+        db_session.rollback()
+        msg = (
+            "Can't complete this merge: the other session is still part of "
+            "another pending merge proposal. Resolve that one first."
+        )
+        raise MergeConflictError(msg) from exc
+
+    proposal.resolution = MergeResolution.MERGED
+    proposal.resolved_at = datetime.now(UTC)
+    return session_a.id
