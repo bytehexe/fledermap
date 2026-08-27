@@ -9,7 +9,7 @@ from geoalchemy2.elements import WKTElement
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session as OrmSession
 
-from fledermap.domain.codes import IdSource, Verdict
+from fledermap.domain.codes import IdSource, SessionKind, Verdict
 from fledermap.media.paths import oscillogram_path, preview_path, spectrogram_path
 from fledermap.store.models import Identification, Recording, Site, Taxon
 from fledermap.store.models import Session as AnnotationSession
@@ -466,3 +466,93 @@ def test_map_page_includes_the_sidebar(engine: Engine, tmp_path: Path) -> None:
     html = response.get_data(as_text=True)
     assert 'id="sidebar"' in html
     assert 'href="/sessions"' in html
+
+
+def test_site_panel_links_sessions_to_session_detail(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        annotation_session = AnnotationSession(
+            started_at=datetime(2026, 8, 21, 21, tzinfo=UTC),
+            ended_at=datetime(2026, 8, 21, 23, tzinfo=UTC),
+            kind=SessionKind.STATIONARY,
+            detector_key="EMT\x1f1",
+        )
+        session.add(annotation_session)
+        session.flush()
+        site = Site(
+            centroid=WKTElement("POINT(10.0 51.0)", srid=4326),
+            radius_m=10.0,
+            recording_count=1,
+            first_at=datetime(2026, 8, 21, tzinfo=UTC),
+            last_at=datetime(2026, 8, 21, tzinfo=UTC),
+        )
+        session.add(site)
+        session.flush()
+        session.add(
+            Recording(
+                audio_hash="a".rjust(64, "0"),
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 21, 21, tzinfo=UTC),
+                session_id=annotation_session.id,
+                site_id=site.id,
+            ),
+        )
+        session.commit()
+        site_id, session_id = site.id, annotation_session.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    response = client.get(f"/sites/{site_id}/panel")
+
+    html = response.get_data(as_text=True)
+    assert f'href="/sessions/{session_id}"' in html
+
+
+def test_recording_panel_links_session_to_session_detail(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        annotation_session = AnnotationSession(
+            started_at=datetime(2026, 8, 21, 21, tzinfo=UTC),
+            ended_at=datetime(2026, 8, 21, 23, tzinfo=UTC),
+            kind=SessionKind.STATIONARY,
+            detector_key="EMT\x1f1",
+        )
+        session.add(annotation_session)
+        session.flush()
+        taxon = Taxon(rank="species", scientific_name="Eptesicus serotinus")
+        session.add(taxon)
+        session.flush()
+        recording = Recording(
+            audio_hash="a".rjust(64, "0"),
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 21, 21, tzinfo=UTC),
+            session_id=annotation_session.id,
+        )
+        session.add(recording)
+        session.flush()
+        session.add(
+            Identification(
+                recording_id=recording.id,
+                source=IdSource.EMT_GUANO,
+                source_version=None,
+                verdict=Verdict.SPECIES,
+                taxon_id=taxon.id,
+                raw_label="EPTSER",
+                first_seen_at=datetime(2026, 8, 21, 21, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+        session_id = annotation_session.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    response = client.get(f"/recordings/{'a'.rjust(64, '0')}/panel")
+
+    html = response.get_data(as_text=True)
+    assert f'href="/sessions/{session_id}"' in html
