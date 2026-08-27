@@ -385,3 +385,24 @@ map and sidebar collapse/expand get manual verification via the `run` skill.
 | P5b-12 | `Session.kind_locked` freezes `kind` against future automatic reclassification the moment a human saves the detail form — regardless of whether they changed the dropdown's value — so a save is never later silently undone by a subsequent `derive` run. |
 | P5b-13 | The session detail page gets a small Leaflet mini-map (session's own recording markers, via the existing `/api/recordings.geojson?session_id=`) plus a "View on full map" link (the existing `?session=` map filter) — no new API surface, no polyline, no site circle. |
 | P5b-14 | Global navigation is a left sidebar (Map, Sessions, room for later Phase 5 entries), not a top nav bar. Expanded by default at normal widths; auto-collapses below a responsive breakpoint, plus a manual toggle at any width — preserves the map's full width under the same reasoning as Phase 5a's bottom-drawer choice, without hiding the app's only nav by default on desktop. |
+
+## 13. Security decision: no CSRF/origin protection on this slice's new POST routes
+
+**Recorded during the final whole-branch review fix wave (2026-08-27), not a correction
+of a prior claim in this doc — a new decision, made explicit rather than left implicit.**
+
+This slice adds the app's first `POST` routes (`/sessions/{id}`,
+`/sessions/merge-proposals/{id}/resolve`) — every route before Phase 5b was `GET`-only.
+The parent spec (`docs/superpowers/specs/2026-08-23-fledermap-design.md`) already
+establishes that this app has no auth layer by design, as a single-operator local tool.
+That decision covered *reading* data; it was never explicitly extended to cover an
+unauthenticated `POST` that can mutate or delete a session.
+
+Ruling: these routes rely on the same no-auth-layer design as the rest of the app. There
+is currently no CSRF token and no `Origin`/`Referer` check, so any page the operator's
+browser happens to visit could in principle submit a `POST` to either route. This is
+acceptable for the current single-operator, localhost-only deployment model. It must be
+revisited — CSRF tokens and/or an `Origin` check added — before any multi-user or
+network-exposed deployment of this app. Not fixed here: doing so properly is a design
+decision spanning the whole app (every current and future `POST` route), not something
+to bolt onto one slice's fix wave.
