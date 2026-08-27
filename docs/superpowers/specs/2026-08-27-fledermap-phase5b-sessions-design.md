@@ -263,6 +263,21 @@ widget gains a track-polyline layer fed by the session's KML data, without
 changing its role on the page. (KML ingest itself is not part of this slice —
 §9.)
 
+**Correction found during implementation (Task 10):** the claim above that "the
+map page already reads a `session` query param on load" is wrong. Phase 4 built
+`/api/recordings.geojson?session=` — the *API* reads that param, server-side,
+per fetch — but `views_bp.get("/")` (`web/views/map.py`'s `map_page`) reads no
+query args at all, and `app.js`'s `filterForm()` (the Alpine state backing the
+filter bar, including the `session` `<select>`) always initializes `session: ""`
+regardless of the page's URL. Nothing connects an incoming `?session={id}` on
+`/` to the filter form or triggers a fetch with it. The "View on full map" link
+was therefore dead on arrival: it would load the unfiltered map. Fixed as part
+of Task 10 by seeding `filterForm()`'s initial `session` value from
+`URLSearchParams(window.location.search)` — Alpine's `x-model` then reflects it
+into the `<select>` on init, and the existing `refresh()` call (already reading
+the form via `FormData`) picks it up on the very first fetch. No other filter
+field had this gap because nothing else links to `/` with a pre-set filter.
+
 ## 8. Global navigation
 
 The app's first standalone page (`/sessions`) needs a way to reach it that isn't
