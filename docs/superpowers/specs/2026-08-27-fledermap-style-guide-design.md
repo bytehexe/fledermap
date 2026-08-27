@@ -133,8 +133,11 @@ existing conventions, no new shared classes:
 - `session_detail.html`: it has the app's only "Back to sessions" link (`sessions_list.html` has
   none — it's the top of the nav hierarchy, corrected here after grepping the actual templates;
   the earlier draft of this section wrongly placed the link on both pages). The link's styling
-  is inherited from browser defaults with no project color — give it `color: var(--color-accent)`
-  to match every other link in the app (`.sidebar-link`, `.merge-badge` already do this). The
+  is inherited from browser defaults with no project color — give it `color: var(--color-accent)`,
+  the token the guide names for links and interactive accents (correction, caught by the final
+  whole-branch review: `.sidebar-link` actually uses `--color-text` and `.merge-badge` a
+  hardcoded `#b7791f`, so neither is really "already doing this" — `--color-accent` is the right
+  token on its own merits, not because existing links already use it). The
   `<p>Detector: ...</p>` line should use `color: var(--color-muted)` to match how secondary
   metadata reads elsewhere (e.g. `.panel-columns h3`, `#filters label`).
 - Both pages' `<h1>` already gets top-margin from the existing bare `main.main-content h1`
