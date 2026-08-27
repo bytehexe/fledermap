@@ -265,3 +265,95 @@ def test_session_detail_shows_open_proposal_from_either_side(engine: Engine) -> 
         assert detail_b is not None
         assert len(detail_b.open_proposals) == 1
         assert detail_b.open_proposals[0].counterpart.id == a.id
+
+
+def test_session_detail_shows_multiple_open_proposals(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        base = datetime(2026, 8, 20, tzinfo=UTC)
+        a = _session("EMT\x1f1", base, base)
+        b = _session("EMT\x1f1", base.replace(day=21), base.replace(day=21))
+        c = _session("EMT\x1f1", base.replace(day=22), base.replace(day=22))
+        session.add_all([a, b, c])
+        session.flush()
+        session.add(
+            Recording(
+                audio_hash="x".rjust(64, "0"),
+                path="x.wav",
+                recorded_at=base,
+                session_id=a.id,
+            ),
+        )
+        session.add(
+            Recording(
+                audio_hash="y".rjust(64, "0"),
+                path="y.wav",
+                recorded_at=base.replace(day=22),
+                session_id=c.id,
+            ),
+        )
+        session.flush()
+        bridging_ab = session.scalars(
+            select(Recording).where(Recording.session_id == a.id),
+        ).one()
+        bridging_bc = session.scalars(
+            select(Recording).where(Recording.session_id == c.id),
+        ).one()
+        session.add(
+            SessionMergeProposal(
+                session_a_id=a.id,
+                session_b_id=b.id,
+                bridging_recording_id=bridging_ab.id,
+                detected_at=base,
+            ),
+        )
+        session.add(
+            SessionMergeProposal(
+                session_a_id=b.id,
+                session_b_id=c.id,
+                bridging_recording_id=bridging_bc.id,
+                detected_at=base,
+            ),
+        )
+        session.commit()
+
+        detail_b = session_detail(session, b.id)
+        assert detail_b is not None
+        assert len(detail_b.open_proposals) == 2
+        counterpart_ids = {op.counterpart.id for op in detail_b.open_proposals}
+        assert counterpart_ids == {a.id, c.id}
+
+
+def test_session_detail_excludes_resolved_proposals(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        base = datetime(2026, 8, 20, tzinfo=UTC)
+        a = _session("EMT\x1f1", base, base)
+        b = _session("EMT\x1f1", base.replace(day=21), base.replace(day=21))
+        session.add_all([a, b])
+        session.flush()
+        session.add(
+            Recording(
+                audio_hash="x".rjust(64, "0"),
+                path="x.wav",
+                recorded_at=base,
+                session_id=a.id,
+            ),
+        )
+        session.flush()
+        bridging = session.scalars(
+            select(Recording).where(Recording.session_id == a.id),
+        ).one()
+        session.add(
+            SessionMergeProposal(
+                session_a_id=a.id,
+                session_b_id=b.id,
+                bridging_recording_id=bridging.id,
+                detected_at=base,
+                resolution=MergeResolution.REJECTED,
+                resolved_at=base,
+            ),
+        )
+        session.commit()
+
+        detail_a = session_detail(session, a.id)
+        assert detail_a is not None
+        assert detail_a.open_proposals == []
