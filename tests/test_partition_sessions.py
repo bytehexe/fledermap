@@ -498,6 +498,13 @@ def test_extending_a_session_across_runs_reclassifies_it(engine: Engine) -> None
 
 
 def test_locked_kind_survives_a_reclassifying_run(engine: Engine) -> None:
+    """`existing` already has one GPS-bearing recording ~700m from the new one
+    about to join it -- enough spread that an honest (unlocked) reclassification
+    would flip it to TRANSECT. `kind_locked=True` with `kind=STATIONARY` is set
+    deliberately AGAINST what that honest reclassification would produce, so a
+    passing test actually proves the lock held something back, rather than
+    passing merely because too few GPS points were ever present to move the
+    needle either way."""
     with OrmSession(engine) as session:
         base = datetime(2026, 8, 21, 21, tzinfo=UTC)
         existing = Session(
@@ -511,11 +518,23 @@ def test_locked_kind_survives_a_reclassifying_run(engine: Engine) -> None:
         session.flush()
         session.add(
             _recording(
+                "x",
+                base,
+                make="EMT",
+                serial="1",
+                session_id=existing.id,
+                geom=WKTElement("POINT(10.01 51.0)", srid=4326),
+            ),
+        )
+        session.add(
+            _recording(
                 "a",
                 base + timedelta(hours=1),
                 make="EMT",
                 serial="1",
-                geom=WKTElement("POINT(10.01 51.0)", srid=4326),  # would flip it
+                # ~700m from the already-linked recording above -- would flip
+                # the session to TRANSECT if the lock didn't hold.
+                geom=WKTElement("POINT(10.0 51.0)", srid=4326),
             ),
         )
         session.commit()
