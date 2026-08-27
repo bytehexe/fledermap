@@ -18,8 +18,8 @@
 - **SQLAlchemy's `Enum` persists the member name, not `.value`:** `values_callable=lambda enum_cls: [e.value for e in enum_cls]` on every new/changed `SAEnum` column — none are added by this plan (`kind_locked` is a plain boolean), but the existing `kind`/`resolution` columns this plan reads and writes must not be redeclared without it.
 - **`hatch fmt --check` and `hatch run types:check` must be clean** after every task, including `tests/` (mypy covers tests too).
 - **Test output must be pristine** — no warnings.
-- **Run `git`/`alembic` unsandboxed** (`dangerouslyDisableSandbox: true`) — sandboxed git config writes leave a stale `.git/config.lock`, and generating a migration touches `alembic/versions/`.
-- **`db`-marked tests need `dangerouslyDisableSandbox: true`** (testcontainers + PostGIS; Docker is blocked by the sandbox and the failure looks like a network fault, not a permissions one).
+- **Run every `git commit`, the `alembic revision` step (Task 1), and every `hatch test` invocation that touches a `pytest.mark.db`-marked file with the sandbox disabled.** This is a Bash-tool call parameter (`dangerouslyDisableSandbox: true`), not shell syntax — there is no `dangerouslyDisableSandbox=true some-command` shell prefix; setting an env var like that silently does nothing and the command still runs sandboxed. `git commit` needs it because this repo GPG-signs commits (needs the agent socket) and sandboxed `git config` writes leave a stale `.git/config.lock`; `alembic revision` needs it because it writes into `alembic/versions/`; `db`-marked tests need it because they spin up a real Postgres/PostGIS via `testcontainers` + Docker, which the sandbox blocks — the failure surfaces as `docker.errors.DockerException` / `PermissionError(1, 'Operation not permitted')`, which reads like a network fault, not a permissions one, if you don't already know to expect it.
+- **The one exception:** Task 2's `tests/test_config.py` runs are plain (`Config.from_env` needs no database) and don't require the sandbox disabled.
 
 ---
 
@@ -70,7 +70,7 @@ from sqlalchemy import (
 Run (no live database needed — `alembic revision` without `--autogenerate` only reads the versions directory to find head):
 
 ```bash
-cd /home/janna/projekte/bats && dangerouslyDisableSandbox=true alembic revision -m "phase 5b session schema"
+cd /home/janna/projekte/bats && alembic revision -m "phase 5b session schema"
 ```
 
 This creates `alembic/versions/<hash>_phase_5b_session_schema.py` with `down_revision = "e9a0c0f92971"` (current head) already filled in, and empty `upgrade()`/`downgrade()` stubs.
@@ -104,7 +104,7 @@ def downgrade() -> None:
 
 - [ ] **Step 4: Run the migration drift test**
 
-Run: `dangerouslyDisableSandbox=true hatch test tests/test_migrations.py -v`
+Run: `hatch test tests/test_migrations.py -v`
 Expected: PASS, no drift detected.
 
 - [ ] **Step 5: Lint and type-check**
@@ -115,8 +115,8 @@ Expected: clean.
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /home/janna/projekte/bats && dangerouslyDisableSandbox=true git add src/fledermap/store/models.py alembic/versions/
-dangerouslyDisableSandbox=true git commit -m "feat: drop Session.effort, add Session.kind_locked"
+cd /home/janna/projekte/bats && git add src/fledermap/store/models.py alembic/versions/
+git commit -m "feat: drop Session.effort, add Session.kind_locked"
 ```
 
 ---
@@ -261,8 +261,8 @@ Expected: clean.
 - [ ] **Step 6: Commit**
 
 ```bash
-dangerouslyDisableSandbox=true git add src/fledermap/config.py tests/test_config.py
-dangerouslyDisableSandbox=true git commit -m "feat: Config.transect_distance_m (FLEDERMAP_TRANSECT_DISTANCE_M, optional)"
+git add src/fledermap/config.py tests/test_config.py
+git commit -m "feat: Config.transect_distance_m (FLEDERMAP_TRANSECT_DISTANCE_M, optional)"
 ```
 
 ---
@@ -426,7 +426,7 @@ Update every other existing `partition_sessions(session, session_gap=timedelta(h
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `dangerouslyDisableSandbox=true hatch test tests/test_partition_sessions.py -v`
+Run: `hatch test tests/test_partition_sessions.py -v`
 Expected: FAIL (`classify_kind` doesn't exist; `partition_sessions` doesn't accept `transect_distance_m`).
 
 - [ ] **Step 3: Implement `classify_kind` and `reclassify_session`**
@@ -588,19 +588,19 @@ In `src/fledermap/cli/main.py`, the `derive` command's call to `partition_sessio
 
 - [ ] **Step 6: Run to verify pass**
 
-Run: `dangerouslyDisableSandbox=true hatch test tests/test_partition_sessions.py -v`
+Run: `hatch test tests/test_partition_sessions.py -v`
 Expected: PASS.
 
 - [ ] **Step 7: Full suite, lint, type-check**
 
-Run: `dangerouslyDisableSandbox=true hatch test && hatch fmt --check && hatch run types:check`
+Run: `hatch test && hatch fmt --check && hatch run types:check`
 Expected: clean (this touches `cli/main.py`, so `tests/test_cli.py` must still pass unchanged).
 
 - [ ] **Step 8: Commit**
 
 ```bash
-dangerouslyDisableSandbox=true git add src/fledermap/derive/sessions.py src/fledermap/cli/main.py tests/test_partition_sessions.py
-dangerouslyDisableSandbox=true git commit -m "feat: persist kind classification in derive/sessions.py"
+git add src/fledermap/derive/sessions.py src/fledermap/cli/main.py tests/test_partition_sessions.py
+git commit -m "feat: persist kind classification in derive/sessions.py"
 ```
 
 ---
@@ -788,7 +788,7 @@ def test_filtered_sessions_runs_with_multiple_rows(engine: Engine) -> None:
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `dangerouslyDisableSandbox=true hatch test tests/test_sessions_query.py -v`
+Run: `hatch test tests/test_sessions_query.py -v`
 Expected: FAIL (`fledermap.services.sessions` doesn't exist).
 
 - [ ] **Step 3: Implement**
@@ -889,7 +889,7 @@ def filtered_sessions(
 
 - [ ] **Step 4: Run to verify pass**
 
-Run: `dangerouslyDisableSandbox=true hatch test tests/test_sessions_query.py -v`
+Run: `hatch test tests/test_sessions_query.py -v`
 Expected: PASS.
 
 - [ ] **Step 5: Lint and type-check**
@@ -900,8 +900,8 @@ Expected: clean.
 - [ ] **Step 6: Commit**
 
 ```bash
-dangerouslyDisableSandbox=true git add src/fledermap/services/sessions.py tests/test_sessions_query.py
-dangerouslyDisableSandbox=true git commit -m "feat: filtered_sessions -- sessions list query"
+git add src/fledermap/services/sessions.py tests/test_sessions_query.py
+git commit -m "feat: filtered_sessions -- sessions list query"
 ```
 
 ---
@@ -1002,7 +1002,7 @@ def test_session_detail_shows_open_proposal_from_either_side(engine: Engine) -> 
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `dangerouslyDisableSandbox=true hatch test tests/test_sessions_query.py -k session_detail -v`
+Run: `hatch test tests/test_sessions_query.py -k session_detail -v`
 Expected: FAIL (`session_detail` doesn't exist).
 
 - [ ] **Step 3: Implement**
@@ -1067,7 +1067,7 @@ def session_detail(db_session: OrmSession, session_id: int) -> SessionDetail | N
 
 - [ ] **Step 4: Run to verify pass**
 
-Run: `dangerouslyDisableSandbox=true hatch test tests/test_sessions_query.py -v`
+Run: `hatch test tests/test_sessions_query.py -v`
 Expected: PASS (all tests in the file, including Task 4's).
 
 - [ ] **Step 5: Lint and type-check**
@@ -1078,8 +1078,8 @@ Expected: clean.
 - [ ] **Step 6: Commit**
 
 ```bash
-dangerouslyDisableSandbox=true git add src/fledermap/services/sessions.py tests/test_sessions_query.py
-dangerouslyDisableSandbox=true git commit -m "feat: session_detail -- recordings + open merge proposals for one session"
+git add src/fledermap/services/sessions.py tests/test_sessions_query.py
+git commit -m "feat: session_detail -- recordings + open merge proposals for one session"
 ```
 
 ---
@@ -1362,7 +1362,7 @@ def test_chained_proposal_raises_merge_conflict(engine: Engine) -> None:
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `dangerouslyDisableSandbox=true hatch test tests/test_resolve_merge_proposal.py -v`
+Run: `hatch test tests/test_resolve_merge_proposal.py -v`
 Expected: FAIL (`resolve_merge_proposal` and the exception classes don't exist).
 
 - [ ] **Step 3: Implement**
@@ -1456,19 +1456,19 @@ def resolve_merge_proposal(
 
 - [ ] **Step 4: Run to verify pass**
 
-Run: `dangerouslyDisableSandbox=true hatch test tests/test_resolve_merge_proposal.py -v`
+Run: `hatch test tests/test_resolve_merge_proposal.py -v`
 Expected: PASS.
 
 - [ ] **Step 5: Full suite, lint, type-check**
 
-Run: `dangerouslyDisableSandbox=true hatch test && hatch fmt --check && hatch run types:check`
+Run: `hatch test && hatch fmt --check && hatch run types:check`
 Expected: clean.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-dangerouslyDisableSandbox=true git add src/fledermap/services/sessions.py tests/test_resolve_merge_proposal.py
-dangerouslyDisableSandbox=true git commit -m "feat: resolve_merge_proposal -- accept/reject with real session merge"
+git add src/fledermap/services/sessions.py tests/test_resolve_merge_proposal.py
+git commit -m "feat: resolve_merge_proposal -- accept/reject with real session merge"
 ```
 
 ---
@@ -1578,7 +1578,7 @@ def test_sessions_list_bad_date_returns_400(engine: Engine, tmp_path: Path) -> N
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `dangerouslyDisableSandbox=true hatch test tests/test_sessions_view.py -v`
+Run: `hatch test tests/test_sessions_view.py -v`
 Expected: FAIL (`fledermap.web.views.sessions` doesn't exist; `/sessions` 404s).
 
 - [ ] **Step 3: Implement the view**
@@ -1716,19 +1716,19 @@ Create `src/fledermap/web/templates/_nav.html`:
 
 - [ ] **Step 6: Run to verify pass**
 
-Run: `dangerouslyDisableSandbox=true hatch test tests/test_sessions_view.py -v`
+Run: `hatch test tests/test_sessions_view.py -v`
 Expected: PASS.
 
 - [ ] **Step 7: Full suite, lint, type-check**
 
-Run: `dangerouslyDisableSandbox=true hatch test && hatch fmt --check && hatch run types:check`
+Run: `hatch test && hatch fmt --check && hatch run types:check`
 Expected: clean.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-dangerouslyDisableSandbox=true git add src/fledermap/web/views/sessions.py src/fledermap/web/templates/sessions_list.html src/fledermap/web/templates/_nav.html src/fledermap/web/app.py tests/test_sessions_view.py
-dangerouslyDisableSandbox=true git commit -m "feat: GET /sessions -- sessions list page"
+git add src/fledermap/web/views/sessions.py src/fledermap/web/templates/sessions_list.html src/fledermap/web/templates/_nav.html src/fledermap/web/app.py tests/test_sessions_view.py
+git commit -m "feat: GET /sessions -- sessions list page"
 ```
 
 ---
@@ -1901,7 +1901,7 @@ def test_save_session_not_found_returns_404(engine: Engine, tmp_path: Path) -> N
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `dangerouslyDisableSandbox=true hatch test tests/test_sessions_view.py -v`
+Run: `hatch test tests/test_sessions_view.py -v`
 Expected: FAIL (routes don't exist).
 
 - [ ] **Step 3: Implement the routes**
@@ -2049,19 +2049,19 @@ Create `src/fledermap/web/templates/session_detail.html`:
 
 - [ ] **Step 5: Run to verify pass**
 
-Run: `dangerouslyDisableSandbox=true hatch test tests/test_sessions_view.py -v`
+Run: `hatch test tests/test_sessions_view.py -v`
 Expected: PASS.
 
 - [ ] **Step 6: Full suite, lint, type-check**
 
-Run: `dangerouslyDisableSandbox=true hatch test && hatch fmt --check && hatch run types:check`
+Run: `hatch test && hatch fmt --check && hatch run types:check`
 Expected: clean.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-dangerouslyDisableSandbox=true git add src/fledermap/web/views/sessions.py src/fledermap/web/templates/session_detail.html tests/test_sessions_view.py
-dangerouslyDisableSandbox=true git commit -m "feat: GET/POST /sessions/{id} -- session detail and edit form"
+git add src/fledermap/web/views/sessions.py src/fledermap/web/templates/session_detail.html tests/test_sessions_view.py
+git commit -m "feat: GET/POST /sessions/{id} -- session detail and edit form"
 ```
 
 ---
@@ -2231,7 +2231,7 @@ def test_resolve_proposal_invalid_action_returns_400(
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `dangerouslyDisableSandbox=true hatch test tests/test_sessions_view.py tests/test_web_app.py -v`
+Run: `hatch test tests/test_sessions_view.py tests/test_web_app.py -v`
 Expected: FAIL (route and `TRANSECT_DISTANCE_M` config don't exist).
 
 - [ ] **Step 3: Thread `transect_distance_m` through `create_app`**
@@ -2302,19 +2302,19 @@ def resolve_proposal(proposal_id: int) -> flask.Response:
 
 - [ ] **Step 6: Run to verify pass**
 
-Run: `dangerouslyDisableSandbox=true hatch test tests/test_sessions_view.py tests/test_web_app.py -v`
+Run: `hatch test tests/test_sessions_view.py tests/test_web_app.py -v`
 Expected: PASS.
 
 - [ ] **Step 7: Full suite, lint, type-check**
 
-Run: `dangerouslyDisableSandbox=true hatch test && hatch fmt --check && hatch run types:check`
+Run: `hatch test && hatch fmt --check && hatch run types:check`
 Expected: clean (confirms `cli/main.py`'s `serve` change didn't break `tests/test_cli.py`).
 
 - [ ] **Step 8: Commit**
 
 ```bash
-dangerouslyDisableSandbox=true git add src/fledermap/web/views/sessions.py src/fledermap/web/app.py src/fledermap/cli/main.py tests/test_sessions_view.py tests/test_web_app.py
-dangerouslyDisableSandbox=true git commit -m "feat: POST /sessions/merge-proposals/{id}/resolve"
+git add src/fledermap/web/views/sessions.py src/fledermap/web/app.py src/fledermap/cli/main.py tests/test_sessions_view.py tests/test_web_app.py
+git commit -m "feat: POST /sessions/merge-proposals/{id}/resolve"
 ```
 
 ---
@@ -2416,8 +2416,8 @@ Fix anything broken before moving on.
 - [ ] **Step 5: Commit**
 
 ```bash
-dangerouslyDisableSandbox=true git add src/fledermap/web/static/session_map.js src/fledermap/web/static/app.css
-dangerouslyDisableSandbox=true git commit -m "feat: session detail mini-map"
+git add src/fledermap/web/static/session_map.js src/fledermap/web/static/app.css
+git commit -m "feat: session detail mini-map"
 ```
 
 ---
@@ -2466,7 +2466,7 @@ def test_sessions_list_includes_the_sidebar(engine: Engine, tmp_path: Path) -> N
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `dangerouslyDisableSandbox=true hatch test tests/test_map_view.py tests/test_sessions_view.py -k sidebar -v`
+Run: `hatch test tests/test_map_view.py tests/test_sessions_view.py -k sidebar -v`
 Expected: FAIL (Task 7's placeholder `_nav.html` has an empty `#sidebar` with no links).
 
 - [ ] **Step 3: Write the real `_nav.html`**
@@ -2610,12 +2610,12 @@ main.main-content h1 { margin-top: 1rem; }
 
 - [ ] **Step 6: Run to verify pass**
 
-Run: `dangerouslyDisableSandbox=true hatch test tests/test_map_view.py tests/test_sessions_view.py -v`
+Run: `hatch test tests/test_map_view.py tests/test_sessions_view.py -v`
 Expected: PASS (every test in both files, not just the new sidebar ones — this step touched `map.html`'s structure).
 
 - [ ] **Step 7: Full suite, lint, type-check**
 
-Run: `dangerouslyDisableSandbox=true hatch test && hatch fmt --check && hatch run types:check`
+Run: `hatch test && hatch fmt --check && hatch run types:check`
 Expected: clean.
 
 - [ ] **Step 8: Manual verification via the `run` skill**
@@ -2631,8 +2631,8 @@ Fix anything broken before moving on.
 - [ ] **Step 9: Commit**
 
 ```bash
-dangerouslyDisableSandbox=true git add src/fledermap/web/templates/_nav.html src/fledermap/web/templates/map.html src/fledermap/web/static/app.css tests/test_map_view.py tests/test_sessions_view.py
-dangerouslyDisableSandbox=true git commit -m "feat: collapsible left sidebar navigation"
+git add src/fledermap/web/templates/_nav.html src/fledermap/web/templates/map.html src/fledermap/web/static/app.css tests/test_map_view.py tests/test_sessions_view.py
+git commit -m "feat: collapsible left sidebar navigation"
 ```
 
 ---
@@ -2723,7 +2723,7 @@ def test_recording_panel_links_session_to_session_detail(
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `dangerouslyDisableSandbox=true hatch test tests/test_map_view.py -k session_detail -v`
+Run: `hatch test tests/test_map_view.py -k session_detail -v`
 Expected: FAIL (no such link exists yet in either template).
 
 - [ ] **Step 3: Update `_site_panel.html`**
@@ -2760,19 +2760,19 @@ to:
 
 - [ ] **Step 5: Run to verify pass**
 
-Run: `dangerouslyDisableSandbox=true hatch test tests/test_map_view.py -v`
+Run: `hatch test tests/test_map_view.py -v`
 Expected: PASS (full file — confirms nothing else in this heavily-shared template broke).
 
 - [ ] **Step 6: Full suite, lint, type-check**
 
-Run: `dangerouslyDisableSandbox=true hatch test && hatch fmt --check && hatch run types:check`
+Run: `hatch test && hatch fmt --check && hatch run types:check`
 Expected: clean.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-dangerouslyDisableSandbox=true git add src/fledermap/web/templates/_site_panel.html src/fledermap/web/templates/_recording_panel.html tests/test_map_view.py
-dangerouslyDisableSandbox=true git commit -m "feat: link session mentions in the drawer panels to session detail"
+git add src/fledermap/web/templates/_site_panel.html src/fledermap/web/templates/_recording_panel.html tests/test_map_view.py
+git commit -m "feat: link session mentions in the drawer panels to session detail"
 ```
 
 ---
@@ -2783,7 +2783,7 @@ dangerouslyDisableSandbox=true git commit -m "feat: link session mentions in the
 
 - [ ] **Step 1: Full suite, lint, type-check, one more time**
 
-Run: `dangerouslyDisableSandbox=true hatch test && hatch fmt --check && hatch run types:check`
+Run: `hatch test && hatch fmt --check && hatch run types:check`
 Expected: clean, zero warnings.
 
 - [ ] **Step 2: Manual verification via the `run` skill**
@@ -2807,8 +2807,8 @@ Expected: no output (Task 11 already replaced the Task 7 placeholder comment; th
 - [ ] **Step 4: Final commit (if Step 2 required fixes)**
 
 ```bash
-dangerouslyDisableSandbox=true git add -u
-dangerouslyDisableSandbox=true git commit -m "fix: address phase 5b manual verification findings"
+git add -u
+git commit -m "fix: address phase 5b manual verification findings"
 ```
 
 (Skip this step entirely if Step 2 found nothing to fix.)
