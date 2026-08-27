@@ -13,6 +13,7 @@ from sqlalchemy import Engine
 from fledermap.web.api.geojson import api_bp
 from fledermap.web.views.map import views_bp
 from fledermap.web.views.media import media_bp
+from fledermap.web.views.sessions import sessions_bp
 
 
 def create_app(engine: Engine, static_root: Path, media_root: Path) -> flask.Flask:
@@ -42,4 +43,5 @@ def create_app(engine: Engine, static_root: Path, media_root: Path) -> flask.Fla
     app.register_blueprint(api_bp)
     app.register_blueprint(views_bp)
     app.register_blueprint(media_bp)
+    app.register_blueprint(sessions_bp)
     return app

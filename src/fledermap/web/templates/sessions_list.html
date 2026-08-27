@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Fledermap — Sessions</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+</head>
+<body>
+  {% include "_nav.html" %}
+  <main class="main-content">
+    <h1>Sessions</h1>
+    <form id="session-filters" method="get">
+      <label>Detector <input type="text" name="detector" value="{{ detector }}"></label>
+      <label>From <input type="date" name="from" value="{{ date_from }}"></label>
+      <label>To <input type="date" name="to" value="{{ date_to }}"></label>
+      <label>
+        <input type="checkbox" name="open_proposals" value="1" {% if open_only %}checked{% endif %}>
+        Open merge proposals only
+      </label>
+      <button type="submit">Filter</button>
+    </form>
+    <table id="sessions-table">
+      <thead>
+        <tr>
+          <th>Date range</th><th>Detector</th><th>Kind</th><th>Recordings</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td>
+            <a href="/sessions/{{ row.session.id }}">
+              {{ row.session.started_at.strftime('%Y-%m-%d %H:%M') }}–{{ row.session.ended_at.strftime('%H:%M') }}
+            </a>
+          </td>
+          <td>{{ row.session.detector_key or 'unknown detector' }}</td>
+          <td>{{ row.session.kind.value }}</td>
+          <td>{{ row.recording_count }}</td>
+          <td>{% if row.session.id in open_ids %}<span class="merge-badge">⚠ merge proposal</span>{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5">No sessions match these filters.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </main>
+  <script src="{{ url_for('vendor.static', filename='alpine.min.js') }}" defer></script>
+</body>
+</html>
