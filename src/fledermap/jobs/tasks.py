@@ -41,7 +41,8 @@ from fledermap.services.ingest import (
     scan_all_roots,
     sweep_missing,
 )
-from fledermap.store.models import Recording
+from fledermap.store.geo import decode_point
+from fledermap.store.models import Recording, Site
 from fledermap.store.seed import seed_taxonomy
 
 app = make_job_app()
@@ -85,6 +86,57 @@ def oscillogram_lock_key(audio_hash: str) -> str:
 
 def preview_lock_key(audio_hash: str) -> str:
     return f"preview:{audio_hash}:{PREVIEW_VERSION}"
+
+
+_NAME_SITE_LOCK = "poiidx-name-site"
+
+
+def name_site_queueing_lock(site_id: int) -> str:
+    return f"name_site:{site_id}"
+
+
+@app.task(queue="geo", pass_context=True, retry=_RETRY)
+def name_site_task(context: procrastinate.JobContext, site_id: int) -> None:
+    """Resolve one Site's name via poiidx, off the request path entirely
+    (design spec Goals: "never a web handler"). `_NAME_SITE_LOCK` -- a
+    single static value shared by every name_site job, applied at defer
+    time by `enqueue_site_naming` -- serializes execution across all of
+    them, so two never-before-touched-region downloads can never race each
+    other (design spec §3's corrected performance note)."""
+    # Local import: see the note above Step 3's code block -- `site_naming`
+    # imports FROM this module at ITS top level, so a top-level import here
+    # would be circular. Safe here because by the time this function
+    # actually runs, module import has long finished (same reasoning as
+    # `run_ingest_cycle`'s own local `enqueue_media` import).
+    from fledermap.services import site_naming
+
+    config: Config = context.additional_context["config"]
+    engine = context.additional_context["engine"]
+    if config.poiidx_database_url is None:
+        # Can only happen if a job was deferred, then the config changed
+        # before it ran -- nothing to do, and nothing to retry usefully.
+        return
+    site_naming.ensure_connected(config.poiidx_database_url)
+
+    with OrmSession(engine) as session:
+        site = session.get(Site, site_id)
+        if site is None:
+            # derive_sites rebuilt again since this job was enqueued and
+            # this row no longer exists -- not an error.
+            return
+        point = decode_point(site.centroid)
+        if point is None:
+            return
+        lon, lat = point
+        resolved = site_naming.name_site(
+            session,
+            lon,
+            lat,
+            radius_m=config.site_naming_radius_m,
+        )
+        if resolved is not None:
+            site.name, site.admin_path = resolved
+        session.commit()
 
 
 def _resolve_recording(session: OrmSession, audio_hash: str) -> Recording:

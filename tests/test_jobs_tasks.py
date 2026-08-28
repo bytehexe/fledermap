@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from geoalchemy2.elements import WKTElement
 from sqlalchemy import func, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session as OrmSession
@@ -15,8 +16,11 @@ from fledermap.config import Config
 from fledermap.jobs.app import ensure_schema, make_worker_connector
 from fledermap.jobs.tasks import (
     _INGEST_CYCLE_LOCK,
+    _NAME_SITE_LOCK,
     _resolve_wav_path,
     make_preview_task,
+    name_site_queueing_lock,
+    name_site_task,
     oscillogram_lock_key,
     preview_lock_key,
     render_oscillogram_task,
@@ -27,6 +31,7 @@ from fledermap.jobs.tasks import (
 from fledermap.jobs.tasks import (
     app as jobs_app,
 )
+from fledermap.services import site_naming
 from fledermap.store.models import Recording, Site
 from fledermap.store.models import Session as SessionModel
 from tests.fixtures import build_wav, fmt_payload, wamd_payload
@@ -559,3 +564,108 @@ def test_run_ingest_cycle_fails_the_job_on_an_unexpected_error(
             {"id": job_id},
         ).scalar()
     assert status == "failed"
+
+
+def test_name_site_task_writes_the_resolved_name_onto_the_site(
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(site_naming, "ensure_connected", lambda url: None)
+    monkeypatch.setattr(
+        site_naming,
+        "name_site",
+        lambda session, lon, lat, *, radius_m: ("Tiergarten", "Berlin > Mitte"),
+    )
+    jobs_app.open(engine)
+    ensure_schema(jobs_app, engine)
+
+    with OrmSession(engine) as session:
+        site = Site(
+            centroid=WKTElement("POINT(13.405 52.520)", srid=4326),
+            radius_m=50.0,
+            recording_count=1,
+            first_at=datetime(2026, 8, 28, tzinfo=UTC),
+            last_at=datetime(2026, 8, 28, tzinfo=UTC),
+        )
+        session.add(site)
+        session.commit()
+        site_id = site.id
+
+    config = Config(
+        database_url="postgresql://x/y",
+        archive_roots=(Path("/archive"),),
+        poiidx_database_url="postgresql://u:p@localhost/poiidx_bats_db",
+        site_naming_radius_m=300.0,
+    )
+    name_site_task.configure(
+        lock=_NAME_SITE_LOCK,
+        queueing_lock=name_site_queueing_lock(site_id),
+    ).defer(site_id=site_id)
+    _run_worker(
+        engine,
+        wait=False,
+        install_signal_handlers=False,
+        listen_notify=False,
+        queues=["geo"],
+        additional_context={"config": config, "engine": engine},
+    )
+
+    with OrmSession(engine) as session:
+        refreshed = session.get(Site, site_id)
+        assert refreshed is not None
+        assert refreshed.name == "Tiergarten"
+        assert refreshed.admin_path == "Berlin > Mitte"
+
+
+def test_name_site_task_leaves_the_site_unnamed_when_poiidx_resolves_nothing(
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(site_naming, "ensure_connected", lambda url: None)
+    monkeypatch.setattr(
+        site_naming,
+        "name_site",
+        lambda session, lon, lat, *, radius_m: None,
+    )
+    jobs_app.open(engine)
+    ensure_schema(jobs_app, engine)
+
+    with OrmSession(engine) as session:
+        site = Site(
+            centroid=WKTElement("POINT(13.405 52.520)", srid=4326),
+            radius_m=50.0,
+            recording_count=1,
+            first_at=datetime(2026, 8, 28, tzinfo=UTC),
+            last_at=datetime(2026, 8, 28, tzinfo=UTC),
+        )
+        session.add(site)
+        session.commit()
+        site_id = site.id
+
+    config = Config(
+        database_url="postgresql://x/y",
+        archive_roots=(Path("/archive"),),
+        poiidx_database_url="postgresql://u:p@localhost/poiidx_bats_db",
+        site_naming_radius_m=300.0,
+    )
+    name_site_task.configure(
+        lock=_NAME_SITE_LOCK,
+        queueing_lock=name_site_queueing_lock(site_id),
+    ).defer(site_id=site_id)
+    _run_worker(
+        engine,
+        wait=False,
+        install_signal_handlers=False,
+        listen_notify=False,
+        queues=["geo"],
+        additional_context={"config": config, "engine": engine},
+    )
+
+    with OrmSession(engine) as session:
+        refreshed = session.get(Site, site_id)
+        assert refreshed is not None
+        assert refreshed.name is None
+
+
+def test_name_site_queueing_lock_is_per_site() -> None:
+    assert name_site_queueing_lock(1) != name_site_queueing_lock(2)
