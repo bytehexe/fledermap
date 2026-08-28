@@ -233,8 +233,10 @@ git commit -m "feat: add Recording.archive_root_index (additive, unused yet)"
 - Consumes: `Recording.archive_root_index` (Task 1).
 - Produces: `Config.archive_roots: tuple[Path, ...]`, `ENV_ARCHIVE_ROOTS = "FLEDERMAP_ARCHIVE_ROOTS"`,
   `commit_scan(session, scanned: Iterable[tuple[ScannedFile, int]], *, archive_roots: Sequence[Path]) -> IngestReport`,
-  all consumed by Task 3 (`run_ingest_cycle` reuses `commit_scan` and the same scan-orchestration
-  shape `ingest`'s CLI body now has).
+  `scan_all_roots(archive_roots: Sequence[Path], *, timestamp_source: TimestampSource, default_timezone: tzinfo) -> tuple[list[tuple[ScannedFile, int]], set[str], int, int]`
+  (returns `(scanned, seen_hashes, skipped, incomplete_skips)`) — all in `services/ingest.py`,
+  consumed by Task 3 (`run_ingest_cycle` calls `scan_all_roots` then `commit_scan`, the same two
+  calls `ingest`'s CLI body below makes, rather than a second hand-written copy of the scan loop).
 
 - [ ] **Step 1: `Config.archive_roots` — failing tests**
 
@@ -454,11 +456,56 @@ Add the resolution block, right after the `database_url` block (before `timestam
 In the final `return cls(...)`, replace `archive_root=archive_root.resolve(),` with
 `archive_roots=archive_roots,`.
 
-- [ ] **Step 4: `commit_scan` multi-root threading**
+- [ ] **Step 4: `commit_scan` multi-root threading, and a shared `scan_all_roots` orchestrator**
 
 In `src/fledermap/services/ingest.py`:
 
-Add `Sequence` to the `collections.abc` import (alongside the existing `Iterable`).
+Add `Sequence` to the `collections.abc` import (alongside the existing `Iterable`). Add `tzinfo` to
+the existing `from datetime import UTC, datetime` import. Add two new imports:
+```python
+from fledermap.domain.codes import TimestampSource
+from fledermap.ingest.scan import INCOMPLETE_SCAN_REASONS, scan_with_skips
+```
+(`services/ingest.py` importing from `ingest/scan.py` is a safe, one-way dependency —
+`ingest/scan.py` imports nothing from `services/`, confirmed while writing this plan; no cycle.)
+
+Add a new function, `scan_all_roots`, ABOVE `commit_scan`. This exists specifically so `ingest`'s
+CLI body (below) and Task 3's `run_ingest_cycle` share ONE copy of "scan every configured root,
+tag each item with which root produced it" rather than each hand-writing the same loop — caught
+during this plan's own pre-flight review, not left for the task reviewer to find:
+```python
+def scan_all_roots(
+    archive_roots: Sequence[Path],
+    *,
+    timestamp_source: TimestampSource,
+    default_timezone: tzinfo,
+) -> tuple[list[tuple[ScannedFile, int]], set[str], int, int]:
+    """Scan every configured root in order, pairing each `ScannedFile` with
+    the index of the root that produced it (design spec §4). Returns
+    `(scanned, seen_hashes, skipped, incomplete_skips)` -- `seen_hashes` and
+    the two counts are exactly what `sweep_missing` needs, so a caller
+    doesn't have to re-derive them from `scanned`.
+    """
+    scanned: list[tuple[ScannedFile, int]] = []
+    seen_hashes: set[str] = set()
+    skipped = 0
+    incomplete_skips = 0
+    for root_index, root in enumerate(archive_roots):
+        for item in scan_with_skips(
+            root,
+            timestamp_source=timestamp_source,
+            default_timezone=default_timezone,
+        ):
+            if isinstance(item, ScannedFile):
+                scanned.append((item, root_index))
+                seen_hashes.add(item.audio_hash)
+            else:
+                _, reason = item
+                skipped += 1
+                if reason in INCOMPLETE_SCAN_REASONS:
+                    incomplete_skips += 1
+    return scanned, seen_hashes, skipped, incomplete_skips
+```
 
 Add the field to `Recording`'s write path — first, the `REPLACED`-detection query must be scoped
 per-root too, not just per-path (design spec §3: a same-relative-path collision across two
@@ -640,6 +687,40 @@ def test_archive_root_index_self_heals_on_next_scan(engine: Engine) -> None:
     assert recording.archive_root_index == 0
 ```
 
+Also add a direct test for `scan_all_roots` itself (unlike `commit_scan`'s synthetic-`ScannedFile`
+fixtures above, this one needs real files on disk — `scan_all_roots` walks the filesystem via
+`scan_with_skips`):
+```python
+def test_scan_all_roots_tags_each_item_with_its_root_index(tmp_path: Path) -> None:
+    root_a = tmp_path / "a"
+    root_b = tmp_path / "b"
+    root_a.mkdir()
+    root_b.mkdir()
+    for root, name in (
+        (root_a, "EPTSER_20150610_215446.wav"),
+        (root_b, "EPTSER_20150610_215447.wav"),
+    ):
+        path = root / name
+        path.write_bytes(build_wav([(b"fmt ", fmt_payload()), (b"data", b"\x01\x02" * 32)]))
+        old = time.time() - 3600
+        os.utime(path, (old, old))
+
+    scanned, seen, skipped, incomplete_skips = scan_all_roots(
+        (root_a, root_b),
+        timestamp_source=TimestampSource.FILENAME,
+        default_timezone=UTC,
+    )
+
+    assert skipped == 0
+    assert incomplete_skips == 0
+    assert sorted(index for _item, index in scanned) == [0, 1]
+    assert len(seen) == 2
+```
+Add `import os`, `import time`, `from fledermap.services.ingest import scan_all_roots` (alongside
+`commit_scan`, already imported), and `from tests.fixtures import build_wav, fmt_payload` to this
+test file's imports (check first — `TimestampSource`/`UTC` are very likely already imported given
+the file's existing use of `RecordingMetadata`/timezone-aware datetimes; add only what's missing).
+
 **`src/fledermap/cli/main.py`** (5 `Config.from_env(...)` call sites): change all five to
 `Config.from_env()`. For `ingest` and `worker`, ALSO remove the `@click.argument("archive", ...)`
 decorator and the `archive: Path` parameter entirely (both commands are config-only from here on).
@@ -670,29 +751,15 @@ def ingest(ctx: click.Context, sweep: bool) -> None:
     _run_migrations(config.database_url)
     ensure_schema(jobs_app, engine)
 
-    seen: set[str] = set()
     with OrmSession(engine) as session:
         seed_taxonomy(session)
         session.commit()
 
-        scanned: list[tuple[ScannedFile, int]] = []
-        skipped = 0
-        incomplete_skips = 0
-        for root_index, root in enumerate(config.archive_roots):
-            for item in scan_with_skips(
-                root,
-                timestamp_source=config.timestamp_source,
-                default_timezone=config.default_timezone,
-            ):
-                if isinstance(item, ScannedFile):
-                    scanned.append((item, root_index))
-                    seen.add(item.audio_hash)
-                else:
-                    _, reason = item
-                    skipped += 1
-                    if reason in INCOMPLETE_SCAN_REASONS:
-                        incomplete_skips += 1
-
+        scanned, seen, skipped, incomplete_skips = scan_all_roots(
+            config.archive_roots,
+            timestamp_source=config.timestamp_source,
+            default_timezone=config.default_timezone,
+        )
         report = commit_scan(session, scanned, archive_roots=config.archive_roots)
         session.commit()
 
@@ -725,6 +792,14 @@ def ingest(ctx: click.Context, sweep: bool) -> None:
                 click.echo(f"WARNING: {exc}", err=True)
                 ctx.exit(EXIT_SWEEP_REFUSED)
 ```
+
+This removes `cli/main.py`'s direct need for `scan_with_skips`/`INCOMPLETE_SCAN_REASONS`
+(`ingest/scan.py`) and `ScannedFile` (`domain/metadata.py`) — grep the file for other uses of each
+before deleting their imports (`ScannedFile` in particular may still be referenced only by the now-
+removed inline loop; confirm rather than assume), and add `scan_all_roots` to the existing
+`from fledermap.services.ingest import (...)` import alongside `commit_scan`/`sweep_missing`/etc.
+Ruff's `ruff check .` (part of `hatch fmt --check`) catches an unused import either way, but fixing
+it here avoids a lint failure the implementer would otherwise have to chase down.
 
 For `worker`, drop the `archive` argument/decorator and change `Config.from_env(archive)` to
 `Config.from_env()`; leave the rest of its body as-is for now (Task 4 rewrites it further for
@@ -812,8 +887,8 @@ git commit -m "feat: Config.archive_roots -- ordered list, config-only (no more 
 - Test: `tests/test_jobs_tasks.py` (extend + scope every existing `run_worker`/`_run_worker` call)
 
 **Interfaces:**
-- Consumes: `Config` (Task 2, whole object passed via `additional_context["config"]`), `commit_scan`
-  (Task 2), `scan_with_skips`/`INCOMPLETE_SCAN_REASONS` (existing, `ingest/scan.py`), `sweep_missing`/
+- Consumes: `Config` (Task 2, whole object passed via `additional_context["config"]`),
+  `scan_all_roots`/`commit_scan` (Task 2, `services/ingest.py`), `sweep_missing`/
   `MassDisappearanceError`/`IncompleteScanError` (existing, `services/ingest.py`), `partition_sessions`
   (existing, `derive/sessions.py`), `derive_sites` (existing, `services/derive.py`), `enqueue_media`
   (existing, `services/media.py`, imported locally to avoid a circular import — see Global
@@ -828,7 +903,6 @@ Add to `tests/test_jobs_tasks.py`:
 ```python
 from fledermap.config import Config
 from fledermap.jobs.tasks import _INGEST_CYCLE_LOCK, run_ingest_cycle
-from fledermap.store.models import Session as SessionModel  # avoid clashing with OrmSession
 
 
 def _make_config(tmp_path: Path, *, archive_roots: tuple[Path, ...] | None = None) -> Config:
@@ -960,17 +1034,19 @@ from datetime import timedelta
 
 from fledermap.config import Config
 from fledermap.derive.sessions import partition_sessions
-from fledermap.domain.metadata import ScannedFile
-from fledermap.ingest.scan import INCOMPLETE_SCAN_REASONS, scan_with_skips
 from fledermap.services.derive import derive_sites
 from fledermap.services.ingest import (
     IncompleteScanError,
     MassDisappearanceError,
     commit_scan,
+    scan_all_roots,
     sweep_missing,
 )
 from fledermap.store.seed import seed_taxonomy
 ```
+(`scan_all_roots` is Task 2's shared orchestrator — this task calls it rather than re-writing the
+scan loop a second time; no need to import `ScannedFile`/`scan_with_skips`/`INCOMPLETE_SCAN_REASONS`
+directly any more, `scan_all_roots` owns those.)
 
 Add near the top, after `app = make_job_app()`:
 ```python
@@ -1018,29 +1094,15 @@ def run_ingest_cycle(context: procrastinate.JobContext, timestamp: int) -> None:
     # actually runs, module import has long finished.
     from fledermap.services.media import enqueue_media
 
-    seen: set[str] = set()
     with OrmSession(engine) as session:
         seed_taxonomy(session)
         session.commit()
 
-        scanned: list[tuple[ScannedFile, int]] = []
-        skipped = 0
-        incomplete_skips = 0
-        for root_index, root in enumerate(config.archive_roots):
-            for item in scan_with_skips(
-                root,
-                timestamp_source=config.timestamp_source,
-                default_timezone=config.default_timezone,
-            ):
-                if isinstance(item, ScannedFile):
-                    scanned.append((item, root_index))
-                    seen.add(item.audio_hash)
-                else:
-                    _, reason = item
-                    skipped += 1
-                    if reason in INCOMPLETE_SCAN_REASONS:
-                        incomplete_skips += 1
-
+        scanned, seen, skipped, incomplete_skips = scan_all_roots(
+            config.archive_roots,
+            timestamp_source=config.timestamp_source,
+            default_timezone=config.default_timezone,
+        )
         report = commit_scan(session, scanned, archive_roots=config.archive_roots)
         session.commit()
         enqueue_media(report.created_hashes, engine)
