@@ -13,10 +13,12 @@ from fledermap.config import (
     ENV_DEFAULT_TIMEZONE,
     ENV_HOST,
     ENV_MEDIA_ROOT,
+    ENV_POIIDX_DATABASE_URL,
     ENV_PORT,
     ENV_SESSION_GAP_HOURS,
     ENV_SITE_EPS_M,
     ENV_SITE_MIN_POINTS,
+    ENV_SITE_NAMING_RADIUS_M,
     ENV_STATIC_ROOT,
     ENV_TIMESTAMP_SOURCE,
     ENV_TRANSECT_DISTANCE_M,
@@ -990,3 +992,86 @@ def test_config_file_supplies_static_root_and_resolve_static_root_agrees(
 
     assert config.static_root == static.resolve()
     assert resolve_static_root() == config.static_root
+
+
+def test_default_poiidx_database_url_is_none(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.delenv(ENV_POIIDX_DATABASE_URL, raising=False)
+    config = Config.from_env()
+    assert config.poiidx_database_url is None
+
+
+def test_poiidx_database_url_is_configurable_via_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.setenv(
+        ENV_POIIDX_DATABASE_URL,
+        "postgresql://poiidx_user:pw@localhost:5432/poiidx_bats_db",
+    )
+    config = Config.from_env()
+    assert (
+        config.poiidx_database_url
+        == "postgresql://poiidx_user:pw@localhost:5432/poiidx_bats_db"
+    )
+
+
+def test_default_site_naming_radius(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.delenv(ENV_SITE_NAMING_RADIUS_M, raising=False)
+    config = Config.from_env()
+    assert config.site_naming_radius_m == 300.0
+
+
+def test_site_naming_radius_is_configurable_via_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.setenv(ENV_SITE_NAMING_RADIUS_M, "500")
+    config = Config.from_env()
+    assert config.site_naming_radius_m == 500.0
+
+
+def test_zero_site_naming_radius_raises_config_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.setenv(ENV_SITE_NAMING_RADIUS_M, "0")
+    with pytest.raises(ConfigError, match=ENV_SITE_NAMING_RADIUS_M):
+        Config.from_env()
+
+
+def test_negative_site_naming_radius_raises_config_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.setenv(ENV_SITE_NAMING_RADIUS_M, "-1")
+    with pytest.raises(ConfigError, match=ENV_SITE_NAMING_RADIUS_M):
+        Config.from_env()
+
+
+def test_invalid_site_naming_radius_raises_config_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.setenv(ENV_SITE_NAMING_RADIUS_M, "not-a-number")
+    with pytest.raises(ConfigError, match="not-a-number"):
+        Config.from_env()

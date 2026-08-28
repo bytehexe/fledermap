@@ -34,6 +34,8 @@ ENV_SESSION_GAP_HOURS = "FLEDERMAP_SESSION_GAP_HOURS"
 ENV_SITE_EPS_M = "FLEDERMAP_SITE_EPS_M"
 ENV_SITE_MIN_POINTS = "FLEDERMAP_SITE_MIN_POINTS"
 ENV_TRANSECT_DISTANCE_M = "FLEDERMAP_TRANSECT_DISTANCE_M"
+ENV_POIIDX_DATABASE_URL = "FLEDERMAP_POIIDX_DATABASE_URL"
+ENV_SITE_NAMING_RADIUS_M = "FLEDERMAP_SITE_NAMING_RADIUS_M"
 ENV_MEDIA_ROOT = "FLEDERMAP_MEDIA_ROOT"
 ENV_STATIC_ROOT = "FLEDERMAP_STATIC_ROOT"
 ENV_CONFIG_FILE = "FLEDERMAP_CONFIG_FILE"
@@ -54,6 +56,8 @@ _KNOWN_FILE_KEYS = frozenset(
         "site_eps_m",
         "site_min_points",
         "transect_distance_m",
+        "poiidx_database_url",
+        "site_naming_radius_m",
         "media_root",
         "static_root",
         "port",
@@ -259,6 +263,19 @@ class Config:
     # hint), so it gets the same operational-tuning treatment as
     # `site_eps_m`/`session_gap_hours` rather than a code constant.
     transect_distance_m: float = 150.0
+    # Optional (design spec 2026-08-28-fledermap-poiidx-site-naming-design.md,
+    # decision SN-2): unset means the site-naming integration is off entirely
+    # -- sites keep today's coordinate-fallback label, nothing errors, nothing
+    # blocks. When set, this must point at a dedicated poiidx_bats_db, never
+    # poiidx_db (the owner's real index) or bats_db (Fledermap's own storage)
+    # -- see services/site_naming.py's connection-safety comment.
+    poiidx_database_url: str | None = None
+    # How far (metres) to search for a nearby named POI before falling back
+    # to the administrative hierarchy string. Picked by analogy to
+    # site_eps_m/transect_distance_m's defaults, not from parent-spec
+    # guidance -- this task owns the default the same way P2-5 owned
+    # site_min_points's.
+    site_naming_radius_m: float = 300.0
     # Optional since 2026-08-26 (default_factory, not a plain default, for the
     # same reason as static_root below -- it must actually run at
     # construction time and pick up whatever's configured then). It must
@@ -471,6 +488,52 @@ class Config:
         else:
             host = _as_str(host_raw, _source_label(ENV_HOST, "host", config_path))
 
+        poiidx_database_url_raw = _lookup(
+            ENV_POIIDX_DATABASE_URL,
+            "poiidx_database_url",
+            file_values,
+        )
+        poiidx_database_url = (
+            _as_str(
+                poiidx_database_url_raw,
+                _source_label(
+                    ENV_POIIDX_DATABASE_URL,
+                    "poiidx_database_url",
+                    config_path,
+                ),
+            )
+            if poiidx_database_url_raw is not None
+            else None
+        )
+
+        site_naming_radius_raw = _lookup(
+            ENV_SITE_NAMING_RADIUS_M,
+            "site_naming_radius_m",
+            file_values,
+        )
+        if site_naming_radius_raw is None:
+            site_naming_radius_m = 300.0
+        else:
+            label = _source_label(
+                ENV_SITE_NAMING_RADIUS_M,
+                "site_naming_radius_m",
+                config_path,
+            )
+            if isinstance(site_naming_radius_raw, bool):  # see session_gap_hours above
+                msg = f"{label}={site_naming_radius_raw!r} is not a number of metres."
+                raise ConfigError(msg)
+            try:
+                site_naming_radius_m = float(site_naming_radius_raw)
+            except (TypeError, ValueError) as exc:
+                msg = f"{label}={site_naming_radius_raw!r} is not a number of metres."
+                raise ConfigError(msg) from exc
+            if not site_naming_radius_m > 0:  # also rejects nan; see site_eps_m above
+                msg = (
+                    f"{label}={site_naming_radius_raw!r} is not a positive "
+                    "number of metres."
+                )
+                raise ConfigError(msg)
+
         return cls(
             database_url=url,
             archive_roots=archive_roots,
@@ -480,6 +543,8 @@ class Config:
             site_eps_m=site_eps_m,
             site_min_points=site_min_points,
             transect_distance_m=transect_distance_m,
+            poiidx_database_url=poiidx_database_url,
+            site_naming_radius_m=site_naming_radius_m,
             port=port,
             host=host,
         )

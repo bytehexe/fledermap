@@ -78,6 +78,8 @@ container's env.
 | Site clustering radius (metres) | `FLEDERMAP_SITE_EPS_M` | `site_eps_m` | no | `75.0` |
 | Site minimum points | `FLEDERMAP_SITE_MIN_POINTS` | `site_min_points` | no | `3` |
 | Session-kind GPS-spread threshold (metres) | `FLEDERMAP_TRANSECT_DISTANCE_M` | `transect_distance_m` | no | `150.0` |
+| poiidx database connection | `FLEDERMAP_POIIDX_DATABASE_URL` | `poiidx_database_url` | no | unset — site naming disabled |
+| Site-naming search radius (metres) | `FLEDERMAP_SITE_NAMING_RADIUS_M` | `site_naming_radius_m` | no | `300.0` |
 | `serve`'s interface | `FLEDERMAP_HOST` | `host` | no | `127.0.0.1` |
 | `serve`'s port | `FLEDERMAP_PORT` | `port` | no | `5000` |
 
@@ -102,6 +104,14 @@ a config file meant to work unchanged across machines or deployment users.
 an explicit flag on the command line overrides `FLEDERMAP_HOST`/
 `FLEDERMAP_PORT` (or the config file), rather than the other way around,
 since a flag typed at invocation time should win over a standing default.
+
+`poiidx_database_url` connects Fledermap to a *separate* poiidx instance
+(`../poiidx` on this machine, published on PyPI as `poiidx`) used to name derived sites. It must
+point at a dedicated `poiidx_bats_db` database — never `poiidx_db` (a pre-existing, unrelated
+poiidx index) or `bats_db` (Fledermap's own storage). poiidx hashes its own schema and filter
+config on init and **drops and recreates all its tables** on any mismatch, the same hazard the
+database section above already warns about for `bats_db`. See
+`docs/superpowers/specs/2026-08-28-fledermap-poiidx-site-naming-design.md` for the full design.
 
 ### Option A: environment variables only
 

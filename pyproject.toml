@@ -39,6 +39,7 @@ dependencies = [
   "procrastinate>=3.9,<4",
   "psycopg[binary,pool]",
   "watchdog",
+  "poiidx>=0.0.9",
 ]
 
 [project.scripts]
