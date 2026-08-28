@@ -33,8 +33,24 @@ def enqueue_media(created_hashes: list[str], engine: Engine) -> None:
     committed yet. Opens `jobs_app` against `engine` itself -- callers do NOT
     need to pre-open it -- since both `backfill_media` and the CLI `ingest`
     command call this, and each would otherwise have to duplicate that
-    step."""
-    jobs_app.open(engine)
+    step.
+
+    `jobs.tasks.run_ingest_cycle` is now a THIRD caller, and it runs from
+    *inside* an already-running Procrastinate worker -- `jobs_app`'s
+    connector at that point is whatever async connector `replace_connector`
+    swapped in for the worker (see `jobs/app.py`), already opened via
+    `open_async()` by the worker machinery itself. Calling the sync
+    `App.open()` again in that state doesn't no-op: `BaseAsyncConnector`
+    doesn't override sync `open()`, so it always raises `NotImplementedError`
+    (confirmed directly against a real worker run) regardless of whether the
+    connector already has a live async pool. That's a signal to catch, not an
+    error to propagate -- it means a connector is already active and there is
+    nothing left for this call to do.
+    """
+    try:
+        jobs_app.open(engine)
+    except NotImplementedError:
+        pass
     for audio_hash in created_hashes:
         try:
             render_spectrogram_task.configure(

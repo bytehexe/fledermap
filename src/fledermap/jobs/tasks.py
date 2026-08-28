@@ -10,12 +10,16 @@ commands, tests) must `app.open(engine)` before deferring, or
 
 from __future__ import annotations
 
+import logging
+from datetime import timedelta
 from pathlib import Path
 
 import procrastinate
 from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
 
+from fledermap.config import Config
+from fledermap.derive.sessions import partition_sessions
 from fledermap.jobs.app import make_job_app
 from fledermap.media.oscillogram import (
     DEFAULT_OSCILLOGRAM_PARAMS,
@@ -29,9 +33,28 @@ from fledermap.media.paths import (
 )
 from fledermap.media.preview import make_preview
 from fledermap.media.spectrogram import DEFAULT_SPECTROGRAM_PARAMS, render_spectrogram
+from fledermap.services.derive import derive_sites
+from fledermap.services.ingest import (
+    IncompleteScanError,
+    MassDisappearanceError,
+    commit_scan,
+    scan_all_roots,
+    sweep_missing,
+)
 from fledermap.store.models import Recording
+from fledermap.store.seed import seed_taxonomy
 
 app = make_job_app()
+
+logger = logging.getLogger(__name__)
+
+# Shared by both scheduling paths onto the SAME job -- the periodic
+# registration below, and Task 4's event-triggered `defer_async()` -- so
+# `queueing_lock` coalesces a burst of either kind into at most one pending
+# run, and `lock` keeps that run from ever overlapping one already executing
+# (design spec §5, Global Constraints above).
+_INGEST_CYCLE_LOCK = "ingest_cycle"
+_INGEST_CYCLE_CRON = "*/5 * * * *"
 
 # Design spec §7 asks for "a small fixed retry count (e.g. 3, exponential
 # backoff)". A bare `retry=3` resolves to `RetryStrategy(max_attempts=3)`
@@ -120,3 +143,89 @@ def make_preview_task(context: procrastinate.JobContext, audio_hash: str) -> Non
 
     out_path = preview_path(media_root, audio_hash)
     make_preview(wav_path, out_path)
+
+
+@app.periodic(
+    cron=_INGEST_CYCLE_CRON,
+    lock=_INGEST_CYCLE_LOCK,
+    queueing_lock=_INGEST_CYCLE_LOCK,
+)
+@app.task(queue="ingest", pass_context=True)
+def run_ingest_cycle(context: procrastinate.JobContext, timestamp: int) -> None:
+    """One full ingest+derive pass across every configured archive root.
+
+    `timestamp` is unused directly -- Procrastinate's periodic-task machinery
+    requires it as the first parameter (confirmed against
+    `procrastinate/periodic.py`: `PeriodicDeferrer.defer_jobs` always injects
+    it), and Task 4's manual `defer_async()` call supplies it too so both
+    scheduling paths share one task signature.
+
+    `MassDisappearanceError`/`IncompleteScanError` (the same two conditions
+    `ingest`'s CLI turns into `EXIT_SWEEP_REFUSED`) are caught and logged --
+    the job still "succeeds" from Procrastinate's point of view, so the next
+    cycle (cron or event) retries automatically; there's no process to exit
+    non-zero against any more (design spec §6). Anything else propagates:
+    Procrastinate marks the job failed, subject to its own retry policy.
+    """
+    config: Config = context.additional_context["config"]
+    engine = context.additional_context["engine"]
+
+    # Local import: `services.media` imports task objects FROM this module at
+    # ITS top level, so a top-level import here would be circular (Global
+    # Constraints above). Safe here because by the time this function
+    # actually runs, module import has long finished.
+    from fledermap.services.media import enqueue_media
+
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        session.commit()
+
+        scanned, seen, skipped, incomplete_skips = scan_all_roots(
+            config.archive_roots,
+            timestamp_source=config.timestamp_source,
+            default_timezone=config.default_timezone,
+        )
+        report = commit_scan(session, scanned, archive_roots=config.archive_roots)
+        session.commit()
+        enqueue_media(report.created_hashes, engine)
+
+        ingest_summary = (
+            f"ingest cycle: created {report.created} unchanged {report.unchanged} "
+            f"updated {report.updated} moved {report.moved} "
+            f"replaced {report.replaced} duplicates {report.duplicates} "
+            f"skipped {skipped} identifications added "
+            f"{report.identifications_added} superseded "
+            f"{report.identifications_superseded}"
+        )
+
+        try:
+            flagged = sweep_missing(session, seen, skipped=incomplete_skips)
+            session.commit()
+        except (MassDisappearanceError, IncompleteScanError) as exc:
+            logger.error("%s -- %s", ingest_summary, exc)
+            return
+
+        session_report = partition_sessions(
+            session,
+            session_gap=timedelta(hours=config.session_gap_hours),
+            transect_distance_m=config.transect_distance_m,
+        )
+        session.commit()
+        site_report = derive_sites(
+            session,
+            eps_m=config.site_eps_m,
+            min_points=config.site_min_points,
+        )
+        session.commit()
+
+        logger.info(
+            "%s flagged_missing %d -- sessions created %d extended %d "
+            "merge_proposals %d -- sites %d unclustered %d",
+            ingest_summary,
+            flagged,
+            session_report.created,
+            session_report.extended,
+            session_report.merge_proposals,
+            site_report.site_count,
+            site_report.unclustered,
+        )

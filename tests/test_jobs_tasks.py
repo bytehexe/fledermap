@@ -1,24 +1,30 @@
 from __future__ import annotations
 
+import logging
+import os
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import func, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session as OrmSession
 
+from fledermap.config import Config
 from fledermap.jobs.app import ensure_schema, make_worker_connector
 from fledermap.jobs.tasks import (
-    app as jobs_app,
-)
-from fledermap.jobs.tasks import (
+    _INGEST_CYCLE_LOCK,
     make_preview_task,
     oscillogram_lock_key,
     preview_lock_key,
     render_oscillogram_task,
     render_spectrogram_task,
+    run_ingest_cycle,
     spectrogram_lock_key,
+)
+from fledermap.jobs.tasks import (
+    app as jobs_app,
 )
 from fledermap.store.models import Recording
 from tests.fixtures import build_wav, fmt_payload
@@ -63,6 +69,15 @@ def _run_worker(engine: Engine, **kwargs: object) -> None:
     `postgresql://` DSN (stripping the `+psycopg2` driver suffix SQLAlchemy's
     engine carries) since `make_worker_connector`/`PsycopgConnector` expect
     that form.
+
+    Now that `run_ingest_cycle` is registered `@app.periodic(...)`,
+    Procrastinate's `_start_side_tasks` starts the periodic deferrer on ANY
+    worker run against the shared `jobs_app`, regardless of `wait`/`queues` --
+    so every call below that only exercises the media tasks scopes itself to
+    `queues=["media"]` to keep a stray periodic `run_ingest_cycle` job (which
+    would need `additional_context["config"]`, absent here) from executing
+    mid-test. This task's own tests deliberately pass `queues=["ingest"]`
+    instead.
     """
     database_url = engine.url.set(drivername="postgresql").render_as_string(
         hide_password=False,
@@ -95,6 +110,7 @@ def test_render_spectrogram_task_writes_a_file(
         wait=False,
         install_signal_handlers=False,
         listen_notify=False,
+        queues=["media"],
         additional_context={
             "archive_roots": (archive_root,),
             "media_root": media_root,
@@ -132,6 +148,7 @@ def test_render_oscillogram_task_writes_a_file(
         wait=False,
         install_signal_handlers=False,
         listen_notify=False,
+        queues=["media"],
         additional_context={
             "archive_roots": (archive_root,),
             "media_root": media_root,
@@ -166,6 +183,7 @@ def test_make_preview_task_writes_a_file(engine: Engine, tmp_path: Path) -> None
         wait=False,
         install_signal_handlers=False,
         listen_notify=False,
+        queues=["media"],
         additional_context={
             "archive_roots": (archive_root,),
             "media_root": media_root,
@@ -207,6 +225,7 @@ def _drain_once(engine: Engine, tmp_path: Path) -> None:
         wait=False,
         install_signal_handlers=False,
         listen_notify=False,
+        queues=["media"],
         additional_context={
             "archive_roots": (tmp_path / "archive",),
             "media_root": tmp_path / "media",
@@ -300,3 +319,130 @@ def test_duplicate_defer_with_the_same_queueing_lock_is_refused(
             lock=spectrogram_lock_key(audio_hash),
             queueing_lock=spectrogram_lock_key(audio_hash),
         ).defer(audio_hash=audio_hash)
+
+
+def _make_config(
+    tmp_path: Path, *, archive_roots: tuple[Path, ...] | None = None
+) -> Config:
+    roots = archive_roots if archive_roots is not None else (tmp_path / "archive",)
+    for root in roots:
+        root.mkdir(parents=True, exist_ok=True)
+    return Config(
+        database_url="postgresql://unused/unused",  # never read by run_ingest_cycle itself
+        archive_roots=roots,
+        media_root=tmp_path / "media",
+    )
+
+
+def test_run_ingest_cycle_creates_a_recording_and_derives(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    _write_wav(archive_root, "EPTSER_20150610_215446.wav")
+    old = time.time() - 3600
+    os.utime(archive_root / "EPTSER_20150610_215446.wav", (old, old))
+    config = _make_config(tmp_path, archive_roots=(archive_root,))
+    jobs_app.open(engine)
+    ensure_schema(jobs_app, engine)
+
+    run_ingest_cycle.configure(
+        lock=_INGEST_CYCLE_LOCK,
+        queueing_lock=_INGEST_CYCLE_LOCK,
+    ).defer(timestamp=int(time.time()))
+    _run_worker(
+        engine,
+        wait=False,
+        install_signal_handlers=False,
+        listen_notify=False,
+        queues=["ingest"],
+        additional_context={"config": config, "engine": engine},
+    )
+
+    with OrmSession(engine) as session:
+        count = session.scalar(select(func.count()).select_from(Recording))
+    assert count == 1
+
+
+def test_run_ingest_cycle_logs_and_continues_on_incomplete_scan(
+    engine: Engine,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A file too young to have settled makes the sweep refuse
+    (IncompleteScanError) -- the cycle must log it and return normally, not
+    raise (design spec §6): the job must still show 'succeeded', not
+    'failed', in procrastinate_jobs."""
+    archive_root = tmp_path / "archive"
+    _write_wav(archive_root, "fresh.wav")  # NOT backdated -- still "unsettled"
+    config = _make_config(tmp_path, archive_roots=(archive_root,))
+    jobs_app.open(engine)
+    ensure_schema(jobs_app, engine)
+
+    job_id = run_ingest_cycle.configure(
+        lock=_INGEST_CYCLE_LOCK,
+        queueing_lock=_INGEST_CYCLE_LOCK,
+    ).defer(timestamp=int(time.time()))
+    with caplog.at_level(logging.ERROR):
+        _run_worker(
+            engine,
+            wait=False,
+            install_signal_handlers=False,
+            listen_notify=False,
+            queues=["ingest"],
+            additional_context={"config": config, "engine": engine},
+        )
+
+    assert "refusing to sweep" in caplog.text
+    with engine.connect() as conn:
+        status = conn.execute(
+            text("SELECT status FROM procrastinate_jobs WHERE id = :id"),
+            {"id": job_id},
+        ).scalar()
+    assert status == "succeeded"
+
+
+def test_run_ingest_cycle_fails_the_job_on_an_unexpected_error(
+    engine: Engine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Distinct from the known-refusal path above: an exception that is
+    NEITHER MassDisappearanceError NOR IncompleteScanError must propagate so
+    Procrastinate marks the job failed (design spec §6), not get swallowed
+    the same way the two known refusal types are. `Path.rglob()` on a
+    nonexistent directory does NOT raise (confirmed directly -- it just
+    yields nothing), so a bad `archive_roots` entry can't be used to trigger
+    this path; monkeypatching `seed_taxonomy` (the first thing the task body
+    calls) to raise is deterministic and portable, unlike a permission-based
+    approach that would behave differently under a root test runner."""
+    import fledermap.jobs.tasks as tasks_module
+
+    def _boom(*_args: object, **_kwargs: object) -> None:
+        msg = "synthetic failure for test coverage"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr(tasks_module, "seed_taxonomy", _boom)
+    config = _make_config(tmp_path)
+    jobs_app.open(engine)
+    ensure_schema(jobs_app, engine)
+
+    job_id = run_ingest_cycle.configure(
+        lock=_INGEST_CYCLE_LOCK,
+        queueing_lock=_INGEST_CYCLE_LOCK,
+    ).defer(timestamp=int(time.time()))
+    _run_worker(
+        engine,
+        wait=False,
+        install_signal_handlers=False,
+        listen_notify=False,
+        queues=["ingest"],
+        additional_context={"config": config, "engine": engine},
+    )
+
+    with engine.connect() as conn:
+        status = conn.execute(
+            text("SELECT status FROM procrastinate_jobs WHERE id = :id"),
+            {"id": job_id},
+        ).scalar()
+    assert status == "failed"

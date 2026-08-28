@@ -248,6 +248,7 @@ def worker(wait: bool) -> None:
             additional_context={
                 "archive_roots": config.archive_roots,
                 "media_root": config.media_root,
+                "config": config,
                 "engine": engine,
             },
         )
