@@ -67,8 +67,21 @@ extra-dependencies = [
 # pytest and testcontainers both ship inline types; without them here mypy
 # cannot resolve `import pytest` / `import testcontainers.community.postgres`
 # in the test files, and the tempting fix — a global ignore_missing_imports — would
-# blind-spot every third-party import in the project.
-extra-dependencies = ["mypy>=1.0.0", "pytest>=7.0.0", "testcontainers>=4.15.0"]
+# blind-spot every third-party import in the project. PyYAML/shapely/scipy
+# don't ship inline types either -- their separate stub packages (exact
+# names taken from mypy's own "Hint:" suggestions, not guessed) were
+# apparently present in some earlier, undeclared state of this env but were
+# never captured here; a `hatch env remove types` + recreate exposed the gap
+# (found 2026-08-28 while executing the dark-mode plan -- unrelated to that
+# feature, a pre-existing repo/env drift caught along the way).
+extra-dependencies = [
+  "mypy>=1.0.0",
+  "pytest>=7.0.0",
+  "testcontainers>=4.15.0",
+  "types-PyYAML",
+  "types-shapely",
+  "scipy-stubs",
+]
 
 [tool.hatch.envs.types.scripts]
 # `scripts` used to need --explicit-package-bases + MYPYPATH=src: it held
