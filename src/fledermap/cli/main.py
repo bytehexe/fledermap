@@ -418,3 +418,30 @@ def enqueue_media_command() -> None:
         session.commit()
 
     click.echo(f"enqueued {count}")
+
+
+@cli.command(name="backfill-site-names")
+def backfill_site_names_command() -> None:
+    """Resolve names for any Site still missing one via poiidx -- for sites
+    that predate this feature, or whose name_site job failed past its retry
+    budget. A no-op (reports "enqueued 0") if FLEDERMAP_POIIDX_DATABASE_URL
+    isn't configured."""
+    try:
+        config = Config.from_env()
+    except ConfigError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    engine = make_engine(config.database_url)
+    _run_migrations(config.database_url)
+    ensure_schema(jobs_app, engine)
+
+    with OrmSession(engine) as session:
+        count = enqueue_site_naming(
+            session,
+            engine,
+            poiidx_database_url=config.poiidx_database_url,
+            radius_m=config.site_naming_radius_m,
+        )
+        session.commit()
+
+    click.echo(f"enqueued {count}")

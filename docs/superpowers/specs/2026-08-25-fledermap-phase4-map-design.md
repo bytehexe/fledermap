@@ -30,6 +30,11 @@ task. Not blocking this phase on an unrelated external-service integration. The 
 queue and `name_site` job remain unscheduled; a future task should either build them or
 retire the `SiteNameCache`/`geo`-queue plan explicitly.
 
+**Closed 2026-08-28:** built as its own task after all —
+`docs/superpowers/specs/2026-08-28-fledermap-poiidx-site-naming-design.md`. The `geo` queue now
+has `name_site_task`; `SiteNameCache` is read/written; the rounded-coordinate fallback above
+still applies whenever poiidx isn't configured or hasn't resolved a site yet.
+
 **P4-2: "Current best" identification is specified but never implemented.** §5 says:
 "Current best is a function in `services` — manual wins, else highest-priority
 non-superseded source by configured order... Not a stored column." No such function,

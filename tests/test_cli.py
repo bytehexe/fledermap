@@ -7,6 +7,7 @@ import stat
 import sys
 import time
 from collections.abc import Awaitable, Callable, Iterator, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -14,6 +15,7 @@ import click
 import flask
 import pytest
 from click.testing import CliRunner
+from geoalchemy2.elements import WKTElement
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session as OrmSession
 
@@ -21,6 +23,7 @@ import fledermap.cli.main as cli_main
 from fledermap.cli.main import (
     EXIT_SWEEP_REFUSED,
     _fetch_missing_vendor_assets_or_die,
+    _run_migrations,
     cli,
 )
 from fledermap.config import Config
@@ -28,7 +31,7 @@ from fledermap.jobs.app import ensure_schema
 from fledermap.jobs.watch import start_watching as _real_start_watching
 from fledermap.services.vendor_assets import ASSETS, IntegrityError, VendorAsset
 from fledermap.store.db import make_engine
-from fledermap.store.models import Recording
+from fledermap.store.models import Recording, Site
 from tests.fixtures import build_wav, fmt_payload, wamd_payload
 
 if TYPE_CHECKING:
@@ -751,6 +754,57 @@ def test_enqueue_media_command_reports_disk_gap_but_avoids_duplicate_jobs(
     # own defer attempts were all refused by queueing_lock, even though the
     # reported count above doesn't reflect that.
     assert count == 6
+
+
+def test_backfill_site_names_command_reports_zero_with_no_sites(
+    clean_database_url: str,
+    tmp_path: Path,
+) -> None:
+    """No sites exist yet -- the command must still succeed and report
+    "enqueued 0", whether or not poiidx is configured at all (it isn't,
+    here)."""
+    env = {
+        "FLEDERMAP_DATABASE_URL": clean_database_url,
+        "FLEDERMAP_ARCHIVE_ROOTS": str(tmp_path / "archive"),
+    }
+    runner = CliRunner()
+
+    result = runner.invoke(cli, ["backfill-site-names"], env=env)
+
+    assert result.exit_code == 0, result.output
+    assert "enqueued 0" in result.output
+
+
+def test_backfill_site_names_command_enqueues_an_unnamed_site(
+    clean_database_url: str,
+    tmp_path: Path,
+) -> None:
+    engine = make_engine(clean_database_url)
+    _run_migrations(clean_database_url)
+    with OrmSession(engine) as session:
+        session.add(
+            Site(
+                centroid=WKTElement("POINT(13.405 52.520)", srid=4326),
+                radius_m=50.0,
+                recording_count=1,
+                first_at=datetime(2026, 8, 28, tzinfo=UTC),
+                last_at=datetime(2026, 8, 28, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+    engine.dispose()
+
+    env = {
+        "FLEDERMAP_DATABASE_URL": clean_database_url,
+        "FLEDERMAP_ARCHIVE_ROOTS": str(tmp_path / "archive"),
+        "FLEDERMAP_POIIDX_DATABASE_URL": "postgresql://u:p@localhost/poiidx_bats_db",
+    }
+    runner = CliRunner()
+
+    result = runner.invoke(cli, ["backfill-site-names"], env=env)
+
+    assert result.exit_code == 0, result.output
+    assert "enqueued 1" in result.output
 
 
 def test_serve_command_starts_without_error(
