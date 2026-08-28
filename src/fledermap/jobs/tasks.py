@@ -79,13 +79,13 @@ def render_spectrogram_task(
     context: procrastinate.JobContext,
     audio_hash: str,
 ) -> None:
-    archive_root: Path = context.additional_context["archive_root"]
+    archive_roots: tuple[Path, ...] = context.additional_context["archive_roots"]
     media_root: Path = context.additional_context["media_root"]
     engine = context.additional_context["engine"]
 
     with OrmSession(engine) as session:
         recording = _resolve_recording(session, audio_hash)
-        wav_path = archive_root / recording.path
+        wav_path = archive_roots[recording.archive_root_index] / recording.path
 
     out_path = spectrogram_path(media_root, audio_hash)
     render_spectrogram(wav_path, out_path, params=DEFAULT_SPECTROGRAM_PARAMS)
@@ -96,13 +96,13 @@ def render_oscillogram_task(
     context: procrastinate.JobContext,
     audio_hash: str,
 ) -> None:
-    archive_root: Path = context.additional_context["archive_root"]
+    archive_roots: tuple[Path, ...] = context.additional_context["archive_roots"]
     media_root: Path = context.additional_context["media_root"]
     engine = context.additional_context["engine"]
 
     with OrmSession(engine) as session:
         recording = _resolve_recording(session, audio_hash)
-        wav_path = archive_root / recording.path
+        wav_path = archive_roots[recording.archive_root_index] / recording.path
 
     out_path = oscillogram_path(media_root, audio_hash)
     render_oscillogram(wav_path, out_path, params=DEFAULT_OSCILLOGRAM_PARAMS)
@@ -110,13 +110,13 @@ def render_oscillogram_task(
 
 @app.task(queue="media", pass_context=True, retry=_RETRY)
 def make_preview_task(context: procrastinate.JobContext, audio_hash: str) -> None:
-    archive_root: Path = context.additional_context["archive_root"]
+    archive_roots: tuple[Path, ...] = context.additional_context["archive_roots"]
     media_root: Path = context.additional_context["media_root"]
     engine = context.additional_context["engine"]
 
     with OrmSession(engine) as session:
         recording = _resolve_recording(session, audio_hash)
-        wav_path = archive_root / recording.path
+        wav_path = archive_roots[recording.archive_root_index] / recording.path
 
     out_path = preview_path(media_root, audio_hash)
     make_preview(wav_path, out_path)

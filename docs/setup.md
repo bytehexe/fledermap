@@ -69,6 +69,7 @@ container's env.
 | Setting | Env var | Config file key | Required? | Default |
 |---|---|---|---|---|
 | Database connection | `FLEDERMAP_DATABASE_URL` | `database_url` | **yes** | — |
+| Archive root(s) to scan | `FLEDERMAP_ARCHIVE_ROOTS` | `archive_roots` | **yes** | — |
 | Derived media directory | `FLEDERMAP_MEDIA_ROOT` | `media_root` | no | platformdirs data dir |
 | Vendor JS/CSS directory | `FLEDERMAP_STATIC_ROOT` | `static_root` | no | platformdirs cache dir |
 | Timestamp source | `FLEDERMAP_TIMESTAMP_SOURCE` | `timestamp_source` | no | `filename` |
@@ -80,29 +81,37 @@ container's env.
 | `serve`'s interface | `FLEDERMAP_HOST` | `host` | no | `127.0.0.1` |
 | `serve`'s port | `FLEDERMAP_PORT` | `port` | no | `5000` |
 
-`archive_root` (the directory `ingest` scans) is not in this table — it's
-supplied per-invocation, as the `ingest`/`worker` commands' `ARCHIVE`
-argument, not as a persistent setting. `serve --host`/`--port` follow the
-opposite rule from everything else here: an explicit flag on the command
-line overrides `FLEDERMAP_HOST`/`FLEDERMAP_PORT` (or the config file),
-rather than the other way around, since a flag typed at invocation time
-should win over a standing default.
+`archive_roots` (the directory or directories `ingest` scans) is a persistent
+setting like every other row above, not a CLI argument — `ingest`/`worker`
+take no positional `ARCHIVE` any more. It accepts more than one directory,
+scanned in order (design spec §2/§4): comma-separated for the env var
+(`FLEDERMAP_ARCHIVE_ROOTS=/mnt/syncthing,/mnt/sdcard-dump`), or a native TOML
+array in the config file. Order matters only as a tie-break — the first
+configured root wins if a relative path somehow collides across roots.
 
-Every path-typed setting here (`media_root`, `static_root`,
-`FLEDERMAP_CONFIG_FILE` itself) accepts a leading `~`, expanded to the home
-directory of whichever user actually runs the command — useful for a config
-file meant to work unchanged across machines or deployment users.
+Every path-typed setting here (`archive_roots`, `media_root`, `static_root`,
+`FLEDERMAP_CONFIG_FILE` itself) accepts a leading `~` per entry, expanded to
+the home directory of whichever user actually runs the command — useful for
+a config file meant to work unchanged across machines or deployment users.
+
+`serve --host`/`--port` follow the opposite rule from everything else here:
+an explicit flag on the command line overrides `FLEDERMAP_HOST`/
+`FLEDERMAP_PORT` (or the config file), rather than the other way around,
+since a flag typed at invocation time should win over a standing default.
 
 ### Option A: environment variables only
 
 ```bash
 export FLEDERMAP_DATABASE_URL="postgresql://fledermap:password@localhost/bats_db"
+# archive_roots is required -- comma-separated for more than one directory,
+# scanned in the order given.
+export FLEDERMAP_ARCHIVE_ROOTS="/path/to/archive"
 # media_root is optional (falls back to a platformdirs data dir), but a real
 # deployment should still set it explicitly -- especially in a container,
 # where the fallback path is inside the container's own ephemeral
 # filesystem, not backed up and gone on the next `docker run`.
 export FLEDERMAP_MEDIA_ROOT="/var/lib/fledermap/media"
-fledermap ingest /path/to/archive
+fledermap ingest
 ```
 
 ### Option B: a config file
@@ -114,6 +123,9 @@ at any file of your choosing:
 ```toml
 # ~/.config/fledermap/config.toml
 database_url = "postgresql://fledermap:password@localhost/bats_db"
+# archive_roots is required -- a TOML array, even for a single directory.
+# Scanned in the order listed (design spec §2/§4).
+archive_roots = ["/path/to/archive"]
 # media_root is optional (falls back to a platformdirs data dir, e.g.
 # ~/.local/share/fledermap on Linux), but set it explicitly for any real
 # deployment -- especially in a container, where the fallback path is inside
@@ -165,9 +177,9 @@ fledermap serve
 ## 3. Running it
 
 ```bash
-fledermap ingest /path/to/archive     # scan recordings into the database
-fledermap derive                      # partition sessions, cluster sites
-fledermap serve                       # the web map, http://127.0.0.1:5000
+fledermap ingest     # scan every configured archive root into the database
+fledermap derive     # partition sessions, cluster sites
+fledermap serve      # the web map, http://127.0.0.1:5000
 ```
 
 `serve` also needs vendor JS/CSS (Leaflet, HTMX, Alpine), fetched from

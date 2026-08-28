@@ -96,7 +96,7 @@ def test_render_spectrogram_task_writes_a_file(
         install_signal_handlers=False,
         listen_notify=False,
         additional_context={
-            "archive_root": archive_root,
+            "archive_roots": (archive_root,),
             "media_root": media_root,
             "engine": engine,
         },
@@ -133,7 +133,7 @@ def test_render_oscillogram_task_writes_a_file(
         install_signal_handlers=False,
         listen_notify=False,
         additional_context={
-            "archive_root": archive_root,
+            "archive_roots": (archive_root,),
             "media_root": media_root,
             "engine": engine,
         },
@@ -167,7 +167,7 @@ def test_make_preview_task_writes_a_file(engine: Engine, tmp_path: Path) -> None
         install_signal_handlers=False,
         listen_notify=False,
         additional_context={
-            "archive_root": archive_root,
+            "archive_roots": (archive_root,),
             "media_root": media_root,
             "engine": engine,
         },
@@ -208,7 +208,7 @@ def _drain_once(engine: Engine, tmp_path: Path) -> None:
         install_signal_handlers=False,
         listen_notify=False,
         additional_context={
-            "archive_root": tmp_path / "archive",
+            "archive_roots": (tmp_path / "archive",),
             "media_root": tmp_path / "media",
             "engine": engine,
         },

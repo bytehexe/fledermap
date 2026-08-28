@@ -27,6 +27,7 @@ import platformdirs
 from fledermap.domain.codes import TimestampSource
 
 ENV_DATABASE_URL = "FLEDERMAP_DATABASE_URL"
+ENV_ARCHIVE_ROOTS = "FLEDERMAP_ARCHIVE_ROOTS"
 ENV_TIMESTAMP_SOURCE = "FLEDERMAP_TIMESTAMP_SOURCE"
 ENV_DEFAULT_TIMEZONE = "FLEDERMAP_DEFAULT_TIMEZONE"
 ENV_SESSION_GAP_HOURS = "FLEDERMAP_SESSION_GAP_HOURS"
@@ -40,13 +41,13 @@ ENV_PORT = "FLEDERMAP_PORT"
 ENV_HOST = "FLEDERMAP_HOST"
 
 # Every key the config file is allowed to set -- one entry per `Config` field
-# that has a `FLEDERMAP_*` env var above. `archive_root` is deliberately
-# absent: it's supplied per-invocation (a CLI argument, or cwd), not a
-# persistent server setting. Checked in `_load_config_file` so a typo'd key
-# (`sesion_gap_hours`) fails loudly instead of being silently ignored forever.
+# that has a `FLEDERMAP_*` env var above. Checked in `_load_config_file` so a
+# typo'd key (`sesion_gap_hours`) fails loudly instead of being silently
+# ignored forever.
 _KNOWN_FILE_KEYS = frozenset(
     {
         "database_url",
+        "archive_roots",
         "timestamp_source",
         "default_timezone",
         "session_gap_hours",
@@ -150,13 +151,36 @@ def _as_str(value: Any, label: str) -> str:
     raise ConfigError(msg)
 
 
+def _parse_archive_roots(value: Any, label: str) -> tuple[Path, ...]:
+    """Env var: comma-separated. Config file: a native TOML array, OR a
+    single comma-separated string (accepted the same way, for consistency
+    with the env var format rather than forcing a different shape per
+    source). Order is preserved -- it's meaningful (design spec §2): the
+    first configured root wins any relative-path tie.
+    """
+    if isinstance(value, str):
+        raw_parts = value.split(",")
+    elif isinstance(value, list):
+        raw_parts = [_as_str(v, label) for v in value]
+    else:
+        msg = (
+            f"{label}={value!r} must be a comma-separated string or an array of paths."
+        )
+        raise ConfigError(msg)
+    parts = [p.strip() for p in raw_parts if p.strip()]
+    if not parts:
+        msg = f"{label} must name at least one directory."
+        raise ConfigError(msg)
+    return tuple(Path(p).expanduser().resolve() for p in parts)
+
+
 def resolve_media_root() -> Path:
     """Where derived media (spectrograms, previews) lives.
 
     Optional as of 2026-08-26, reversing the original Phase 3 decision (see
     the dated deviation note in `docs/superpowers/specs/
     2026-08-25-fledermap-phase3-media-jobs-design.md` §10) that `media_root`
-    stay required with no default, matching `database_url`/`archive_root`.
+    stay required with no default, matching `database_url`/`archive_roots`.
     Falls back to a `platformdirs` *data* directory, not a *cache* directory
     like `resolve_static_root` below -- derived media is, in principle,
     re-derivable from the archive, but expensive to regenerate at scale, so
@@ -188,7 +212,7 @@ def resolve_static_root() -> Path:
     default (rather than the *data*-dir default `media_root` uses) is the
     right fit here (design spec P4-5). A standalone function, not a `Config`
     method, so callers like `fledermap fetch-assets` can call it without
-    building a full `Config` (which requires `archive_root`, irrelevant to
+    building a full `Config` (which requires `archive_roots`, irrelevant to
     fetching static assets).
 
     Consults the config file too (not just the env var), and shares
@@ -212,7 +236,7 @@ def resolve_static_root() -> Path:
 @dataclass(frozen=True)
 class Config:
     database_url: str
-    archive_root: Path
+    archive_roots: tuple[Path, ...]
     timestamp_source: TimestampSource = TimestampSource.FILENAME
     # The offset used only when NO source in a file carries any offset
     # evidence at all (spec section 11). An IANA zone name, not a fixed UTC
@@ -235,7 +259,7 @@ class Config:
     # Optional since 2026-08-26 (default_factory, not a plain default, for the
     # same reason as static_root below -- it must actually run at
     # construction time and pick up whatever's configured then). It must
-    # still be distinct from archive_root -- writing into the archive would
+    # still be distinct from archive_roots -- writing into the archive would
     # violate D16's read-only invariant on the source tree. See
     # resolve_media_root's docstring for the platformdirs rationale and the
     # pointer to the dated deviation note reversing the original
@@ -256,7 +280,7 @@ class Config:
     host: str = "127.0.0.1"
 
     @classmethod
-    def from_env(cls, archive_root: Path) -> Config:
+    def from_env(cls) -> Config:
         file_values, config_path = _load_config_file()
 
         url = _lookup(ENV_DATABASE_URL, "database_url", file_values)
@@ -269,6 +293,20 @@ class Config:
             )
             raise ConfigError(msg)
         url = _as_str(url, _source_label(ENV_DATABASE_URL, "database_url", config_path))
+
+        archive_roots_raw = _lookup(ENV_ARCHIVE_ROOTS, "archive_roots", file_values)
+        if not archive_roots_raw:
+            msg = (
+                f"{ENV_ARCHIVE_ROOTS} is not set, and no 'archive_roots' entry "
+                f"exists in {config_path}. Point it at one or more directories "
+                "holding recordings -- comma-separated for the env var, or a "
+                "TOML array in the config file."
+            )
+            raise ConfigError(msg)
+        archive_roots = _parse_archive_roots(
+            archive_roots_raw,
+            _source_label(ENV_ARCHIVE_ROOTS, "archive_roots", config_path),
+        )
 
         timestamp_source_raw = _lookup(
             ENV_TIMESTAMP_SOURCE,
@@ -432,7 +470,7 @@ class Config:
 
         return cls(
             database_url=url,
-            archive_root=archive_root.resolve(),
+            archive_roots=archive_roots,
             timestamp_source=timestamp_source,
             default_timezone=default_timezone,
             session_gap_hours=session_gap_hours,

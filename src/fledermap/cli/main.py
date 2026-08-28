@@ -14,8 +14,6 @@ from sqlalchemy.orm import Session as OrmSession
 from alembic import command as alembic_command
 from fledermap.config import Config, ConfigError, resolve_static_root
 from fledermap.derive.sessions import partition_sessions
-from fledermap.domain.metadata import ScannedFile
-from fledermap.ingest.scan import INCOMPLETE_SCAN_REASONS, scan_with_skips
 from fledermap.jobs.app import ensure_schema, make_worker_connector
 from fledermap.jobs.tasks import app as jobs_app
 from fledermap.services.derive import derive_sites
@@ -23,6 +21,7 @@ from fledermap.services.ingest import (
     IncompleteScanError,
     MassDisappearanceError,
     commit_scan,
+    scan_all_roots,
     sweep_missing,
 )
 from fledermap.services.media import backfill_media, enqueue_media
@@ -42,14 +41,14 @@ from fledermap.web.app import create_app
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 # Distinct from ConfigError's exit code (1, via click.ClickException) AND from
-# Click's OWN reserved exit code 2 (click.exceptions.UsageError — raised for a
-# nonexistent ARCHIVE path, a missing argument, or an unrecognised option,
-# since `--sweep/--no-sweep` and the `ARCHIVE` argument both go through
-# Click's own parsing). Reusing 2 would make "you mistyped the path, nothing
-# happened" and "ingest succeeded, sweep refused" indistinguishable to a
-# caller checking only the exit code — defeating the reason this has its own
-# code at all. Picked 3 specifically to stay clear of Click's reserved 0/1/2
-# (confirmed via `click.exceptions.ClickException.exit_code == 1` and
+# Click's OWN reserved exit code 2 (click.exceptions.UsageError — raised for
+# an unrecognised option or bad option value, since `--sweep/--no-sweep`
+# goes through Click's own parsing). Reusing 2 would make "you mistyped an
+# option, nothing happened" and "ingest succeeded, sweep refused"
+# indistinguishable to a caller checking only the exit code — defeating the
+# reason this has its own code at all. Picked 3 specifically to stay clear of
+# Click's reserved 0/1/2 (confirmed via
+# `click.exceptions.ClickException.exit_code == 1` and
 # `UsageError.exit_code == 2` against the installed version).
 #
 # The ingest itself succeeded and was committed when this fires — only the
@@ -107,59 +106,39 @@ def cli() -> None:
 
 
 @cli.command()
-@click.argument(
-    "archive",
-    type=click.Path(exists=True, file_okay=False, path_type=Path),
-)
 @click.option(
     "--sweep/--no-sweep",
     default=True,
     help="Flag recordings whose source file was not found.",
 )
 @click.pass_context
-def ingest(ctx: click.Context, archive: Path, sweep: bool) -> None:
-    """Scan ARCHIVE and write recordings to the database. Read-only on ARCHIVE.
+def ingest(ctx: click.Context, sweep: bool) -> None:
+    """Scan every configured archive root and write recordings to the
+    database. Read-only on every root (D16).
 
     Exit codes: 0 on success. 1 if configuration is invalid (nothing was
     written). 3 if the ingest itself succeeded and was committed, but the
-    missing-file sweep was refused (too many recordings vanished at once, or
-    some files were still settling) — check the warning on stderr for which.
+    missing-file sweep was refused -- check the warning on stderr for which.
     """
     try:
-        config = Config.from_env(archive)
+        config = Config.from_env()
     except ConfigError as exc:
         raise click.ClickException(str(exc)) from exc
 
     engine = make_engine(config.database_url)
     _run_migrations(config.database_url)
-    # No `jobs_app.open(engine)` here: `enqueue_media` opens it itself, by
-    # contract. `ensure_schema` uses `engine` directly and does not need an
-    # opened connector either.
     ensure_schema(jobs_app, engine)
 
-    seen: set[str] = set()
     with OrmSession(engine) as session:
         seed_taxonomy(session)
         session.commit()
 
-        scanned = []
-        skipped = 0
-        incomplete_skips = 0
-        for item in scan_with_skips(
-            config.archive_root,
+        scanned, seen, skipped, incomplete_skips = scan_all_roots(
+            config.archive_roots,
             timestamp_source=config.timestamp_source,
             default_timezone=config.default_timezone,
-        ):
-            if isinstance(item, ScannedFile):
-                scanned.append(item)
-                seen.add(item.audio_hash)
-            else:
-                _, reason = item
-                skipped += 1
-                if reason in INCOMPLETE_SCAN_REASONS:
-                    incomplete_skips += 1
-
-        report = commit_scan(session, scanned, archive_root=config.archive_root)
+        )
+        report = commit_scan(session, scanned, archive_roots=config.archive_roots)
         session.commit()
 
         enqueue_media(report.created_hashes, engine)
@@ -201,7 +180,7 @@ def derive() -> None:
     recordings, and site rebuilding is idempotent.
     """
     try:
-        config = Config.from_env(Path.cwd())
+        config = Config.from_env()
     except ConfigError as exc:
         raise click.ClickException(str(exc)) from exc
 
@@ -234,20 +213,15 @@ def derive() -> None:
 
 
 @cli.command()
-@click.argument(
-    "archive",
-    type=click.Path(exists=True, file_okay=False, path_type=Path),
-)
 @click.option(
     "--wait/--no-wait",
     default=True,
     help="Keep running until stopped (default), or process the current "
     "queue once and exit.",
 )
-def worker(archive: Path, wait: bool) -> None:
-    """Run the media job worker. Reads and writes files under ARCHIVE and
-    the configured media root; requires the same ARCHIVE path `ingest` uses
-    to resolve `Recording.path` to a real file.
+def worker(wait: bool) -> None:
+    """Run the media job worker. Reads and writes files under the configured
+    archive roots and the configured media root.
     """
     # Procrastinate logs worker startup and every per-job event at INFO. With
     # no handler and the root logger at its WARNING default, a long-lived
@@ -257,7 +231,7 @@ def worker(archive: Path, wait: bool) -> None:
     logging.basicConfig(level=logging.INFO)
 
     try:
-        config = Config.from_env(archive)
+        config = Config.from_env()
     except ConfigError as exc:
         raise click.ClickException(str(exc)) from exc
 
@@ -272,7 +246,7 @@ def worker(archive: Path, wait: bool) -> None:
             install_signal_handlers=wait,
             listen_notify=wait,
             additional_context={
-                "archive_root": config.archive_root,
+                "archive_roots": config.archive_roots,
                 "media_root": config.media_root,
                 "engine": engine,
             },
@@ -302,7 +276,7 @@ def serve(host: str | None, port: int | None) -> None:
     (e.g. for an offline install) instead of fetching it at server startup.
     """
     try:
-        config = Config.from_env(Path.cwd())
+        config = Config.from_env()
     except ConfigError as exc:
         raise click.ClickException(str(exc)) from exc
 
@@ -351,7 +325,7 @@ def enqueue_media_command() -> None:
     recordings ingested before this phase existed, or after a media-params
     change that invalidates old renders."""
     try:
-        config = Config.from_env(Path.cwd())
+        config = Config.from_env()
     except ConfigError as exc:
         raise click.ClickException(str(exc)) from exc
 

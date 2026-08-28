@@ -111,9 +111,10 @@ def test_ingest_reports_created_recordings(
     archive = _archive(tmp_path)
     result = CliRunner().invoke(
         cli,
-        ["ingest", str(archive)],
+        ["ingest"],
         env={
             "FLEDERMAP_DATABASE_URL": clean_database_url,
+            "FLEDERMAP_ARCHIVE_ROOTS": str(archive),
             "FLEDERMAP_MEDIA_ROOT": str(tmp_path / "media"),
         },
     )
@@ -133,13 +134,14 @@ def test_second_run_creates_nothing(clean_database_url: str, tmp_path: Path) -> 
     runner = CliRunner()
     env = {
         "FLEDERMAP_DATABASE_URL": clean_database_url,
+        "FLEDERMAP_ARCHIVE_ROOTS": str(archive),
         "FLEDERMAP_MEDIA_ROOT": str(tmp_path / "media"),
     }
 
-    first = runner.invoke(cli, ["ingest", str(archive)], env=env)
+    first = runner.invoke(cli, ["ingest"], env=env)
     assert first.exit_code == 0, first.output
 
-    result = runner.invoke(cli, ["ingest", str(archive)], env=env)
+    result = runner.invoke(cli, ["ingest"], env=env)
 
     assert result.exit_code == 0, result.output
     assert "created 0" in result.output
@@ -152,10 +154,14 @@ def test_missing_database_url_fails_clearly(tmp_path: Path) -> None:
     # whatever FLEDERMAP_DATABASE_URL happens to be set to in the ambient
     # shell. Deleting the key explicitly is what actually exercises "unset"
     # (task-13, defect 5).
+    archive = _archive(tmp_path)
     result = CliRunner().invoke(
         cli,
-        ["ingest", str(_archive(tmp_path))],
-        env={"FLEDERMAP_DATABASE_URL": None},
+        ["ingest"],
+        env={
+            "FLEDERMAP_DATABASE_URL": None,
+            "FLEDERMAP_ARCHIVE_ROOTS": str(archive),
+        },
     )
 
     assert result.exit_code != 0
@@ -174,9 +180,10 @@ def test_migration_populates_alembic_version(
     archive = _archive(tmp_path)
     result = CliRunner().invoke(
         cli,
-        ["ingest", str(archive)],
+        ["ingest"],
         env={
             "FLEDERMAP_DATABASE_URL": clean_database_url,
+            "FLEDERMAP_ARCHIVE_ROOTS": str(archive),
             "FLEDERMAP_MEDIA_ROOT": str(tmp_path / "media"),
         },
     )
@@ -209,9 +216,10 @@ def test_unsettled_file_refuses_sweep_with_a_distinct_message(
 
     result = CliRunner().invoke(
         cli,
-        ["ingest", str(archive)],
+        ["ingest"],
         env={
             "FLEDERMAP_DATABASE_URL": clean_database_url,
+            "FLEDERMAP_ARCHIVE_ROOTS": str(archive),
             "FLEDERMAP_MEDIA_ROOT": str(tmp_path / "media"),
         },
     )
@@ -236,10 +244,11 @@ def test_mass_disappearance_refuses_sweep_with_a_distinct_message(
     runner = CliRunner()
     env = {
         "FLEDERMAP_DATABASE_URL": clean_database_url,
+        "FLEDERMAP_ARCHIVE_ROOTS": str(archive),
         "FLEDERMAP_MEDIA_ROOT": str(tmp_path / "media"),
     }
 
-    first = runner.invoke(cli, ["ingest", str(archive)], env=env)
+    first = runner.invoke(cli, ["ingest"], env=env)
     assert first.exit_code == 0, first.output
     assert "created 12" in first.output
 
@@ -249,7 +258,7 @@ def test_mass_disappearance_refuses_sweep_with_a_distinct_message(
     for i in range(4):
         (session_dir / f"NoID_20150610_{215400 + i:06d}.wav").unlink()
 
-    result = runner.invoke(cli, ["ingest", str(archive)], env=env)
+    result = runner.invoke(cli, ["ingest"], env=env)
 
     assert result.exit_code == EXIT_SWEEP_REFUSED, result.output
     assert "recordings absent" in result.output
@@ -277,9 +286,10 @@ def test_excluded_files_do_not_refuse_the_sweep(
 
     result = CliRunner().invoke(
         cli,
-        ["ingest", str(archive)],
+        ["ingest"],
         env={
             "FLEDERMAP_DATABASE_URL": clean_database_url,
+            "FLEDERMAP_ARCHIVE_ROOTS": str(archive),
             "FLEDERMAP_MEDIA_ROOT": str(tmp_path / "media"),
         },
     )
@@ -313,9 +323,10 @@ def test_unreadable_file_still_refuses_the_sweep(
     try:
         result = CliRunner().invoke(
             cli,
-            ["ingest", str(archive)],
+            ["ingest"],
             env={
                 "FLEDERMAP_DATABASE_URL": clean_database_url,
+                "FLEDERMAP_ARCHIVE_ROOTS": str(archive),
                 "FLEDERMAP_MEDIA_ROOT": str(tmp_path / "media"),
             },
         )
@@ -340,17 +351,18 @@ def test_no_sweep_flag_bypasses_the_refusal_entirely(
     runner = CliRunner()
     env = {
         "FLEDERMAP_DATABASE_URL": clean_database_url,
+        "FLEDERMAP_ARCHIVE_ROOTS": str(archive),
         "FLEDERMAP_MEDIA_ROOT": str(tmp_path / "media"),
     }
 
-    first = runner.invoke(cli, ["ingest", str(archive)], env=env)
+    first = runner.invoke(cli, ["ingest"], env=env)
     assert first.exit_code == 0, first.output
 
     session_dir = archive / "Session_20130401_053030"
     for i in range(4):
         (session_dir / f"NoID_20150610_{215400 + i:06d}.wav").unlink()
 
-    result = runner.invoke(cli, ["ingest", "--no-sweep", str(archive)], env=env)
+    result = runner.invoke(cli, ["ingest", "--no-sweep"], env=env)
 
     assert result.exit_code == 0, result.output
     assert "recordings absent" not in result.output
@@ -383,9 +395,10 @@ def test_cli_ingest_does_not_modify_the_archive_tree(
 
     result = CliRunner().invoke(
         cli,
-        ["ingest", str(archive)],
+        ["ingest"],
         env={
             "FLEDERMAP_DATABASE_URL": clean_database_url,
+            "FLEDERMAP_ARCHIVE_ROOTS": str(archive),
             "FLEDERMAP_MEDIA_ROOT": str(tmp_path / "media"),
         },
     )
@@ -407,9 +420,10 @@ def test_gps_less_recording_ingests_with_null_geom(
 
     result = CliRunner().invoke(
         cli,
-        ["ingest", str(archive)],
+        ["ingest"],
         env={
             "FLEDERMAP_DATABASE_URL": clean_database_url,
+            "FLEDERMAP_ARCHIVE_ROOTS": str(archive),
             "FLEDERMAP_MEDIA_ROOT": str(tmp_path / "media"),
         },
     )
@@ -431,10 +445,11 @@ def test_derive_command_reports_sessions_and_sites(
     runner = CliRunner()
     env = {
         "FLEDERMAP_DATABASE_URL": clean_database_url,
+        "FLEDERMAP_ARCHIVE_ROOTS": str(archive),
         "FLEDERMAP_MEDIA_ROOT": str(tmp_path / "media"),
     }
 
-    ingest_result = runner.invoke(cli, ["ingest", str(archive)], env=env)
+    ingest_result = runner.invoke(cli, ["ingest"], env=env)
     assert ingest_result.exit_code == 0, ingest_result.output
 
     result = runner.invoke(cli, ["derive"], env=env)
@@ -458,9 +473,10 @@ def test_derive_command_is_idempotent(
     runner = CliRunner()
     env = {
         "FLEDERMAP_DATABASE_URL": clean_database_url,
+        "FLEDERMAP_ARCHIVE_ROOTS": str(archive),
         "FLEDERMAP_MEDIA_ROOT": str(tmp_path / "media"),
     }
-    runner.invoke(cli, ["ingest", str(archive)], env=env)
+    runner.invoke(cli, ["ingest"], env=env)
     runner.invoke(cli, ["derive"], env=env)
 
     result = runner.invoke(cli, ["derive"], env=env)
@@ -477,11 +493,12 @@ def test_ingest_enqueues_media_jobs_for_created_recordings(
     archive = _archive(tmp_path)
     env = {
         "FLEDERMAP_DATABASE_URL": clean_database_url,
+        "FLEDERMAP_ARCHIVE_ROOTS": str(archive),
         "FLEDERMAP_MEDIA_ROOT": str(tmp_path / "media"),
     }
     runner = CliRunner()
 
-    result = runner.invoke(cli, ["ingest", str(archive)], env=env)
+    result = runner.invoke(cli, ["ingest"], env=env)
 
     assert result.exit_code == 0, result.output
 
@@ -504,12 +521,13 @@ def test_worker_no_wait_processes_queued_jobs_and_writes_media(
     media_root = tmp_path / "media"
     env = {
         "FLEDERMAP_DATABASE_URL": clean_database_url,
+        "FLEDERMAP_ARCHIVE_ROOTS": str(archive),
         "FLEDERMAP_MEDIA_ROOT": str(media_root),
     }
     runner = CliRunner()
-    runner.invoke(cli, ["ingest", str(archive)], env=env)
+    runner.invoke(cli, ["ingest"], env=env)
 
-    result = runner.invoke(cli, ["worker", str(archive), "--no-wait"], env=env)
+    result = runner.invoke(cli, ["worker", "--no-wait"], env=env)
 
     assert result.exit_code == 0, result.output
     spectrograms = list(media_root.glob("*/*/spectrogram-*.webp"))
@@ -547,10 +565,11 @@ def test_enqueue_media_command_reports_disk_gap_but_avoids_duplicate_jobs(
     archive = _archive(tmp_path)
     env = {
         "FLEDERMAP_DATABASE_URL": clean_database_url,
+        "FLEDERMAP_ARCHIVE_ROOTS": str(archive),
         "FLEDERMAP_MEDIA_ROOT": str(tmp_path / "media"),
     }
     runner = CliRunner()
-    runner.invoke(cli, ["ingest", str(archive)], env=env)
+    runner.invoke(cli, ["ingest"], env=env)
 
     result = runner.invoke(cli, ["enqueue-media"], env=env)
 
@@ -597,6 +616,7 @@ def test_serve_command_starts_without_error(
     runner = CliRunner()
     env = {
         "FLEDERMAP_DATABASE_URL": clean_database_url,
+        "FLEDERMAP_ARCHIVE_ROOTS": str(tmp_path / "archive"),
         "FLEDERMAP_MEDIA_ROOT": str(tmp_path / "media"),
         "FLEDERMAP_STATIC_ROOT": str(tmp_path / "static"),
     }
@@ -634,6 +654,7 @@ def test_serve_command_uses_configured_host_and_port_when_flags_omitted(
     runner = CliRunner()
     env = {
         "FLEDERMAP_DATABASE_URL": clean_database_url,
+        "FLEDERMAP_ARCHIVE_ROOTS": str(tmp_path / "archive"),
         "FLEDERMAP_MEDIA_ROOT": str(tmp_path / "media"),
         "FLEDERMAP_STATIC_ROOT": str(tmp_path / "static"),
         "FLEDERMAP_PORT": "9090",

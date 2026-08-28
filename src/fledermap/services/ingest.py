@@ -9,9 +9,9 @@ does not get this for free from SQLAlchemy the way a JSONB column does).
 from __future__ import annotations
 
 import math
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, tzinfo
 from enum import StrEnum
 from pathlib import Path
 from typing import assert_never
@@ -20,12 +20,13 @@ from geoalchemy2.elements import WKTElement
 from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
 
-from fledermap.domain.codes import IdSource
+from fledermap.domain.codes import IdSource, TimestampSource
 from fledermap.domain.metadata import (
     ParsedIdentification,
     RecordingMetadata,
     ScannedFile,
 )
+from fledermap.ingest.scan import INCOMPLETE_SCAN_REASONS, scan_with_skips
 from fledermap.store.geo import decode_point
 from fledermap.store.models import Identification, Recording
 from fledermap.store.seed import resolve_code
@@ -282,19 +283,62 @@ def _apply_metadata(recording: Recording, scanned: ScannedFile) -> bool:
     return changed
 
 
+def scan_all_roots(
+    archive_roots: Sequence[Path],
+    *,
+    timestamp_source: TimestampSource,
+    default_timezone: tzinfo,
+) -> tuple[list[tuple[ScannedFile, int]], set[str], int, int]:
+    """Scan every configured root in order, pairing each `ScannedFile` with
+    the index of the root that produced it (design spec §4). Returns
+    `(scanned, seen_hashes, skipped, incomplete_skips)` -- `seen_hashes` and
+    the two counts are exactly what `sweep_missing` needs, so a caller
+    doesn't have to re-derive them from `scanned`.
+    """
+    scanned: list[tuple[ScannedFile, int]] = []
+    seen_hashes: set[str] = set()
+    skipped = 0
+    incomplete_skips = 0
+    for root_index, root in enumerate(archive_roots):
+        for item in scan_with_skips(
+            root,
+            timestamp_source=timestamp_source,
+            default_timezone=default_timezone,
+        ):
+            if isinstance(item, ScannedFile):
+                scanned.append((item, root_index))
+                seen_hashes.add(item.audio_hash)
+            else:
+                _, reason = item
+                skipped += 1
+                if reason in INCOMPLETE_SCAN_REASONS:
+                    incomplete_skips += 1
+    return scanned, seen_hashes, skipped, incomplete_skips
+
+
 def commit_scan(
     session: OrmSession,
-    scanned: Iterable[ScannedFile],
+    scanned: Iterable[tuple[ScannedFile, int]],
     *,
-    archive_root: Path,
+    archive_roots: Sequence[Path],
 ) -> IngestReport:
     """Write scanned files to the database, resolving each by `audio_hash`.
 
+    `scanned` pairs each item with the index (into `archive_roots`) of the
+    root it was scanned under (design spec §3/§4) -- the caller already knows
+    this (it scans one root at a time), so it's threaded through rather than
+    re-derived here by testing path prefixes.
+
     Implements the four-row resolution table in spec section 6:
     unknown hash -> CREATED; known hash + same path -> UNCHANGED/UPDATED;
-    known hash + new path -> MOVED; same path + new hash -> REPLACED (the old
-    row is never deleted — spec is explicit that deleting it would destroy
-    manually entered identifications).
+    known hash + new path -> MOVED; same path (AND SAME ROOT INDEX) + new
+    hash -> REPLACED (the old row is never deleted -- spec is explicit that
+    deleting it would destroy manually entered identifications). A same-path
+    collision across DIFFERENT root indices is a different fact entirely --
+    two distinct detectors' independent auto-numbering colliding on filename
+    text -- and must not be read as a replace; scoping the REPLACED query to
+    `archive_root_index == root_index` is what keeps that distinct (design
+    spec §3).
     """
     report = IngestReport()
     now = datetime.now(tz=UTC)
@@ -308,8 +352,8 @@ def commit_scan(
     # call is a duplicate, not a move (task-11 fix round 1, priority 3).
     seen_hashes: set[str] = set()
 
-    for item in scanned:
-        rel = _relative(item.path, archive_root)
+    for item, root_index in scanned:
+        rel = _relative(item.path, archive_roots[root_index])
 
         if item.audio_hash in seen_hashes:
             report.duplicates += 1
@@ -339,14 +383,23 @@ def commit_scan(
             # was replaced, the old file was already gone.
             replaced = session.scalars(
                 select(Recording)
-                .where(Recording.path == rel, Recording.missing_since.is_(None))
+                .where(
+                    Recording.path == rel,
+                    Recording.archive_root_index == root_index,
+                    Recording.missing_since.is_(None),
+                )
                 .order_by(Recording.id.desc())
                 .limit(1),
             ).first()
             if replaced is not None:
                 replaced.missing_since = now
 
-            recording = Recording(audio_hash=item.audio_hash, path=rel, ingested_at=now)
+            recording = Recording(
+                audio_hash=item.audio_hash,
+                path=rel,
+                archive_root_index=root_index,
+                ingested_at=now,
+            )
             _apply_metadata(recording, item)
             session.add(recording)
             session.flush()
@@ -367,6 +420,12 @@ def commit_scan(
 
         moved = existing.path != rel
         existing.path = rel
+        # Corrects a stale index in place, the same way `missing_since` below
+        # is unconditionally cleared on reappearance -- not reported as its
+        # own outcome (design spec §3, index drift is accepted as
+        # self-healing: config reordering makes a stored index stale, and the
+        # next scan that finds this hash again silently corrects it).
+        existing.archive_root_index = root_index
         # `sweep_missing` (below) clears `missing_since` the same way when a
         # known hash reappears in a scan. Two functions now share this
         # responsibility — keep them in sync if the reappearance rule changes.

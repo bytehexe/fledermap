@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import time
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -8,7 +11,7 @@ from geoalchemy2 import Geometry
 from sqlalchemy import Engine, cast, event, func, select
 from sqlalchemy.orm import Session as OrmSession
 
-from fledermap.domain.codes import IdSource, Verdict
+from fledermap.domain.codes import IdSource, TimestampSource, Verdict
 from fledermap.domain.metadata import (
     ParsedIdentification,
     RecordingMetadata,
@@ -16,10 +19,10 @@ from fledermap.domain.metadata import (
 )
 from fledermap.ingest.merge import merge_metadata
 from fledermap.ingest.wamd import parse_wamd
-from fledermap.services.ingest import _EMT_SOURCES, commit_scan
+from fledermap.services.ingest import _EMT_SOURCES, commit_scan, scan_all_roots
 from fledermap.store.models import Identification, Recording
 from fledermap.store.seed import seed_taxonomy
-from tests.fixtures import wamd_payload
+from tests.fixtures import build_wav, fmt_payload, wamd_payload
 
 pytestmark = pytest.mark.db
 
@@ -81,7 +84,7 @@ def _scanned(
 def test_new_file_is_created(engine: Engine) -> None:
     with OrmSession(engine) as session:
         seed_taxonomy(session)
-        report = commit_scan(session, [_scanned()], archive_root=ROOT)
+        report = commit_scan(session, [(_scanned(), 0)], archive_roots=(ROOT,))
         session.commit()
 
         assert report.created == 1
@@ -95,7 +98,7 @@ def test_created_hashes_records_every_newly_created_audio_hash(
     b = _scanned(digest="b" * 64, name="EPTSER_20150610_215447.wav")
 
     with OrmSession(engine) as session:
-        report = commit_scan(session, [a, b], archive_root=ROOT)
+        report = commit_scan(session, [(a, 0), (b, 0)], archive_roots=(ROOT,))
 
     assert sorted(report.created_hashes) == sorted([a.audio_hash, b.audio_hash])
 
@@ -104,9 +107,9 @@ def test_created_hashes_excludes_unchanged_recordings(engine: Engine) -> None:
     a = _scanned(digest="a" * 64)
 
     with OrmSession(engine) as session:
-        commit_scan(session, [a], archive_root=ROOT)
+        commit_scan(session, [(a, 0)], archive_roots=(ROOT,))
         session.commit()
-        second_report = commit_scan(session, [a], archive_root=ROOT)
+        second_report = commit_scan(session, [(a, 0)], archive_roots=(ROOT,))
 
     assert second_report.created_hashes == []
 
@@ -115,10 +118,10 @@ def test_ingest_is_idempotent(engine: Engine) -> None:
     """Run twice, nothing changes. The defining property of spec section 6."""
     with OrmSession(engine) as session:
         seed_taxonomy(session)
-        commit_scan(session, [_scanned()], archive_root=ROOT)
+        commit_scan(session, [(_scanned(), 0)], archive_roots=(ROOT,))
         session.commit()
 
-        report = commit_scan(session, [_scanned()], archive_root=ROOT)
+        report = commit_scan(session, [(_scanned(), 0)], archive_roots=(ROOT,))
         session.commit()
 
         assert report.created == 0
@@ -133,7 +136,7 @@ def test_second_run_emits_no_update_statements(engine: Engine) -> None:
     among it (task-11 amendments, 'Verify idempotency properly')."""
     with OrmSession(engine) as session:
         seed_taxonomy(session)
-        commit_scan(session, [_scanned()], archive_root=ROOT)
+        commit_scan(session, [(_scanned(), 0)], archive_roots=(ROOT,))
         session.commit()
 
     statements: list[str] = []
@@ -149,7 +152,7 @@ def test_second_run_emits_no_update_statements(engine: Engine) -> None:
             # evaluation) even when the eventual flush emits no SQL for it at
             # all — confirmed empirically for `guano_raw` while building this
             # task. Only the SQL actually sent to Postgres is conclusive.
-            commit_scan(session, [_scanned()], archive_root=ROOT)
+            commit_scan(session, [(_scanned(), 0)], archive_roots=(ROOT,))
             session.commit()
     finally:
         event.remove(engine, "before_cursor_execute", _capture)
@@ -167,14 +170,16 @@ def test_rename_updates_path_without_duplicating(engine: Engine) -> None:
     with OrmSession(engine) as session:
         seed_taxonomy(session)
         commit_scan(
-            session, [_scanned(name="NoID_20150610_215446.wav")], archive_root=ROOT
+            session,
+            [(_scanned(name="NoID_20150610_215446.wav"), 0)],
+            archive_roots=(ROOT,),
         )
         session.commit()
 
         report = commit_scan(
             session,
-            [_scanned(name="EPTSER_20150610_215446.wav")],
-            archive_root=ROOT,
+            [(_scanned(name="EPTSER_20150610_215446.wav"), 0)],
+            archive_roots=(ROOT,),
         )
         session.commit()
 
@@ -200,15 +205,15 @@ def test_moved_and_reidentified_reports_as_moved(engine: Engine) -> None:
         seed_taxonomy(session)
         commit_scan(
             session,
-            [_scanned(name="NoID_20150610_215446.wav", label="NoID")],
-            archive_root=ROOT,
+            [(_scanned(name="NoID_20150610_215446.wav", label="NoID"), 0)],
+            archive_roots=(ROOT,),
         )
         session.commit()
 
         report = commit_scan(
             session,
-            [_scanned(name="EPTSER_20150610_215446.wav", label="EPTSER")],
-            archive_root=ROOT,
+            [(_scanned(name="EPTSER_20150610_215446.wav", label="EPTSER"), 0)],
+            archive_roots=(ROOT,),
         )
         session.commit()
 
@@ -228,10 +233,10 @@ def test_changed_identification_supersedes_the_old_one(engine: Engine) -> None:
     """The EMT changing its mind is recorded, not overwritten."""
     with OrmSession(engine) as session:
         seed_taxonomy(session)
-        commit_scan(session, [_scanned(label="MYODAU")], archive_root=ROOT)
+        commit_scan(session, [(_scanned(label="MYODAU"), 0)], archive_roots=(ROOT,))
         session.commit()
 
-        commit_scan(session, [_scanned(label="EPTSER")], archive_root=ROOT)
+        commit_scan(session, [(_scanned(label="EPTSER"), 0)], archive_roots=(ROOT,))
         session.commit()
 
         ids = session.scalars(select(Identification)).all()
@@ -246,13 +251,13 @@ def test_note_change_without_move_is_reported_as_updated(engine: Engine) -> None
     amendments, defect 4) — `note` and `duration_s` are not in that set."""
     with OrmSession(engine) as session:
         seed_taxonomy(session)
-        commit_scan(session, [_scanned()], archive_root=ROOT)
+        commit_scan(session, [(_scanned(), 0)], archive_roots=(ROOT,))
         session.commit()
 
         report = commit_scan(
             session,
-            [_scanned(note="heard a dog bark", duration_s=2.5)],
-            archive_root=ROOT,
+            [(_scanned(note="heard a dog bark", duration_s=2.5), 0)],
+            archive_roots=(ROOT,),
         )
         session.commit()
 
@@ -268,7 +273,7 @@ def test_device_field_round_trips(engine: Engine) -> None:
     task-11 amendments, defect 3."""
     with OrmSession(engine) as session:
         seed_taxonomy(session)
-        commit_scan(session, [_scanned(device="iPhone 12")], archive_root=ROOT)
+        commit_scan(session, [(_scanned(device="iPhone 12"), 0)], archive_roots=(ROOT,))
         session.commit()
 
         assert session.scalars(select(Recording)).one().device == "iPhone 12"
@@ -278,7 +283,7 @@ def test_paths_are_stored_relative_to_archive_root(engine: Engine) -> None:
     """So the archive can move without rewriting every row."""
     with OrmSession(engine) as session:
         seed_taxonomy(session)
-        commit_scan(session, [_scanned()], archive_root=ROOT)
+        commit_scan(session, [(_scanned(), 0)], archive_roots=(ROOT,))
         session.commit()
 
         path = session.scalars(select(Recording)).one().path
@@ -301,13 +306,13 @@ def test_path_outside_archive_root_raises(engine: Engine) -> None:
     with OrmSession(engine) as session:
         seed_taxonomy(session)
         with pytest.raises(ValueError, match="archive_root"):
-            commit_scan(session, [outside], archive_root=ROOT)
+            commit_scan(session, [(outside, 0)], archive_roots=(ROOT,))
 
 
 def test_known_label_resolves_to_taxon(engine: Engine) -> None:
     with OrmSession(engine) as session:
         seed_taxonomy(session)
-        commit_scan(session, [_scanned(label="EPTSER")], archive_root=ROOT)
+        commit_scan(session, [(_scanned(label="EPTSER"), 0)], archive_roots=(ROOT,))
         session.commit()
 
         ident = session.scalars(select(Identification)).one()
@@ -331,7 +336,7 @@ def test_manual_identification_resolves_to_taxon(engine: Engine) -> None:
     )
     with OrmSession(engine) as session:
         seed_taxonomy(session)
-        report = commit_scan(session, [scanned], archive_root=ROOT)
+        report = commit_scan(session, [(scanned, 0)], archive_roots=(ROOT,))
         session.commit()
 
         ident = session.scalars(select(Identification)).one()
@@ -354,7 +359,7 @@ def test_duplicate_manual_identifications_collapse_to_one_row(engine: Engine) ->
 
     with OrmSession(engine) as session:
         seed_taxonomy(session)
-        commit_scan(session, [scanned], archive_root=ROOT)
+        commit_scan(session, [(scanned, 0)], archive_roots=(ROOT,))
         session.commit()  # would raise IntegrityError before the fix
 
         ids = session.scalars(select(Identification)).all()
@@ -386,10 +391,14 @@ def test_emt_manual_identification_is_superseded_on_rescan(engine: Engine) -> No
 
     with OrmSession(engine) as session:
         seed_taxonomy(session)
-        commit_scan(session, [_scanned_with_manual_id("MYODAU")], archive_root=ROOT)
+        commit_scan(
+            session, [(_scanned_with_manual_id("MYODAU"), 0)], archive_roots=(ROOT,)
+        )
         session.commit()
 
-        commit_scan(session, [_scanned_with_manual_id("EPTSER")], archive_root=ROOT)
+        commit_scan(
+            session, [(_scanned_with_manual_id("EPTSER"), 0)], archive_roots=(ROOT,)
+        )
         session.commit()
 
         ids = session.scalars(select(Identification)).all()
@@ -406,7 +415,9 @@ def test_unmapped_label_is_stored_and_reported(engine: Engine) -> None:
     """Ingest must not fail on an unknown code; it becomes a review item."""
     with OrmSession(engine) as session:
         seed_taxonomy(session)
-        report = commit_scan(session, [_scanned(label="ZZZZZZ")], archive_root=ROOT)
+        report = commit_scan(
+            session, [(_scanned(label="ZZZZZZ"), 0)], archive_roots=(ROOT,)
+        )
         session.commit()
 
         ident = session.scalars(select(Identification)).one()
@@ -422,7 +433,7 @@ def test_geometry_is_written_when_position_present(engine: Engine) -> None:
     amendments, defect 6)."""
     with OrmSession(engine) as session:
         seed_taxonomy(session)
-        commit_scan(session, [_scanned()], archive_root=ROOT)
+        commit_scan(session, [(_scanned(), 0)], archive_roots=(ROOT,))
         session.commit()
 
     with OrmSession(engine) as session:
@@ -444,10 +455,12 @@ def test_replaced_file_marks_old_row_missing_and_creates_new_row(
     defect 1 — spec section 6, row 4)."""
     with OrmSession(engine) as session:
         seed_taxonomy(session)
-        commit_scan(session, [_scanned(digest="a" * 64)], archive_root=ROOT)
+        commit_scan(session, [(_scanned(digest="a" * 64), 0)], archive_roots=(ROOT,))
         session.commit()
 
-        report = commit_scan(session, [_scanned(digest="b" * 64)], archive_root=ROOT)
+        report = commit_scan(
+            session, [(_scanned(digest="b" * 64), 0)], archive_roots=(ROOT,)
+        )
         session.commit()
 
         assert report.replaced == 1
@@ -465,10 +478,12 @@ def test_created_hashes_includes_replaced_recordings(engine: Engine) -> None:
     it either, so it belongs in `created_hashes` too, not just CREATED's."""
     with OrmSession(engine) as session:
         seed_taxonomy(session)
-        commit_scan(session, [_scanned(digest="a" * 64)], archive_root=ROOT)
+        commit_scan(session, [(_scanned(digest="a" * 64), 0)], archive_roots=(ROOT,))
         session.commit()
 
-        report = commit_scan(session, [_scanned(digest="b" * 64)], archive_root=ROOT)
+        report = commit_scan(
+            session, [(_scanned(digest="b" * 64), 0)], archive_roots=(ROOT,)
+        )
         session.commit()
 
         assert report.replaced == 1
@@ -486,7 +501,9 @@ def test_second_replacement_at_the_same_path_does_not_crash(engine: Engine) -> N
     with OrmSession(engine) as session:
         seed_taxonomy(session)
         for digest in ("a" * 64, "b" * 64, "c" * 64):
-            report = commit_scan(session, [_scanned(digest=digest)], archive_root=ROOT)
+            report = commit_scan(
+                session, [(_scanned(digest=digest), 0)], archive_roots=(ROOT,)
+            )
             session.commit()
 
         assert report.replaced == 1
@@ -517,7 +534,7 @@ def test_duplicate_file_in_the_archive_does_not_ping_pong(engine: Engine) -> Non
 
     with OrmSession(engine) as session:
         seed_taxonomy(session)
-        first = commit_scan(session, [copy_a, copy_b], archive_root=ROOT)
+        first = commit_scan(session, [(copy_a, 0), (copy_b, 0)], archive_roots=(ROOT,))
         session.commit()
 
         assert first.created == 1
@@ -528,7 +545,7 @@ def test_duplicate_file_in_the_archive_does_not_ping_pong(engine: Engine) -> Non
         assert first.total == 1
         first_path = session.scalars(select(Recording)).one().path
 
-        second = commit_scan(session, [copy_a, copy_b], archive_root=ROOT)
+        second = commit_scan(session, [(copy_a, 0), (copy_b, 0)], archive_roots=(ROOT,))
         session.commit()
 
         assert second.moved == 0
@@ -555,3 +572,77 @@ def test_emt_sources_stays_exactly_the_emt_prefixed_id_sources() -> None:
     against a future `IdSource` member repeating the same mismatch
     (whole-branch review, Minor D)."""
     assert _EMT_SOURCES == {s for s in IdSource if s.value.startswith("emt.")}
+
+
+def test_same_relative_path_from_different_roots_is_not_a_replace(
+    engine: Engine,
+) -> None:
+    """Design spec §3: two detectors' independent auto-numbering colliding on
+    filename text must produce two distinct rows, not a REPLACED outcome."""
+    other_root = Path("/other-archive")
+    a = _scanned(digest="a" * 64)
+    b = _scanned(digest="b" * 64)  # same relative path as `a` (default name),
+    # different content -- would collide if
+    # archive_root_index weren't in the query
+    b = replace(b, path=other_root / "Session_20130401_053030" / b.path.name)
+
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        report = commit_scan(
+            session,
+            [(a, 0), (b, 1)],
+            archive_roots=(ROOT, other_root),
+        )
+
+    assert report.created == 2
+    assert report.replaced == 0
+
+
+def test_archive_root_index_self_heals_on_next_scan(engine: Engine) -> None:
+    """Design spec §3/§10 decision 6: a stale index (e.g. from reordering
+    configured roots) corrects itself the next time the same hash is scanned
+    from its real root -- no data loss, no manual fix needed."""
+    a = _scanned(digest="a" * 64)
+
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        commit_scan(session, [(a, 1)], archive_roots=(Path("/wrong"), ROOT))
+        session.commit()
+        commit_scan(session, [(a, 0)], archive_roots=(ROOT, Path("/other")))
+        session.commit()
+        recording = session.scalars(
+            select(Recording).where(Recording.audio_hash == a.audio_hash),
+        ).one()
+
+    assert recording.archive_root_index == 0
+
+
+def test_scan_all_roots_tags_each_item_with_its_root_index(tmp_path: Path) -> None:
+    root_a = tmp_path / "a"
+    root_b = tmp_path / "b"
+    root_a.mkdir()
+    root_b.mkdir()
+    for root, name, audio in (
+        (root_a, "EPTSER_20150610_215446.wav", b"\x01\x02" * 32),
+        (root_b, "EPTSER_20150610_215447.wav", b"\x03\x04" * 32),
+    ):
+        path = root / name
+        # Distinct audio content per file -- audio_hash is computed over the
+        # `fmt`/`data` chunks only (D8), so identical payloads at two roots
+        # would collide into one hash and undercount `seen`, which is not
+        # what this test means to exercise (it's about root tagging, not
+        # hash collision).
+        path.write_bytes(build_wav([(b"fmt ", fmt_payload()), (b"data", audio)]))
+        old = time.time() - 3600
+        os.utime(path, (old, old))
+
+    scanned, seen, skipped, incomplete_skips = scan_all_roots(
+        (root_a, root_b),
+        timestamp_source=TimestampSource.FILENAME,
+        default_timezone=UTC,
+    )
+
+    assert skipped == 0
+    assert incomplete_skips == 0
+    assert sorted(index for _item, index in scanned) == [0, 1]
+    assert len(seen) == 2
