@@ -5,7 +5,37 @@
   --color-bg: #ffffff;
   --color-bg-subtle: #f7f7f8;
   --color-accent: #2b6cb0;
+  --color-warning: #b7791f;
   --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Dark mode: system preference by default; an explicit override (set on
+   <html data-theme="light|dark"> by _nav.html's toggle, applied before
+   first paint by _theme_init.html's inline script) wins in either
+   direction. See docs/style-guide.md's "Dark mode" section.
+   data-theme is only ever "light" or "dark" when present -- absent
+   entirely means "follow system", which is what the
+   :not([data-theme="light"]) guard below relies on: without it, an
+   explicit light override couldn't defeat a dark system preference. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-text: #e8e8e8;
+    --color-muted: #9a9a9a;
+    --color-border: #3a3d42;
+    --color-bg: #1a1a1a;
+    --color-bg-subtle: #242628;
+    --color-accent: #5b9bd5;
+    --color-warning: #d99a3f;
+  }
+}
+:root[data-theme="dark"] {
+  --color-text: #e8e8e8;
+  --color-muted: #9a9a9a;
+  --color-border: #3a3d42;
+  --color-bg: #1a1a1a;
+  --color-bg-subtle: #242628;
+  --color-accent: #5b9bd5;
+  --color-warning: #d99a3f;
 }
 
 html, body {
@@ -320,7 +350,7 @@ button:disabled { cursor: default; opacity: 0.5; }
   border: 1px solid var(--color-accent);
   border-radius: 6px;
 }
-.merge-badge { color: #b7791f; font-size: 0.8rem; }
+.merge-badge { color: var(--color-warning); font-size: 0.8rem; }
 /* Bare `<label>Text <input></label>` markup is inline by default, so with no
    stacking rule the browser spreads Kind/Note/Weather/Save left-to-right
    across whatever width the flex column happens to have -- visibly wrong on

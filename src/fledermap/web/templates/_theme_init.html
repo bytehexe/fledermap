@@ -1,0 +1,17 @@
+{# src/fledermap/web/templates/_theme_init.html -- included first in every
+   page's <head> (map.html, sessions_list.html, session_detail.html), before
+   app.css's <link>. Applies a stored manual dark/light override BEFORE
+   first paint -- deliberately inline (not a separate .js file, which would
+   fetch over the network and run too late to avoid a flash of the wrong
+   theme) and deliberately not deferred. No stored value, or an invalid one
+   -- no attribute set, so app.css's plain @media (prefers-color-scheme:
+   dark) block decides, same as if this script didn't run at all. Written
+   by _nav.html's toggle; see docs/style-guide.md's "Dark mode" section. #}
+<script>
+  (function () {
+    var theme = localStorage.getItem("fledermap-theme");
+    if (theme === "light" || theme === "dark") {
+      document.documentElement.dataset.theme = theme;
+    }
+  })();
+</script>
