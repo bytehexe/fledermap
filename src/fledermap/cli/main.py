@@ -225,7 +225,6 @@ def derive() -> None:
         session_report = partition_sessions(
             session,
             session_gap=timedelta(hours=config.session_gap_hours),
-            transect_distance_m=config.transect_distance_m,
         )
         session.commit()
 
@@ -367,7 +366,6 @@ def serve(host: str | None, port: int | None) -> None:
         engine,
         config.static_root,
         config.media_root,
-        transect_distance_m=config.transect_distance_m,
     )
     app.run(
         host=host if host is not None else config.host,

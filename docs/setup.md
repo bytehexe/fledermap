@@ -77,7 +77,6 @@ container's env.
 | Session gap (hours) | `FLEDERMAP_SESSION_GAP_HOURS` | `session_gap_hours` | no | `6.0` |
 | Site clustering radius (metres) | `FLEDERMAP_SITE_EPS_M` | `site_eps_m` | no | `75.0` |
 | Site minimum points | `FLEDERMAP_SITE_MIN_POINTS` | `site_min_points` | no | `3` |
-| Session-kind GPS-spread threshold (metres) | `FLEDERMAP_TRANSECT_DISTANCE_M` | `transect_distance_m` | no | `150.0` |
 | poiidx database connection | `FLEDERMAP_POIIDX_DATABASE_URL` | `poiidx_database_url` | no | unset — site naming disabled |
 | Site-naming search radius (metres) | `FLEDERMAP_SITE_NAMING_RADIUS_M` | `site_naming_radius_m` | no | `300.0` |
 | `serve`'s interface | `FLEDERMAP_HOST` | `host` | no | `127.0.0.1` |
@@ -158,7 +157,6 @@ media_root = "/var/lib/fledermap/media"
 # session_gap_hours = 6.0
 # site_eps_m = 75.0
 # site_min_points = 3
-# transect_distance_m = 150.0
 ```
 
 An unknown key in this file (a typo like `sesion_gap_hours`) is rejected at

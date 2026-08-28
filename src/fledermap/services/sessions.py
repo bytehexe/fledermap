@@ -14,7 +14,6 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as OrmSession
 
-from fledermap.derive.sessions import reclassify_session
 from fledermap.domain.codes import MergeResolution, VisualSighting
 from fledermap.store.models import Recording, SessionMergeProposal
 from fledermap.store.models import Session as AnnotationSession
@@ -245,7 +244,6 @@ def resolve_merge_proposal(
     action: str,
     note: str | None,
     weather: str | None,
-    transect_distance_m: float,
 ) -> int:
     """Accept ("merge") or reject a `SessionMergeProposal`. Returns
     `session_a_id` -- always safe to redirect to afterward, since
@@ -299,7 +297,6 @@ def resolve_merge_proposal(
     session_a.seen_visually = _merge_visual_sighting(
         session_a.seen_visually, session_b.seen_visually
     )
-    reclassify_session(db_session, session_a, transect_distance_m=transect_distance_m)
 
     # This proposal's own `session_b_id` still points at `session_b`, and
     # the FK has no `ON DELETE` clause -- deleting `session_b` below would
