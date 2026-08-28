@@ -155,8 +155,11 @@ def _parse_archive_roots(value: Any, label: str) -> tuple[Path, ...]:
     """Env var: comma-separated. Config file: a native TOML array, OR a
     single comma-separated string (accepted the same way, for consistency
     with the env var format rather than forcing a different shape per
-    source). Order is preserved -- it's meaningful (design spec §2): the
-    first configured root wins any relative-path tie.
+    source). Order is preserved -- it's meaningful (design spec §2): when the
+    *same* recording (identical audio content) is found under two different
+    roots, it's attributed to whichever root was scanned first. A
+    same-relative-path collision with *different* content across two roots
+    is not a tie at all -- it produces two separate recordings.
     """
     if isinstance(value, str):
         raw_parts = value.split(",")
