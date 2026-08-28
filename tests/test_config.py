@@ -1022,6 +1022,17 @@ def test_poiidx_database_url_is_configurable_via_env(
     )
 
 
+def test_empty_poiidx_database_url_raises_config_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.setenv(ENV_POIIDX_DATABASE_URL, "")
+    with pytest.raises(ConfigError, match=ENV_POIIDX_DATABASE_URL):
+        Config.from_env()
+
+
 def test_default_site_naming_radius(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

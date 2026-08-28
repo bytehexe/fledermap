@@ -493,18 +493,18 @@ class Config:
             "poiidx_database_url",
             file_values,
         )
-        poiidx_database_url = (
-            _as_str(
-                poiidx_database_url_raw,
-                _source_label(
-                    ENV_POIIDX_DATABASE_URL,
-                    "poiidx_database_url",
-                    config_path,
-                ),
+        if poiidx_database_url_raw is None:
+            poiidx_database_url = None
+        else:
+            label = _source_label(
+                ENV_POIIDX_DATABASE_URL,
+                "poiidx_database_url",
+                config_path,
             )
-            if poiidx_database_url_raw is not None
-            else None
-        )
+            poiidx_database_url = _as_str(poiidx_database_url_raw, label)
+            if not poiidx_database_url:
+                msg = f"{label} is set but empty. Unset it entirely to disable site naming."
+                raise ConfigError(msg)
 
         site_naming_radius_raw = _lookup(
             ENV_SITE_NAMING_RADIUS_M,

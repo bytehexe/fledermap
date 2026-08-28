@@ -599,7 +599,7 @@ def test_name_site_task_writes_the_resolved_name_onto_the_site(
     )
     name_site_task.configure(
         lock=_NAME_SITE_LOCK,
-        queueing_lock=name_site_queueing_lock(site_id),
+        queueing_lock=name_site_queueing_lock(str(site_id)),
     ).defer(site_id=site_id)
     _run_worker(
         engine,
@@ -650,7 +650,7 @@ def test_name_site_task_leaves_the_site_unnamed_when_poiidx_resolves_nothing(
     )
     name_site_task.configure(
         lock=_NAME_SITE_LOCK,
-        queueing_lock=name_site_queueing_lock(site_id),
+        queueing_lock=name_site_queueing_lock(str(site_id)),
     ).defer(site_id=site_id)
     _run_worker(
         engine,
@@ -668,4 +668,4 @@ def test_name_site_task_leaves_the_site_unnamed_when_poiidx_resolves_nothing(
 
 
 def test_name_site_queueing_lock_is_per_site() -> None:
-    assert name_site_queueing_lock(1) != name_site_queueing_lock(2)
+    assert name_site_queueing_lock(str(1)) != name_site_queueing_lock(str(2))

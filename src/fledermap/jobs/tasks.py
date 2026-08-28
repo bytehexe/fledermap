@@ -91,8 +91,8 @@ def preview_lock_key(audio_hash: str) -> str:
 _NAME_SITE_LOCK = "poiidx-name-site"
 
 
-def name_site_queueing_lock(site_id: int) -> str:
-    return f"name_site:{site_id}"
+def name_site_queueing_lock(cache_key: str) -> str:
+    return f"name_site:{cache_key}"
 
 
 @app.task(queue="geo", pass_context=True, retry=_RETRY)
@@ -103,11 +103,11 @@ def name_site_task(context: procrastinate.JobContext, site_id: int) -> None:
     time by `enqueue_site_naming` -- serializes execution across all of
     them, so two never-before-touched-region downloads can never race each
     other (design spec §3's corrected performance note)."""
-    # Local import: see the note above Step 3's code block -- `site_naming`
-    # imports FROM this module at ITS top level, so a top-level import here
-    # would be circular. Safe here because by the time this function
-    # actually runs, module import has long finished (same reasoning as
-    # `run_ingest_cycle`'s own local `enqueue_media` import).
+    # Local import: `site_naming` imports FROM this module at ITS top
+    # level, so a top-level import here would be circular. Safe here
+    # because by the time this function actually runs, module import has
+    # long finished (same reasoning as `run_ingest_cycle`'s own local
+    # `enqueue_media` import).
     from fledermap.services import site_naming
 
     config: Config = context.additional_context["config"]
@@ -303,7 +303,6 @@ def run_ingest_cycle(context: procrastinate.JobContext, timestamp: int) -> None:
             session,
             engine,
             poiidx_database_url=config.poiidx_database_url,
-            radius_m=config.site_naming_radius_m,
         )
         session.commit()
 

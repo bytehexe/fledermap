@@ -145,9 +145,13 @@ downloads can't race each other, not because every poiidx query is inherently sl
 New task in `jobs/tasks.py`:
 
 ```python
-@app.task(queue="geo", pass_context=True, retry=_RETRY, lock="poiidx-name-site")
+@app.task(queue="geo", pass_context=True, retry=_RETRY)
 def name_site_task(context, site_id: int) -> None: ...
 ```
+
+`lock` is applied at defer time via `.configure(lock=_NAME_SITE_LOCK, ...)`, in
+`enqueue_site_naming` — not as a decorator argument; Procrastinate has no `lock=` parameter on
+`@app.task` itself.
 
 - `queue="geo"` — the reserved-but-unused queue name from Phase 3.
 - `lock="poiidx-name-site"` — a single static lock value, so Procrastinate serializes execution of

@@ -219,6 +219,7 @@ def derive() -> None:
 
     engine = make_engine(config.database_url)
     _run_migrations(config.database_url)
+    ensure_schema(jobs_app, engine)
 
     with OrmSession(engine) as session:
         session_report = partition_sessions(
@@ -239,7 +240,6 @@ def derive() -> None:
             session,
             engine,
             poiidx_database_url=config.poiidx_database_url,
-            radius_m=config.site_naming_radius_m,
         )
         session.commit()
 
@@ -440,7 +440,6 @@ def backfill_site_names_command() -> None:
             session,
             engine,
             poiidx_database_url=config.poiidx_database_url,
-            radius_m=config.site_naming_radius_m,
         )
         session.commit()
 

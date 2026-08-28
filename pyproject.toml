@@ -39,7 +39,12 @@ dependencies = [
   "procrastinate>=3.9,<4",
   "psycopg[binary,pool]",
   "watchdog",
-  "poiidx>=0.0.9",
+  # Upper-bounded like procrastinate above, same reasoning: init_if_new()
+  # hashes the models' DDL and drops+recreates every table in
+  # poiidx_bats_db on any mismatch, so a library upgrade needs a deliberate,
+  # manual step -- not something a routine dependency bump should trigger
+  # (final review, 2026-08-28).
+  "poiidx>=0.0.9,<0.1",
 ]
 
 [project.scripts]

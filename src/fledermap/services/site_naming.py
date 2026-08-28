@@ -42,19 +42,41 @@ def _poiidx_connection_kwargs(database_url: str) -> dict[str, Any]:
     connect kwargs. poiidx.connect() forwards straight to peewee's
     PostgresqlDatabase.init(), which takes host/port/user/password/database
     separately -- confirmed against poiidx's own README and example.py, not
-    a single connection-string argument."""
+    a single connection-string argument.
+
+    Error messages never include the parsed URL itself (final review,
+    2026-08-28): it may carry a password, and this function's errors
+    propagate into name_site_task, where Procrastinate logs the full
+    traceback on every retry. Every other config error in this codebase
+    reports the env-var label, not the value -- this matches that."""
     parsed = urlsplit(database_url)
     database = parsed.path.lstrip("/")
-    if not (parsed.hostname and parsed.username and parsed.password and database):
+    missing = [
+        label
+        for label, value in (
+            ("scheme", parsed.scheme in ("postgresql", "postgres")),
+            ("host", parsed.hostname),
+            ("user", parsed.username),
+            ("password", parsed.password),
+            ("database name", database),
+        )
+        if not value
+    ]
+    if missing:
         msg = (
             "FLEDERMAP_POIIDX_DATABASE_URL must be a "
-            "postgresql://user:password@host:port/database URL, got "
-            f"{database_url!r}"
+            "postgresql://user:password@host:port/database URL "
+            f"(missing: {', '.join(missing)})."
         )
         raise ValueError(msg)
+    try:
+        port = parsed.port or 5432
+    except ValueError as exc:
+        msg = "FLEDERMAP_POIIDX_DATABASE_URL's port must be a number."
+        raise ValueError(msg) from exc
     return {
         "host": parsed.hostname,
-        "port": parsed.port or 5432,
+        "port": port,
         "user": parsed.username,
         "password": parsed.password,
         "database": database,
@@ -142,7 +164,7 @@ def name_site(
         # important) -- a well-known suburb further away should out-rank an
         # untagged/minor POI that happens to be closer.
         best = min(pois, key=lambda poi: poi["rank"])
-        name = best["name"]
+        name = best["name"] or None
     else:
         name = admin_path
 
@@ -165,7 +187,6 @@ def enqueue_site_naming(
     engine: Engine,
     *,
     poiidx_database_url: str | None,
-    radius_m: float,
 ) -> int:
     """Cache-first resolution for every Site still missing a name. Called
     right after derive_sites()+commit() -- its wholesale rebuild resets
@@ -203,7 +224,7 @@ def enqueue_site_naming(
         try:
             name_site_task.configure(
                 lock=_NAME_SITE_LOCK,
-                queueing_lock=name_site_queueing_lock(site.id),
+                queueing_lock=name_site_queueing_lock(key),
             ).defer(site_id=site.id)
         except procrastinate.exceptions.AlreadyEnqueued:
             continue
