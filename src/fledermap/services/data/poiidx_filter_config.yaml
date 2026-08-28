@@ -1,0 +1,47 @@
+# Fledermap's own poiidx filter config (design spec
+# 2026-08-28-fledermap-poiidx-site-naming-design.md, decision SN-3).
+#
+# Curated for TOPONYMY -- naming a coordinate -- not for general POI
+# browsing the way poiidx's own shipped default (poi_filter_config.yaml)
+# is. Everything here must stay byte-identical across every poiidx.init()
+# call: poiidx hashes this file's content together with its schema, and
+# ANY drift drops and recreates every table in poiidx_bats_db.
+#
+# list=OR, items in a list=AND (poiidx's own filter_config convention).
+
+# == Places ==
+- symbol: "city"
+  description: "City or large town"
+  filters:
+    - place: city
+- symbol: "town"
+  description: "Town"
+  filters:
+    - place: town
+- symbol: "village"
+  description: "Village"
+  filters:
+    - place: village
+    - place: hamlet
+- symbol: "suburb"
+  description: "Suburb, quarter, or neighbourhood"
+  filters:
+    - place: suburb
+    - place: quarter
+    - place: neighbourhood
+
+# == Nature ==
+- symbol: forest_or_park
+  description: "Forest or park"
+  filters:
+    - landuse: forest
+    - leisure: forest
+    - leisure: park
+    - natural: forest
+    - natural: wood
+    - leisure: nature_reserve
+- symbol: "water_body"
+  description: "Named lake, pond, reservoir, or river"
+  filters:
+    - natural: water
+    - waterway: river
