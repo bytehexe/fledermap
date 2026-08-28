@@ -3,12 +3,15 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
+from geoalchemy2.elements import WKTElement
 from sqlalchemy import select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session as OrmSession
 
+from fledermap.jobs.app import ensure_schema
+from fledermap.jobs.tasks import app as jobs_app
 from fledermap.services import site_naming
-from fledermap.store.models import SiteNameCache
+from fledermap.store.models import Site, SiteNameCache
 
 pytestmark = pytest.mark.db
 
@@ -200,3 +203,109 @@ def test_name_site_writes_through_the_cache_on_a_miss(
     assert cached is not None
     assert cached.name == "Tiergarten"
     assert cached.admin_path == "Berlin > Mitte"
+
+
+def _unnamed_site(lon: float, lat: float) -> Site:
+    return Site(
+        centroid=WKTElement(f"POINT({lon} {lat})", srid=4326),
+        radius_m=50.0,
+        recording_count=1,
+        first_at=datetime(2026, 8, 28, tzinfo=UTC),
+        last_at=datetime(2026, 8, 28, tzinfo=UTC),
+    )
+
+
+def test_enqueue_site_naming_is_a_noop_when_poiidx_is_unconfigured(
+    engine: Engine,
+) -> None:
+    jobs_app.open(engine)
+    ensure_schema(jobs_app, engine)
+
+    with OrmSession(engine) as session:
+        session.add(_unnamed_site(13.405, 52.520))
+        session.commit()
+
+        count = site_naming.enqueue_site_naming(
+            session,
+            engine,
+            poiidx_database_url=None,
+            radius_m=300.0,
+        )
+
+    assert count == 0
+
+
+def test_enqueue_site_naming_resolves_a_cache_hit_directly_without_a_job(
+    engine: Engine,
+) -> None:
+    jobs_app.open(engine)
+    ensure_schema(jobs_app, engine)
+
+    with OrmSession(engine) as session:
+        session.add(
+            SiteNameCache(
+                geohash=site_naming._cache_key(13.405, 52.520),
+                name="Tiergarten",
+                admin_path="Berlin > Mitte",
+                fetched_at=datetime(2026, 8, 28, tzinfo=UTC),
+            ),
+        )
+        site = _unnamed_site(13.405, 52.520)
+        session.add(site)
+        session.commit()
+        site_id = site.id
+
+        count = site_naming.enqueue_site_naming(
+            session,
+            engine,
+            poiidx_database_url="postgresql://u:p@localhost/poiidx_bats_db",
+            radius_m=300.0,
+        )
+        session.commit()
+
+    assert count == 0
+    with OrmSession(engine) as session:
+        refreshed = session.get(Site, site_id)
+        assert refreshed is not None
+        assert refreshed.name == "Tiergarten"
+        assert refreshed.admin_path == "Berlin > Mitte"
+
+
+def test_enqueue_site_naming_defers_a_job_on_a_cache_miss(engine: Engine) -> None:
+    jobs_app.open(engine)
+    ensure_schema(jobs_app, engine)
+
+    with OrmSession(engine) as session:
+        session.add(_unnamed_site(13.405, 52.520))
+        session.commit()
+
+        count = site_naming.enqueue_site_naming(
+            session,
+            engine,
+            poiidx_database_url="postgresql://u:p@localhost/poiidx_bats_db",
+            radius_m=300.0,
+        )
+
+    assert count == 1
+
+
+def test_enqueue_site_naming_ignores_a_site_that_already_has_a_name(
+    engine: Engine,
+) -> None:
+    jobs_app.open(engine)
+    ensure_schema(jobs_app, engine)
+
+    with OrmSession(engine) as session:
+        named = _unnamed_site(13.405, 52.520)
+        named.name = "Already Named"
+        session.add(named)
+        session.commit()
+
+        count = site_naming.enqueue_site_naming(
+            session,
+            engine,
+            poiidx_database_url="postgresql://u:p@localhost/poiidx_bats_db",
+            radius_m=300.0,
+        )
+
+    assert count == 0

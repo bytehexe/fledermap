@@ -297,6 +297,16 @@ def run_ingest_cycle(context: procrastinate.JobContext, timestamp: int) -> None:
         )
         session.commit()
 
+        from fledermap.services.site_naming import enqueue_site_naming
+
+        enqueue_site_naming(
+            session,
+            engine,
+            poiidx_database_url=config.poiidx_database_url,
+            radius_m=config.site_naming_radius_m,
+        )
+        session.commit()
+
         logger.info(
             "%s flagged_missing %s -- sessions created %d extended %d "
             "merge_proposals %d -- sites %d unclustered %d",

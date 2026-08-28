@@ -31,6 +31,7 @@ from fledermap.services.ingest import (
     sweep_missing,
 )
 from fledermap.services.media import backfill_media, enqueue_media
+from fledermap.services.site_naming import enqueue_site_naming
 from fledermap.services.vendor_assets import (
     ASSETS,
     IntegrityError,
@@ -206,9 +207,10 @@ def ingest(ctx: click.Context, sweep: bool) -> None:
 def derive() -> None:
     """Partition sessions and rebuild sites from what `ingest` has stored.
 
-    Headless — no web, no site naming (that's a later phase's job queue).
-    Safe to re-run at any time: session partitioning only touches unsessioned
-    recordings, and site rebuilding is idempotent.
+    Headless — no web. Site naming is enqueued (poiidx jobs, resolved off
+    this process) when `FLEDERMAP_POIIDX_DATABASE_URL` is configured; a
+    no-op otherwise. Safe to re-run at any time: session partitioning only
+    touches unsessioned recordings, and site rebuilding is idempotent.
     """
     try:
         config = Config.from_env()
@@ -233,13 +235,22 @@ def derive() -> None:
         )
         session.commit()
 
+        named_count = enqueue_site_naming(
+            session,
+            engine,
+            poiidx_database_url=config.poiidx_database_url,
+            radius_m=config.site_naming_radius_m,
+        )
+        session.commit()
+
         click.echo(
             f"sessions: created {session_report.created}  "
             f"extended {session_report.extended}  "
             f"merge proposals {session_report.merge_proposals}",
         )
         click.echo(
-            f"sites: {site_report.site_count}  unclustered {site_report.unclustered}",
+            f"sites: {site_report.site_count}  unclustered {site_report.unclustered}  "
+            f"naming jobs enqueued {named_count}",
         )
 
 

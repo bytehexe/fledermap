@@ -18,12 +18,21 @@ from typing import Any
 from urllib.parse import urlsplit
 
 import poiidx
+import procrastinate
 import yaml
 from shapely.geometry import Point
 from sqlalchemy import select
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session as OrmSession
 
-from fledermap.store.models import SiteNameCache
+from fledermap.jobs.tasks import (
+    _NAME_SITE_LOCK,
+    name_site_queueing_lock,
+    name_site_task,
+)
+from fledermap.jobs.tasks import app as jobs_app
+from fledermap.store.geo import decode_point
+from fledermap.store.models import Site, SiteNameCache
 
 _FILTER_CONFIG_FILE = "poiidx_filter_config.yaml"
 
@@ -149,3 +158,54 @@ def name_site(
         ),
     )
     return name, admin_path
+
+
+def enqueue_site_naming(
+    db_session: OrmSession,
+    engine: Engine,
+    *,
+    poiidx_database_url: str | None,
+    radius_m: float,
+) -> int:
+    """Cache-first resolution for every Site still missing a name. Called
+    right after derive_sites()+commit() -- its wholesale rebuild resets
+    every site's name to NULL on every run (design spec §4) -- and from the
+    `backfill-site-names` CLI command. Returns the number of name_site jobs
+    actually deferred; a SiteNameCache hit is resolved directly onto the
+    Site row instead and does not count.
+
+    A true no-op when poiidx isn't configured at all -- the "optional
+    integration, current behaviour preserved" goal (design spec Goals)."""
+    if not poiidx_database_url:
+        return 0
+
+    try:
+        jobs_app.open(engine)
+    except NotImplementedError:
+        pass  # already open inside a running worker -- see enqueue_media's docstring
+
+    unnamed = db_session.scalars(select(Site).where(Site.name.is_(None))).all()
+
+    enqueued = 0
+    for site in unnamed:
+        point = decode_point(site.centroid)
+        if point is None:
+            continue
+        lon, lat = point
+        key = _cache_key(lon, lat)
+        cached = db_session.scalar(
+            select(SiteNameCache).where(SiteNameCache.geohash == key),
+        )
+        if cached is not None:
+            site.name = cached.name
+            site.admin_path = cached.admin_path
+            continue
+        try:
+            name_site_task.configure(
+                lock=_NAME_SITE_LOCK,
+                queueing_lock=name_site_queueing_lock(site.id),
+            ).defer(site_id=site.id)
+        except procrastinate.exceptions.AlreadyEnqueued:
+            continue
+        enqueued += 1
+    return enqueued
