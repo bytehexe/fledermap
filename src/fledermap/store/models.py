@@ -24,7 +24,13 @@ from sqlalchemy.orm import (
     relationship,
 )
 
-from fledermap.domain.codes import IdSource, MergeResolution, SessionKind, Verdict
+from fledermap.domain.codes import (
+    IdSource,
+    MergeResolution,
+    SessionKind,
+    Verdict,
+    VisualSighting,
+)
 
 
 class Base(DeclarativeBase):
@@ -208,6 +214,21 @@ class Session(Base):
     # -- freezes it against `derive/sessions.py`'s automatic reclassification
     # from then on, regardless of whether the saved value actually changed.
     kind_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Whether a human observer saw a bat visually during the session --
+    # independent of acoustic detection/species ID (2026-08-28). Purely
+    # user-set, so no `_locked` companion field is needed the way `kind`
+    # has one -- nothing here ever auto-classifies it. Defaults to UNCLEAR
+    # ("we don't know") for both new and pre-existing sessions.
+    seen_visually: Mapped[VisualSighting] = mapped_column(
+        SAEnum(
+            VisualSighting,
+            native_enum=False,
+            length=16,
+            create_constraint=True,
+            values_callable=lambda enum_cls: [e.value for e in enum_cls],
+        ),
+        default=VisualSighting.UNCLEAR,
+    )
 
 
 class Site(Base):

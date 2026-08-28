@@ -18,7 +18,13 @@ from sqlalchemy import Enum as SAEnum
 from sqlalchemy.exc import IntegrityError
 
 from alembic import command
-from fledermap.domain.codes import IdSource, MergeResolution, SessionKind, Verdict
+from fledermap.domain.codes import (
+    IdSource,
+    MergeResolution,
+    SessionKind,
+    Verdict,
+    VisualSighting,
+)
 from fledermap.store.db import make_engine
 from fledermap.store.models import Base
 
@@ -185,6 +191,51 @@ def test_migrated_kind_check_accepts_every_kind(migrated_engine: Engine) -> None
         stored = conn.scalar(text("SELECT count(*) FROM session"))
 
     assert stored == len(SessionKind)
+
+
+def test_migrated_seen_visually_check_is_enforced(migrated_engine: Engine) -> None:
+    """`seen_visually` is a closed three-value vocabulary (2026-08-28) -- the
+    one constraint `_comparable` excludes from the drift comparison, same as
+    `kind` and `verdict`."""
+    with pytest.raises(IntegrityError), migrated_engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO session (started_at, ended_at, kind, seen_visually)"
+                " VALUES (now(), now(), 'stationary', 'not_a_sighting')"
+            )
+        )
+
+
+def test_migrated_seen_visually_check_accepts_every_sighting(
+    migrated_engine: Engine,
+) -> None:
+    with migrated_engine.begin() as conn:
+        for sighting in VisualSighting:
+            conn.execute(
+                text(
+                    "INSERT INTO session (started_at, ended_at, kind, seen_visually)"
+                    " VALUES (now(), now(), 'stationary', :sighting)"
+                ),
+                {"sighting": sighting.value},
+            )
+        stored = conn.scalar(text("SELECT count(*) FROM session"))
+
+    assert stored == len(VisualSighting)
+
+
+def test_migrated_seen_visually_defaults_to_unclear(migrated_engine: Engine) -> None:
+    """Every pre-existing session lands on "we don't know" -- the migration's
+    `server_default`, not just the ORM's Python-side `default=`."""
+    with migrated_engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO session (started_at, ended_at, kind)"
+                " VALUES (now(), now(), 'stationary')"
+            )
+        )
+        stored = conn.scalar(text("SELECT seen_visually FROM session"))
+
+    assert stored == "unclear"
 
 
 def test_migrated_resolution_check_is_enforced(migrated_engine: Engine) -> None:

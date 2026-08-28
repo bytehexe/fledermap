@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session as OrmSession
 
-from fledermap.domain.codes import MergeResolution, SessionKind
+from fledermap.domain.codes import MergeResolution, SessionKind, VisualSighting
 from fledermap.store.models import Recording, SessionMergeProposal
 from fledermap.store.models import Session as AnnotationSession
 from fledermap.web.app import create_app
@@ -227,6 +227,7 @@ def test_session_detail_shows_edit_form_with_current_values(
             detector_key="EMT\x1f1",
             note="existing note",
             weather="rainy",
+            seen_visually=VisualSighting.YES,
         )
         session.add(s)
         session.commit()
@@ -242,6 +243,7 @@ def test_session_detail_shows_edit_form_with_current_values(
     assert "existing note" in html
     assert "rainy" in html
     assert 'value="transect" selected' in html
+    assert 'value="yes" selected' in html
     assert "effort" not in html.lower()  # P5b-10: field is gone
 
 
@@ -319,7 +321,12 @@ def test_save_session_updates_kind_note_weather_and_locks(
 
     response = client.post(
         f"/sessions/{session_id}",
-        data={"kind": "transect", "note": "new note", "weather": "clear"},
+        data={
+            "kind": "transect",
+            "note": "new note",
+            "weather": "clear",
+            "seen_visually": "yes",
+        },
     )
 
     assert response.status_code == 302
@@ -331,6 +338,32 @@ def test_save_session_updates_kind_note_weather_and_locks(
         assert refreshed.note == "new note"
         assert refreshed.weather == "clear"
         assert refreshed.kind_locked is True
+        assert refreshed.seen_visually == VisualSighting.YES
+
+
+def test_save_session_invalid_seen_visually_returns_400(
+    engine: Engine, tmp_path: Path
+) -> None:
+    with OrmSession(engine) as session:
+        s = AnnotationSession(
+            started_at=datetime(2026, 8, 21, tzinfo=UTC),
+            ended_at=datetime(2026, 8, 21, tzinfo=UTC),
+            kind=SessionKind.STATIONARY,
+            detector_key="EMT\x1f1",
+        )
+        session.add(s)
+        session.commit()
+        session_id = s.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    response = client.post(
+        f"/sessions/{session_id}",
+        data={"kind": "stationary", "seen_visually": "bogus"},
+    )
+
+    assert response.status_code == 400
 
 
 def test_save_session_invalid_kind_returns_400(engine: Engine, tmp_path: Path) -> None:
@@ -359,7 +392,12 @@ def test_save_session_not_found_returns_404(engine: Engine, tmp_path: Path) -> N
 
     response = client.post(
         "/sessions/999",
-        data={"kind": "stationary", "note": "", "weather": ""},
+        data={
+            "kind": "stationary",
+            "note": "",
+            "weather": "",
+            "seen_visually": "unclear",
+        },
     )
 
     assert response.status_code == 404

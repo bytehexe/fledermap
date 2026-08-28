@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session as OrmSession
 
-from fledermap.domain.codes import MergeResolution, SessionKind
+from fledermap.domain.codes import MergeResolution, SessionKind, VisualSighting
 from fledermap.services.sessions import (
     AlreadyResolvedError,
     MergeConflictError,
@@ -278,6 +278,72 @@ def test_merge_with_omitted_note_and_weather_falls_back_to_session_b(
         assert merged_a is not None
         assert merged_a.note == "b's note"
         assert merged_a.weather == "b's weather"
+
+
+@pytest.mark.parametrize(
+    ("a_sighting", "b_sighting", "expected"),
+    [
+        (VisualSighting.YES, VisualSighting.NO, VisualSighting.YES),
+        (VisualSighting.NO, VisualSighting.YES, VisualSighting.YES),
+        (VisualSighting.YES, VisualSighting.UNCLEAR, VisualSighting.YES),
+        (VisualSighting.UNCLEAR, VisualSighting.NO, VisualSighting.UNCLEAR),
+        (VisualSighting.NO, VisualSighting.UNCLEAR, VisualSighting.UNCLEAR),
+        (VisualSighting.NO, VisualSighting.NO, VisualSighting.NO),
+        (VisualSighting.UNCLEAR, VisualSighting.UNCLEAR, VisualSighting.UNCLEAR),
+    ],
+)
+def test_merge_resolves_seen_visually_by_priority(
+    engine: Engine,
+    a_sighting: VisualSighting,
+    b_sighting: VisualSighting,
+    expected: VisualSighting,
+) -> None:
+    """Yes beats Unclear beats No (design decision, 2026-08-28): a confirmed
+    sighting from either half must never be lost, and an unset/"we don't
+    know" Unclear carries no evidence a definite No could outweigh."""
+    with OrmSession(engine) as session:
+        a = _session(BASE, BASE.replace(hour=21), seen_visually=a_sighting)
+        b = _session(
+            BASE.replace(day=21),
+            BASE.replace(day=21, hour=1),
+            seen_visually=b_sighting,
+        )
+        session.add_all([a, b])
+        session.flush()
+        session.add(
+            Recording(
+                audio_hash="a0".rjust(64, "0"),
+                path="a0.wav",
+                recorded_at=BASE,
+                session_id=a.id,
+            ),
+        )
+        session.flush()
+        bridging = session.scalars(
+            select(Recording).where(Recording.session_id == a.id)
+        ).one()
+        proposal = SessionMergeProposal(
+            session_a_id=a.id,
+            session_b_id=b.id,
+            bridging_recording_id=bridging.id,
+            detected_at=BASE,
+        )
+        session.add(proposal)
+        session.commit()
+
+        resolve_merge_proposal(
+            session,
+            proposal.id,
+            action="merge",
+            note=None,
+            weather=None,
+            transect_distance_m=150.0,
+        )
+        session.commit()
+
+        merged_a = session.get(Session, a.id)
+        assert merged_a is not None
+        assert merged_a.seen_visually == expected
 
 
 def test_unknown_proposal_id_raises(engine: Engine) -> None:

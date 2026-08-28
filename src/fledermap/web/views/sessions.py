@@ -8,7 +8,7 @@ from __future__ import annotations
 import flask
 from sqlalchemy.orm import Session as OrmSession
 
-from fledermap.domain.codes import SessionKind
+from fledermap.domain.codes import SessionKind, VisualSighting
 from fledermap.services.current_best import current_best_identification
 from fledermap.services.sessions import (
     AlreadyResolvedError,
@@ -100,6 +100,13 @@ def save_session(session_id: int) -> flask.Response:
         kind = SessionKind(kind_raw)
     except ValueError:
         return flask.make_response((f"Invalid kind: {kind_raw!r}", 400))
+    seen_visually_raw = flask.request.form.get("seen_visually", "")
+    try:
+        seen_visually = VisualSighting(seen_visually_raw)
+    except ValueError:
+        return flask.make_response(
+            (f"Invalid seen_visually: {seen_visually_raw!r}", 400)
+        )
     note = flask.request.form.get("note") or None
     weather = flask.request.form.get("weather") or None
 
@@ -112,6 +119,7 @@ def save_session(session_id: int) -> flask.Response:
         session_obj.note = note
         session_obj.weather = weather
         session_obj.kind_locked = True
+        session_obj.seen_visually = seen_visually
         session.commit()
 
     return flask.make_response(flask.redirect(f"/sessions/{session_id}"))

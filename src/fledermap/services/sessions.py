@@ -15,9 +15,28 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.derive.sessions import reclassify_session
-from fledermap.domain.codes import MergeResolution
+from fledermap.domain.codes import MergeResolution, VisualSighting
 from fledermap.store.models import Recording, SessionMergeProposal
 from fledermap.store.models import Session as AnnotationSession
+
+# Priority order for merging `seen_visually` (design decision, 2026-08-28):
+# a confirmed sighting from either half must never be lost, and an unset/
+# "we don't know" UNCLEAR carries no evidence a definite NO could outweigh.
+_VISUAL_SIGHTING_MERGE_PRIORITY = (
+    VisualSighting.YES,
+    VisualSighting.UNCLEAR,
+    VisualSighting.NO,
+)
+
+
+def _merge_visual_sighting(a: VisualSighting, b: VisualSighting) -> VisualSighting:
+    """No form field for this on the merge-proposal banner (unlike `note`/
+    `weather`, it isn't free text) -- resolved automatically instead."""
+    for candidate in _VISUAL_SIGHTING_MERGE_PRIORITY:
+        if a == candidate or b == candidate:
+            return candidate
+    return VisualSighting.UNCLEAR  # unreachable: every member is listed above
+
 
 # Design spec section 3: a capped LIMIT stands in for real pagination at this
 # project's established real-deployment scale (a handful of detectors).
@@ -277,6 +296,9 @@ def resolve_merge_proposal(
             if session_a.weather
             else session_b.weather
         )
+    session_a.seen_visually = _merge_visual_sighting(
+        session_a.seen_visually, session_b.seen_visually
+    )
     reclassify_session(db_session, session_a, transect_distance_m=transect_distance_m)
 
     # This proposal's own `session_b_id` still points at `session_b`, and

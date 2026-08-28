@@ -74,6 +74,25 @@ class SessionKind(StrEnum):
     TRANSECT = "transect"
 
 
+class VisualSighting(StrEnum):
+    """Whether a human observer saw a bat visually during a session --
+    independent of acoustic detection/species ID.
+
+    Purely user-set: nothing in this project auto-classifies it, so unlike
+    `SessionKind` there is no `_locked` companion field to freeze against.
+    `UNCLEAR` means "not recorded" as much as "genuinely ambiguous" -- every
+    session defaults to it, and a merge falls back to it when neither half
+    reports anything more definite (services/sessions.py's
+    `resolve_merge_proposal`: YES beats UNCLEAR beats NO, since an unset
+    "we don't know" carries no evidence a definite NO could outweigh).
+    A closed, three-member vocabulary -- CHECK-enforced, like `SessionKind`.
+    """
+
+    YES = "yes"
+    NO = "no"
+    UNCLEAR = "unclear"
+
+
 class MergeResolution(StrEnum):
     """How a human resolved a `SessionMergeProposal`. NULL means still open."""
 

@@ -29,6 +29,13 @@
               <option value="transect" {% if detail.session.kind.value == 'transect' %}selected{% endif %}>Transect</option>
             </select>
           </label>
+          <label>Seen visually?
+            <select name="seen_visually">
+              <option value="yes" {% if detail.session.seen_visually.value == 'yes' %}selected{% endif %}>Yes</option>
+              <option value="no" {% if detail.session.seen_visually.value == 'no' %}selected{% endif %}>No</option>
+              <option value="unclear" {% if detail.session.seen_visually.value == 'unclear' %}selected{% endif %}>Unclear</option>
+            </select>
+          </label>
           <label>Note
             <textarea name="note">{{ detail.session.note or '' }}</textarea>
           </label>
