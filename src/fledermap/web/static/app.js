@@ -129,8 +129,15 @@ document.addEventListener("DOMContentLoaded", () => {
     highlightedRecordingLayer = null;
     L.geoJSON(recordingsData, {
       pointToLayer: (feature, latlng) => {
-        const marker = L.circleMarker(latlng, { color: colorForFeature(feature.properties) })
-          .on("click", () => openRecordingPanel(feature.properties.audio_hash, params));
+        // weight: 1 explicitly, matching what highlightRecording() resets a
+        // deselected marker to -- CircleMarker's own default (Leaflet's
+        // Path default, weight: 3) is close enough to the highlighted
+        // weight (4) that every marker looked selected until you'd
+        // personally clicked through and away from it at least once.
+        const marker = L.circleMarker(latlng, {
+          color: colorForFeature(feature.properties),
+          weight: 1,
+        }).on("click", () => openRecordingPanel(feature.properties.audio_hash, params));
         recordingLayersByHash.set(feature.properties.audio_hash, marker);
         return marker;
       },
@@ -205,6 +212,11 @@ document.addEventListener("DOMContentLoaded", () => {
     pushUrl();
   };
 
+  function urlNamesAPanel() {
+    const params = new URLSearchParams(window.location.search);
+    return params.has("recording") || params.has("panel");
+  }
+
   function openPanelFromUrl() {
     const params = new URLSearchParams(window.location.search);
     const recordingHash = params.get("recording");
@@ -252,13 +264,68 @@ document.addEventListener("DOMContentLoaded", () => {
 
   document.getElementById("filters").addEventListener("input", refresh);
 
-  // Step 2: Listen for recording-selected to pan and highlight
+  const drawer = document.getElementById("drawer");
+  const mapEl = document.getElementById("map");
+
+  // Shrinks #map's own rendered height to the space actually visible above
+  // the drawer, rather than leaving the drawer floating on top of a
+  // full-height map and trying to compensate individual pan targets
+  // afterward -- that couldn't work: Leaflet's own internal panning (e.g.
+  // zoomToShowLayer's, or spiderfy's leg-fitting) has no idea about a
+  // manual offset and visibly jumps to its own drawer-unaware target
+  // first. With the container itself correctly sized, EVERY pan Leaflet
+  // does -- ours or its own -- is automatically correct with no
+  // per-call compensation anywhere.
+  //
+  // ResizeObserver on #drawer (not a handful of hand-picked event hooks)
+  // reacts to every way its rendered height can change -- open/close
+  // (x-show toggles display:none, reporting a zero rect), the collapse
+  // toggle, and the drag-resize handle below -- without needing to
+  // remember to call this after each one individually. #map's own
+  // margin-bottom tracks the drawer's height via a CSS custom property
+  // (see app.css); invalidateSize() tells Leaflet to recompute against the
+  // new container size, which is the one call actually required here.
+  new ResizeObserver(() => {
+    const height = drawer.getBoundingClientRect().height;
+    mapEl.style.setProperty("--drawer-h", `${height}px`);
+    map.invalidateSize();
+  }).observe(drawer);
+
+  // Step 2: Listen for recording-selected to pan, reveal (zoom/spiderfy),
+  // and highlight. Shared by a fresh marker click, prev/next inside the
+  // drawer, and restoring a panel from the URL -- all three dispatch this
+  // same event, so all three now reveal the target marker's cluster the
+  // same way, not just the initial click.
+  //
+  // Pan to the exact coordinate FIRST, before calling zoomToShowLayer --
+  // not the other way round. zoomToShowLayer only moves the map when it
+  // decides the marker isn't already visible; panning to the marker's
+  // real lat/lng first means that check already finds it in view for the
+  // common case (already unclustered, or clustered but not requiring a
+  // zoom change), so zoomToShowLayer does nothing but spiderfy in place --
+  // ONE motion, not our own pan and then a second, separately-aimed one
+  // from the plugin landing a moment later (previously both "roughly
+  // correct" but visibly sequential/competing). When a zoom change genuinely
+  // is needed (still clustered at the current zoom), zoomToShowLayer's own
+  // zoom-in happens around the point we already centered on, rather than
+  // ALSO panning sideways to get there.
   document.body.addEventListener("recording-selected", (event) => {
     const { latitude, longitude, hash } = event.detail;
+    const marker = recordingLayersByHash.get(hash);
+
     if (latitude != null && longitude != null) {
       map.panTo([latitude, longitude]);
     }
-    highlightRecording(hash);
+
+    // No marker (e.g. a stale hash after a filter change rebuilt the
+    // layer) -- just highlight, same graceful no-op highlightRecording
+    // already falls back to.
+    if (marker) {
+      recordingsLayer.zoomToShowLayer(marker, () => highlightRecording(hash));
+    } else {
+      highlightRecording(hash);
+    }
+
     // prev/next inside the drawer swaps which recording's panel is showing
     // -- the URL and history need to follow, same as a fresh marker click.
     openPanel = { kind: "recording", id: hash };
@@ -266,7 +333,6 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // Step 4: Add drag-resize on the handle
-  const drawer = document.getElementById("drawer");
   const handle = document.getElementById("drawer-handle");
   let dragging = false;
 
@@ -282,12 +348,18 @@ document.addEventListener("DOMContentLoaded", () => {
   // reactive data, not just the DOM -- $data's properties are the actual
   // bound state, so assigning to them updates the x-model'd inputs too),
   // refetch, re-fit (a history jump is an "arrival", like initial load),
-  // and reopen whichever panel (if any) the restored URL names.
+  // and reopen whichever panel (if any) the restored URL names. Skip the
+  // fit when the URL already names a panel to open -- openPanelFromUrl's
+  // own pan-to-that-recording (above) is a second, more specific
+  // destination competing with "fit to everything" a moment later;
+  // "roughly correct, but two visibly sequential motions" rather than
+  // useful. Only fit to everything when there's no panel to zoom to
+  // instead.
   window.addEventListener("popstate", () => {
     Object.assign(Alpine.$data(document.body), filterForm());
     const params = query();
     refreshLayers(params).then(() => {
-      fitToVisible();
+      if (!urlNamesAPanel()) fitToVisible();
       Alpine.store("drawer").open = false;
       Alpine.store("drawer").collapsed = false;
       document.getElementById("drawer-body").innerHTML = "";
@@ -297,7 +369,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   refreshLayers(query()).then(() => {
-    fitToVisible();
+    if (!urlNamesAPanel()) fitToVisible();
     openPanelFromUrl();
   });
 });

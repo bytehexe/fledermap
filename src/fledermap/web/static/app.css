@@ -75,7 +75,14 @@ main.main-content h1 { margin-top: 1rem; }
 #session-detail a { color: var(--color-accent); }
 .detail-meta { color: var(--color-muted); }
 
-#map { flex: 1 1 auto; width: 100%; }
+/* --drawer-h is kept in sync with #drawer's actual rendered height by a
+   ResizeObserver in app.js -- 0px whenever the drawer is closed/collapsed.
+   margin-bottom (not height) composes correctly with flex: 1 1 auto's own
+   grow calculation: it shrinks how much space #map ends up claiming
+   without fighting flex-basis resolution the way an explicit height would.
+   The reclaimed gap is exactly where #drawer (position: fixed) then sits,
+   so there's nothing else visible in it. */
+#map { flex: 1 1 auto; width: 100%; margin-bottom: var(--drawer-h, 0px); }
 
 /* Shared by any horizontal toolbar of filter controls (map.html's #filters,
    sessions_list.html's #session-filters) -- see docs/style-guide.md. Both
@@ -158,9 +165,17 @@ button:disabled { cursor: default; opacity: 0.5; }
 
 [x-cloak] { display: none !important; }
 
+/* left matches #sidebar's own width (200px, or 48px collapsed) so the drawer
+   only ever covers the map's side of the layout -- the sidebar stays fully
+   visible and clickable above it, rather than the drawer's fixed positioning
+   spanning the full viewport width and burying the sidebar underneath. The
+   sibling selector tracks #sidebar's existing .collapsed toggle (manual
+   click, or the narrow-viewport auto-collapse in _nav.html) automatically;
+   no z-index change is needed since the drawer no longer overlaps the
+   sidebar's screen region at all. */
 #drawer {
   position: fixed;
-  left: 0;
+  left: 200px;
   right: 0;
   bottom: 0;
   height: 50vh;
@@ -171,6 +186,7 @@ button:disabled { cursor: default; opacity: 0.5; }
   flex-direction: column;
   z-index: 1000;
 }
+#sidebar.collapsed ~ .main-content #drawer { left: 48px; }
 #drawer.collapsed { height: auto !important; }
 #drawer.collapsed #drawer-body { display: none; }
 #drawer-handle { height: 6px; cursor: ns-resize; background: var(--color-border); }
