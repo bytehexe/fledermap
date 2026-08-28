@@ -13,26 +13,52 @@
    _theme_init.html already applied that (before this component ever
    initializes) for the override case, and reading localStorage directly
    here is the one source of truth for what state to display, whether or
-   not an override is currently active. #}
+   not an override is currently active.
+
+   localStorage access is guarded with try/catch (final review, 2026-08-28):
+   getItem/setItem/removeItem throw SecurityError when site data is blocked
+   (private browsing settings, some enterprise policies), which would
+   otherwise take out this entire x-data scope -- including the unrelated
+   sidebar-collapse toggle -- not just the theme feature. On a throw, the
+   DOM attribute still updates so the toggle works for this page load, and
+   this.theme is assigned exactly once, after the try/catch, so it never
+   disagrees with what actually happened in storage/the DOM. #}
 <nav id="sidebar"
      x-data="{
        collapsed: window.matchMedia('(max-width: 800px)').matches,
-       theme: localStorage.getItem('fledermap-theme') || 'system',
+       theme: (function () {
+         try {
+           return localStorage.getItem('fledermap-theme') || 'system';
+         } catch (e) {
+           return 'system';
+         }
+       })(),
        cycleTheme() {
          var next = { system: 'light', light: 'dark', dark: 'system' }[this.theme];
-         this.theme = next;
-         if (next === 'system') {
-           localStorage.removeItem('fledermap-theme');
-           delete document.documentElement.dataset.theme;
-         } else {
-           localStorage.setItem('fledermap-theme', next);
-           document.documentElement.dataset.theme = next;
+         try {
+           if (next === 'system') {
+             localStorage.removeItem('fledermap-theme');
+             delete document.documentElement.dataset.theme;
+           } else {
+             localStorage.setItem('fledermap-theme', next);
+             document.documentElement.dataset.theme = next;
+           }
+         } catch (e) {
+           // localStorage inaccessible (e.g. blocked site data): still
+           // update the DOM so the toggle works for this page load, even
+           // though the choice won't persist across reloads.
+           if (next === 'system') {
+             delete document.documentElement.dataset.theme;
+           } else {
+             document.documentElement.dataset.theme = next;
+           }
          }
+         this.theme = next;
        },
      }"
      :class="{ collapsed: collapsed }">
   <button type="button" id="sidebar-toggle" @click="collapsed = !collapsed" aria-label="Toggle navigation">☰</button>
-  <button type="button" id="theme-toggle" @click="cycleTheme()" :aria-label="'Theme: ' + theme + ' -- click to change'">
+  <button type="button" id="theme-toggle" x-cloak @click="cycleTheme()" :aria-label="'Theme: ' + theme + '. Click to change.'">
     <span x-text="theme === 'dark' ? '🌙' : (theme === 'light' ? '☀️' : '🖥️')"></span>
   </button>
   <a class="sidebar-link" href="/"><span class="label">🦇 Map</span></a>

@@ -30,19 +30,34 @@ add it to `:root` and document it here in the same change.
 System preference by default (`prefers-color-scheme: dark`), with a three-state manual override
 (system → light → dark → system) via the 🖥️/☀️/🌙 button in the sidebar (`_nav.html`), persisted
 in `localStorage` under the key `fledermap-theme`. The override is applied via a `data-theme`
-attribute on `<html>`, set by a small inline script (`_theme_init.html`, included first in every
-page's `<head>`) *before* first paint, so a returning visitor with an active override never sees
-a flash of the wrong theme.
+attribute on `<html>`, set by a small inline script (`_theme_init.html`, included immediately
+after `<meta charset>`, before everything else in every page's `<head>`) *before* first paint, so
+a returning visitor with an active override never sees a flash of the wrong theme.
 
 Any rule that uses the tokens above gets dark mode for free — nothing extra to do. A rule that
 hardcodes a color instead does not, and violates the "never hardcode a hex" rule above for
 exactly this reason: `--color-warning` was promoted from `.merge-badge`'s hardcoded hex
 specifically so it could have a dark counterpart.
 
+Native control chrome (date-picker calendar icon/popup, `<audio controls>`, scrollbars, `<select>`
+popups, checkboxes) isn't themed by these tokens at all — it's themed by the CSS `color-scheme`
+property, set alongside the tokens (`color-scheme: light` in `:root`, `color-scheme: dark` in both
+dark-mode blocks) rather than by the tokens themselves.
+
 **The map does not theme.** Both Leaflet map instances (the main map, the session-detail
 mini-map) keep their normal light appearance in every mode, deliberately — see
 `docs/superpowers/specs/2026-08-28-fledermap-dark-mode-design.md`'s Non-goals. Don't "fix" the
 map's light tiles as a perceived oversight.
+
+**The oscillogram waveform also does not theme.** `media/oscillogram.py` renders a hard-coded
+black-on-white waveform PNG, cached on disk by `params_hash` — out of scope for the same reason
+as the map. Unlike the map's CSS, it's a rendered, cached image, so it cannot follow `data-theme`
+the way the rest of the UI does even if it were in scope.
+
+The `@media (prefers-color-scheme: dark)` block and the `:root[data-theme="dark"]` block in
+`app.css` duplicate the same declarations — a media-query rule and a plain attribute-selector
+rule can't be merged — so changing a dark-mode token value means editing it in *both* blocks, or
+a future edit will drift between "system-driven dark" and "explicit dark override".
 
 ## Spacing rhythm
 

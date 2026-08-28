@@ -51,7 +51,10 @@ there (per that guide's own "match what's already there" charter — see
 
 Every color in the app already routes through six `--color-*` custom properties in `app.css`'s
 `:root`, confirmed by grepping the whole file and every template for hex literals and named CSS
-colors: the only gap is `.merge-badge`'s hardcoded `color: #b7791f`. Dark mode adds a dark-mode
+colors: the only hex/named-color gap is `.merge-badge`'s hardcoded `color: #b7791f`; `#drawer`'s
+`rgba(0, 0, 0, 0.08)` box-shadow is a separate, accepted gap, not caught by that grep because it's
+a function call rather than a hex literal or named color — a subtle shadow that need not follow
+the theme is not worth a token. Dark mode adds a dark-mode
 value for each existing token, plus promotes that hardcoded value into a seventh token so it can
 have one too — exactly the style guide's own standing rule ("never hardcode a hex color in a new
 rule — use the token").
