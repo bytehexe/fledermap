@@ -91,11 +91,19 @@ the existing spectrogram/oscillogram/preview tasks:
   `Config.watch_interval_s` (or an internal cron-string constant if a knob turns out unnecessary;
   left to the implementation plan). This guarantees progress even if filesystem events are
   missed, coalesced (a real risk with Syncthing's write pattern), or the process restarted.
-- A `watchdog` `Observer` — one per configured archive root — watches for file create/close
-  events and triggers an immediate `run_ingest_cycle.defer_async()` on top of the cron backstop
-  (the hybrid trigger model). `watchdog` is a new dependency: filesystem-event watching
-  (recursive, cross-platform inotify wrapping, debounce) is exactly the kind of nontrivial domain
-  this project's own conventions say to reach for a well-tested library for, not reimplement.
+- A `watchdog` `Observer` — one per configured archive root — watches for filesystem events.
+  Events do NOT defer a run immediately: each event (re)starts a debounce timer, and only once
+  the filesystem has gone quiet for the debounce window (no further event arrives) does the
+  handler actually `run_ingest_cycle.defer_async()`. Without this, an active Syncthing burst
+  (many files arriving over a couple of minutes) would fire a cycle per event, and most of those
+  cycles would just get their sweep refused (`IncompleteScanError` — files still arriving, §6) —
+  a burst of refusal log lines instead of one clean run once things settle. The debounce window
+  reuses `ingest.scan.DEFAULT_SETTLE_SECONDS` (30s) rather than introducing a second, independent
+  timing knob that could drift out of sync with the per-file settle check's own timescale.
+  `watchdog` is a new dependency: filesystem-event watching (recursive, cross-platform inotify
+  wrapping) is exactly the kind of nontrivial domain this project's own conventions say to reach
+  for a well-tested library for, not reimplement — the debounce logic on top of it is this
+  project's own, small enough to not need a library.
 - **Threading note for the implementation plan:** `watchdog`'s `Observer` calls its event handler
   from its own thread, not the asyncio loop `run_worker` runs on. The handler cannot `await
   defer_async()` directly — it must marshal the defer onto the worker's running event loop (e.g.
@@ -160,7 +168,9 @@ rather than requiring the write-side plumbing to be revisited too.
   unexpected exception propagates.
 - The `watchdog` → `defer_async()` thread-bridging path needs its own focused test (per §5's
   threading note) — not just coverage of the cron path, which alone wouldn't exercise the
-  cross-thread marshaling at all.
+  cross-thread marshaling at all. The debounce timer itself needs a test that a second event
+  arriving before the window elapses RESETS the timer (no defer yet), distinct from a test that
+  one event alone eventually defers once the window elapses uninterrupted.
 - Migration test (`tests/test_migrations.py`'s existing drift-detection machinery, per this
   project's established per-column-coverage pattern) for the new NOT NULL `archive_root_index`
   column and its backfill.
@@ -183,10 +193,12 @@ rather than requiring the write-side plumbing to be revisited too.
 Captured for the record, with the reasoning that led to each (brainstorming session,
 2026-08-28):
 
-1. **Hybrid trigger (events wake an immediate run, cron is the backstop)** over pure polling or
-   pure events — matches the existing settle-by-age model (not event-debounce) while still
-   getting low latency; a lone poll would risk feeling too slow, lone events would risk silently
-   stalling on a missed/coalesced write.
+1. **Hybrid trigger (events wake a debounced run, cron is the backstop)** over pure polling or
+   pure events — a lone poll would risk feeling too slow, lone events (fired on every filesystem
+   change with no debounce) would risk a refusal-log burst during an active sync window (§5).
+   Debouncing was added after the initial design pass, once the "immediate defer per event"
+   version's failure mode against a real Syncthing burst was worked through concretely — reuses
+   the existing per-file settle window's timescale rather than inventing a second one.
 2. **`derive` runs every cycle**, not only when ingest found something new — both
    `partition_sessions`/`derive_sites` are already idempotent and cheap to re-run (CLAUDE.md), and
    "appears unattended" should hold literally, not require a second manual step.
