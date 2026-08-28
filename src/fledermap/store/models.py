@@ -40,6 +40,15 @@ class Recording(Base):
     audio_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     path: Mapped[str] = mapped_column(Text, index=True)
 
+    # Which configured `Config.archive_roots[i]` this file was scanned under
+    # (design spec §3). Read-time media resolution (`jobs/tasks.py`) is
+    # `archive_roots[archive_root_index] / path` -- exact, no search. Default
+    # 0 (ORM-level, not just the migration's server_default) because several
+    # test helpers across the suite construct `Recording(...)` directly
+    # without setting it (e.g. `tests/test_jobs_tasks.py`'s `_make_recording`)
+    # -- matches `Session.kind_locked`'s existing `default=False` pattern.
+    archive_root_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
     recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     filename_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     metadata_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

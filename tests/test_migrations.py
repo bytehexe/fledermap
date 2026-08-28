@@ -318,3 +318,37 @@ def test_migration_idsource_literal_matches_the_model() -> None:
     must list every `IdSource` member. Mutation-test this by adding a member
     to `IdSource` without touching the migration — it must fail."""
     assert _migration_idsource_literal() == [s.value for s in IdSource]
+
+
+def test_archive_root_index_column_is_not_null(migrated_engine: Engine) -> None:
+    """The new column must actually be NOT NULL at the DB level, not just in
+    the ORM's own type annotation -- an INSERT omitting it must fail."""
+    with migrated_engine.connect() as conn:
+        with pytest.raises(IntegrityError):
+            with conn.begin():
+                conn.execute(
+                    text(
+                        "INSERT INTO recording (audio_hash, path, recorded_at, "
+                        "guano_raw, archive_root_index) VALUES ('x', 'y', now(), '{}'::jsonb, NULL)",
+                    ),
+                )
+
+
+def test_archive_root_index_defaults_to_zero_server_side(
+    migrated_engine: Engine,
+) -> None:
+    """The migration's server_default matters independently of the ORM
+    default: a raw INSERT that omits the column (e.g. a future non-ORM tool,
+    or a backfill against pre-Phase-6 data) must still land on 0, not NULL."""
+    with migrated_engine.connect() as conn:
+        with conn.begin():
+            conn.execute(
+                text(
+                    "INSERT INTO recording (audio_hash, path, recorded_at, guano_raw) "
+                    "VALUES ('x', 'y', now(), '{}'::jsonb)",
+                ),
+            )
+        value = conn.execute(
+            text("SELECT archive_root_index FROM recording WHERE audio_hash = 'x'"),
+        ).scalar()
+    assert value == 0
