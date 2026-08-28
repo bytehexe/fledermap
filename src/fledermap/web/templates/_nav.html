@@ -4,11 +4,37 @@
    nav, so hiding it by default would just make /sessions harder to find);
    auto-collapses below a responsive breakpoint, matching the "columns
    stack on narrow screens" convention Phase 5a's drawer panels already
-   use, plus a manual toggle at any width. #}
+   use, plus a manual toggle at any width.
+
+   Also owns the dark-mode toggle (2026-08-28): a single x-data scope for
+   both, since they're both small pieces of standing nav state with no
+   need to be split into separate components. theme starts from
+   localStorage, not from document.documentElement.dataset.theme --
+   _theme_init.html already applied that (before this component ever
+   initializes) for the override case, and reading localStorage directly
+   here is the one source of truth for what state to display, whether or
+   not an override is currently active. #}
 <nav id="sidebar"
-     x-data="{ collapsed: window.matchMedia('(max-width: 800px)').matches }"
+     x-data="{
+       collapsed: window.matchMedia('(max-width: 800px)').matches,
+       theme: localStorage.getItem('fledermap-theme') || 'system',
+       cycleTheme() {
+         var next = { system: 'light', light: 'dark', dark: 'system' }[this.theme];
+         this.theme = next;
+         if (next === 'system') {
+           localStorage.removeItem('fledermap-theme');
+           delete document.documentElement.dataset.theme;
+         } else {
+           localStorage.setItem('fledermap-theme', next);
+           document.documentElement.dataset.theme = next;
+         }
+       },
+     }"
      :class="{ collapsed: collapsed }">
   <button type="button" id="sidebar-toggle" @click="collapsed = !collapsed" aria-label="Toggle navigation">☰</button>
+  <button type="button" id="theme-toggle" @click="cycleTheme()" :aria-label="'Theme: ' + theme + ' -- click to change'">
+    <span x-text="theme === 'dark' ? '🌙' : (theme === 'light' ? '☀️' : '🖥️')"></span>
+  </button>
   <a class="sidebar-link" href="/"><span class="label">🦇 Map</span></a>
   <a class="sidebar-link" href="/sessions"><span class="label">Sessions</span></a>
 </nav>

@@ -12,17 +12,37 @@ that scope.
 
 Defined in `app.css`'s `:root`:
 
-| Token | Value | Use |
-|---|---|---|
-| `--color-text` | `#1a1a1a` | Primary body text |
-| `--color-muted` | `#666` | Secondary/metadata text — labels, captions, timestamps |
-| `--color-border` | `#d8d8d8` | Borders on inputs, panels, dividers |
-| `--color-bg` | `#ffffff` | Page and control background |
-| `--color-bg-subtle` | `#f7f7f8` | Panel/toolbar background, one step off white |
-| `--color-accent` | `#2b6cb0` | Links and interactive accents |
+| Token | Light | Dark | Use |
+|---|---|---|---|
+| `--color-text` | `#1a1a1a` | `#e8e8e8` | Primary body text |
+| `--color-muted` | `#666` | `#9a9a9a` | Secondary/metadata text — labels, captions, timestamps |
+| `--color-border` | `#d8d8d8` | `#3a3d42` | Borders on inputs, panels, dividers |
+| `--color-bg` | `#ffffff` | `#1a1a1a` | Page and control background |
+| `--color-bg-subtle` | `#f7f7f8` | `#242628` | Panel/toolbar background, one step off the page background |
+| `--color-accent` | `#2b6cb0` | `#5b9bd5` | Links and interactive accents |
+| `--color-warning` | `#b7791f` | `#d99a3f` | `.merge-badge`'s warning color |
 
 Never hardcode a hex color in a new rule — use the token. If a new color is genuinely needed,
 add it to `:root` and document it here in the same change.
+
+## Dark mode
+
+System preference by default (`prefers-color-scheme: dark`), with a three-state manual override
+(system → light → dark → system) via the 🖥️/☀️/🌙 button in the sidebar (`_nav.html`), persisted
+in `localStorage` under the key `fledermap-theme`. The override is applied via a `data-theme`
+attribute on `<html>`, set by a small inline script (`_theme_init.html`, included first in every
+page's `<head>`) *before* first paint, so a returning visitor with an active override never sees
+a flash of the wrong theme.
+
+Any rule that uses the tokens above gets dark mode for free — nothing extra to do. A rule that
+hardcodes a color instead does not, and violates the "never hardcode a hex" rule above for
+exactly this reason: `--color-warning` was promoted from `.merge-badge`'s hardcoded hex
+specifically so it could have a dark counterpart.
+
+**The map does not theme.** Both Leaflet map instances (the main map, the session-detail
+mini-map) keep their normal light appearance in every mode, deliberately — see
+`docs/superpowers/specs/2026-08-28-fledermap-dark-mode-design.md`'s Non-goals. Don't "fix" the
+map's light tiles as a perceived oversight.
 
 ## Spacing rhythm
 

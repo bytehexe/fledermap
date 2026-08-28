@@ -70,7 +70,7 @@ body { display: flex; flex-direction: row; }
 }
 #sidebar.collapsed { width: 48px; }
 #sidebar.collapsed .sidebar-link .label { display: none; }
-#sidebar-toggle { align-self: flex-end; margin-bottom: 0.5rem; }
+#sidebar-toggle, #theme-toggle { align-self: flex-end; margin-bottom: 0.5rem; }
 .sidebar-link {
   display: block;
   padding: 0.4rem 0.5rem;
