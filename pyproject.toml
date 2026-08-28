@@ -38,6 +38,7 @@ dependencies = [
   # migrations, so a library upgrade needs a deliberate, manual schema step.
   "procrastinate>=3.9,<4",
   "psycopg[binary,pool]",
+  "watchdog",
 ]
 
 [project.scripts]

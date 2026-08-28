@@ -11,7 +11,8 @@ import click
 import flask
 import pytest
 from click.testing import CliRunner
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
+from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import Session as OrmSession
 
 import fledermap.cli.main as cli_main
@@ -536,6 +537,73 @@ def test_worker_no_wait_processes_queued_jobs_and_writes_media(
     assert len(spectrograms) == 2
     assert len(oscillograms) == 2
     assert len(previews) == 2
+
+
+def test_worker_wait_mode_picks_up_a_file_dropped_in_after_startup(
+    clean_database_url: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """End-to-end: `worker` (no --no-wait) is already running, a WAV appears
+    in the watched archive, and it gets ingested without a second `ingest`
+    invocation -- the actual behavior this whole phase exists to add."""
+    import threading
+
+    archive = _archive_with_n_files(tmp_path, 0)  # empty, settled archive dir
+    # Deliberately NOT `runner.invoke(cli, ["worker"], env={...})`: Click's
+    # `CliRunner.invoke` patches `os.environ` inside `with self.isolation(...)`
+    # and only reverts it in that block's `finally`, which runs when `invoke`
+    # RETURNS -- and this `--wait` invocation, run on a background thread we
+    # never cleanly stop (see the comment below), never returns during this
+    # test's lifetime. Under a real invocation that would leak these three
+    # FLEDERMAP_* env vars into the real process environment for the rest of
+    # the (xdist worker) process, corrupting any later test that relies on
+    # them being unset -- confirmed by reproducing exactly that against
+    # `test_config.py`'s archive_roots validation test. `monkeypatch.setenv`
+    # reverts unconditionally at THIS test's teardown instead, independent of
+    # whether the invoked command ever returns.
+    monkeypatch.setenv("FLEDERMAP_DATABASE_URL", clean_database_url)
+    monkeypatch.setenv("FLEDERMAP_MEDIA_ROOT", str(tmp_path / "media"))
+    monkeypatch.setenv("FLEDERMAP_ARCHIVE_ROOTS", str(archive))
+    runner = CliRunner()
+    result_holder: list[object] = []
+
+    def _run() -> None:
+        result_holder.append(runner.invoke(cli, ["worker"]))
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    time.sleep(0.5)  # let the worker/observer actually start
+
+    path = archive / "EPTSER_20150610_215446.wav"
+    path.write_bytes(
+        build_wav([(b"fmt ", fmt_payload()), (b"data", b"\x01\x02" * 32)]),
+    )
+    old = time.time() - 3600
+    os.utime(path, (old, old))
+
+    deadline = time.time() + 10
+    engine = make_engine(clean_database_url)
+    found = False
+    while time.time() < deadline:
+        try:
+            with OrmSession(engine) as session:
+                if session.scalar(select(func.count()).select_from(Recording)):
+                    found = True
+                    break
+        except ProgrammingError:
+            # The daemon thread's `worker` invocation runs its own
+            # `_run_migrations` before the `recording` table exists -- this
+            # main-thread polling loop can legitimately start querying
+            # before that finishes. Not a real failure: keep polling.
+            pass
+        time.sleep(0.2)
+
+    # No clean way to stop a CliRunner-invoked `--wait` worker from here --
+    # this test process exiting ends the daemon thread. Not attempting a
+    # graceful shutdown call; document that limitation rather than papering
+    # over it with a fragile signal-based workaround.
+    assert found, "recording was not ingested within the timeout"
 
 
 def test_enqueue_media_command_reports_disk_gap_but_avoids_duplicate_jobs(

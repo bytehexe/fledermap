@@ -2,20 +2,26 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 import urllib.error
 from datetime import timedelta
 from pathlib import Path
 
 import click
+import procrastinate
 from alembic.config import Config as AlembicConfig
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session as OrmSession
 
 from alembic import command as alembic_command
 from fledermap.config import Config, ConfigError, resolve_static_root
 from fledermap.derive.sessions import partition_sessions
 from fledermap.jobs.app import ensure_schema, make_worker_connector
+from fledermap.jobs.tasks import _INGEST_CYCLE_LOCK, run_ingest_cycle
 from fledermap.jobs.tasks import app as jobs_app
+from fledermap.jobs.watch import start_watching
 from fledermap.services.derive import derive_sites
 from fledermap.services.ingest import (
     IncompleteScanError,
@@ -212,6 +218,44 @@ def derive() -> None:
         )
 
 
+async def _defer_ingest_cycle() -> None:
+    try:
+        await run_ingest_cycle.configure(
+            lock=_INGEST_CYCLE_LOCK,
+            queueing_lock=_INGEST_CYCLE_LOCK,
+        ).defer_async(timestamp=int(time.time()))
+    except procrastinate.exceptions.AlreadyEnqueued:
+        pass  # a cycle is already queued behind the one currently running
+
+
+async def _run_worker_async(config: Config, engine: Engine, *, wait: bool) -> None:
+    async_connector = make_worker_connector(config.database_url)
+    with jobs_app.replace_connector(async_connector) as worker_app:
+        # `run_worker` (sync) opens the app itself via `async with
+        # self.open_async(): await self.run_worker_async(...)` (confirmed in
+        # procrastinate/app.py) before running -- `run_worker_async` does NOT
+        # do this on its own, so it must be opened explicitly here too.
+        # Without it, `run_worker_async` raises `AppNotOpen` immediately.
+        async with worker_app.open_async():
+            loop = asyncio.get_running_loop()
+            observer = start_watching(config.archive_roots, loop, _defer_ingest_cycle)
+            try:
+                await worker_app.run_worker_async(
+                    wait=wait,
+                    install_signal_handlers=wait,
+                    listen_notify=wait,
+                    additional_context={
+                        "archive_roots": config.archive_roots,
+                        "media_root": config.media_root,
+                        "config": config,
+                        "engine": engine,
+                    },
+                )
+            finally:
+                observer.stop()
+                observer.join()
+
+
 @cli.command()
 @click.option(
     "--wait/--no-wait",
@@ -220,14 +264,12 @@ def derive() -> None:
     "queue once and exit.",
 )
 def worker(wait: bool) -> None:
-    """Run the media job worker. Reads and writes files under the configured
-    archive roots and the configured media root.
+    """Run the media job worker AND the continuous ingest+derive watcher
+    (design spec 2026-08-28-fledermap-phase6-watcher-design.md): a cron
+    backstop plus a debounced filesystem watch, both deferring the same
+    `run_ingest_cycle` task. Reads FLEDERMAP_ARCHIVE_ROOTS to resolve
+    `Recording.path` AND to know which directories to watch.
     """
-    # Procrastinate logs worker startup and every per-job event at INFO. With
-    # no handler and the root logger at its WARNING default, a long-lived
-    # `worker` daemon is completely silent until something crashes. Scoped to
-    # this command deliberately: `ingest`/`derive` are short-lived, report
-    # through `click.echo`, and were not asked to change their output.
     logging.basicConfig(level=logging.INFO)
 
     try:
@@ -239,19 +281,7 @@ def worker(wait: bool) -> None:
     _run_migrations(config.database_url)
     ensure_schema(jobs_app, engine)
 
-    async_connector = make_worker_connector(config.database_url)
-    with jobs_app.replace_connector(async_connector) as worker_app:
-        worker_app.run_worker(
-            wait=wait,
-            install_signal_handlers=wait,
-            listen_notify=wait,
-            additional_context={
-                "archive_roots": config.archive_roots,
-                "media_root": config.media_root,
-                "config": config,
-                "engine": engine,
-            },
-        )
+    asyncio.run(_run_worker_async(config, engine, wait=wait))
 
 
 @cli.command()
