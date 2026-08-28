@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import stat
 import sys
 import time
-from collections.abc import Iterator
+from collections.abc import Awaitable, Callable, Iterator, Sequence
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 import flask
@@ -21,10 +23,14 @@ from fledermap.cli.main import (
     _fetch_missing_vendor_assets_or_die,
     cli,
 )
+from fledermap.jobs.watch import start_watching as _real_start_watching
 from fledermap.services.vendor_assets import ASSETS, IntegrityError, VendorAsset
 from fledermap.store.db import make_engine
 from fledermap.store.models import Recording
 from tests.fixtures import build_wav, fmt_payload, wamd_payload
+
+if TYPE_CHECKING:
+    from watchdog.observers.api import BaseObserver
 
 
 def _populate_vendor_cache(static_root: Path) -> None:
@@ -546,8 +552,33 @@ def test_worker_wait_mode_picks_up_a_file_dropped_in_after_startup(
 ) -> None:
     """End-to-end: `worker` (no --no-wait) is already running, a WAV appears
     in the watched archive, and it gets ingested without a second `ingest`
-    invocation -- the actual behavior this whole phase exists to add."""
+    invocation via the watchdog/debounce path specifically -- not via
+    Procrastinate's periodic-cron startup catch-up, which is deliberately
+    starved here: the archive is empty when the worker starts, so any
+    catch-up cycle finds nothing and Procrastinate won't fire the cron again
+    for 5 minutes, well outside this test's short polling window. The
+    debounce window is shortened (via monkeypatching the name
+    `fledermap.cli.main.start_watching`, not by changing the production
+    default) so the watcher path itself completes quickly; production still
+    always uses DEFAULT_SETTLE_SECONDS."""
     import threading
+
+    def _short_debounce_start_watching(
+        archive_roots: Sequence[Path],
+        loop: asyncio.AbstractEventLoop,
+        defer: Callable[[], Awaitable[None]],
+        *,
+        debounce_seconds: float = 0.5,
+    ) -> BaseObserver:
+        # Ignores whatever `debounce_seconds` it was called with (production
+        # never overrides it) and forces a short one instead, so this test's
+        # polling window can be comfortably shorter than 5 minutes while
+        # still exercising the real `start_watching` -- same archive_roots,
+        # same loop, same `_defer_ingest_cycle` closure `cli/main.py` wires
+        # in for real.
+        return _real_start_watching(archive_roots, loop, defer, debounce_seconds=0.5)
+
+    monkeypatch.setattr(cli_main, "start_watching", _short_debounce_start_watching)
 
     archive = _archive_with_n_files(tmp_path, 0)  # empty, settled archive dir
     # Deliberately NOT `runner.invoke(cli, ["worker"], env={...})`: Click's
@@ -573,7 +604,10 @@ def test_worker_wait_mode_picks_up_a_file_dropped_in_after_startup(
 
     thread = threading.Thread(target=_run, daemon=True)
     thread.start()
-    time.sleep(0.5)  # let the worker/observer actually start
+    time.sleep(2.0)  # let the worker start AND let any cron startup
+    # catch-up run against the still-empty archive, so its only remaining
+    # opportunity to fire `run_ingest_cycle` again is the next scheduled
+    # tick, 5 minutes away -- well outside this test's polling window below.
 
     path = archive / "EPTSER_20150610_215446.wav"
     path.write_bytes(
@@ -582,7 +616,8 @@ def test_worker_wait_mode_picks_up_a_file_dropped_in_after_startup(
     old = time.time() - 3600
     os.utime(path, (old, old))
 
-    deadline = time.time() + 10
+    deadline = time.time() + 5  # comfortably above the 0.5s debounce,
+    # comfortably below the 5-minute next cron tick
     engine = make_engine(clean_database_url)
     found = False
     while time.time() < deadline:
@@ -603,7 +638,9 @@ def test_worker_wait_mode_picks_up_a_file_dropped_in_after_startup(
     # this test process exiting ends the daemon thread. Not attempting a
     # graceful shutdown call; document that limitation rather than papering
     # over it with a fragile signal-based workaround.
-    assert found, "recording was not ingested within the timeout"
+    assert found, (
+        "recording was not ingested within the timeout -- the watcher path did not fire"
+    )
 
 
 def test_enqueue_media_command_reports_disk_gap_but_avoids_duplicate_jobs(
