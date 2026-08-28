@@ -93,6 +93,15 @@ Fledermap's config keeps:
   parent spec explicitly calls for "quarters, suburbs, villages")
 - The existing `forest_or_park` group (`landuse`/`leisure`/`natural`: `forest`/`park`/`wood`/
   `nature_reserve`) — "named parks and woods" is already well covered here, kept as-is.
+- New `water_body` group (`natural: water`, `waterway: river`) — added during spec review, checked
+  against the OSM Map Features wiki: bats forage heavily along water corridors, and a named lake
+  or river is exactly the kind of landmark someone would use to describe a detector's placement.
+  `natural=water` is the generic tag covering lakes/ponds/reservoirs without needing to enumerate
+  every `water=*` sub-value. Deliberately excludes `natural=wetland`/`bay` and the moor/heath/scrub
+  group — real habitat in some cases, but rarely carries a proper name in OSM the way a lake or
+  river does, and the existing `forest_or_park` group's `leisure=nature_reserve` already catches
+  most protected wetland/heath areas that *are* named. Also excludes `waterway=stream` — far more
+  numerous than named rivers, adding more visual/matching noise than naming value.
 
 Everything else in poiidx's default (tourism, food & dining, accommodation, shopping, public
 transport, entertainment, historic sites, landmarks) is dropped.
@@ -203,7 +212,7 @@ site that existed before this feature shipped, or one whose job failed past its 
 |---|---|
 | SN-1 | poiidx wired in as a normal pinned PyPI dependency (`poiidx>=0.0.9`), not vendored — confirmed published and identical to the local checkout. |
 | SN-2 | `FLEDERMAP_POIIDX_DATABASE_URL` is optional; unset means the feature is off and behavior is unchanged from today. |
-| SN-3 | Fledermap ships its own curated `poiidx_filter_config.yaml` (toponymy-focused: place hierarchy + suburb/quarter/neighbourhood + forest/park), not poiidx's general-purpose default. |
+| SN-3 | Fledermap ships its own curated `poiidx_filter_config.yaml` (toponymy-focused: place hierarchy + suburb/quarter/neighbourhood + forest/park + named water bodies/rivers), not poiidx's general-purpose default. |
 | SN-4 | `derive_sites` is not changed to preserve unchanged sites across a rebuild — that's a separate, higher-risk change to clustering identity; `SiteNameCache` solves the actual repeat-work problem at much smaller scope. |
 | SN-5 | `enqueue_site_naming` checks `SiteNameCache` synchronously before enqueueing anything, so a stable site's name survives every `derive_sites` rebuild without a job round-trip. |
 | SN-6 | `name_site_task` uses a single static Procrastinate `lock`, not a second dedicated worker process, to serialize poiidx access. |
