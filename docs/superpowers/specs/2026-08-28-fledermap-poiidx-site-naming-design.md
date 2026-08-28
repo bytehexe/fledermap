@@ -154,12 +154,13 @@ def name_site_task(context, site_id: int) -> None: ...
 `@app.task` itself.
 
 - `queue="geo"` — the reserved-but-unused queue name from Phase 3.
-- `lock="poiidx-name-site"` — a single static lock value, so Procrastinate serializes execution of
-  every `name_site` job against every other one, regardless of overall worker concurrency. This is
-  the same mechanism `_INGEST_CYCLE_LOCK` already uses in this codebase (there for coalescing;
-  here for mutual exclusion during a possible first-touch region download).
-- `retry=_RETRY` — reuse the existing shared retry policy (3 attempts, exponential backoff),
-  matching the media tasks' handling of transient resource failures.
+- `retry=_RETRY` (decorator argument) — reuse the existing shared retry policy (3 attempts,
+  exponential backoff), matching the media tasks' handling of transient resource failures.
+- `lock="poiidx-name-site"` (applied at defer time, as noted above, not a decorator argument) — a
+  single static lock value, so Procrastinate serializes execution of every `name_site` job against
+  every other one, regardless of overall worker concurrency. This is the same mechanism
+  `_INGEST_CYCLE_LOCK` already uses in this codebase (there for coalescing; here for mutual
+  exclusion during a possible first-touch region download).
 
 **Enqueue, cache-first (the mitigation for `derive_sites`'s wholesale-rebuild reset):** wherever
 `derive_sites` finishes rebuilding (its caller in `jobs/tasks.py`'s ingest cycle, and the
