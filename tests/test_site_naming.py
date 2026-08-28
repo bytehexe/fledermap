@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
+from sqlalchemy import select
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.services import site_naming
+from fledermap.store.models import SiteNameCache
+
+pytestmark = pytest.mark.db
 
 
 def test_poiidx_connection_kwargs_parses_a_well_formed_url() -> None:
@@ -72,3 +80,123 @@ def test_ensure_connected_calls_poiidx_init_exactly_once(
 
     assert len(calls) == 1
     assert calls[0]["database"] == "poiidx_bats_db"
+
+
+def test_name_site_returns_the_cached_value_without_calling_poiidx(
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail(*args: object, **kwargs: object) -> None:
+        raise AssertionError("poiidx must not be called on a cache hit")
+
+    monkeypatch.setattr(site_naming.poiidx, "get_nearest_pois", fail)
+    monkeypatch.setattr(site_naming.poiidx, "get_administrative_hierarchy_string", fail)
+
+    with OrmSession(engine) as session:
+        session.add(
+            SiteNameCache(
+                geohash=site_naming._cache_key(13.405, 52.520),
+                name="Tiergarten",
+                admin_path="Berlin > Mitte",
+                fetched_at=datetime(2026, 8, 28, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+        result = site_naming.name_site(session, 13.405, 52.520, radius_m=300.0)
+
+    assert result == ("Tiergarten", "Berlin > Mitte")
+
+
+def test_name_site_prefers_the_lowest_rank_poi_over_the_nearest(
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        site_naming.poiidx,
+        "get_nearest_pois",
+        lambda *a, **k: [
+            {"name": "Nearby Bench", "rank": 23},
+            {"name": "Tiergarten", "rank": 16},
+        ],
+    )
+    monkeypatch.setattr(
+        site_naming.poiidx,
+        "get_administrative_hierarchy_string",
+        lambda *a, **k: "Berlin > Mitte",
+    )
+
+    with OrmSession(engine) as session:
+        result = site_naming.name_site(session, 13.405, 52.520, radius_m=300.0)
+
+    assert result == ("Tiergarten", "Berlin > Mitte")
+
+
+def test_name_site_falls_back_to_administrative_hierarchy_when_no_poi_found(
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(site_naming.poiidx, "get_nearest_pois", lambda *a, **k: [])
+    monkeypatch.setattr(
+        site_naming.poiidx,
+        "get_administrative_hierarchy_string",
+        lambda *a, **k: "Berlin > Mitte",
+    )
+
+    with OrmSession(engine) as session:
+        result = site_naming.name_site(session, 13.405, 52.520, radius_m=300.0)
+
+    assert result == ("Berlin > Mitte", "Berlin > Mitte")
+
+
+def test_name_site_returns_none_when_poiidx_resolves_nothing(
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(site_naming.poiidx, "get_nearest_pois", lambda *a, **k: [])
+    monkeypatch.setattr(
+        site_naming.poiidx,
+        "get_administrative_hierarchy_string",
+        lambda *a, **k: "",
+    )
+
+    with OrmSession(engine) as session:
+        result = site_naming.name_site(session, 13.405, 52.520, radius_m=300.0)
+        cached = session.scalar(
+            select(SiteNameCache).where(
+                SiteNameCache.geohash == site_naming._cache_key(13.405, 52.520),
+            ),
+        )
+
+    assert result is None
+    assert cached is None  # deliberately not cached -- see name_site's docstring
+
+
+def test_name_site_writes_through_the_cache_on_a_miss(
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        site_naming.poiidx,
+        "get_nearest_pois",
+        lambda *a, **k: [{"name": "Tiergarten", "rank": 16}],
+    )
+    monkeypatch.setattr(
+        site_naming.poiidx,
+        "get_administrative_hierarchy_string",
+        lambda *a, **k: "Berlin > Mitte",
+    )
+
+    with OrmSession(engine) as session:
+        site_naming.name_site(session, 13.405, 52.520, radius_m=300.0)
+        session.commit()
+
+        cached = session.scalar(
+            select(SiteNameCache).where(
+                SiteNameCache.geohash == site_naming._cache_key(13.405, 52.520),
+            ),
+        )
+
+    assert cached is not None
+    assert cached.name == "Tiergarten"
+    assert cached.admin_path == "Berlin > Mitte"

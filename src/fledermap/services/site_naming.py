@@ -12,12 +12,18 @@ database.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from importlib.resources import files
 from typing import Any
 from urllib.parse import urlsplit
 
 import poiidx
 import yaml
+from shapely.geometry import Point
+from sqlalchemy import select
+from sqlalchemy.orm import Session as OrmSession
+
+from fledermap.store.models import SiteNameCache
 
 _FILTER_CONFIG_FILE = "poiidx_filter_config.yaml"
 
@@ -76,3 +82,70 @@ def ensure_connected(poiidx_database_url: str) -> None:
         **_poiidx_connection_kwargs(poiidx_database_url),
     )
     _connected = True
+
+
+_CANDIDATE_LIMIT = 5
+
+
+def _cache_key(lon: float, lat: float) -> str:
+    """Rounded-coordinate cache key. `SiteNameCache.geohash`'s own docstring
+    (and the parent design spec) says "keyed on rounded coordinates" -- not
+    the standard geohash algorithm, despite the column's name. 3 decimal
+    degrees is roughly 111m at the equator, the same ballpark as
+    site_eps_m's default clustering radius: coarse enough that a site's
+    recomputed centroid landing a few metres away on a later derive_sites
+    rebuild still hits the same cache entry, fine enough not to conflate two
+    genuinely different nearby sites. Fits SiteNameCache.geohash's
+    String(16) column: "52.520,13.405" is 13 characters."""
+    return f"{lat:.3f},{lon:.3f}"
+
+
+def name_site(
+    db_session: OrmSession,
+    lon: float,
+    lat: float,
+    *,
+    radius_m: float,
+) -> tuple[str, str | None] | None:
+    """Resolve (name, admin_path) for a coordinate, cache-first through
+    SiteNameCache. Returns None if poiidx could not resolve anything at all
+    (no nearby POI AND no administrative hierarchy) -- the caller leaves
+    Site.name as NULL so the existing coordinate fallback still applies.
+    Deliberately NOT cached in that case, unlike a real resolution, so a
+    later run can retry once poiidx's underlying region data improves.
+
+    Caller must have already called `ensure_connected` this process --
+    this function never calls poiidx.init() itself."""
+    key = _cache_key(lon, lat)
+    cached = db_session.scalar(
+        select(SiteNameCache).where(SiteNameCache.geohash == key),
+    )
+    if cached is not None:
+        return cached.name, cached.admin_path
+
+    point = Point(lon, lat)
+    pois = poiidx.get_nearest_pois(point, max_distance=radius_m, limit=_CANDIDATE_LIMIT)
+    admin_path = poiidx.get_administrative_hierarchy_string(point) or None
+
+    name: str | None
+    if pois:
+        # Lowest rank wins, not merely nearest (poiidx: lower rank = more
+        # important) -- a well-known suburb further away should out-rank an
+        # untagged/minor POI that happens to be closer.
+        best = min(pois, key=lambda poi: poi["rank"])
+        name = best["name"]
+    else:
+        name = admin_path
+
+    if name is None:
+        return None
+
+    db_session.add(
+        SiteNameCache(
+            geohash=key,
+            name=name,
+            admin_path=admin_path,
+            fetched_at=datetime.now(UTC),
+        ),
+    )
+    return name, admin_path
