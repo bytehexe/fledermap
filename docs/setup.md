@@ -86,8 +86,12 @@ setting like every other row above, not a CLI argument — `ingest`/`worker`
 take no positional `ARCHIVE` any more. It accepts more than one directory,
 scanned in order (design spec §2/§4): comma-separated for the env var
 (`FLEDERMAP_ARCHIVE_ROOTS=/mnt/syncthing,/mnt/sdcard-dump`), or a native TOML
-array in the config file. Order matters only as a tie-break — the first
-configured root wins if a relative path somehow collides across roots.
+array in the config file. Order matters when the *same* recording (identical
+audio content) is found under two different roots — it's attributed to
+whichever root was scanned first. A same-relative-path collision with
+*different* content across two roots is not a tie at all: it produces two
+separate recordings, one per root, distinguished by which root each was
+found under.
 
 Every path-typed setting here (`archive_roots`, `media_root`, `static_root`,
 `FLEDERMAP_CONFIG_FILE` itself) accepts a leading `~` per entry, expanded to

@@ -97,6 +97,23 @@ def _resolve_recording(session: OrmSession, audio_hash: str) -> Recording:
     return recording
 
 
+def _resolve_wav_path(archive_roots: tuple[Path, ...], recording: Recording) -> Path:
+    """`archive_root_index` out of range means a root list shrank after some
+    recordings were tagged with a since-removed index -- fail clearly the
+    same way `_resolve_recording` does above, rather than a bare `IndexError`
+    (spec §3)."""
+    try:
+        root = archive_roots[recording.archive_root_index]
+    except IndexError as exc:
+        msg = (
+            f"recording {recording.audio_hash} references archive_root_index "
+            f"{recording.archive_root_index}, but only {len(archive_roots)} "
+            f"root(s) are configured"
+        )
+        raise FileNotFoundError(msg) from exc
+    return root / recording.path
+
+
 @app.task(queue="media", pass_context=True, retry=_RETRY)
 def render_spectrogram_task(
     context: procrastinate.JobContext,
@@ -108,7 +125,7 @@ def render_spectrogram_task(
 
     with OrmSession(engine) as session:
         recording = _resolve_recording(session, audio_hash)
-        wav_path = archive_roots[recording.archive_root_index] / recording.path
+        wav_path = _resolve_wav_path(archive_roots, recording)
 
     out_path = spectrogram_path(media_root, audio_hash)
     render_spectrogram(wav_path, out_path, params=DEFAULT_SPECTROGRAM_PARAMS)
@@ -125,7 +142,7 @@ def render_oscillogram_task(
 
     with OrmSession(engine) as session:
         recording = _resolve_recording(session, audio_hash)
-        wav_path = archive_roots[recording.archive_root_index] / recording.path
+        wav_path = _resolve_wav_path(archive_roots, recording)
 
     out_path = oscillogram_path(media_root, audio_hash)
     render_oscillogram(wav_path, out_path, params=DEFAULT_OSCILLOGRAM_PARAMS)
@@ -139,7 +156,7 @@ def make_preview_task(context: procrastinate.JobContext, audio_hash: str) -> Non
 
     with OrmSession(engine) as session:
         recording = _resolve_recording(session, audio_hash)
-        wav_path = archive_roots[recording.archive_root_index] / recording.path
+        wav_path = _resolve_wav_path(archive_roots, recording)
 
     out_path = preview_path(media_root, audio_hash)
     make_preview(wav_path, out_path)
@@ -198,12 +215,22 @@ def run_ingest_cycle(context: procrastinate.JobContext, timestamp: int) -> None:
             f"{report.identifications_superseded}"
         )
 
+        # A refused sweep (spec §10 decision 2) must NOT skip derive: it's
+        # idempotent and cheap, and skipping it would let a single
+        # permanently-unreadable file (UNREADABLE/UNPARSEABLE are both
+        # permanent INCOMPLETE_SCAN_REASONS) silently wedge session/site
+        # derivation forever, with only a 5-minutely error log to explain why
+        # new recordings stop appearing on the map. `flagged` stays `None`
+        # when the sweep was refused so the summary line below can say so
+        # explicitly, rather than reporting a misleading `0` as if the sweep
+        # had actually run and found nothing missing.
+        flagged: int | None
         try:
             flagged = sweep_missing(session, seen, skipped=incomplete_skips)
             session.commit()
         except (MassDisappearanceError, IncompleteScanError) as exc:
+            flagged = None
             logger.error("%s -- %s", ingest_summary, exc)
-            return
 
         session_report = partition_sessions(
             session,
@@ -219,10 +246,10 @@ def run_ingest_cycle(context: procrastinate.JobContext, timestamp: int) -> None:
         session.commit()
 
         logger.info(
-            "%s flagged_missing %d -- sessions created %d extended %d "
+            "%s flagged_missing %s -- sessions created %d extended %d "
             "merge_proposals %d -- sites %d unclustered %d",
             ingest_summary,
-            flagged,
+            "refused" if flagged is None else flagged,
             session_report.created,
             session_report.extended,
             session_report.merge_proposals,

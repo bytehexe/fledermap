@@ -54,6 +54,13 @@ class _Debouncer:
         self._defer = defer
         self._debounce_seconds = debounce_seconds
         self._handle: asyncio.TimerHandle | None = None
+        # asyncio only holds a WEAK reference to a task it isn't otherwise
+        # tracking -- `asyncio.ensure_future(...)` below with the result
+        # discarded is the standard GC-risk footgun (a task can be collected
+        # mid-run, silently). Keeping a strong reference here for the task's
+        # full lifetime, discarded via `done_callback` once it finishes,
+        # avoids that.
+        self._tasks: set[asyncio.Task[None]] = set()
 
     def notify(self) -> None:
         """Call from ANY thread -- schedules the actual reset onto `_loop`."""
@@ -71,7 +78,9 @@ class _Debouncer:
         # aren't forced to hand this a coroutine function specifically.
         # `asyncio.ensure_future` accepts any `Awaitable` and schedules it on
         # `loop` the same way `create_task` would for an actual coroutine.
-        asyncio.ensure_future(self._defer(), loop=self._loop)
+        task = asyncio.ensure_future(self._defer(), loop=self._loop)
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
 
 
 class _Handler(FileSystemEventHandler):

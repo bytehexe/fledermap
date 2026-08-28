@@ -46,6 +46,8 @@ from fledermap.web.app import create_app
 # the layout `tests/test_migrations.py` already assumes.
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
+logger = logging.getLogger(__name__)
+
 # Distinct from ConfigError's exit code (1, via click.ClickException) AND from
 # Click's OWN reserved exit code 2 (click.exceptions.UsageError — raised for
 # an unrecognised option or bad option value, since `--sweep/--no-sweep`
@@ -85,6 +87,28 @@ def _run_migrations(database_url: str) -> None:
     cfg.set_main_option("script_location", str(_PROJECT_ROOT / "alembic"))
     cfg.set_main_option("sqlalchemy.url", database_url)
     alembic_command.upgrade(cfg, "head")
+
+
+def _require_archive_roots_exist(archive_roots: tuple[Path, ...]) -> None:
+    """`_parse_archive_roots` (config.py) never checks a root exists or is a
+    directory -- the old single-root CLI arg used `click.Path(exists=True,
+    file_okay=False)`, which is gone. Without this, `worker` on a bad/
+    unmounted root dies with a raw unhandled `OSError(ENOTDIR)` traceback
+    from watchdog's `Observer.start()` instead of a clean `ClickException`,
+    and an existing-but-empty mountpoint (not actually mounted) yields zero
+    files AND zero skips, so `sweep_missing` (global across all roots) can
+    silently flag every recording from that root as missing, unattended,
+    every 5 minutes.
+
+    Called only from `ingest`/`worker` -- NOT from `Config.from_env()`
+    itself, and NOT from `derive`/`serve`/`enqueue-media`, which also build a
+    `Config` but never touch the archive; a global check there would break
+    headless web-only deployments that never mount it."""
+    missing = [root for root in archive_roots if not root.is_dir()]
+    if missing:
+        listed = ", ".join(str(p) for p in missing)
+        msg = f"archive root(s) do not exist or are not directories: {listed}"
+        raise click.ClickException(msg)
 
 
 def _fetch_missing_vendor_assets_or_die(vendor_dir: Path) -> None:
@@ -130,6 +154,7 @@ def ingest(ctx: click.Context, sweep: bool) -> None:
         config = Config.from_env()
     except ConfigError as exc:
         raise click.ClickException(str(exc)) from exc
+    _require_archive_roots_exist(config.archive_roots)
 
     engine = make_engine(config.database_url)
     _run_migrations(config.database_url)
@@ -226,6 +251,14 @@ async def _defer_ingest_cycle() -> None:
         ).defer_async(timestamp=int(time.time()))
     except procrastinate.exceptions.AlreadyEnqueued:
         pass  # a cycle is already queued behind the one currently running
+    except Exception:
+        # `jobs/watch.py`'s `_Debouncer._fire()` schedules this coroutine via
+        # `asyncio.ensure_future(...)` with no kept reference -- an
+        # unhandled exception here would otherwise vanish silently into an
+        # "Task exception was never retrieved" warning instead of surfacing
+        # anywhere an operator could see it (a connection error during
+        # `.defer_async(...)`, for instance).
+        logger.exception("failed to defer an ingest cycle from the watcher")
 
 
 async def _run_worker_async(config: Config, engine: Engine, *, wait: bool) -> None:
@@ -276,6 +309,7 @@ def worker(wait: bool) -> None:
         config = Config.from_env()
     except ConfigError as exc:
         raise click.ClickException(str(exc)) from exc
+    _require_archive_roots_exist(config.archive_roots)
 
     engine = make_engine(config.database_url)
     _run_migrations(config.database_url)
@@ -301,10 +335,13 @@ def worker(wait: bool) -> None:
 def serve(host: str | None, port: int | None) -> None:
     """Run the web map. Reads FLEDERMAP_DATABASE_URL and FLEDERMAP_MEDIA_ROOT
     (both required) and, optionally, FLEDERMAP_STATIC_ROOT, FLEDERMAP_HOST,
-    and FLEDERMAP_PORT. Vendor JS/CSS (Leaflet, HTMX, Alpine) are fetched
-    into FLEDERMAP_STATIC_ROOT automatically on first run, or whenever the
-    cache is missing something -- see `fetch-assets` to pre-warm that cache
-    (e.g. for an offline install) instead of fetching it at server startup.
+    and FLEDERMAP_PORT. `Config.from_env()` also requires FLEDERMAP_ARCHIVE_ROOTS
+    to be set, even though `serve` itself never reads it -- point it at any
+    existing directory if this command is the only one you run. Vendor JS/CSS
+    (Leaflet, HTMX, Alpine) are fetched into FLEDERMAP_STATIC_ROOT
+    automatically on first run, or whenever the cache is missing something --
+    see `fetch-assets` to pre-warm that cache (e.g. for an offline install)
+    instead of fetching it at server startup.
     """
     try:
         config = Config.from_env()

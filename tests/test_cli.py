@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import stat
 import sys
@@ -14,7 +15,6 @@ import flask
 import pytest
 from click.testing import CliRunner
 from sqlalchemy import func, select, text
-from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import Session as OrmSession
 
 import fledermap.cli.main as cli_main
@@ -23,6 +23,8 @@ from fledermap.cli.main import (
     _fetch_missing_vendor_assets_or_die,
     cli,
 )
+from fledermap.config import Config
+from fledermap.jobs.app import ensure_schema
 from fledermap.jobs.watch import start_watching as _real_start_watching
 from fledermap.services.vendor_assets import ASSETS, IntegrityError, VendorAsset
 from fledermap.store.db import make_engine
@@ -173,6 +175,53 @@ def test_missing_database_url_fails_clearly(tmp_path: Path) -> None:
 
     assert result.exit_code != 0
     assert "FLEDERMAP_DATABASE_URL" in result.output
+
+
+def test_ingest_rejects_a_nonexistent_archive_root(tmp_path: Path) -> None:
+    """Important 2: `_parse_archive_roots` (config.py) never checks a root
+    exists, so without this check `ingest` would either scan nothing (an
+    existing-but-empty mountpoint) or, for a genuinely missing path, still
+    proceed into `scan_all_roots` (`Path.rglob` on a nonexistent directory
+    doesn't raise -- confirmed in `test_jobs_tasks.py`). The check runs
+    before any database work, so a real Postgres container isn't needed
+    here."""
+    missing_root = tmp_path / "does-not-exist"
+    result = CliRunner().invoke(
+        cli,
+        ["ingest"],
+        env={
+            "FLEDERMAP_DATABASE_URL": "postgresql://unused/unused",
+            "FLEDERMAP_ARCHIVE_ROOTS": str(missing_root),
+            "FLEDERMAP_MEDIA_ROOT": str(tmp_path / "media"),
+        },
+    )
+
+    assert result.exit_code == 1, result.output
+    assert "archive root(s) do not exist" in result.output
+    assert str(missing_root) in result.output
+
+
+def test_worker_rejects_a_nonexistent_archive_root(tmp_path: Path) -> None:
+    """Important 2, `worker` side: without this check, `Observer.start()`
+    inside `start_watching` raises a raw unhandled `OSError(ENOTDIR)`
+    instead of a clean `ClickException` -- confirmed against watchdog's
+    `InotifyEmitter` directly. `--no-wait` keeps this test from needing to
+    manage a `--wait` worker's lifecycle just to prove config validation
+    happens before the worker (or any watcher) ever starts."""
+    missing_root = tmp_path / "does-not-exist"
+    result = CliRunner().invoke(
+        cli,
+        ["worker", "--no-wait"],
+        env={
+            "FLEDERMAP_DATABASE_URL": "postgresql://unused/unused",
+            "FLEDERMAP_ARCHIVE_ROOTS": str(missing_root),
+            "FLEDERMAP_MEDIA_ROOT": str(tmp_path / "media"),
+        },
+    )
+
+    assert result.exit_code == 1, result.output
+    assert "archive root(s) do not exist" in result.output
+    assert str(missing_root) in result.output
 
 
 def test_migration_populates_alembic_version(
@@ -560,8 +609,17 @@ def test_worker_wait_mode_picks_up_a_file_dropped_in_after_startup(
     debounce window is shortened (via monkeypatching the name
     `fledermap.cli.main.start_watching`, not by changing the production
     default) so the watcher path itself completes quickly; production still
-    always uses DEFAULT_SETTLE_SECONDS."""
-    import threading
+    always uses DEFAULT_SETTLE_SECONDS.
+
+    Drives `cli_main._run_worker_async` directly as a cancellable
+    `asyncio.Task` on this test's own event loop, rather than through
+    `CliRunner` on a background thread the old version of this test never
+    cleanly stopped. That leaked worker listened on ALL queues against the
+    same session-scoped Postgres container every later `test_cli.py` test
+    shares, competing for jobs and re-deferring `run_ingest_cycle` itself --
+    a real risk the final review flagged, not a cosmetic one. `task.cancel()`
+    + `await task` in a `finally` below gives this test full, deterministic
+    ownership of the worker's lifecycle instead."""
 
     def _short_debounce_start_watching(
         archive_roots: Sequence[Path],
@@ -581,63 +639,65 @@ def test_worker_wait_mode_picks_up_a_file_dropped_in_after_startup(
     monkeypatch.setattr(cli_main, "start_watching", _short_debounce_start_watching)
 
     archive = _archive_with_n_files(tmp_path, 0)  # empty, settled archive dir
-    # Deliberately NOT `runner.invoke(cli, ["worker"], env={...})`: Click's
-    # `CliRunner.invoke` patches `os.environ` inside `with self.isolation(...)`
-    # and only reverts it in that block's `finally`, which runs when `invoke`
-    # RETURNS -- and this `--wait` invocation, run on a background thread we
-    # never cleanly stop (see the comment below), never returns during this
-    # test's lifetime. Under a real invocation that would leak these three
-    # FLEDERMAP_* env vars into the real process environment for the rest of
-    # the (xdist worker) process, corrupting any later test that relies on
-    # them being unset -- confirmed by reproducing exactly that against
-    # `test_config.py`'s archive_roots validation test. `monkeypatch.setenv`
-    # reverts unconditionally at THIS test's teardown instead, independent of
-    # whether the invoked command ever returns.
-    monkeypatch.setenv("FLEDERMAP_DATABASE_URL", clean_database_url)
-    monkeypatch.setenv("FLEDERMAP_MEDIA_ROOT", str(tmp_path / "media"))
-    monkeypatch.setenv("FLEDERMAP_ARCHIVE_ROOTS", str(archive))
-    runner = CliRunner()
-    result_holder: list[object] = []
-
-    def _run() -> None:
-        result_holder.append(runner.invoke(cli, ["worker"]))
-
-    thread = threading.Thread(target=_run, daemon=True)
-    thread.start()
-    time.sleep(2.0)  # let the worker start AND let any cron startup
-    # catch-up run against the still-empty archive, so its only remaining
-    # opportunity to fire `run_ingest_cycle` again is the next scheduled
-    # tick, 5 minutes away -- well outside this test's polling window below.
-
-    path = archive / "EPTSER_20150610_215446.wav"
-    path.write_bytes(
-        build_wav([(b"fmt ", fmt_payload()), (b"data", b"\x01\x02" * 32)]),
+    config = Config(
+        database_url=clean_database_url,
+        archive_roots=(archive,),
+        media_root=tmp_path / "media",
     )
-    old = time.time() - 3600
-    os.utime(path, (old, old))
-
-    deadline = time.time() + 5  # comfortably above the 0.5s debounce,
-    # comfortably below the 5-minute next cron tick
+    # Built directly against `clean_database_url`, not `engine` (the
+    # `create_all`-backed fixture used everywhere else) -- the CLI builds its
+    # own schema via `alembic upgrade head`, same reason `clean_database_url`
+    # itself exists (see its own fixture docstring above).
     engine = make_engine(clean_database_url)
-    found = False
-    while time.time() < deadline:
-        try:
-            with OrmSession(engine) as session:
-                if session.scalar(select(func.count()).select_from(Recording)):
-                    found = True
-                    break
-        except ProgrammingError:
-            # The daemon thread's `worker` invocation runs its own
-            # `_run_migrations` before the `recording` table exists -- this
-            # main-thread polling loop can legitimately start querying
-            # before that finishes. Not a real failure: keep polling.
-            pass
-        time.sleep(0.2)
 
-    # No clean way to stop a CliRunner-invoked `--wait` worker from here --
-    # this test process exiting ends the daemon thread. Not attempting a
-    # graceful shutdown call; document that limitation rather than papering
-    # over it with a fragile signal-based workaround.
+    # Same sequence `worker`'s command body runs (cli/main.py, ~line 259-290):
+    # migrations, then `ensure_schema` -- BEFORE the worker task starts.
+    cli_main._run_migrations(config.database_url)
+    ensure_schema(cli_main.jobs_app, engine)
+
+    async def _drive() -> bool:
+        task = asyncio.create_task(
+            cli_main._run_worker_async(config, engine, wait=True),
+        )
+        try:
+            await asyncio.sleep(2.0)  # let the worker start AND let any cron
+            # startup catch-up run against the still-empty archive, so its
+            # only remaining opportunity to fire `run_ingest_cycle` again is
+            # the next scheduled tick, 5 minutes away -- well outside this
+            # test's polling window below.
+
+            path = archive / "EPTSER_20150610_215446.wav"
+            path.write_bytes(
+                build_wav([(b"fmt ", fmt_payload()), (b"data", b"\x01\x02" * 32)]),
+            )
+            old = time.time() - 3600
+            os.utime(path, (old, old))
+
+            deadline = time.time() + 5  # comfortably above the 0.5s debounce,
+            # comfortably below the 5-minute next cron tick
+            found = False
+            while time.time() < deadline:
+                with OrmSession(engine) as session:
+                    if session.scalar(select(func.count()).select_from(Recording)):
+                        found = True
+                        break
+                await asyncio.sleep(0.2)
+            return found
+        finally:
+            # Deterministic teardown: cancel the worker task and wait for it
+            # to actually finish unwinding (`_run_worker_async`'s own
+            # `finally` stops and joins the watchdog Observer) before this
+            # test -- and the event loop underneath it -- goes away. No
+            # reliance on process exit or a later test's side effect.
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    try:
+        found = asyncio.run(_drive())
+    finally:
+        engine.dispose()
+
     assert found, (
         "recording was not ingested within the timeout -- the watcher path did not fire"
     )

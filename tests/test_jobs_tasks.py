@@ -15,6 +15,7 @@ from fledermap.config import Config
 from fledermap.jobs.app import ensure_schema, make_worker_connector
 from fledermap.jobs.tasks import (
     _INGEST_CYCLE_LOCK,
+    _resolve_wav_path,
     make_preview_task,
     oscillogram_lock_key,
     preview_lock_key,
@@ -26,8 +27,9 @@ from fledermap.jobs.tasks import (
 from fledermap.jobs.tasks import (
     app as jobs_app,
 )
-from fledermap.store.models import Recording
-from tests.fixtures import build_wav, fmt_payload
+from fledermap.store.models import Recording, Site
+from fledermap.store.models import Session as SessionModel
+from tests.fixtures import build_wav, fmt_payload, wamd_payload
 
 pytestmark = pytest.mark.db
 
@@ -300,6 +302,71 @@ def test_task_fails_permanently_for_a_missing_source_file(
     assert attempts == 4
 
 
+def test_resolve_wav_path_raises_filenotfounderror_for_out_of_range_index() -> None:
+    """Minor 1: a bare `IndexError` from `archive_roots[recording.archive_root_index]`
+    is not acceptable if a root list shrinks after some recordings were
+    tagged with a since-removed index (spec §3) -- must fail clearly, the
+    same way `_resolve_recording` already does for a missing source file."""
+    recording = Recording(
+        audio_hash="h6" * 32,
+        path="a.wav",
+        recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+        archive_root_index=2,
+    )
+
+    with pytest.raises(FileNotFoundError) as excinfo:
+        _resolve_wav_path((Path("/one"), Path("/two")), recording)
+
+    message = str(excinfo.value)
+    assert "archive_root_index 2" in message
+    assert "only 2 root" in message
+
+
+def test_task_fails_permanently_for_an_out_of_range_archive_root_index(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """The same failure propagates all the way through a real task run and
+    fails the job, exactly like `test_task_fails_permanently_for_a_missing_source_file`
+    above does for the `missing_since` case -- not just an isolated check of
+    the helper."""
+    jobs_app.open(engine)
+    ensure_schema(jobs_app, engine)
+    audio_hash = "h7" * 32
+
+    with OrmSession(engine) as session:
+        recording = _make_recording(
+            session,
+            audio_hash=audio_hash,
+            path="never_written.wav",
+        )
+        recording.archive_root_index = 5  # only one root is ever configured
+        session.commit()
+
+    job_id = render_spectrogram_task.configure(
+        lock=spectrogram_lock_key(audio_hash),
+        queueing_lock=spectrogram_lock_key(audio_hash),
+    ).defer(audio_hash=audio_hash)
+
+    for _ in range(6):  # generous bound; the run below needs 4 passes
+        _drain_once(engine, tmp_path)
+        status, _, _ = _job_row(engine, job_id)
+        if status != "todo":
+            break
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE procrastinate_jobs SET scheduled_at = now() "
+                    "WHERE id = :job_id",
+                ),
+                {"job_id": job_id},
+            )
+
+    status, attempts, _ = _job_row(engine, job_id)
+    assert status == "failed"
+    assert attempts == 4
+
+
 def test_duplicate_defer_with_the_same_queueing_lock_is_refused(
     engine: Engine,
 ) -> None:
@@ -322,7 +389,10 @@ def test_duplicate_defer_with_the_same_queueing_lock_is_refused(
 
 
 def _make_config(
-    tmp_path: Path, *, archive_roots: tuple[Path, ...] | None = None
+    tmp_path: Path,
+    *,
+    archive_roots: tuple[Path, ...] | None = None,
+    site_min_points: int = 3,
 ) -> Config:
     roots = archive_roots if archive_roots is not None else (tmp_path / "archive",)
     for root in roots:
@@ -331,6 +401,7 @@ def _make_config(
         database_url="postgresql://unused/unused",  # never read by run_ingest_cycle itself
         archive_roots=roots,
         media_root=tmp_path / "media",
+        site_min_points=site_min_points,
     )
 
 
@@ -338,11 +409,35 @@ def test_run_ingest_cycle_creates_a_recording_and_derives(
     engine: Engine,
     tmp_path: Path,
 ) -> None:
+    """Also proves `run_ingest_cycle` drove the whole pipeline end to end --
+    not just `commit_scan` -- by asserting on `partition_sessions`,
+    `derive_sites`, AND `enqueue_media`'s effects, all of which are
+    committed to the database only AFTER the bare `Recording` row is (see
+    Important 1's fix). A weaker assertion here is exactly why the missing
+    `partition_sessions`/`derive_sites` call on a refused sweep survived four
+    prior task reviews."""
     archive_root = tmp_path / "archive"
-    _write_wav(archive_root, "EPTSER_20150610_215446.wav")
+    path = archive_root / "EPTSER_20150610_215446.wav"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    audio = bytes(range(256)) * 8  # real, non-trivial PCM content
+    path.write_bytes(
+        build_wav(
+            [
+                (b"fmt ", fmt_payload()),
+                (b"data", audio),
+                # A GPS-bearing `wamd` chunk -- needed so the recording has a
+                # `geom` at all, which `derive_sites` requires to consider it
+                # for clustering.
+                (b"wamd", wamd_payload()),
+            ],
+        ),
+    )
     old = time.time() - 3600
-    os.utime(archive_root / "EPTSER_20150610_215446.wav", (old, old))
-    config = _make_config(tmp_path, archive_roots=(archive_root,))
+    os.utime(path, (old, old))
+    # A single recording is DBSCAN noise (unclustered) under the default
+    # `site_min_points=3` -- lowered to 1 so this one recording's GPS
+    # position clusters into a real `Site` row, proving `derive_sites` ran.
+    config = _make_config(tmp_path, archive_roots=(archive_root,), site_min_points=1)
     jobs_app.open(engine)
     ensure_schema(jobs_app, engine)
 
@@ -360,8 +455,26 @@ def test_run_ingest_cycle_creates_a_recording_and_derives(
     )
 
     with OrmSession(engine) as session:
-        count = session.scalar(select(func.count()).select_from(Recording))
-    assert count == 1
+        recording_count = session.scalar(select(func.count()).select_from(Recording))
+        session_count = session.scalar(select(func.count()).select_from(SessionModel))
+        site_count = session.scalar(select(func.count()).select_from(Site))
+    assert recording_count == 1
+    assert session_count == 1  # partition_sessions ran
+    assert site_count == 1  # derive_sites ran
+
+    # enqueue_media defers 3 jobs per created recording (spectrogram,
+    # oscillogram, preview -- see `services/media.py`'s `enqueue_media`).
+    # This worker only drains `queues=["ingest"]` (see `_run_worker`'s
+    # docstring above), so the media jobs it deferred are left `todo`,
+    # never `succeeded` -- still proof `enqueue_media` actually ran.
+    with engine.connect() as conn:
+        media_todo_count = conn.execute(
+            text(
+                "SELECT count(*) FROM procrastinate_jobs "
+                "WHERE queue_name = 'media' AND status = 'todo'",
+            ),
+        ).scalar()
+    assert media_todo_count == 3
 
 
 def test_run_ingest_cycle_logs_and_continues_on_incomplete_scan(
