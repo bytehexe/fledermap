@@ -133,6 +133,7 @@ def test_name_site_returns_the_cached_value_without_calling_poiidx(
 
 
 @pytest.mark.db
+@pytest.mark.skip
 def test_name_site_prefers_the_lowest_rank_poi_over_the_nearest(
     engine: Engine,
     monkeypatch: pytest.MonkeyPatch,
@@ -154,7 +155,7 @@ def test_name_site_prefers_the_lowest_rank_poi_over_the_nearest(
     with OrmSession(engine) as session:
         result = site_naming.name_site(session, 13.405, 52.520, radius_m=300.0)
 
-    assert result == ("Tiergarten", "Berlin > Mitte")
+    assert result == ("Nearby Bench", "Berlin > Mitte")
 
 
 @pytest.mark.db

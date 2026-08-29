@@ -160,10 +160,10 @@ def name_site(
 
     name: str | None
     if pois:
-        # Lowest rank wins, not merely nearest (poiidx: lower rank = more
-        # important) -- a well-known suburb further away should out-rank an
-        # untagged/minor POI that happens to be closer.
-        best = min(pois, key=lambda poi: poi["rank"])
+        # Highest rank wins, not merely nearest (poiidx: lower rank = bigger)
+        # This way the pois get more specific: Otherwise everything is just the big
+        # city's name, no details
+        best = max(pois, key=lambda poi: poi["rank"])
         name = best["name"] or None
     else:
         name = admin_path
