@@ -8,6 +8,13 @@ schema, module, and testing shape those sections leave open.
 
 ---
 
+> **Superseded 2026-08-29** by
+> `docs/superpowers/specs/2026-08-29-fledermap-identification-based-sites-design.md`: section 12's
+> STATIONARY-only site derivation (`derive_sites` joining `Session.kind`) no longer holds. Site
+> membership is now identification-based (`Verdict.SPECIES`, via `current_best_identification`),
+> independent of session or session kind. Left as-is below for historical record of the original
+> decision and its reasoning.
+
 ## 1. Scope
 
 Phase 2 ends when `fledermap derive` populates sessions and sites from what

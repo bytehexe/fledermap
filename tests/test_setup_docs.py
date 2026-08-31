@@ -1,5 +1,5 @@
-"""Guards against the class of gap `FLEDERMAP_TRANSECT_DISTANCE_M` fell into:
-a `Config.from_env` setting added without a corresponding row in
+"""Guards against the class of gap a `Config.from_env` setting can fall into:
+added without a corresponding row in
 `docs/setup.md`'s settings table (CLAUDE.md names that file as the authority
 for "every `FLEDERMAP_*` setting"). Deliberately simple -- a substring check
 against the raw file text, not a markdown-table parse -- so it stays cheap to

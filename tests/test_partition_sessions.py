@@ -3,12 +3,10 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from geoalchemy2.elements import WKTElement
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session as OrmSession
 
-from fledermap.derive.sessions import classify_kind, partition_sessions
-from fledermap.domain.codes import SessionKind
+from fledermap.derive.sessions import partition_sessions
 from fledermap.store.models import Recording, Session, SessionMergeProposal
 
 pytestmark = pytest.mark.db
@@ -35,7 +33,6 @@ def test_first_recording_creates_a_new_session(engine: Engine) -> None:
         report = partition_sessions(
             session,
             session_gap=timedelta(hours=6),
-            transect_distance_m=150.0,
         )
         session.commit()
 
@@ -45,7 +42,6 @@ def test_first_recording_creates_a_new_session(engine: Engine) -> None:
         assert recording.session_id is not None
         created_session = session.get(Session, recording.session_id)
         assert created_session is not None
-        assert created_session.kind == SessionKind.STATIONARY
 
 
 def test_second_recording_within_gap_extends_the_session(engine: Engine) -> None:
@@ -58,7 +54,6 @@ def test_second_recording_within_gap_extends_the_session(engine: Engine) -> None
         report = partition_sessions(
             session,
             session_gap=timedelta(hours=6),
-            transect_distance_m=150.0,
         )
         session.commit()
 
@@ -79,7 +74,6 @@ def test_recording_beyond_gap_starts_a_new_session(engine: Engine) -> None:
         report = partition_sessions(
             session,
             session_gap=timedelta(hours=6),
-            transect_distance_m=150.0,
         )
         session.commit()
 
@@ -98,7 +92,6 @@ def test_different_detectors_get_separate_sessions(engine: Engine) -> None:
         report = partition_sessions(
             session,
             session_gap=timedelta(hours=6),
-            transect_distance_m=150.0,
         )
         session.commit()
 
@@ -114,7 +107,6 @@ def test_missing_make_and_serial_still_get_a_session(engine: Engine) -> None:
         report = partition_sessions(
             session,
             session_gap=timedelta(hours=6),
-            transect_distance_m=150.0,
         )
         session.commit()
 
@@ -131,7 +123,6 @@ def test_recording_extends_an_existing_session_from_a_previous_run(
         existing = Session(
             started_at=base,
             ended_at=base,
-            kind=SessionKind.STATIONARY,
             detector_key="EMT\x1f1",
         )
         session.add(existing)
@@ -142,7 +133,6 @@ def test_recording_extends_an_existing_session_from_a_previous_run(
         report = partition_sessions(
             session,
             session_gap=timedelta(hours=6),
-            transect_distance_m=150.0,
         )
         session.commit()
 
@@ -161,7 +151,6 @@ def test_old_recording_close_only_to_a_later_existing_session_joins_it_backward(
         later = Session(
             started_at=base,
             ended_at=base,
-            kind=SessionKind.STATIONARY,
             detector_key="EMT\x1f1",
         )
         session.add(later)
@@ -173,7 +162,6 @@ def test_old_recording_close_only_to_a_later_existing_session_joins_it_backward(
         report = partition_sessions(
             session,
             session_gap=timedelta(hours=6),
-            transect_distance_m=150.0,
         )
         session.commit()
 
@@ -194,7 +182,6 @@ def test_two_recordings_backward_extending_the_same_session_both_land_inside_it(
         later = Session(
             started_at=base,
             ended_at=base,
-            kind=SessionKind.STATIONARY,
             detector_key="EMT\x1f1",
         )
         session.add(later)
@@ -209,7 +196,6 @@ def test_two_recordings_backward_extending_the_same_session_both_land_inside_it(
         report = partition_sessions(
             session,
             session_gap=timedelta(hours=6),
-            transect_distance_m=150.0,
         )
         session.commit()
 
@@ -226,7 +212,6 @@ def test_already_sessioned_recordings_are_untouched(engine: Engine) -> None:
         existing = Session(
             started_at=datetime(2026, 8, 21, 21, tzinfo=UTC),
             ended_at=datetime(2026, 8, 21, 21, tzinfo=UTC),
-            kind=SessionKind.STATIONARY,
             detector_key="EMT\x1f1",
         )
         session.add(existing)
@@ -245,7 +230,6 @@ def test_already_sessioned_recordings_are_untouched(engine: Engine) -> None:
         report = partition_sessions(
             session,
             session_gap=timedelta(hours=6),
-            transect_distance_m=150.0,
         )
         session.commit()
 
@@ -261,13 +245,11 @@ def test_recording_between_two_sessions_within_gap_of_both_raises_a_proposal(
         early = Session(
             started_at=base,
             ended_at=base,
-            kind=SessionKind.STATIONARY,
             detector_key="EMT\x1f1",
         )
         late = Session(
             started_at=base + timedelta(hours=8),
             ended_at=base + timedelta(hours=8),
-            kind=SessionKind.STATIONARY,
             detector_key="EMT\x1f1",
         )
         session.add_all([early, late])
@@ -285,7 +267,6 @@ def test_recording_between_two_sessions_within_gap_of_both_raises_a_proposal(
         report = partition_sessions(
             session,
             session_gap=timedelta(hours=6),
-            transect_distance_m=150.0,
         )
         session.commit()
 
@@ -315,13 +296,11 @@ def test_two_bridging_recordings_raise_only_one_proposal_for_the_pair(
         early = Session(
             started_at=base,
             ended_at=base,
-            kind=SessionKind.STATIONARY,
             detector_key="EMT\x1f1",
         )
         late = Session(
             started_at=base + timedelta(hours=11),
             ended_at=base + timedelta(hours=11),
-            kind=SessionKind.STATIONARY,
             detector_key="EMT\x1f1",
         )
         session.add_all([early, late])
@@ -337,7 +316,6 @@ def test_two_bridging_recordings_raise_only_one_proposal_for_the_pair(
         report = partition_sessions(
             session,
             session_gap=timedelta(hours=6),
-            transect_distance_m=150.0,
         )
         session.commit()
 
@@ -359,13 +337,11 @@ def test_recording_close_to_only_one_neighbor_does_not_raise_a_proposal(
         early = Session(
             started_at=base,
             ended_at=base,
-            kind=SessionKind.STATIONARY,
             detector_key="EMT\x1f1",
         )
         late = Session(
             started_at=base + timedelta(hours=20),
             ended_at=base + timedelta(hours=20),
-            kind=SessionKind.STATIONARY,
             detector_key="EMT\x1f1",
         )
         session.add_all([early, late])
@@ -377,228 +353,8 @@ def test_recording_close_to_only_one_neighbor_does_not_raise_a_proposal(
         report = partition_sessions(
             session,
             session_gap=timedelta(hours=6),
-            transect_distance_m=150.0,
         )
         session.commit()
 
         assert report.merge_proposals == 0
         assert session.scalars(select(SessionMergeProposal)).all() == []
-
-
-def test_classify_kind_stationary_below_threshold() -> None:
-    recordings = [
-        Recording(
-            audio_hash="a".rjust(64, "0"),
-            path="a.wav",
-            recorded_at=datetime(2026, 8, 21, 21, tzinfo=UTC),
-            geom=WKTElement("POINT(10.0 51.0)", srid=4326),
-        ),
-        Recording(
-            audio_hash="b".rjust(64, "0"),
-            path="b.wav",
-            recorded_at=datetime(2026, 8, 21, 22, tzinfo=UTC),
-            geom=WKTElement("POINT(10.0002 51.0)", srid=4326),  # ~14m east
-        ),
-    ]
-    assert (
-        classify_kind(recordings, transect_distance_m=150.0) == SessionKind.STATIONARY
-    )
-
-
-def test_classify_kind_transect_above_threshold() -> None:
-    recordings = [
-        Recording(
-            audio_hash="a".rjust(64, "0"),
-            path="a.wav",
-            recorded_at=datetime(2026, 8, 21, 21, tzinfo=UTC),
-            geom=WKTElement("POINT(10.0 51.0)", srid=4326),
-        ),
-        Recording(
-            audio_hash="b".rjust(64, "0"),
-            path="b.wav",
-            recorded_at=datetime(2026, 8, 21, 22, tzinfo=UTC),
-            geom=WKTElement("POINT(10.01 51.0)", srid=4326),  # ~700m east
-        ),
-    ]
-    assert classify_kind(recordings, transect_distance_m=150.0) == SessionKind.TRANSECT
-
-
-def test_classify_kind_no_gps_stays_stationary() -> None:
-    recordings = [
-        Recording(
-            audio_hash="a".rjust(64, "0"),
-            path="a.wav",
-            recorded_at=datetime(2026, 8, 21, 21, tzinfo=UTC),
-            geom=None,
-        ),
-    ]
-    assert (
-        classify_kind(recordings, transect_distance_m=150.0) == SessionKind.STATIONARY
-    )
-
-
-def test_classify_kind_one_gps_point_stays_stationary() -> None:
-    recordings = [
-        Recording(
-            audio_hash="a".rjust(64, "0"),
-            path="a.wav",
-            recorded_at=datetime(2026, 8, 21, 21, tzinfo=UTC),
-            geom=WKTElement("POINT(10.0 51.0)", srid=4326),
-        ),
-    ]
-    assert (
-        classify_kind(recordings, transect_distance_m=150.0) == SessionKind.STATIONARY
-    )
-
-
-def test_extending_a_session_across_runs_reclassifies_it(engine: Engine) -> None:
-    """The realistic trickle-ingestion case (design spec section 6): a session
-    created by one `derive` run with a single GPS point stays STATIONARY (no
-    spread yet); a second run adding a distant point must reclassify it to
-    TRANSECT."""
-    with OrmSession(engine) as session:
-        base = datetime(2026, 8, 21, 21, tzinfo=UTC)
-        session.add(
-            _recording(
-                "a",
-                base,
-                make="EMT",
-                serial="1",
-                geom=WKTElement("POINT(10.0 51.0)", srid=4326),
-            ),
-        )
-        session.commit()
-        partition_sessions(
-            session,
-            session_gap=timedelta(hours=6),
-            transect_distance_m=150.0,
-        )
-        session.commit()
-        created = session.scalars(select(Session)).one()
-        assert created.kind == SessionKind.STATIONARY
-
-        session.add(
-            _recording(
-                "b",
-                base + timedelta(hours=1),
-                make="EMT",
-                serial="1",
-                geom=WKTElement("POINT(10.01 51.0)", srid=4326),  # ~700m away
-            ),
-        )
-        session.commit()
-        partition_sessions(
-            session,
-            session_gap=timedelta(hours=6),
-            transect_distance_m=150.0,
-        )
-        session.commit()
-        extended = session.scalars(select(Session)).one()
-        assert extended.kind == SessionKind.TRANSECT
-
-
-def test_session_built_up_across_several_recordings_in_one_run_gets_correct_kind(
-    engine: Engine,
-) -> None:
-    """Regression for the deferred-reclassification perf fix (whole-branch
-    review): `reclassify_session` used to run once per recording landing in a
-    session, inside the per-recording loop; now it runs once per touched
-    session, after the loop. Three recordings joining the SAME new session in
-    one run, two of them far enough apart to cross the TRANSECT threshold,
-    proves the deferred call still sees the session's complete final
-    membership -- not just whichever recordings had landed by the time some
-    earlier, now-removed in-loop call happened to run."""
-    with OrmSession(engine) as session:
-        base = datetime(2026, 8, 21, 21, tzinfo=UTC)
-        session.add_all(
-            [
-                _recording(
-                    "a",
-                    base,
-                    make="EMT",
-                    serial="1",
-                    geom=WKTElement("POINT(10.0 51.0)", srid=4326),
-                ),
-                _recording(
-                    "b",
-                    base + timedelta(hours=1),
-                    make="EMT",
-                    serial="1",
-                    geom=None,
-                ),
-                _recording(
-                    "c",
-                    base + timedelta(hours=2),
-                    make="EMT",
-                    serial="1",
-                    geom=WKTElement("POINT(10.01 51.0)", srid=4326),  # ~700m away
-                ),
-            ],
-        )
-        session.commit()
-
-        report = partition_sessions(
-            session,
-            session_gap=timedelta(hours=6),
-            transect_distance_m=150.0,
-        )
-        session.commit()
-
-        assert report.created == 1
-        assert report.extended == 2
-        result = session.scalars(select(Session)).one()
-        assert result.kind == SessionKind.TRANSECT
-
-
-def test_locked_kind_survives_a_reclassifying_run(engine: Engine) -> None:
-    """`existing` already has one GPS-bearing recording ~700m from the new one
-    about to join it -- enough spread that an honest (unlocked) reclassification
-    would flip it to TRANSECT. `kind_locked=True` with `kind=STATIONARY` is set
-    deliberately AGAINST what that honest reclassification would produce, so a
-    passing test actually proves the lock held something back, rather than
-    passing merely because too few GPS points were ever present to move the
-    needle either way."""
-    with OrmSession(engine) as session:
-        base = datetime(2026, 8, 21, 21, tzinfo=UTC)
-        existing = Session(
-            started_at=base,
-            ended_at=base,
-            kind=SessionKind.STATIONARY,
-            kind_locked=True,
-            detector_key="EMT\x1f1",
-        )
-        session.add(existing)
-        session.flush()
-        session.add(
-            _recording(
-                "x",
-                base,
-                make="EMT",
-                serial="1",
-                session_id=existing.id,
-                geom=WKTElement("POINT(10.01 51.0)", srid=4326),
-            ),
-        )
-        session.add(
-            _recording(
-                "a",
-                base + timedelta(hours=1),
-                make="EMT",
-                serial="1",
-                # ~700m from the already-linked recording above -- would flip
-                # the session to TRANSECT if the lock didn't hold.
-                geom=WKTElement("POINT(10.0 51.0)", srid=4326),
-            ),
-        )
-        session.commit()
-
-        partition_sessions(
-            session,
-            session_gap=timedelta(hours=6),
-            transect_distance_m=150.0,
-        )
-        session.commit()
-
-        unchanged = session.scalars(select(Session)).one()
-        assert unchanged.kind == SessionKind.STATIONARY
-        assert unchanged.kind_locked is True

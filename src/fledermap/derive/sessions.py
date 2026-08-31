@@ -4,21 +4,14 @@ from __future__ import annotations
 
 import bisect
 from collections import defaultdict
-from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-import numpy as np
-from scipy.spatial.distance import pdist
-from shapely.geometry import MultiPoint
 from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
 from sqlalchemy.orm import raiseload
 
-from fledermap.domain.codes import SessionKind
-from fledermap.store.geo import decode_point
 from fledermap.store.models import Recording, Session, SessionMergeProposal
-from fledermap.util.projection import LocalProjection
 
 
 @dataclass
@@ -49,72 +42,10 @@ def _detector_key(make: str | None, serial: str | None) -> str:
     return f"{make or ''}\x1f{serial or ''}"
 
 
-def classify_kind(
-    recordings: Sequence[Recording],
-    *,
-    transect_distance_m: float,
-) -> SessionKind:
-    """GPS-spread heuristic (design spec 2026-08-27-fledermap-phase5b-sessions-design.md
-    section 6): the maximum pairwise distance among `recordings`' GPS-bearing
-    positions, projected via the same `LocalProjection` site clustering
-    already uses (`derive/sites.py`) so the threshold is in metres, not
-    degrees. Two or more points spread beyond `transect_distance_m` suggest a
-    walked transect; fewer than two GPS-bearing recordings (not enough
-    signal) stays `STATIONARY`, matching this project's existing default.
-    """
-    points = [decode_point(r.geom) for r in recordings]
-    gps_points = [p for p in points if p is not None]
-    if len(gps_points) < 2:
-        return SessionKind.STATIONARY
-    lonlat = np.array(gps_points)
-    projection = LocalProjection(MultiPoint(lonlat.tolist()))
-    local = projection.to_local_np(lonlat)
-    max_distance = float(pdist(local).max())
-    return (
-        SessionKind.TRANSECT
-        if max_distance > transect_distance_m
-        else SessionKind.STATIONARY
-    )
-
-
-def reclassify_session(
-    db_session: OrmSession,
-    session_obj: Session,
-    *,
-    transect_distance_m: float,
-) -> None:
-    """Recompute `session_obj.kind` from its complete current set of
-    GPS-bearing recordings, unless a human has already locked it in via the
-    session detail form (`Session.kind_locked`). Queries `Recording` by
-    `session_id` fresh rather than trusting a caller's partial in-memory
-    batch: a session's membership can be built up across several separate
-    `derive` runs, or by `services/sessions.py`'s `resolve_merge_proposal`,
-    and this must see all of it -- SQLAlchemy's session-level autoflush
-    means any pending `recording.session_id` change from earlier in the same
-    call flushes before this SELECT runs, so no manual flush is needed here.
-    """
-    if session_obj.kind_locked:
-        return
-    recordings = db_session.scalars(
-        select(Recording)
-        # `Recording.identifications` is `lazy="selectin"` and unused here --
-        # same guard `partition_sessions`'s own `unsessioned` query uses,
-        # for the same reason: without it every call eagerly loads every
-        # recording's identifications too.
-        .options(raiseload(Recording.identifications))
-        .where(Recording.session_id == session_obj.id),
-    ).all()
-    session_obj.kind = classify_kind(
-        recordings,
-        transect_distance_m=transect_distance_m,
-    )
-
-
 def partition_sessions(
     db_session: OrmSession,
     *,
     session_gap: timedelta,
-    transect_distance_m: float,
 ) -> SessionPartitionReport:
     """Assign every session_id-less recording to a session, per detector.
 
@@ -137,13 +68,6 @@ def partition_sessions(
     # impossible anyway. Cross-RUN duplication is already prevented by only
     # ever reprocessing `session_id IS NULL` recordings.
     proposed_pairs: set[tuple[int, int]] = set()
-    # Classification depends only on final session membership, not on the
-    # order or count of intermediate calls -- so instead of reclassifying a
-    # session from scratch after every single recording lands in it (O(k^2)
-    # row loads for a session accumulating k recordings in one run), track
-    # which sessions were touched and reclassify each exactly once, after
-    # the loop below finishes.
-    touched_sessions: set[Session] = set()
 
     unsessioned = db_session.scalars(
         select(Recording)
@@ -180,7 +104,6 @@ def partition_sessions(
                 and prev_session.ended_at >= recording.recorded_at
             ):
                 recording.session_id = prev_session.id
-                touched_sessions.add(prev_session)
                 report.extended += 1
                 continue
 
@@ -202,7 +125,6 @@ def partition_sessions(
                 assert prev_session is not None  # joins_prev implies this
                 prev_session.ended_at = recording.recorded_at
                 recording.session_id = prev_session.id
-                touched_sessions.add(prev_session)
                 report.extended += 1
                 if joins_next:
                     assert next_session is not None  # joins_next implies this
@@ -228,30 +150,20 @@ def partition_sessions(
                 # stale value.
                 starts[idx] = next_session.started_at
                 recording.session_id = next_session.id
-                touched_sessions.add(next_session)
                 report.extended += 1
             else:
                 new_session = Session(
                     started_at=recording.recorded_at,
                     ended_at=recording.recorded_at,
-                    kind=SessionKind.STATIONARY,
                     detector_key=key,
                 )
                 db_session.add(new_session)
                 db_session.flush()
                 recording.session_id = new_session.id
-                touched_sessions.add(new_session)
                 report.created += 1
 
                 insert_at = bisect.bisect_right(starts, new_session.started_at)
                 existing.insert(insert_at, new_session)
                 starts.insert(insert_at, new_session.started_at)
-
-    for touched_session in touched_sessions:
-        reclassify_session(
-            db_session,
-            touched_session,
-            transect_distance_m=transect_distance_m,
-        )
 
     return report

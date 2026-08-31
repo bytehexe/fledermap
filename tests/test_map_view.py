@@ -9,7 +9,7 @@ from geoalchemy2.elements import WKTElement
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session as OrmSession
 
-from fledermap.domain.codes import IdSource, SessionKind, Verdict
+from fledermap.domain.codes import IdSource, Verdict
 from fledermap.media.paths import oscillogram_path, preview_path, spectrogram_path
 from fledermap.store.models import Identification, Recording, Site, Taxon
 from fledermap.store.models import Session as AnnotationSession
@@ -476,7 +476,6 @@ def test_site_panel_links_sessions_to_session_detail(
         annotation_session = AnnotationSession(
             started_at=datetime(2026, 8, 21, 21, tzinfo=UTC),
             ended_at=datetime(2026, 8, 21, 23, tzinfo=UTC),
-            kind=SessionKind.STATIONARY,
             detector_key="EMT\x1f1",
         )
         session.add(annotation_session)
@@ -519,7 +518,6 @@ def test_recording_panel_links_session_to_session_detail(
         annotation_session = AnnotationSession(
             started_at=datetime(2026, 8, 21, 21, tzinfo=UTC),
             ended_at=datetime(2026, 8, 21, 23, tzinfo=UTC),
-            kind=SessionKind.STATIONARY,
             detector_key="EMT\x1f1",
         )
         session.add(annotation_session)

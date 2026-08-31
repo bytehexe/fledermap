@@ -21,7 +21,6 @@ from fledermap.config import (
     ENV_SITE_NAMING_RADIUS_M,
     ENV_STATIC_ROOT,
     ENV_TIMESTAMP_SOURCE,
-    ENV_TRANSECT_DISTANCE_M,
     Config,
     ConfigError,
     resolve_media_root,
@@ -366,63 +365,6 @@ def test_negative_site_eps_raises_config_error(
     monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
     monkeypatch.setenv(ENV_SITE_EPS_M, "-5")
     with pytest.raises(ConfigError, match=ENV_SITE_EPS_M):
-        Config.from_env()
-
-
-def test_default_transect_distance(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
-    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
-    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
-    monkeypatch.delenv(ENV_TRANSECT_DISTANCE_M, raising=False)
-    config = Config.from_env()
-    assert config.transect_distance_m == 150.0
-
-
-def test_transect_distance_is_configurable(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
-    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
-    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
-    monkeypatch.setenv(ENV_TRANSECT_DISTANCE_M, "300")
-    config = Config.from_env()
-    assert config.transect_distance_m == 300.0
-
-
-def test_zero_transect_distance_raises_config_error(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
-    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
-    monkeypatch.setenv(ENV_TRANSECT_DISTANCE_M, "0")
-    with pytest.raises(ConfigError, match=ENV_TRANSECT_DISTANCE_M):
-        Config.from_env()
-
-
-def test_negative_transect_distance_raises_config_error(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
-    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
-    monkeypatch.setenv(ENV_TRANSECT_DISTANCE_M, "-1")
-    with pytest.raises(ConfigError, match=ENV_TRANSECT_DISTANCE_M):
-        Config.from_env()
-
-
-def test_invalid_transect_distance_raises_config_error(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
-    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
-    monkeypatch.setenv(ENV_TRANSECT_DISTANCE_M, "not-a-number")
-    with pytest.raises(ConfigError, match="not-a-number"):
         Config.from_env()
 
 

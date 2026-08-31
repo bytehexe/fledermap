@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session as OrmSession
 
-from fledermap.domain.codes import MergeResolution, SessionKind, VisualSighting
+from fledermap.domain.codes import MergeResolution, VisualSighting
 from fledermap.store.models import Recording, SessionMergeProposal
 from fledermap.store.models import Session as AnnotationSession
 from fledermap.web.app import create_app
@@ -21,7 +21,6 @@ def test_sessions_list_renders_a_session_row(engine: Engine, tmp_path: Path) -> 
             AnnotationSession(
                 started_at=datetime(2026, 8, 21, 21, tzinfo=UTC),
                 ended_at=datetime(2026, 8, 21, 23, tzinfo=UTC),
-                kind=SessionKind.STATIONARY,
                 detector_key="EMT\x1f1",
             ),
         )
@@ -35,7 +34,7 @@ def test_sessions_list_renders_a_session_row(engine: Engine, tmp_path: Path) -> 
     assert response.status_code == 200
     html = response.get_data(as_text=True)
     assert "EMT" in html
-    assert "stationary" in html
+    assert "kind" not in html.lower()  # 2026-08-29: SessionKind removed entirely
 
 
 def test_sessions_list_filters_by_detector(engine: Engine, tmp_path: Path) -> None:
@@ -44,7 +43,6 @@ def test_sessions_list_filters_by_detector(engine: Engine, tmp_path: Path) -> No
             AnnotationSession(
                 started_at=datetime(2026, 8, 21, tzinfo=UTC),
                 ended_at=datetime(2026, 8, 21, tzinfo=UTC),
-                kind=SessionKind.STATIONARY,
                 detector_key="EMT\x1f1",
             ),
         )
@@ -52,7 +50,6 @@ def test_sessions_list_filters_by_detector(engine: Engine, tmp_path: Path) -> No
             AnnotationSession(
                 started_at=datetime(2026, 8, 21, tzinfo=UTC),
                 ended_at=datetime(2026, 8, 21, tzinfo=UTC),
-                kind=SessionKind.STATIONARY,
                 detector_key="Kaleidoscope\x1f2",
             ),
         )
@@ -81,7 +78,6 @@ def test_sessions_list_detector_dropdown_pre_selects_the_current_filter(
             AnnotationSession(
                 started_at=datetime(2026, 8, 21, tzinfo=UTC),
                 ended_at=datetime(2026, 8, 21, tzinfo=UTC),
-                kind=SessionKind.STATIONARY,
                 detector_key="EMT\x1f1",
             ),
         )
@@ -103,13 +99,11 @@ def test_sessions_list_shows_open_proposal_count(
         a = AnnotationSession(
             started_at=datetime(2026, 8, 21, tzinfo=UTC),
             ended_at=datetime(2026, 8, 21, tzinfo=UTC),
-            kind=SessionKind.STATIONARY,
             detector_key="EMT\x1f1",
         )
         b = AnnotationSession(
             started_at=datetime(2026, 8, 22, tzinfo=UTC),
             ended_at=datetime(2026, 8, 22, tzinfo=UTC),
-            kind=SessionKind.STATIONARY,
             detector_key="EMT\x1f1",
         )
         session.add_all([a, b])
@@ -223,7 +217,6 @@ def test_session_detail_shows_edit_form_with_current_values(
         s = AnnotationSession(
             started_at=datetime(2026, 8, 21, 21, tzinfo=UTC),
             ended_at=datetime(2026, 8, 21, 23, tzinfo=UTC),
-            kind=SessionKind.TRANSECT,
             detector_key="EMT\x1f1",
             note="existing note",
             weather="rainy",
@@ -242,9 +235,9 @@ def test_session_detail_shows_edit_form_with_current_values(
     html = response.get_data(as_text=True)
     assert "existing note" in html
     assert "rainy" in html
-    assert 'value="transect" selected' in html
     assert 'value="yes" selected' in html
     assert "effort" not in html.lower()  # P5b-10: field is gone
+    assert "kind" not in html.lower()  # 2026-08-29: SessionKind removed entirely
 
 
 def test_session_detail_lists_recordings(engine: Engine, tmp_path: Path) -> None:
@@ -252,7 +245,6 @@ def test_session_detail_lists_recordings(engine: Engine, tmp_path: Path) -> None
         s = AnnotationSession(
             started_at=datetime(2026, 8, 21, tzinfo=UTC),
             ended_at=datetime(2026, 8, 21, tzinfo=UTC),
-            kind=SessionKind.STATIONARY,
             detector_key="EMT\x1f1",
         )
         session.add(s)
@@ -286,7 +278,6 @@ def test_session_detail_no_merge_banner_when_no_open_proposal(
         s = AnnotationSession(
             started_at=datetime(2026, 8, 21, tzinfo=UTC),
             ended_at=datetime(2026, 8, 21, tzinfo=UTC),
-            kind=SessionKind.STATIONARY,
             detector_key="EMT\x1f1",
         )
         session.add(s)
@@ -301,7 +292,7 @@ def test_session_detail_no_merge_banner_when_no_open_proposal(
     assert "merge-banner" not in response.get_data(as_text=True)
 
 
-def test_save_session_updates_kind_note_weather_and_locks(
+def test_save_session_updates_note_weather_and_seen_visually(
     engine: Engine,
     tmp_path: Path,
 ) -> None:
@@ -309,7 +300,6 @@ def test_save_session_updates_kind_note_weather_and_locks(
         s = AnnotationSession(
             started_at=datetime(2026, 8, 21, tzinfo=UTC),
             ended_at=datetime(2026, 8, 21, tzinfo=UTC),
-            kind=SessionKind.STATIONARY,
             detector_key="EMT\x1f1",
         )
         session.add(s)
@@ -322,7 +312,6 @@ def test_save_session_updates_kind_note_weather_and_locks(
     response = client.post(
         f"/sessions/{session_id}",
         data={
-            "kind": "transect",
             "note": "new note",
             "weather": "clear",
             "seen_visually": "yes",
@@ -334,10 +323,8 @@ def test_save_session_updates_kind_note_weather_and_locks(
     with OrmSession(engine) as session:
         refreshed = session.get(AnnotationSession, session_id)
         assert refreshed is not None
-        assert refreshed.kind == SessionKind.TRANSECT
         assert refreshed.note == "new note"
         assert refreshed.weather == "clear"
-        assert refreshed.kind_locked is True
         assert refreshed.seen_visually == VisualSighting.YES
 
 
@@ -348,7 +335,6 @@ def test_save_session_invalid_seen_visually_returns_400(
         s = AnnotationSession(
             started_at=datetime(2026, 8, 21, tzinfo=UTC),
             ended_at=datetime(2026, 8, 21, tzinfo=UTC),
-            kind=SessionKind.STATIONARY,
             detector_key="EMT\x1f1",
         )
         session.add(s)
@@ -360,28 +346,8 @@ def test_save_session_invalid_seen_visually_returns_400(
 
     response = client.post(
         f"/sessions/{session_id}",
-        data={"kind": "stationary", "seen_visually": "bogus"},
+        data={"seen_visually": "bogus"},
     )
-
-    assert response.status_code == 400
-
-
-def test_save_session_invalid_kind_returns_400(engine: Engine, tmp_path: Path) -> None:
-    with OrmSession(engine) as session:
-        s = AnnotationSession(
-            started_at=datetime(2026, 8, 21, tzinfo=UTC),
-            ended_at=datetime(2026, 8, 21, tzinfo=UTC),
-            kind=SessionKind.STATIONARY,
-            detector_key="EMT\x1f1",
-        )
-        session.add(s)
-        session.commit()
-        session_id = s.id
-
-    app = create_app(engine, tmp_path / "static", tmp_path / "media")
-    client = app.test_client()
-
-    response = client.post(f"/sessions/{session_id}", data={"kind": "bogus"})
 
     assert response.status_code == 400
 
@@ -393,7 +359,6 @@ def test_save_session_not_found_returns_404(engine: Engine, tmp_path: Path) -> N
     response = client.post(
         "/sessions/999",
         data={
-            "kind": "stationary",
             "note": "",
             "weather": "",
             "seen_visually": "unclear",
@@ -409,13 +374,11 @@ def _make_open_proposal(
     a = AnnotationSession(
         started_at=datetime(2026, 8, 21, tzinfo=UTC),
         ended_at=datetime(2026, 8, 21, 21, tzinfo=UTC),
-        kind=SessionKind.STATIONARY,
         detector_key="EMT\x1f1",
     )
     b = AnnotationSession(
         started_at=datetime(2026, 8, 22, tzinfo=UTC),
         ended_at=datetime(2026, 8, 22, tzinfo=UTC),
-        kind=SessionKind.STATIONARY,
         detector_key="EMT\x1f1",
     )
     session.add_all([a, b])
@@ -455,14 +418,12 @@ def test_merge_banner_note_textarea_omits_separator_when_only_one_side_has_text(
         a = AnnotationSession(
             started_at=datetime(2026, 8, 21, tzinfo=UTC),
             ended_at=datetime(2026, 8, 21, 21, tzinfo=UTC),
-            kind=SessionKind.STATIONARY,
             detector_key="EMT\x1f1",
             note="only a has a note",
         )
         b = AnnotationSession(
             started_at=datetime(2026, 8, 22, tzinfo=UTC),
             ended_at=datetime(2026, 8, 22, tzinfo=UTC),
-            kind=SessionKind.STATIONARY,
             detector_key="EMT\x1f1",
         )
         session.add_all([a, b])

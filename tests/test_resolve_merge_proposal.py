@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session as OrmSession
 
-from fledermap.domain.codes import MergeResolution, SessionKind, VisualSighting
+from fledermap.domain.codes import MergeResolution, VisualSighting
 from fledermap.services.sessions import (
     AlreadyResolvedError,
     MergeConflictError,
@@ -24,7 +24,6 @@ def _session(started: datetime, ended: datetime, **kwargs: object) -> Session:
     return Session(
         started_at=started,
         ended_at=ended,
-        kind=SessionKind.STATIONARY,
         detector_key="EMT\x1f1",
         **kwargs,
     )
@@ -84,7 +83,6 @@ def test_reject_only_sets_resolution(engine: Engine) -> None:
             action="reject",
             note=None,
             weather=None,
-            transect_distance_m=150.0,
         )
         session.commit()
 
@@ -106,7 +104,6 @@ def test_merge_reassigns_recordings_and_deletes_session_b(engine: Engine) -> Non
             action="merge",
             note="combined note",
             weather="combined weather",
-            transect_distance_m=150.0,
         )
         session.commit()
 
@@ -125,105 +122,6 @@ def test_merge_reassigns_recordings_and_deletes_session_b(engine: Engine) -> Non
         assert refreshed is not None
         assert refreshed.resolution == MergeResolution.MERGED
         assert refreshed.resolved_at is not None
-
-
-def test_merge_reclassifies_session_a_when_unlocked(engine: Engine) -> None:
-    with OrmSession(engine) as session:
-        a = _session(BASE, BASE)
-        b = _session(BASE.replace(day=21), BASE.replace(day=21))
-        session.add_all([a, b])
-        session.flush()
-        session.add(
-            Recording(
-                audio_hash="a".rjust(64, "0"),
-                path="a.wav",
-                recorded_at=BASE,
-                session_id=a.id,
-                geom=None,
-            ),
-        )
-        session.add(
-            Recording(
-                audio_hash="b".rjust(64, "0"),
-                path="b.wav",
-                recorded_at=BASE.replace(day=21),
-                session_id=b.id,
-                geom=None,
-            ),
-        )
-        session.flush()
-        bridging = session.scalars(
-            select(Recording).where(Recording.session_id == a.id)
-        ).one()
-        proposal = SessionMergeProposal(
-            session_a_id=a.id,
-            session_b_id=b.id,
-            bridging_recording_id=bridging.id,
-            detected_at=BASE,
-        )
-        session.add(proposal)
-        session.commit()
-
-        resolve_merge_proposal(
-            session,
-            proposal.id,
-            action="merge",
-            note=None,
-            weather=None,
-            transect_distance_m=150.0,
-        )
-        session.commit()
-
-        # no GPS on either side's recordings -- reclassification runs but
-        # has nothing to work with, stays STATIONARY. Proves the call
-        # happened without erroring, not a positive TRANSECT case (that's
-        # covered directly in test_partition_sessions.py).
-        merged_a = session.get(Session, a.id)
-        assert merged_a is not None
-        assert merged_a.kind == SessionKind.STATIONARY
-
-
-def test_merge_does_not_reclassify_a_locked_session_a(engine: Engine) -> None:
-    with OrmSession(engine) as session:
-        a = _session(BASE, BASE, kind_locked=True)
-        b = _session(BASE.replace(day=21), BASE.replace(day=21))
-        session.add_all([a, b])
-        session.flush()
-        session.add(
-            Recording(
-                audio_hash="a".rjust(64, "0"),
-                path="a.wav",
-                recorded_at=BASE,
-                session_id=a.id,
-            ),
-        )
-        session.flush()
-        bridging = session.scalars(
-            select(Recording).where(Recording.session_id == a.id)
-        ).one()
-        proposal = SessionMergeProposal(
-            session_a_id=a.id,
-            session_b_id=b.id,
-            bridging_recording_id=bridging.id,
-            detected_at=BASE,
-        )
-        session.add(proposal)
-        session.commit()
-
-        resolve_merge_proposal(
-            session,
-            proposal.id,
-            action="merge",
-            note=None,
-            weather=None,
-            transect_distance_m=150.0,
-        )
-        session.commit()
-
-        merged_a = session.get(Session, a.id)
-        assert merged_a is not None
-        assert merged_a.kind == SessionKind.STATIONARY  # unchanged, still locked
-        assert merged_a.kind_locked is True
 
 
 def test_merge_with_omitted_note_and_weather_falls_back_to_session_b(
@@ -270,7 +168,6 @@ def test_merge_with_omitted_note_and_weather_falls_back_to_session_b(
             action="merge",
             note=None,
             weather=None,
-            transect_distance_m=150.0,
         )
         session.commit()
 
@@ -337,7 +234,6 @@ def test_merge_resolves_seen_visually_by_priority(
             action="merge",
             note=None,
             weather=None,
-            transect_distance_m=150.0,
         )
         session.commit()
 
@@ -355,7 +251,6 @@ def test_unknown_proposal_id_raises(engine: Engine) -> None:
                 action="reject",
                 note=None,
                 weather=None,
-                transect_distance_m=150.0,
             )
 
 
@@ -373,7 +268,6 @@ def test_already_resolved_raises_without_reapplying(engine: Engine) -> None:
                 action="merge",
                 note=None,
                 weather=None,
-                transect_distance_m=150.0,
             )
         session.commit()
 
@@ -390,7 +284,6 @@ def test_invalid_action_raises_value_error(engine: Engine) -> None:
                 action="bogus",
                 note=None,
                 weather=None,
-                transect_distance_m=150.0,
             )
 
 
@@ -432,7 +325,6 @@ def test_chained_proposal_raises_merge_conflict(engine: Engine) -> None:
                 action="merge",
                 note=None,
                 weather=None,
-                transect_distance_m=150.0,
             )
         session.commit()
 
@@ -490,7 +382,6 @@ def test_resolved_proposal_referencing_session_b_is_repointed_not_blocking(
             action="merge",
             note=None,
             weather=None,
-            transect_distance_m=150.0,
         )
         session.commit()
 

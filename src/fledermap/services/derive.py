@@ -8,13 +8,13 @@ import numpy as np
 from geoalchemy2.elements import WKTElement
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session as OrmSession
-from sqlalchemy.orm import raiseload
 
 from fledermap.derive.geo_cluster import GeoCluster
 from fledermap.derive.sites import cluster_points
-from fledermap.domain.codes import SessionKind
+from fledermap.domain.codes import Verdict
+from fledermap.services.current_best import current_best_identification
 from fledermap.store.geo import decode_point
-from fledermap.store.models import Recording, Session, Site
+from fledermap.store.models import Recording, Site
 
 
 @dataclass
@@ -29,32 +29,45 @@ def derive_sites(
     eps_m: float,
     min_points: int,
 ) -> SiteDeriveReport:
-    """Wholesale rebuild of `site` from stationary, GPS-bearing recordings.
+    """Wholesale rebuild of `site` from GPS-bearing recordings with an
+    identified-species current-best identification.
 
-    Idempotent — safe to re-run at any time (spec section 7: "tuning is free").
-    A recording left with `site_id = NULL` is a one-off spot, not an error.
+    A site is a place where we find bats -- not a session-scoped concept
+    (design spec 2026-08-29-fledermap-identification-based-sites-design.md,
+    decision SB-1): every GPS-bearing recording is eligible regardless of
+    which session (or session kind) it belongs to, filtered to
+    `Verdict.SPECIES` via `current_best_identification` -- the same rule
+    `map_query._passes_verdict_filter` already applies by default to hide
+    noise on the map. A recording with no non-superseded identification at
+    all is excluded, matching that same rule's treatment of "no best" as
+    equivalent to `NO_ID`. Unlike `map_query.py`'s recording queries, this
+    one does not filter on `Recording.missing_since` -- a site is treated as
+    a place, which doesn't stop existing just because one of its files went
+    missing from the archive.
+
+    Idempotent — safe to re-run at any time (spec section 7: "tuning is
+    free"). A recording left with `site_id = NULL` is a one-off spot or
+    unidentified, not an error. An identification change is picked up
+    automatically the next time this runs, with no separate invalidation
+    needed (decision SB-3): `Identification` rows are only ever written by
+    `services/ingest.py`'s `commit_scan`, which only ever runs inside
+    `run_ingest_cycle` -- and that already calls this function
+    unconditionally every cycle.
 
     `DELETE FROM site`, never `TRUNCATE`: Postgres `TRUNCATE` does not fire
     `ON DELETE SET NULL` the way `DELETE` does — it would either error on the
     referencing `recording.site_id` FK or, with CASCADE, truncate `recording`
     too.
     """
-    recordings = list(
-        db_session.scalars(
-            select(Recording)
-            .join(Session, Recording.session_id == Session.id)
-            # `Recording.identifications` is `lazy="selectin"`; neither this
-            # function nor anything it calls touches it, so eager-loading would
-            # materialise the whole identification table on every run for
-            # nothing. `raiseload` rather than `lazyload`: a future accidental
-            # access should fail loudly, not silently become an N+1 query.
-            .options(raiseload(Recording.identifications))
-            .where(
-                Session.kind == SessionKind.STATIONARY,
-                Recording.geom.is_not(None),
-            ),
-        ),
+    candidates = db_session.scalars(
+        select(Recording).where(Recording.geom.is_not(None)),
     )
+    recordings = [
+        r
+        for r in candidates
+        if (best := current_best_identification(r)) is not None
+        and best.verdict == Verdict.SPECIES
+    ]
 
     db_session.execute(delete(Site))
     db_session.flush()

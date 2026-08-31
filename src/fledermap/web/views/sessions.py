@@ -8,7 +8,7 @@ from __future__ import annotations
 import flask
 from sqlalchemy.orm import Session as OrmSession
 
-from fledermap.domain.codes import SessionKind, VisualSighting
+from fledermap.domain.codes import VisualSighting
 from fledermap.services.current_best import current_best_identification
 from fledermap.services.sessions import (
     AlreadyResolvedError,
@@ -95,11 +95,6 @@ def session_detail_page(session_id: int) -> flask.Response:
 
 @sessions_bp.post("/sessions/<int:session_id>")
 def save_session(session_id: int) -> flask.Response:
-    kind_raw = flask.request.form.get("kind", "")
-    try:
-        kind = SessionKind(kind_raw)
-    except ValueError:
-        return flask.make_response((f"Invalid kind: {kind_raw!r}", 400))
     seen_visually_raw = flask.request.form.get("seen_visually", "")
     try:
         seen_visually = VisualSighting(seen_visually_raw)
@@ -115,10 +110,8 @@ def save_session(session_id: int) -> flask.Response:
         session_obj = session.get(AnnotationSession, session_id)
         if session_obj is None:
             return flask.make_response(("Session not found.", 404))
-        session_obj.kind = kind
         session_obj.note = note
         session_obj.weather = weather
-        session_obj.kind_locked = True
         session_obj.seen_visually = seen_visually
         session.commit()
 
@@ -132,7 +125,6 @@ def resolve_proposal(proposal_id: int) -> flask.Response:
     weather = flask.request.form.get("weather") or None
 
     engine = flask.current_app.config["ENGINE"]
-    transect_distance_m = flask.current_app.config["TRANSECT_DISTANCE_M"]
     with OrmSession(engine) as session:
         try:
             surviving_id = resolve_merge_proposal(
@@ -141,7 +133,6 @@ def resolve_proposal(proposal_id: int) -> flask.Response:
                 action=action,
                 note=note,
                 weather=weather,
-                transect_distance_m=transect_distance_m,
             )
         except ProposalNotFoundError:
             return flask.make_response(("Merge proposal not found.", 404))

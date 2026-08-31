@@ -44,8 +44,7 @@ def test_decode_point_returns_none_for_a_non_wkb_value() -> None:
 def test_decode_point_decodes_an_unpersisted_wkt_element() -> None:
     """A `Recording` built directly in Python (never added to a session) still
     carries the `WKTElement` it was constructed with, not the `WKBElement` a
-    database round-trip produces -- `derive/sessions.py`'s `classify_kind`
-    unit tests rely on this."""
+    database round-trip produces."""
     decoded = decode_point(WKTElement("POINT(13.4 52.5)", srid=4326))
 
     assert decoded is not None

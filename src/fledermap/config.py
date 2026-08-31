@@ -33,7 +33,6 @@ ENV_DEFAULT_TIMEZONE = "FLEDERMAP_DEFAULT_TIMEZONE"
 ENV_SESSION_GAP_HOURS = "FLEDERMAP_SESSION_GAP_HOURS"
 ENV_SITE_EPS_M = "FLEDERMAP_SITE_EPS_M"
 ENV_SITE_MIN_POINTS = "FLEDERMAP_SITE_MIN_POINTS"
-ENV_TRANSECT_DISTANCE_M = "FLEDERMAP_TRANSECT_DISTANCE_M"
 ENV_POIIDX_DATABASE_URL = "FLEDERMAP_POIIDX_DATABASE_URL"
 ENV_SITE_NAMING_RADIUS_M = "FLEDERMAP_SITE_NAMING_RADIUS_M"
 ENV_MEDIA_ROOT = "FLEDERMAP_MEDIA_ROOT"
@@ -55,7 +54,6 @@ _KNOWN_FILE_KEYS = frozenset(
         "session_gap_hours",
         "site_eps_m",
         "site_min_points",
-        "transect_distance_m",
         "poiidx_database_url",
         "site_naming_radius_m",
         "media_root",
@@ -257,12 +255,6 @@ class Config:
     session_gap_hours: float = 6.0
     site_eps_m: float = 75.0
     site_min_points: int = 3
-    # Design spec 2026-08-27-fledermap-phase5b-sessions-design.md section 6:
-    # the GPS-spread threshold `derive/sessions.py`'s `classify_kind` uses to
-    # suggest TRANSECT over STATIONARY. Real derivation logic (unlike a UI
-    # hint), so it gets the same operational-tuning treatment as
-    # `site_eps_m`/`session_gap_hours` rather than a code constant.
-    transect_distance_m: float = 150.0
     # Optional (design spec 2026-08-28-fledermap-poiidx-site-naming-design.md,
     # decision SN-2): unset means the site-naming integration is off entirely
     # -- sites keep today's coordinate-fallback label, nothing errors, nothing
@@ -272,9 +264,8 @@ class Config:
     poiidx_database_url: str | None = None
     # How far (metres) to search for a nearby named POI before falling back
     # to the administrative hierarchy string. Picked by analogy to
-    # site_eps_m/transect_distance_m's defaults, not from parent-spec
-    # guidance -- this task owns the default the same way P2-5 owned
-    # site_min_points's.
+    # site_eps_m's default, not from parent-spec guidance -- this task owns
+    # the default the same way P2-5 owned site_min_points's.
     site_naming_radius_m: float = 300.0
     # Optional since 2026-08-26 (default_factory, not a plain default, for the
     # same reason as static_root below -- it must actually run at
@@ -437,34 +428,6 @@ class Config:
                 msg = f"{label}={site_min_points_raw!r} is not an integer of 1 or more."
                 raise ConfigError(msg)
 
-        transect_distance_raw = _lookup(
-            ENV_TRANSECT_DISTANCE_M,
-            "transect_distance_m",
-            file_values,
-        )
-        if transect_distance_raw is None:
-            transect_distance_m = 150.0
-        else:
-            label = _source_label(
-                ENV_TRANSECT_DISTANCE_M,
-                "transect_distance_m",
-                config_path,
-            )
-            if isinstance(transect_distance_raw, bool):  # see session_gap_hours above
-                msg = f"{label}={transect_distance_raw!r} is not a number of metres."
-                raise ConfigError(msg)
-            try:
-                transect_distance_m = float(transect_distance_raw)
-            except (TypeError, ValueError) as exc:
-                msg = f"{label}={transect_distance_raw!r} is not a number of metres."
-                raise ConfigError(msg) from exc
-            if not transect_distance_m > 0:  # also rejects nan; see site_eps_m above
-                msg = (
-                    f"{label}={transect_distance_raw!r} is not a positive "
-                    "number of metres."
-                )
-                raise ConfigError(msg)
-
         port_raw = _lookup(ENV_PORT, "port", file_values)
         if port_raw is None:
             port = 5000
@@ -542,7 +505,6 @@ class Config:
             session_gap_hours=session_gap_hours,
             site_eps_m=site_eps_m,
             site_min_points=site_min_points,
-            transect_distance_m=transect_distance_m,
             poiidx_database_url=poiidx_database_url,
             site_naming_radius_m=site_naming_radius_m,
             port=port,

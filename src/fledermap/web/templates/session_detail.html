@@ -23,12 +23,6 @@
       </div>
       <div class="col session-edit-col">
         <form class="stacked-form" method="post" action="/sessions/{{ detail.session.id }}">
-          <label>Kind
-            <select name="kind">
-              <option value="stationary" {% if detail.session.kind.value == 'stationary' %}selected{% endif %}>Stationary</option>
-              <option value="transect" {% if detail.session.kind.value == 'transect' %}selected{% endif %}>Transect</option>
-            </select>
-          </label>
           <label>Seen visually?
             <select name="seen_visually">
               <option value="yes" {% if detail.session.seen_visually.value == 'yes' %}selected{% endif %}>Yes</option>

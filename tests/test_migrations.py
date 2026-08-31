@@ -21,7 +21,6 @@ from alembic import command
 from fledermap.domain.codes import (
     IdSource,
     MergeResolution,
-    SessionKind,
     Verdict,
     VisualSighting,
 )
@@ -166,42 +165,15 @@ def test_migrated_verdict_check_accepts_every_verdict(migrated_engine: Engine) -
     assert stored == len(Verdict)
 
 
-def test_migrated_kind_check_is_enforced(migrated_engine: Engine) -> None:
-    """`kind` is a closed two-value vocabulary (phase 2, task 5) — the one
-    constraint `_comparable` excludes from the drift comparison."""
-    with pytest.raises(IntegrityError), migrated_engine.begin() as conn:
-        conn.execute(
-            text(
-                "INSERT INTO session (started_at, ended_at, kind)"
-                " VALUES (now(), now(), 'not_a_kind')"
-            )
-        )
-
-
-def test_migrated_kind_check_accepts_every_kind(migrated_engine: Engine) -> None:
-    with migrated_engine.begin() as conn:
-        for kind in SessionKind:
-            conn.execute(
-                text(
-                    "INSERT INTO session (started_at, ended_at, kind)"
-                    " VALUES (now(), now(), :kind)"
-                ),
-                {"kind": kind.value},
-            )
-        stored = conn.scalar(text("SELECT count(*) FROM session"))
-
-    assert stored == len(SessionKind)
-
-
 def test_migrated_seen_visually_check_is_enforced(migrated_engine: Engine) -> None:
     """`seen_visually` is a closed three-value vocabulary (2026-08-28) -- the
     one constraint `_comparable` excludes from the drift comparison, same as
-    `kind` and `verdict`."""
+    `verdict`."""
     with pytest.raises(IntegrityError), migrated_engine.begin() as conn:
         conn.execute(
             text(
-                "INSERT INTO session (started_at, ended_at, kind, seen_visually)"
-                " VALUES (now(), now(), 'stationary', 'not_a_sighting')"
+                "INSERT INTO session (started_at, ended_at, seen_visually)"
+                " VALUES (now(), now(), 'not_a_sighting')"
             )
         )
 
@@ -213,8 +185,8 @@ def test_migrated_seen_visually_check_accepts_every_sighting(
         for sighting in VisualSighting:
             conn.execute(
                 text(
-                    "INSERT INTO session (started_at, ended_at, kind, seen_visually)"
-                    " VALUES (now(), now(), 'stationary', :sighting)"
+                    "INSERT INTO session (started_at, ended_at, seen_visually)"
+                    " VALUES (now(), now(), :sighting)"
                 ),
                 {"sighting": sighting.value},
             )
@@ -228,10 +200,7 @@ def test_migrated_seen_visually_defaults_to_unclear(migrated_engine: Engine) -> 
     `server_default`, not just the ORM's Python-side `default=`."""
     with migrated_engine.begin() as conn:
         conn.execute(
-            text(
-                "INSERT INTO session (started_at, ended_at, kind)"
-                " VALUES (now(), now(), 'stationary')"
-            )
+            text("INSERT INTO session (started_at, ended_at) VALUES (now(), now())")
         )
         stored = conn.scalar(text("SELECT seen_visually FROM session"))
 
@@ -241,16 +210,10 @@ def test_migrated_seen_visually_defaults_to_unclear(migrated_engine: Engine) -> 
 def test_migrated_resolution_check_is_enforced(migrated_engine: Engine) -> None:
     with migrated_engine.begin() as conn:
         conn.execute(
-            text(
-                "INSERT INTO session (started_at, ended_at, kind)"
-                " VALUES (now(), now(), 'stationary')"
-            )
+            text("INSERT INTO session (started_at, ended_at) VALUES (now(), now())")
         )
         conn.execute(
-            text(
-                "INSERT INTO session (started_at, ended_at, kind)"
-                " VALUES (now(), now(), 'stationary')"
-            )
+            text("INSERT INTO session (started_at, ended_at) VALUES (now(), now())")
         )
         conn.execute(
             text(
@@ -277,16 +240,10 @@ def test_migrated_resolution_check_accepts_every_resolution(
 ) -> None:
     with migrated_engine.begin() as conn:
         conn.execute(
-            text(
-                "INSERT INTO session (started_at, ended_at, kind)"
-                " VALUES (now(), now(), 'stationary')"
-            )
+            text("INSERT INTO session (started_at, ended_at) VALUES (now(), now())")
         )
         conn.execute(
-            text(
-                "INSERT INTO session (started_at, ended_at, kind)"
-                " VALUES (now(), now(), 'stationary')"
-            )
+            text("INSERT INTO session (started_at, ended_at) VALUES (now(), now())")
         )
         conn.execute(
             text(
