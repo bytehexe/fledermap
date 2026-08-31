@@ -1,5 +1,13 @@
 # Fledermap Phase 5b (Sessions List + Detail) — Design
 
+> **Superseded 2026-08-29** by
+> `docs/superpowers/specs/2026-08-29-fledermap-identification-based-sites-design.md`: the
+> GPS-spread `classify_kind` heuristic, `Session.kind`/`kind_locked`, and the session detail
+> page's "Kind" field described below were removed entirely — site derivation (their only
+> consumer) no longer depends on session kind. `/sessions` and `/sessions/{id}` themselves, and
+> everything else this spec describes (merge proposals, notes/weather, the nav sidebar), are
+> unaffected. Left as-is below for historical record of the original decision and its reasoning.
+
 ## 1. Scope
 
 The second slice of Phase 5 per the parent spec's phasing table (`docs/superpowers/specs/2026-08-23-fledermap-design.md`
