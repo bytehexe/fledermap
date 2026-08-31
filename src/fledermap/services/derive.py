@@ -40,7 +40,10 @@ def derive_sites(
     `map_query._passes_verdict_filter` already applies by default to hide
     noise on the map. A recording with no non-superseded identification at
     all is excluded, matching that same rule's treatment of "no best" as
-    equivalent to `NO_ID`.
+    equivalent to `NO_ID`. Unlike `map_query.py`'s recording queries, this
+    one does not filter on `Recording.missing_since` -- a site is treated as
+    a place, which doesn't stop existing just because one of its files went
+    missing from the archive.
 
     Idempotent — safe to re-run at any time (spec section 7: "tuning is
     free"). A recording left with `site_id = NULL` is a one-off spot or

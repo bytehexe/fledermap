@@ -34,6 +34,7 @@ def test_sessions_list_renders_a_session_row(engine: Engine, tmp_path: Path) -> 
     assert response.status_code == 200
     html = response.get_data(as_text=True)
     assert "EMT" in html
+    assert "kind" not in html.lower()  # 2026-08-29: SessionKind removed entirely
 
 
 def test_sessions_list_filters_by_detector(engine: Engine, tmp_path: Path) -> None:
@@ -236,6 +237,7 @@ def test_session_detail_shows_edit_form_with_current_values(
     assert "rainy" in html
     assert 'value="yes" selected' in html
     assert "effort" not in html.lower()  # P5b-10: field is gone
+    assert "kind" not in html.lower()  # 2026-08-29: SessionKind removed entirely
 
 
 def test_session_detail_lists_recordings(engine: Engine, tmp_path: Path) -> None:

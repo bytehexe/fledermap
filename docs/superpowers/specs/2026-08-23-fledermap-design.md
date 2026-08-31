@@ -212,6 +212,10 @@ detector_key text                          -- (make, serial)
 note, weather, effort
 ```
 
+> **Note (2026-08-29):** `kind` was removed entirely — see
+> `docs/superpowers/specs/2026-08-29-fledermap-identification-based-sites-design.md`.
+> Site derivation, its only consumer, is now identification-based instead.
+
 ### site — a projection, not an entity
 
 Truncated and rebuilt wholesale. `centroid, radius_m, recording_count,
@@ -310,6 +314,12 @@ noticed months later.
 
 **Sites — rebuilt wholesale.** DBSCAN over stationary, GPS-bearing recordings,
 on coordinates projected by `LocalProjection`, so `eps` is metres.
+
+> **Note (2026-08-29):** superseded by
+> `docs/superpowers/specs/2026-08-29-fledermap-identification-based-sites-design.md` —
+> site membership is now identification-based (`Verdict.SPECIES` via
+> `current_best_identification`), not stationary-session-based. Left as-is here for
+> historical record.
 
 > **Pitfall, pinned by a test:** `ST_ClusterDBSCAN` and naive DBSCAN take `eps`
 > in the units of the coordinate system. On raw EPSG:4326 that is *degrees*, and

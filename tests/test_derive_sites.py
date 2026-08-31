@@ -164,6 +164,75 @@ def test_mixed_verdict_cluster_counts_only_species_members(engine: Engine) -> No
         assert excluded.site_id is None
 
 
+def test_superseded_species_identification_does_not_count(engine: Engine) -> None:
+    """A different code path to `None` than "no identification rows at all" --
+    `current_best_identification` filters on `superseded_at is None`, so a
+    recording whose only SPECIES claim has been superseded must still be
+    excluded, the same as a recording with zero identifications."""
+    with OrmSession(engine) as session:
+        a = _recording("a", session, 13.4000, 52.5000, verdict=None)
+        b = _recording("b", session, 13.4001, 52.5000, verdict=None)
+        session.add(
+            Identification(
+                recording_id=a.id,
+                source=IdSource.EMT_GUANO,
+                verdict=Verdict.SPECIES,
+                first_seen_at=a.recorded_at,
+                superseded_at=a.recorded_at,
+            ),
+        )
+        session.add(
+            Identification(
+                recording_id=b.id,
+                source=IdSource.EMT_GUANO,
+                verdict=Verdict.SPECIES,
+                first_seen_at=b.recorded_at,
+                superseded_at=b.recorded_at,
+            ),
+        )
+        session.commit()
+
+        report = derive_sites(session, eps_m=75.0, min_points=2)
+        session.commit()
+
+        assert report.site_count == 0
+        assert report.unclustered == 0
+
+
+def test_manual_species_outranks_a_superseding_noise_verdict(engine: Engine) -> None:
+    """Site membership goes through `current_best_identification`'s source
+    precedence, not just "any SPECIES claim exists" -- a higher-precedence
+    MANUAL SPECIES claim must win the site even when a lower-precedence
+    EMT_GUANO NOISE claim also exists on the same recording."""
+    with OrmSession(engine) as session:
+        a = _recording("a", session, 13.4000, 52.5000, verdict=None)
+        b = _recording("b", session, 13.4001, 52.5000, verdict=None)
+        for r in (a, b):
+            session.add(
+                Identification(
+                    recording_id=r.id,
+                    source=IdSource.EMT_GUANO,
+                    verdict=Verdict.NOISE,
+                    first_seen_at=r.recorded_at,
+                ),
+            )
+            session.add(
+                Identification(
+                    recording_id=r.id,
+                    source=IdSource.MANUAL,
+                    verdict=Verdict.SPECIES,
+                    first_seen_at=r.recorded_at,
+                ),
+            )
+        session.commit()
+
+        report = derive_sites(session, eps_m=75.0, min_points=2)
+        session.commit()
+
+        assert report.site_count == 1
+        assert report.unclustered == 0
+
+
 def test_recordings_without_gps_are_excluded(engine: Engine) -> None:
     with OrmSession(engine) as session:
         r = Recording(

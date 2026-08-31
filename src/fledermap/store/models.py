@@ -211,7 +211,8 @@ class Session(Base):
 
 
 class Site(Base):
-    """A derived cluster of stationary recordings — a projection, not an entity.
+    """A derived cluster of species-identified, GPS-bearing recordings — a
+    projection, not an entity.
 
     Deleted and rebuilt wholesale by `services.derive.derive_sites` (spec
     section 7) — `DELETE`, never `TRUNCATE`; see that function's docstring.
