@@ -396,7 +396,7 @@ Columns stack on narrow screens.
 
 ### Views
 
-`/` map · `/sessions` + detail (edit kind and notes, resolve merge proposals) ·
+`/` map · `/sessions` + detail (edit notes, resolve merge proposals) ·
 `/recordings/{hash}` · `/taxa` · `/sites` (read-only) · **job status strip** —
 ingest is asynchronous, and without visible progress a running import looks like
 a broken app.
