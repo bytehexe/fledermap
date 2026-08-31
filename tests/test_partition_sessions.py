@@ -7,7 +7,6 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.derive.sessions import partition_sessions
-from fledermap.domain.codes import SessionKind
 from fledermap.store.models import Recording, Session, SessionMergeProposal
 
 pytestmark = pytest.mark.db
@@ -43,7 +42,6 @@ def test_first_recording_creates_a_new_session(engine: Engine) -> None:
         assert recording.session_id is not None
         created_session = session.get(Session, recording.session_id)
         assert created_session is not None
-        assert created_session.kind == SessionKind.STATIONARY
 
 
 def test_second_recording_within_gap_extends_the_session(engine: Engine) -> None:
@@ -125,7 +123,6 @@ def test_recording_extends_an_existing_session_from_a_previous_run(
         existing = Session(
             started_at=base,
             ended_at=base,
-            kind=SessionKind.STATIONARY,
             detector_key="EMT\x1f1",
         )
         session.add(existing)
@@ -154,7 +151,6 @@ def test_old_recording_close_only_to_a_later_existing_session_joins_it_backward(
         later = Session(
             started_at=base,
             ended_at=base,
-            kind=SessionKind.STATIONARY,
             detector_key="EMT\x1f1",
         )
         session.add(later)
@@ -186,7 +182,6 @@ def test_two_recordings_backward_extending_the_same_session_both_land_inside_it(
         later = Session(
             started_at=base,
             ended_at=base,
-            kind=SessionKind.STATIONARY,
             detector_key="EMT\x1f1",
         )
         session.add(later)
@@ -217,7 +212,6 @@ def test_already_sessioned_recordings_are_untouched(engine: Engine) -> None:
         existing = Session(
             started_at=datetime(2026, 8, 21, 21, tzinfo=UTC),
             ended_at=datetime(2026, 8, 21, 21, tzinfo=UTC),
-            kind=SessionKind.STATIONARY,
             detector_key="EMT\x1f1",
         )
         session.add(existing)
@@ -251,13 +245,11 @@ def test_recording_between_two_sessions_within_gap_of_both_raises_a_proposal(
         early = Session(
             started_at=base,
             ended_at=base,
-            kind=SessionKind.STATIONARY,
             detector_key="EMT\x1f1",
         )
         late = Session(
             started_at=base + timedelta(hours=8),
             ended_at=base + timedelta(hours=8),
-            kind=SessionKind.STATIONARY,
             detector_key="EMT\x1f1",
         )
         session.add_all([early, late])
@@ -304,13 +296,11 @@ def test_two_bridging_recordings_raise_only_one_proposal_for_the_pair(
         early = Session(
             started_at=base,
             ended_at=base,
-            kind=SessionKind.STATIONARY,
             detector_key="EMT\x1f1",
         )
         late = Session(
             started_at=base + timedelta(hours=11),
             ended_at=base + timedelta(hours=11),
-            kind=SessionKind.STATIONARY,
             detector_key="EMT\x1f1",
         )
         session.add_all([early, late])
@@ -347,13 +337,11 @@ def test_recording_close_to_only_one_neighbor_does_not_raise_a_proposal(
         early = Session(
             started_at=base,
             ended_at=base,
-            kind=SessionKind.STATIONARY,
             detector_key="EMT\x1f1",
         )
         late = Session(
             started_at=base + timedelta(hours=20),
             ended_at=base + timedelta(hours=20),
-            kind=SessionKind.STATIONARY,
             detector_key="EMT\x1f1",
         )
         session.add_all([early, late])

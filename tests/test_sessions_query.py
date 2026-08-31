@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session as OrmSession
 
-from fledermap.domain.codes import MergeResolution, SessionKind
+from fledermap.domain.codes import MergeResolution
 from fledermap.services.sessions import (
     count_open_proposals,
     filtered_sessions,
@@ -23,7 +23,6 @@ def _session(detector_key: str, started: datetime, ended: datetime) -> Session:
     return Session(
         started_at=started,
         ended_at=ended,
-        kind=SessionKind.STATIONARY,
         detector_key=detector_key,
     )
 

@@ -7,7 +7,7 @@ from geoalchemy2.elements import WKTElement
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session as OrmSession
 
-from fledermap.domain.codes import IdSource, SessionKind, Verdict
+from fledermap.domain.codes import IdSource, Verdict
 from fledermap.services.derive import derive_sites
 from fledermap.store.geo import decode_point
 from fledermap.store.models import Identification, Recording, Session, Site
@@ -85,20 +85,20 @@ def test_a_transect_sessions_identified_recordings_now_form_a_site(
 ) -> None:
     """Regression test for the bug that motivated this design: a walked
     transect that passes through a real hotspot used to be entirely invisible
-    to site derivation, because `derive_sites` only ever looked at
-    STATIONARY-classified sessions. Site membership no longer cares what
-    session -- or session kind -- a recording belongs to."""
+    to site derivation. Site membership no longer cares what session a
+    recording belongs to -- this session used to be the kind of thing
+    `derive_sites` structurally excluded (design spec
+    2026-08-29-fledermap-identification-based-sites-design.md)."""
     with OrmSession(engine) as session:
-        transect = Session(
+        walked = Session(
             started_at=datetime(2026, 8, 21, 21, tzinfo=UTC),
             ended_at=datetime(2026, 8, 21, 23, tzinfo=UTC),
-            kind=SessionKind.TRANSECT,
             detector_key="EMT\x1f1",
         )
-        session.add(transect)
+        session.add(walked)
         session.flush()
-        _recording("a", session, 13.4000, 52.5000, session_id=transect.id)
-        _recording("b", session, 13.4001, 52.5000, session_id=transect.id)
+        _recording("a", session, 13.4000, 52.5000, session_id=walked.id)
+        _recording("b", session, 13.4001, 52.5000, session_id=walked.id)
         session.commit()
 
         report = derive_sites(session, eps_m=75.0, min_points=2)

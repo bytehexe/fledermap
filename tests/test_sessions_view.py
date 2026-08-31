@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session as OrmSession
 
-from fledermap.domain.codes import MergeResolution, SessionKind, VisualSighting
+from fledermap.domain.codes import MergeResolution, VisualSighting
 from fledermap.store.models import Recording, SessionMergeProposal
 from fledermap.store.models import Session as AnnotationSession
 from fledermap.web.app import create_app
@@ -21,7 +21,6 @@ def test_sessions_list_renders_a_session_row(engine: Engine, tmp_path: Path) -> 
             AnnotationSession(
                 started_at=datetime(2026, 8, 21, 21, tzinfo=UTC),
                 ended_at=datetime(2026, 8, 21, 23, tzinfo=UTC),
-                kind=SessionKind.STATIONARY,
                 detector_key="EMT\x1f1",
             ),
         )
@@ -35,7 +34,6 @@ def test_sessions_list_renders_a_session_row(engine: Engine, tmp_path: Path) -> 
     assert response.status_code == 200
     html = response.get_data(as_text=True)
     assert "EMT" in html
-    assert "stationary" in html
 
 
 def test_sessions_list_filters_by_detector(engine: Engine, tmp_path: Path) -> None:
@@ -44,7 +42,6 @@ def test_sessions_list_filters_by_detector(engine: Engine, tmp_path: Path) -> No
             AnnotationSession(
                 started_at=datetime(2026, 8, 21, tzinfo=UTC),
                 ended_at=datetime(2026, 8, 21, tzinfo=UTC),
-                kind=SessionKind.STATIONARY,
                 detector_key="EMT\x1f1",
             ),
         )
@@ -52,7 +49,6 @@ def test_sessions_list_filters_by_detector(engine: Engine, tmp_path: Path) -> No
             AnnotationSession(
                 started_at=datetime(2026, 8, 21, tzinfo=UTC),
                 ended_at=datetime(2026, 8, 21, tzinfo=UTC),
-                kind=SessionKind.STATIONARY,
                 detector_key="Kaleidoscope\x1f2",
             ),
         )
@@ -81,7 +77,6 @@ def test_sessions_list_detector_dropdown_pre_selects_the_current_filter(
             AnnotationSession(
                 started_at=datetime(2026, 8, 21, tzinfo=UTC),
                 ended_at=datetime(2026, 8, 21, tzinfo=UTC),
-                kind=SessionKind.STATIONARY,
                 detector_key="EMT\x1f1",
             ),
         )
@@ -103,13 +98,11 @@ def test_sessions_list_shows_open_proposal_count(
         a = AnnotationSession(
             started_at=datetime(2026, 8, 21, tzinfo=UTC),
             ended_at=datetime(2026, 8, 21, tzinfo=UTC),
-            kind=SessionKind.STATIONARY,
             detector_key="EMT\x1f1",
         )
         b = AnnotationSession(
             started_at=datetime(2026, 8, 22, tzinfo=UTC),
             ended_at=datetime(2026, 8, 22, tzinfo=UTC),
-            kind=SessionKind.STATIONARY,
             detector_key="EMT\x1f1",
         )
         session.add_all([a, b])
@@ -250,7 +243,6 @@ def test_session_detail_lists_recordings(engine: Engine, tmp_path: Path) -> None
         s = AnnotationSession(
             started_at=datetime(2026, 8, 21, tzinfo=UTC),
             ended_at=datetime(2026, 8, 21, tzinfo=UTC),
-            kind=SessionKind.STATIONARY,
             detector_key="EMT\x1f1",
         )
         session.add(s)
@@ -284,7 +276,6 @@ def test_session_detail_no_merge_banner_when_no_open_proposal(
         s = AnnotationSession(
             started_at=datetime(2026, 8, 21, tzinfo=UTC),
             ended_at=datetime(2026, 8, 21, tzinfo=UTC),
-            kind=SessionKind.STATIONARY,
             detector_key="EMT\x1f1",
         )
         session.add(s)
@@ -307,7 +298,6 @@ def test_save_session_updates_note_weather_and_seen_visually(
         s = AnnotationSession(
             started_at=datetime(2026, 8, 21, tzinfo=UTC),
             ended_at=datetime(2026, 8, 21, tzinfo=UTC),
-            kind=SessionKind.STATIONARY,
             detector_key="EMT\x1f1",
         )
         session.add(s)
@@ -343,7 +333,6 @@ def test_save_session_invalid_seen_visually_returns_400(
         s = AnnotationSession(
             started_at=datetime(2026, 8, 21, tzinfo=UTC),
             ended_at=datetime(2026, 8, 21, tzinfo=UTC),
-            kind=SessionKind.STATIONARY,
             detector_key="EMT\x1f1",
         )
         session.add(s)
@@ -383,13 +372,11 @@ def _make_open_proposal(
     a = AnnotationSession(
         started_at=datetime(2026, 8, 21, tzinfo=UTC),
         ended_at=datetime(2026, 8, 21, 21, tzinfo=UTC),
-        kind=SessionKind.STATIONARY,
         detector_key="EMT\x1f1",
     )
     b = AnnotationSession(
         started_at=datetime(2026, 8, 22, tzinfo=UTC),
         ended_at=datetime(2026, 8, 22, tzinfo=UTC),
-        kind=SessionKind.STATIONARY,
         detector_key="EMT\x1f1",
     )
     session.add_all([a, b])
@@ -429,14 +416,12 @@ def test_merge_banner_note_textarea_omits_separator_when_only_one_side_has_text(
         a = AnnotationSession(
             started_at=datetime(2026, 8, 21, tzinfo=UTC),
             ended_at=datetime(2026, 8, 21, 21, tzinfo=UTC),
-            kind=SessionKind.STATIONARY,
             detector_key="EMT\x1f1",
             note="only a has a note",
         )
         b = AnnotationSession(
             started_at=datetime(2026, 8, 22, tzinfo=UTC),
             ended_at=datetime(2026, 8, 22, tzinfo=UTC),
-            kind=SessionKind.STATIONARY,
             detector_key="EMT\x1f1",
         )
         session.add_all([a, b])

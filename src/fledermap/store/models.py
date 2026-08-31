@@ -6,7 +6,6 @@ from datetime import datetime
 
 from geoalchemy2 import Geography
 from sqlalchemy import (
-    Boolean,
     DateTime,
     Float,
     ForeignKey,
@@ -27,7 +26,6 @@ from sqlalchemy.orm import (
 from fledermap.domain.codes import (
     IdSource,
     MergeResolution,
-    SessionKind,
     Verdict,
     VisualSighting,
 )
@@ -51,8 +49,7 @@ class Recording(Base):
     # `archive_roots[archive_root_index] / path` -- exact, no search. Default
     # 0 (ORM-level, not just the migration's server_default) because several
     # test helpers across the suite construct `Recording(...)` directly
-    # without setting it (e.g. `tests/test_jobs_tasks.py`'s `_make_recording`)
-    # -- matches `Session.kind_locked`'s existing `default=False` pattern.
+    # without setting it (e.g. `tests/test_jobs_tasks.py`'s `_make_recording`).
     archive_root_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
@@ -194,30 +191,12 @@ class Session(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     ended_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    # Closed, two-value vocabulary — CHECK-enforced (matches `Verdict`'s pattern;
-    # phase-2 fix, task 5 — `kind` shipped in phase 1 without a constraint).
-    kind: Mapped[SessionKind] = mapped_column(
-        SAEnum(
-            SessionKind,
-            native_enum=False,
-            length=16,
-            create_constraint=True,
-            values_callable=lambda enum_cls: [e.value for e in enum_cls],
-        ),
-        default=SessionKind.STATIONARY,
-    )
     detector_key: Mapped[str | None] = mapped_column(String(160), index=True)
     note: Mapped[str | None] = mapped_column(Text)
     weather: Mapped[str | None] = mapped_column(Text)
-    # True once a human has saved `kind` through the session detail form
-    # (design spec 2026-08-27-fledermap-phase5b-sessions-design.md section 6)
-    # -- freezes it against `derive/sessions.py`'s automatic reclassification
-    # from then on, regardless of whether the saved value actually changed.
-    kind_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # Whether a human observer saw a bat visually during the session --
     # independent of acoustic detection/species ID (2026-08-28). Purely
-    # user-set, so no `_locked` companion field is needed the way `kind`
-    # has one -- nothing here ever auto-classifies it. Defaults to UNCLEAR
+    # user-set -- nothing here ever auto-classifies it. Defaults to UNCLEAR
     # ("we don't know") for both new and pre-existing sessions.
     seen_visually: Mapped[VisualSighting] = mapped_column(
         SAEnum(

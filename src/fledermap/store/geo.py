@@ -21,8 +21,7 @@ def decode_point(elem: object | None) -> tuple[float, float] | None:
     tripped through the database comes back as `WKBElement`, but a `Recording`
     built directly in Python (e.g. a unit test that never touches a session)
     still carries the `WKTElement` it was constructed with. `to_shape` already
-    handles both natively (found via `derive/sessions.py`'s `classify_kind`
-    unit tests, which call it on freshly-constructed, unpersisted recordings).
+    handles both natively.
     """
     if not isinstance(elem, (WKBElement, WKTElement)):
         return None

@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session as OrmSession
 
-from fledermap.domain.codes import MergeResolution, SessionKind, VisualSighting
+from fledermap.domain.codes import MergeResolution, VisualSighting
 from fledermap.services.sessions import (
     AlreadyResolvedError,
     MergeConflictError,
@@ -24,7 +24,6 @@ def _session(started: datetime, ended: datetime, **kwargs: object) -> Session:
     return Session(
         started_at=started,
         ended_at=ended,
-        kind=SessionKind.STATIONARY,
         detector_key="EMT\x1f1",
         **kwargs,
     )
