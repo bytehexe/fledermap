@@ -310,6 +310,10 @@ def test_recording_panel_renders_media_when_already_processed(
     assert "128 kHz" in html
     # Time axis: full 0.5s duration.
     assert "0.50s" in html
+    # Crosshair readout needs these on the spectrogram img itself -- the
+    # axis labels alone aren't enough precision for JS to compute from.
+    assert 'data-duration-s="0.5"' in html
+    assert 'data-max-freq-khz="128.0"' in html
 
 
 def test_recording_panel_oscillogram_degrades_when_not_yet_rendered(

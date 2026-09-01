@@ -25,7 +25,7 @@
   </div>
   <div class="spectrogram-wrap">
     {% if spectrogram_ready %}
-    <img class="spectrogram" src="{{ url_for('media.spectrogram', audio_hash=recording.audio_hash) }}" alt="Spectrogram">
+    <img class="spectrogram" src="{{ url_for('media.spectrogram', audio_hash=recording.audio_hash) }}" alt="Spectrogram" data-duration-s="{{ duration_s }}" data-max-freq-khz="{{ max_freq_khz }}">
     {% else %}
     <p class="media-placeholder">Spectrogram not processed yet.</p>
     {% endif %}

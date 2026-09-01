@@ -292,6 +292,39 @@ document.addEventListener("DOMContentLoaded", () => {
     map.invalidateSize();
   }).observe(drawer);
 
+  // Crosshair readout: freq+time next to the cursor while hovering the
+  // spectrogram (design backlog "Crosshair on the spectrogram" item).
+  // Delegated on #drawer-body -- its content is replaced wholesale by
+  // htmx on every panel swap, so binding directly to `.spectrogram` would
+  // need re-binding after each swap; delegation needs it once.
+  const drawerBody = document.getElementById("drawer-body");
+  const readout = document.getElementById("crosshair-readout");
+  drawerBody.addEventListener("mousemove", (event) => {
+    const img = event.target.closest(".spectrogram");
+    if (!img) {
+      readout.hidden = true;
+      return;
+    }
+    const durationS = parseFloat(img.dataset.durationS);
+    const maxFreqKhz = parseFloat(img.dataset.maxFreqKhz);
+    if (Number.isNaN(durationS) || Number.isNaN(maxFreqKhz)) {
+      readout.hidden = true;
+      return;
+    }
+    const rect = img.getBoundingClientRect();
+    const relX = (event.clientX - rect.left) / rect.width;
+    const relY = (event.clientY - rect.top) / rect.height;
+    const timeS = relX * durationS;
+    const freqKhz = (1 - relY) * maxFreqKhz;
+    readout.textContent = `${freqKhz.toFixed(1)} kHz, ${timeS.toFixed(3)} s`;
+    readout.style.left = `${event.clientX + 12}px`;
+    readout.style.top = `${event.clientY + 12}px`;
+    readout.hidden = false;
+  });
+  drawerBody.addEventListener("mouseleave", () => {
+    readout.hidden = true;
+  });
+
   // Step 2: Listen for recording-selected to pan, reveal (zoom/spiderfy),
   // and highlight. Shared by a fresh marker click, prev/next inside the
   // drawer, and restoring a panel from the URL -- all three dispatch this

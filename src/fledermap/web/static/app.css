@@ -139,7 +139,20 @@ main.main-content h1 { margin-top: 1rem; }
   background: var(--color-bg-subtle);
   border-bottom: 1px solid var(--color-border);
 }
-.filter-bar label { font-size: 0.85rem; color: var(--color-muted); }
+/* inline-flex + align-items:center (rather than each label's default
+   inline/baseline text flow) puts every label on the same alignment
+   mechanism regardless of its content's own height -- a label wrapping
+   just a checkbox+short text (taxon_exclude below) is far shorter than
+   one wrapping a bordered select, and baseline alignment placed the two
+   at visibly different heights within the row (caught from a real
+   screenshot: "not" sat noticeably lower than "Session" alongside it). */
+.filter-bar label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--color-muted);
+}
 /* Bordered/background look for form controls -- documented in
    docs/style-guide.md's "Form controls" section. Originally .filter-bar-only;
    .stacked-form's select/textarea rule (further down) only ever set layout
@@ -152,7 +165,7 @@ main.main-content h1 { margin-top: 1rem; }
    margin-top/font-weight on top via the normal cascade (it appears after
    this rule in the file, so its font-size/font-weight there correctly win). */
 .filter-bar select,
-.filter-bar input,
+.filter-bar input:not([type="checkbox"]),
 .stacked-form select,
 .stacked-form textarea {
   font: inherit;
@@ -163,6 +176,13 @@ main.main-content h1 { margin-top: 1rem; }
   background: var(--color-bg);
   color: var(--color-text);
 }
+/* The rule above deliberately excludes checkboxes -- border/padding/
+   background meant for text/date/select boxes distorted the native
+   checkbox's own box instead of just framing it, throwing off its
+   vertical alignment against neighbouring labels (sessions_list.html's
+   open_proposals checkbox had this same latent bug, caught only once a
+   second checkbox -- taxon_exclude below -- made it visible). */
+.filter-bar input[type="checkbox"] { vertical-align: middle; }
 
 button {
   font: inherit;
@@ -285,6 +305,25 @@ button:disabled { cursor: default; opacity: 0.5; }
   border: 1px solid var(--color-border);
   border-radius: 4px;
 }
+.spectrogram { cursor: crosshair; }
+
+/* Crosshair readout (design backlog "Crosshair on the spectrogram" item):
+   a small box that follows the cursor showing freq+time at that point.
+   Deliberately not a native `title` tooltip -- those take a beat to
+   appear, which defeats the point of reading values while scrubbing. */
+.crosshair-readout {
+  position: fixed;
+  z-index: 20;
+  padding: 0.15rem 0.4rem;
+  font-size: 0.7rem;
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.crosshair-readout[hidden] { display: none; }
 
 .media-placeholder {
   margin: 0;
