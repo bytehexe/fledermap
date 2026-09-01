@@ -1,0 +1,62 @@
+{# src/fledermap/web/templates/recording_details.html #}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  {% include "_theme_init.html" %}
+  <title>Fledermap — Recording {{ recording.audio_hash[:8] }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+</head>
+<body>
+  {% include "_nav.html" %}
+  <main class="main-content" id="recording-detail">
+    <a href="/">← Back to map</a>
+    <h1>{{ taxon.scientific_name if taxon else (best.verdict.value if best else "unidentified") }}</h1>
+    <p class="detail-meta">
+      {{ recording.recorded_at.isoformat() }} — {{ recording.make }} {{ recording.model }}
+      {% if site %} — Site: <a href="/?site={{ site.id }}">{{ site_label }}</a>{% endif %}
+    </p>
+
+    {% if params %}
+    <div class="detail-scroll" id="detail-scroll">
+      <div class="detail-body">
+        <div class="detail-axis-freq" id="detail-axis-freq"></div>
+        <div class="detail-graphs">
+          <div class="detail-axis-time" id="detail-axis-time"></div>
+          <div class="detail-spectrogram-wrap">
+            <p class="media-placeholder detail-loading" id="spectrogram-loading">Rendering…</p>
+            <img
+              id="detail-spectrogram"
+              class="detail-spectrogram"
+              src="{{ url_for('media.detail_spectrogram', audio_hash=recording.audio_hash) }}"
+              alt="Spectrogram"
+              data-duration-s="{{ duration_s }}"
+              data-max-freq-khz="{{ params.max_freq_khz }}"
+              data-px-per-ms="{{ px_per_ms }}"
+              data-px-per-khz="{{ px_per_khz }}"
+              hidden
+            >
+            <div class="playback-cursor" id="playback-cursor" hidden></div>
+          </div>
+          <p class="media-placeholder detail-loading" id="oscillogram-loading">Rendering…</p>
+          <img
+            id="detail-oscillogram"
+            class="detail-oscillogram"
+            src="{{ url_for('media.detail_oscillogram', audio_hash=recording.audio_hash) }}"
+            alt="Waveform"
+            hidden
+          >
+        </div>
+      </div>
+    </div>
+    <div class="audio-row">
+      <audio controls id="detail-audio" src="{{ url_for('media.preview', audio_hash=recording.audio_hash) }}"></audio>
+    </div>
+    {% else %}
+    <p>Missing duration or sample-rate metadata for this recording — cannot render at a locked scale.</p>
+    {% endif %}
+  </main>
+  <div id="crosshair-readout" class="crosshair-readout" hidden></div>
+  <script src="{{ url_for('static', filename='recording_detail.js') }}"></script>
+</body>
+</html>

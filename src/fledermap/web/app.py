@@ -14,6 +14,7 @@ from fledermap.web.api.geojson import api_bp
 from fledermap.web.params import detector_label
 from fledermap.web.views.map import views_bp
 from fledermap.web.views.media import media_bp
+from fledermap.web.views.recording_detail import recording_detail_bp
 from fledermap.web.views.sessions import sessions_bp
 
 
@@ -58,4 +59,5 @@ def create_app(
     app.register_blueprint(views_bp)
     app.register_blueprint(media_bp)
     app.register_blueprint(sessions_bp)
+    app.register_blueprint(recording_detail_bp)
     return app
