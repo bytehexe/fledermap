@@ -8,6 +8,7 @@ import pytest
 from PIL import Image
 
 from fledermap.media.oscillogram import OscillogramParams, render_oscillogram
+from tests.fixtures import build_wav, fmt_payload
 
 
 def _sine_wav(
@@ -182,3 +183,93 @@ def test_writes_atomically_leaving_no_temp_file_behind(tmp_path: Path) -> None:
 
     leftover = [p for p in tmp_path.iterdir() if p != wav_path and p != out_path]
     assert leftover == []
+
+
+def _constant_amplitude_wav(
+    path: Path,
+    *,
+    amplitude: int,
+    samplerate: int = 256_000,
+    duration_s: float = 0.05,
+) -> None:
+    """A flat-amplitude square-ish wave (alternating +amplitude/-amplitude) -- simpler than a
+    sine tone and sufficient for testing peak-normalization width, not spectral content."""
+    n_samples = int(samplerate * duration_s)
+    samples = [amplitude if i % 2 == 0 else -amplitude for i in range(n_samples)]
+    pcm = struct.pack(f"<{n_samples}h", *samples)
+    fmt = fmt_payload(samplerate)
+    path.write_bytes(build_wav([(b"fmt ", fmt), (b"data", pcm)]))
+
+
+def _two_amplitude_wav(
+    path: Path,
+    *,
+    quiet_amplitude: int = 2_000,
+    loud_amplitude: int = 32_000,
+    samplerate: int = 256_000,
+    half_duration_s: float = 0.05,
+) -> None:
+    n_half = int(samplerate * half_duration_s)
+    quiet = [quiet_amplitude if i % 2 == 0 else -quiet_amplitude for i in range(n_half)]
+    loud = [loud_amplitude if i % 2 == 0 else -loud_amplitude for i in range(n_half)]
+    samples = quiet + loud
+    pcm = struct.pack(f"<{len(samples)}h", *samples)
+    fmt = fmt_payload(samplerate)
+    path.write_bytes(build_wav([(b"fmt ", fmt), (b"data", pcm)]))
+
+
+def test_render_oscillogram_time_range_produces_the_requested_pixel_width(
+    tmp_path: Path,
+) -> None:
+    wav_path = tmp_path / "call.wav"
+    _constant_amplitude_wav(wav_path, amplitude=20_000, duration_s=0.1)
+    out_path = tmp_path / "tile.webp"
+
+    render_oscillogram(
+        wav_path,
+        out_path,
+        params=OscillogramParams(width_px=64, height_px=20),
+        time_range_s=(0.0, 0.05),
+    )
+
+    image = Image.open(out_path)
+    assert image.size == (64, 20)
+
+
+def test_render_oscillogram_time_range_normalizes_to_the_whole_file_peak(
+    tmp_path: Path,
+) -> None:
+    combined_path = tmp_path / "combined.wav"
+    _two_amplitude_wav(combined_path)
+
+    quiet_only_path = tmp_path / "quiet_only.wav"
+    _two_amplitude_wav(
+        quiet_only_path, loud_amplitude=2_000
+    )  # both halves quiet in this file
+
+    sliced_out = tmp_path / "sliced.webp"
+    render_oscillogram(
+        combined_path,
+        sliced_out,
+        params=OscillogramParams(width_px=50, height_px=20),
+        time_range_s=(0.0, 0.05),
+    )
+
+    standalone_out = tmp_path / "standalone.webp"
+    render_oscillogram(
+        quiet_only_path,
+        standalone_out,
+        params=OscillogramParams(width_px=50, height_px=20),
+        time_range_s=(0.0, 0.05),
+    )
+
+    sliced_pixels = np.array(Image.open(sliced_out).convert("L"), dtype=np.float64)
+    standalone_pixels = np.array(
+        Image.open(standalone_out).convert("L"), dtype=np.float64
+    )
+
+    # Default line_color is black (0,0,0), background is white (255,255,255). A waveform
+    # normalized to a much louder whole-file peak draws a SMALLER excursion from the midline --
+    # more background (light) pixels remain, so mean brightness is HIGHER than the same quiet
+    # content normalized to its own (equally quiet) peak.
+    assert sliced_pixels.mean() > standalone_pixels.mean()

@@ -50,6 +50,7 @@ def render_oscillogram(
     out_path: Path,
     *,
     params: OscillogramParams = OscillogramParams(),
+    time_range_s: tuple[float, float] | None = None,
 ) -> None:
     """Render `wav_path`'s peak-envelope waveform to `out_path` as a WebP
     image: for each output column, the min and max sample in that column's
@@ -64,13 +65,28 @@ def render_oscillogram(
     from the microphone. This mirrors `spectrogram.py`'s dB-relative-to-own-
     peak normalisation for the same reason.
 
+    `time_range_s`, if given, renders only that `(start_s, end_s)` slice of
+    the recording -- for tiling a long recording into multiple images that
+    together stay under WebP's hard pixel-dimension limit.
+    `peak = np.abs(samples).max()` is computed from the WHOLE file's samples
+    before any `time_range_s` slicing, for the same cross-tile-consistency
+    reason `spectrogram.py` computes its `peak` before slicing: normalisation
+    must never drift between tiles of the same recording.
+
     Writes atomically via a temp file + `os.replace`, matching
     `spectrogram.py`'s own write path.
     """
-    samples, _samplerate = read_pcm(wav_path)
+    samples, samplerate = read_pcm(wav_path)
     width, height = params.width_px, params.height_px
 
     peak = np.abs(samples).max() if samples.size else 0.0
+
+    if time_range_s is not None:
+        start_s, end_s = time_range_s
+        start_idx = max(0, min(int(round(start_s * samplerate)), samples.size))
+        end_idx = max(start_idx, min(int(round(end_s * samplerate)), samples.size))
+        samples = samples[start_idx:end_idx]
+
     canvas = np.full((height, width, 3), params.background_color, dtype=np.uint8)
     mid = height / 2.0
 
@@ -91,9 +107,9 @@ def render_oscillogram(
             row_hi = max(row_hi, row_lo)  # a single-sample bucket: draw 1px
             canvas[row_lo : row_hi + 1, col] = params.line_color
     else:
-        # Silence: draw a flat centre line rather than nothing, so the
-        # oscillogram still reads as "recording present, just quiet" instead
-        # of a blank strip indistinguishable from a rendering failure.
+        # Silence OR a degenerate empty time_range_s slice (a very narrow last tile spanning
+        # less time than one sample period) -- both fall through to the same flat centre line
+        # already used for genuine silence; no separate handling needed.
         canvas[int(mid), :] = params.line_color
 
     image = Image.fromarray(canvas, mode="RGB")

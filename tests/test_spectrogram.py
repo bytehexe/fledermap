@@ -241,3 +241,112 @@ def test_writes_atomically_leaving_no_temp_file_behind(tmp_path: Path) -> None:
 
     leftover = [p for p in tmp_path.iterdir() if p != wav_path and p != out_path]
     assert leftover == []
+
+
+def _two_tone_wav(
+    path: Path,
+    *,
+    quiet_freq_hz: float = 20_000.0,
+    quiet_amplitude: int = 2_000,
+    loud_freq_hz: float = 80_000.0,
+    loud_amplitude: int = 32_000,
+    samplerate: int = 256_000,
+    half_duration_s: float = 0.05,
+) -> None:
+    """A quiet tone for the first half, a much louder tone for the second half --
+    `test_render_spectrogram_time_range_normalizes_to_the_whole_file_peak` needs a recording
+    where the two halves have genuinely different loudness."""
+    n_half = int(samplerate * half_duration_s)
+
+    def _tone(freq_hz: float, amplitude: int) -> list[int]:
+        return [
+            int(amplitude * math.sin(2 * math.pi * freq_hz * i / samplerate))
+            for i in range(n_half)
+        ]
+
+    samples = _tone(quiet_freq_hz, quiet_amplitude) + _tone(
+        loud_freq_hz, loud_amplitude
+    )
+    pcm = struct.pack(f"<{len(samples)}h", *samples)
+
+    channels, bits = 1, 16
+    byte_rate = samplerate * channels * bits // 8
+    block_align = channels * bits // 8
+    fmt_payload = struct.pack(
+        "<HHIIHH",
+        1,
+        channels,
+        samplerate,
+        byte_rate,
+        block_align,
+        bits,
+    )
+
+    def chunk(chunk_id: bytes, payload: bytes) -> bytes:
+        out = chunk_id + struct.pack("<I", len(payload)) + payload
+        if len(payload) % 2:
+            out += b"\x00"
+        return out
+
+    body = b"WAVE" + chunk(b"fmt ", fmt_payload) + chunk(b"data", pcm)
+    path.write_bytes(b"RIFF" + struct.pack("<I", len(body)) + body)
+
+
+def test_render_spectrogram_time_range_produces_the_requested_pixel_width(
+    tmp_path: Path,
+) -> None:
+    wav_path = tmp_path / "call.wav"
+    _sine_wav(wav_path, duration_s=0.1)
+    out_path = tmp_path / "tile.webp"
+
+    render_spectrogram(
+        wav_path,
+        out_path,
+        params=SpectrogramParams(width_px=64, height_px=32),
+        time_range_s=(0.0, 0.05),
+    )
+
+    image = Image.open(out_path)
+    assert image.size == (64, 32)
+
+
+def test_render_spectrogram_time_range_normalizes_to_the_whole_file_peak(
+    tmp_path: Path,
+) -> None:
+    combined_path = tmp_path / "combined.wav"
+    _two_tone_wav(combined_path)
+
+    quiet_only_path = tmp_path / "quiet_only.wav"
+    _sine_wav(quiet_only_path, freq_hz=20_000.0, duration_s=0.05)
+    # _sine_wav's default amplitude (32000) differs from _two_tone_wav's quiet_amplitude (2000) --
+    # build the quiet-only file directly with _two_tone_wav's own quiet parameters instead, so the
+    # two renders share identical quiet-half content:
+    _two_tone_wav(quiet_only_path, loud_amplitude=2_000, loud_freq_hz=20_000.0)
+    # (quiet_only_path now has the SAME quiet tone in both halves -- i.e. its own peak equals the
+    # quiet tone's own amplitude, unlike combined_path's peak, which is the loud second half.)
+
+    sliced_out = tmp_path / "sliced.webp"
+    render_spectrogram(
+        combined_path,
+        sliced_out,
+        params=SpectrogramParams(width_px=50, height_px=50),
+        time_range_s=(0.0, 0.05),
+    )
+
+    standalone_out = tmp_path / "standalone.webp"
+    render_spectrogram(
+        quiet_only_path,
+        standalone_out,
+        params=SpectrogramParams(width_px=50, height_px=50),
+        time_range_s=(0.0, 0.05),
+    )
+
+    sliced_pixels = np.array(Image.open(sliced_out), dtype=np.float64)
+    standalone_pixels = np.array(Image.open(standalone_out), dtype=np.float64)
+
+    # Same quiet first-half content in both files, but `combined_path` has a much louder second
+    # half -- its whole-file peak is much higher, so the SAME quiet content must render DIMMER
+    # (lower mean brightness) when sliced from `combined_path` than when it's the loudest thing
+    # in its own file. This is the whole point: normalization must use the WHOLE file's peak, not
+    # the tile's own slice.
+    assert sliced_pixels.mean() < standalone_pixels.mean()

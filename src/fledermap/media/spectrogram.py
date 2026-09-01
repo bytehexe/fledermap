@@ -118,6 +118,7 @@ def render_spectrogram(
     out_path: Path,
     *,
     params: SpectrogramParams = SpectrogramParams(),
+    time_range_s: tuple[float, float] | None = None,
 ) -> None:
     """Render `wav_path`'s spectrogram to `out_path` as a WebP image.
 
@@ -133,6 +134,16 @@ def render_spectrogram(
     never sees a partial file and two concurrent writers never interleave
     (design spec §7's duplicate-enqueue protection is the queue-level half of
     this; this is the filesystem-level half).
+
+    `time_range_s`, if given, renders only that `(start_s, end_s)` slice of
+    the recording -- for tiling a long recording into multiple images that
+    together stay under WebP's hard pixel-dimension limit. The STFT and
+    `peak` are still computed from the WHOLE file first, so normalisation
+    never drifts between tiles of the same recording -- only the final
+    slice-and-resize step is narrowed to `time_range_s`. Slicing the input
+    samples before computing the peak would make each tile self-normalise
+    independently, so the same call could render at different brightness
+    depending purely on which tile boundary it happened to fall inside.
     """
     samples, samplerate = read_pcm(wav_path)
 
@@ -146,7 +157,7 @@ def render_spectrogram(
     # in production shouldn't warn either.
     nperseg = min(max(int(samplerate * params.window_ms / 1000), 8), len(samples))
     noverlap = int(nperseg * params.overlap)
-    freqs, _times, sxx = signal.spectrogram(
+    freqs, times, sxx = signal.spectrogram(
         samples,
         fs=samplerate,
         nperseg=nperseg,
@@ -187,6 +198,22 @@ def render_spectrogram(
     indices = (np.flipud(normalised) * 255).astype(np.uint8)
     lut = _palette_lut(params.palette)
     rgb = lut[indices]
+
+    if time_range_s is not None:
+        # `rgb.shape[1]` (the STFT's own column count) is always >= 1 for any nonzero-length
+        # signal (the `nperseg` clamp above guarantees at least one window fits). Clamping
+        # `end_idx` to be at least `start_idx + 1` guarantees a non-empty slice even for a very
+        # narrow tile (the last tile in a recording whose width doesn't divide evenly by
+        # `DETAIL_MAX_TILE_WIDTH_PX` can be as little as 1px wide -- narrower than a single STFT
+        # column's own time resolution) -- without this, `Image.fromarray` on a zero-width array
+        # raises rather than degrading gracefully.
+        start_s, end_s = time_range_s
+        start_idx = max(0, min(int(np.searchsorted(times, start_s)), rgb.shape[1] - 1))
+        end_idx = max(
+            start_idx + 1, min(int(np.searchsorted(times, end_s)), rgb.shape[1])
+        )
+        rgb = rgb[:, start_idx:end_idx, :]
+
     image = Image.fromarray(rgb, mode="RGB").resize(
         (params.width_px, params.height_px),
     )
