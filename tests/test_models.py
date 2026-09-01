@@ -35,6 +35,15 @@ def test_recording_round_trips(engine: Engine) -> None:
         assert found.missing_since is None
 
 
+def test_recording_favourite_defaults_to_false(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        session.add(_recording())
+        session.commit()
+
+    with OrmSession(engine) as session:
+        assert session.scalars(select(Recording)).one().favourite is False
+
+
 def test_audio_hash_is_unique(engine: Engine) -> None:
     """Identity is the audio; the same payload twice is the same recording."""
     with OrmSession(engine) as session:

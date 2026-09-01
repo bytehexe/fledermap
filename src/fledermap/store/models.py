@@ -6,6 +6,7 @@ from datetime import datetime
 
 from geoalchemy2 import Geography
 from sqlalchemy import (
+    Boolean,
     DateTime,
     Float,
     ForeignKey,
@@ -82,6 +83,7 @@ class Recording(Base):
     )
     ingested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     missing_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    favourite: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     identifications: Mapped[list[Identification]] = relationship(
         back_populates="recording",

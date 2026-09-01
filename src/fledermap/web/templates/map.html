@@ -53,6 +53,10 @@
           <option value="all">All</option>
         </select>
       </label>
+      <label>
+        <input type="checkbox" name="favourite_only" value="1" x-model="favourite_only">
+        ★ Favourites only
+      </label>
       <input type="hidden" name="site" x-model="site">
     </form>
     <span id="site-filter-chip" x-show="site" x-cloak>

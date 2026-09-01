@@ -27,6 +27,7 @@ function filterForm() {
     source: params.get("source") || "",
     verdict: params.get("verdict") || "",
     site: params.get("site") || "",
+    favourite_only: params.get("favourite_only") === "1",
   };
 }
 

@@ -35,6 +35,7 @@ def _recording(
     source: IdSource = IdSource.EMT_GUANO,
     session_id: int | None = None,
     missing: bool = False,
+    favourite: bool = False,
 ) -> Recording:
     r = Recording(
         audio_hash=audio_hash,
@@ -43,6 +44,7 @@ def _recording(
         geom=WKTElement(f"POINT({lon} {lat})", srid=4326),
         session_id=session_id,
         missing_since=datetime(2026, 8, 25, tzinfo=UTC) if missing else None,
+        favourite=favourite,
     )
     session.add(r)
     session.flush()
@@ -211,6 +213,28 @@ def test_taxon_exclude_without_a_taxon_id_has_no_effect(engine: Engine) -> None:
         results = filtered_recordings(session, taxon_exclude=True)
 
     assert [r.id for r in results] == [recording.id]
+
+
+def test_favourite_only_keeps_just_favourited_recordings(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        starred = _recording(session, audio_hash="a" * 64, favourite=True)
+        _recording(session, audio_hash="b" * 64, favourite=False)
+        session.commit()
+
+        results = filtered_recordings(session, favourite_only=True)
+
+    assert [r.id for r in results] == [starred.id]
+
+
+def test_favourite_only_false_has_no_effect(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        starred = _recording(session, audio_hash="a" * 64, favourite=True)
+        plain = _recording(session, audio_hash="b" * 64, favourite=False)
+        session.commit()
+
+        results = filtered_recordings(session, favourite_only=False)
+
+    assert {r.id for r in results} == {starred.id, plain.id}
 
 
 def test_session_id_filters_recordings(engine: Engine) -> None:

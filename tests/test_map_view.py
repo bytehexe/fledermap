@@ -47,6 +47,7 @@ def test_map_page_includes_the_filter_form(engine: Engine, tmp_path: Path) -> No
     assert 'name="to"' in html
     assert 'name="session"' in html
     assert 'name="source"' in html
+    assert 'name="favourite_only"' in html
     # finding 7: emt.manual has real, produced data today and must be
     # selectable, unlike `manual`, which nothing produces yet.
     assert 'value="emt.manual"' in html
@@ -374,6 +375,156 @@ def test_recording_panel_shows_prev_next_within_filters(
 
     assert f"/recordings/{'a' * 64}/panel" in html
     assert f"/recordings/{'c' * 64}/panel" in html
+
+
+def test_recording_panel_shows_the_favourite_toggle_unstarred_by_default(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="a" * 64,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    html = (
+        app.test_client()
+        .get(f"/recordings/{'a' * 64}/panel?verdict=all")
+        .get_data(as_text=True)
+    )
+
+    assert '<button\n    type="button"\n    class="favourite-toggle"' in html
+    assert 'aria-pressed="false"' in html
+    assert "☆" in html
+    assert "★" not in html
+
+
+def test_recording_panel_shows_the_favourite_toggle_starred(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="a" * 64,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+                favourite=True,
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    html = (
+        app.test_client()
+        .get(f"/recordings/{'a' * 64}/panel?verdict=all")
+        .get_data(as_text=True)
+    )
+
+    assert 'aria-pressed="true"' in html
+    assert "★" in html
+
+
+def test_toggle_favourite_flips_it_on_then_off(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="a" * 64,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    response = client.post(f"/recordings/{'a' * 64}/favourite?verdict=all")
+    assert response.status_code == 200
+    with OrmSession(engine) as session:
+        recording = session.get(Recording, 1)
+        assert recording is not None
+        assert recording.favourite is True
+
+    response = client.post(f"/recordings/{'a' * 64}/favourite?verdict=all")
+    assert response.status_code == 200
+    with OrmSession(engine) as session:
+        recording = session.get(Recording, 1)
+        assert recording is not None
+        assert recording.favourite is False
+
+
+def test_toggle_favourite_unknown_hash_returns_404(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+
+    response = app.test_client().post(f"/recordings/{'z' * 64}/favourite")
+
+    assert response.status_code == 404
+    assert "Recording not found" in response.get_data(as_text=True)
+
+
+def test_toggle_favourite_does_not_set_hx_trigger(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="a" * 64,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+                geom=WKTElement("POINT(10 50)", srid=4326),
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().post(f"/recordings/{'a' * 64}/favourite?verdict=all")
+
+    assert response.status_code == 200
+    assert "HX-Trigger" not in response.headers
+
+
+def test_favourite_only_filters_the_recording_panel_set(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        starred = Recording(
+            audio_hash="a" * 64,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, 20, 0, tzinfo=UTC),
+            favourite=True,
+        )
+        plain = Recording(
+            audio_hash="b" * 64,
+            path="b.wav",
+            recorded_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+            favourite=False,
+        )
+        session.add_all([starred, plain])
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    html = (
+        app.test_client()
+        .get(f"/recordings/{'a' * 64}/panel?verdict=all&favourite_only=1")
+        .get_data(as_text=True)
+    )
+
+    assert "not found" not in html.lower()
+    assert f"/recordings/{'b' * 64}/panel" not in html
 
 
 def test_recording_panel_taxon_exclude_omits_neighbors_of_the_named_taxon(

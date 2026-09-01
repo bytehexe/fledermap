@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 import flask
+from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import IdSource
@@ -22,8 +23,8 @@ from fledermap.services.map_query import (
     site_detail,
 )
 from fledermap.store.geo import decode_point
+from fledermap.store.models import Recording, Site, Taxon
 from fledermap.store.models import Session as AnnotationSession
-from fledermap.store.models import Site, Taxon
 from fledermap.web.params import (
     fallback_site_label,
     parse_bool,
@@ -46,8 +47,17 @@ def map_page() -> str:
         )
 
 
-@views_bp.get("/recordings/<audio_hash>/panel")
-def recording_panel(audio_hash: str) -> flask.Response:
+def _render_recording_panel(
+    audio_hash: str,
+) -> tuple[flask.Response, tuple[float, float] | None]:
+    """Shared by the GET panel route and the favourite-toggle POST below --
+    both build the exact same fragment from the exact same filter query
+    string (`flask.request.args` reads the query string regardless of
+    method), so the two routes can never drift on what "the current panel"
+    looks like. Returns the point too, but does NOT set the
+    recording-selected HX-Trigger itself -- only a fresh GET navigation
+    should re-pan/zoom the map; toggling favourite on an already-open panel
+    must not."""
     try:
         date_from = parse_datetime(flask.request.args.get("from"))
         date_to = parse_datetime(flask.request.args.get("to"), end_of_day=True)
@@ -58,8 +68,9 @@ def recording_panel(audio_hash: str) -> flask.Response:
         site_id = parse_int(flask.request.args.get("site"))
         source_raw = flask.request.args.get("source")
         source = IdSource(source_raw) if source_raw else None
+        favourite_only = parse_bool(flask.request.args.get("favourite_only"))
     except ValueError as exc:
-        return flask.make_response((str(exc), 400))
+        return flask.make_response((str(exc), 400)), None
 
     engine = flask.current_app.config["ENGINE"]
     media_root = flask.current_app.config["MEDIA_ROOT"]
@@ -76,11 +87,12 @@ def recording_panel(audio_hash: str) -> flask.Response:
             session_id=session_id,
             site_id=site_id,
             source=source,
+            favourite_only=favourite_only,
         )
         neighbors = neighbor_recordings(recordings, audio_hash)
         if neighbors is None:
             html = flask.render_template("_recording_panel.html", found=False)
-            return flask.make_response(html)
+            return flask.make_response(html), None
 
         previous, following = neighbors
         recording = next(r for r in recordings if r.audio_hash == audio_hash)
@@ -133,17 +145,38 @@ def recording_panel(audio_hash: str) -> flask.Response:
             max_freq_khz=max_freq_khz,
         )
 
-    response = flask.make_response(html)
+    return flask.make_response(html), point
+
+
+@views_bp.get("/recordings/<audio_hash>/panel")
+def recording_panel(audio_hash: str) -> flask.Response:
+    response, point = _render_recording_panel(audio_hash)
     if point is not None:
         response.headers["HX-Trigger"] = json.dumps(
             {
                 "recording-selected": {
-                    "hash": recording.audio_hash,
+                    "hash": audio_hash,
                     "latitude": point[1],
                     "longitude": point[0],
                 },
             },
         )
+    return response
+
+
+@views_bp.post("/recordings/<audio_hash>/favourite")
+def toggle_favourite(audio_hash: str) -> flask.Response:
+    engine = flask.current_app.config["ENGINE"]
+    with OrmSession(engine) as session:
+        recording = session.scalars(
+            select(Recording).where(Recording.audio_hash == audio_hash),
+        ).one_or_none()
+        if recording is None:
+            return flask.make_response(("Recording not found.", 404))
+        recording.favourite = not recording.favourite
+        session.commit()
+
+    response, _point = _render_recording_panel(audio_hash)
     return response
 
 

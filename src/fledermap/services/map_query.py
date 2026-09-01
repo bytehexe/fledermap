@@ -4,7 +4,7 @@ spec section 8) -- one definition of what the active filters mean, not
 duplicated per endpoint.
 
 Filters on fields stored directly on `Recording`/`Site` (date range, session,
-missing-file status, `source`) run in SQL. `bbox` and taxon/verdict filtering
+missing-file status, `source`, `favourite`) run in SQL. `bbox` and taxon/verdict filtering
 run in Python after that SQL prefilter: `bbox` because comparing against a
 decoded `(lon, lat)` is simpler than a PostGIS bbox operator at this project's
 established scale (`services/ingest.py`'s `sweep_missing` docstring: "fine at
@@ -77,6 +77,7 @@ def filtered_recordings(
     session_id: int | None = None,
     site_id: int | None = None,
     source: IdSource | None = None,
+    favourite_only: bool = False,
 ) -> Sequence[Recording]:
     stmt = select(Recording).where(Recording.missing_since.is_(None))
     if date_from is not None:
@@ -87,6 +88,8 @@ def filtered_recordings(
         stmt = stmt.where(Recording.session_id == session_id)
     if site_id is not None:
         stmt = stmt.where(Recording.site_id == site_id)
+    if favourite_only:
+        stmt = stmt.where(Recording.favourite.is_(True))
     if source is not None:
         stmt = stmt.where(
             Recording.identifications.any(

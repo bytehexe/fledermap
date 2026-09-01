@@ -4,6 +4,14 @@
 {% else %}
 <div class="panel-header">
   <h2>{{ taxon.scientific_name if taxon else (best.verdict.value if best else "unidentified") }}</h2>
+  <button
+    type="button"
+    class="favourite-toggle"
+    hx-post="/recordings/{{ recording.audio_hash }}/favourite?{{ filter_qs }}"
+    hx-target="#drawer-body"
+    aria-label="{{ 'Remove from favourites' if recording.favourite else 'Add to favourites' }}"
+    aria-pressed="{{ 'true' if recording.favourite else 'false' }}"
+  >{{ "★" if recording.favourite else "☆" }}</button>
 </div>
 
 <div class="waveform-grid">

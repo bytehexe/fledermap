@@ -431,6 +431,36 @@ def test_invalid_verdict_param_returns_400_not_500(
     assert "error" in response.get_json()
 
 
+def test_recordings_geojson_favourite_only_filters_to_starred(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        starred = Recording(
+            audio_hash="a" * 64,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            geom=WKTElement("POINT(10 50)", srid=4326),
+            favourite=True,
+        )
+        plain = Recording(
+            audio_hash="b" * 64,
+            path="b.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            geom=WKTElement("POINT(11 51)", srid=4326),
+            favourite=False,
+        )
+        session.add_all([starred, plain])
+        session.commit()
+
+    client = _app_client(engine, tmp_path)
+    response = client.get("/api/recordings.geojson?verdict=all&favourite_only=1")
+
+    assert response.status_code == 200
+    hashes = [f["properties"]["audio_hash"] for f in response.get_json()["features"]]
+    assert hashes == ["a" * 64]
+
+
 def test_recordings_geojson_filters_by_site(engine: Engine, tmp_path: Path) -> None:
     with OrmSession(engine) as session:
         site = Site(
