@@ -983,7 +983,7 @@ def test_default_site_naming_radius(
     monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
     monkeypatch.delenv(ENV_SITE_NAMING_RADIUS_M, raising=False)
     config = Config.from_env()
-    assert config.site_naming_radius_m == 300.0
+    assert config.site_naming_radius_m == 1000.0
 
 
 def test_site_naming_radius_is_configurable_via_env(

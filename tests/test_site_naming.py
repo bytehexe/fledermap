@@ -127,9 +127,42 @@ def test_load_filter_config_returns_the_expected_symbols() -> None:
         "town",
         "village",
         "suburb",
+        "locality",
+        "square",
         "forest_or_park",
         "water_body",
     }
+
+
+def test_load_filter_config_covers_the_tags_found_missing_2026_09_01() -> None:
+    """Real field data (2026-09-01) showed most small real sites near
+    Hannover found NOTHING within the search radius but the city itself --
+    root-caused to gaps in this filter, not a rank-selection bug: e.g. a
+    real park tagged landuse=recreation_ground was never indexed at all,
+    since nothing in the filter asked poiidx to store it. Content-level
+    (not just symbol-level) so a future accidental removal of one of these
+    specific tag pairs is caught, not just a whole symbol disappearing."""
+    config = site_naming._load_filter_config()
+    all_pairs = {
+        (key, value)
+        for entry in config
+        for filter_expr in entry["filters"]
+        for key, value in filter_expr.items()
+    }
+    expected = {
+        ("place", "municipality"),
+        ("place", "borough"),
+        ("place", "farm"),
+        ("place", "locality"),
+        ("place", "isolated_dwelling"),
+        ("place", "square"),
+        ("landuse", "recreation_ground"),
+        ("leisure", "recreation_ground"),
+        ("leisure", "garden"),
+        ("waterway", "canal"),
+        ("waterway", "stream"),
+    }
+    assert expected <= all_pairs
 
 
 def test_ensure_connected_calls_poiidx_init_exactly_once(

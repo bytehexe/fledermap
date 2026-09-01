@@ -263,10 +263,14 @@ class Config:
     # -- see services/site_naming.py's connection-safety comment.
     poiidx_database_url: str | None = None
     # How far (metres) to search for a nearby named POI before falling back
-    # to the administrative hierarchy string. Picked by analogy to
-    # site_eps_m's default, not from parent-spec guidance -- this task owns
-    # the default the same way P2-5 owned site_min_points's.
-    site_naming_radius_m: float = 300.0
+    # to the administrative hierarchy string. Originally picked by analogy to
+    # site_eps_m's default; raised 300 -> 1000 on 2026-09-01 against real
+    # field data -- most of a real Hannover cluster's small stationary sites
+    # found NOTHING but the whole city within 300m (poiidx's filter config is
+    # sparse; see poiidx_filter_config.yaml), and widening recovered several
+    # of them without SN-7's rank-target-matching or intersects check ever
+    # picking something worse for a site that already had a good candidate.
+    site_naming_radius_m: float = 1000.0
     # Optional since 2026-08-26 (default_factory, not a plain default, for the
     # same reason as static_root below -- it must actually run at
     # construction time and pick up whatever's configured then). It must
@@ -475,7 +479,7 @@ class Config:
             file_values,
         )
         if site_naming_radius_raw is None:
-            site_naming_radius_m = 300.0
+            site_naming_radius_m = 1000.0
         else:
             label = _source_label(
                 ENV_SITE_NAMING_RADIUS_M,

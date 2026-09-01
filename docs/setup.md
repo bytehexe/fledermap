@@ -78,7 +78,7 @@ container's env.
 | Site clustering radius (metres) | `FLEDERMAP_SITE_EPS_M` | `site_eps_m` | no | `75.0` |
 | Site minimum points | `FLEDERMAP_SITE_MIN_POINTS` | `site_min_points` | no | `3` |
 | poiidx database connection | `FLEDERMAP_POIIDX_DATABASE_URL` | `poiidx_database_url` | no | unset — site naming disabled |
-| Site-naming search radius (metres) | `FLEDERMAP_SITE_NAMING_RADIUS_M` | `site_naming_radius_m` | no | `300.0` |
+| Site-naming search radius (metres) | `FLEDERMAP_SITE_NAMING_RADIUS_M` | `site_naming_radius_m` | no | `1000.0` |
 | `serve`'s interface | `FLEDERMAP_HOST` | `host` | no | `127.0.0.1` |
 | `serve`'s port | `FLEDERMAP_PORT` | `port` | no | `5000` |
 

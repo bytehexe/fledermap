@@ -8,31 +8,53 @@
 # ANY drift drops and recreates every table in poiidx_bats_db.
 #
 # list=OR, items in a list=AND (poiidx's own filter_config convention).
+#
+# NOTE ON NOISE: poiidx's own scanner (scanner.py's poi_scan) requires a
+# plain `name` tag on every candidate before filter_config is even
+# consulted -- an unnamed feature is never indexed, filter config or not.
+# So a broad tag list here does not risk pulling in generic/anonymous
+# features (an unnamed meadow, say); it only ever matches features someone
+# actually named. Verified against the real scanner source, 2026-09-01.
 
 # == Places ==
+# Values below mirror poiidx's own osm.py calculate_rank's place-lookup
+# table (verified against poiidx==0.0.9 source, 2026-09-01) -- these are
+# exactly the place= values poiidx already knows how to rank, not a guess.
 - symbol: "city"
   description: "City or large town"
   filters:
     - place: city
+    - place: municipality
 - symbol: "town"
   description: "Town"
   filters:
     - place: town
+    - place: borough
 - symbol: "village"
   description: "Village"
   filters:
     - place: village
     - place: hamlet
+    - place: farm
 - symbol: "suburb"
   description: "Suburb, quarter, or neighbourhood"
   filters:
     - place: suburb
     - place: quarter
     - place: neighbourhood
+- symbol: "locality"
+  description: "Named locality or isolated dwelling"
+  filters:
+    - place: locality
+    - place: isolated_dwelling
+- symbol: "square"
+  description: "Named square or plaza"
+  filters:
+    - place: square
 
 # == Nature ==
 - symbol: forest_or_park
-  description: "Forest or park"
+  description: "Forest, park, or other named green space"
   filters:
     - landuse: forest
     - leisure: forest
@@ -40,8 +62,21 @@
     - natural: forest
     - natural: wood
     - leisure: nature_reserve
+    - landuse: recreation_ground
+    - leisure: recreation_ground
+    - leisure: garden
+    - landuse: grass
+    - landuse: meadow
+    - natural: heath
+    - natural: scrub
 - symbol: "water_body"
-  description: "Named lake, pond, reservoir, or river"
+  description: "Named lake, pond, reservoir, river, canal, stream, or wetland"
   filters:
     - natural: water
     - waterway: river
+    - waterway: canal
+    - waterway: stream
+    - waterway: drain
+    - waterway: ditch
+    - natural: wetland
+    - natural: marsh
