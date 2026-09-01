@@ -360,15 +360,16 @@ def worker(wait: bool) -> None:
     "file's 'port' setting, then 5000 -- see Config.port.",
 )
 def serve(host: str | None, port: int | None) -> None:
-    """Run the web map. Reads FLEDERMAP_DATABASE_URL and FLEDERMAP_MEDIA_ROOT
-    (both required) and, optionally, FLEDERMAP_STATIC_ROOT, FLEDERMAP_HOST,
-    and FLEDERMAP_PORT. `Config.from_env()` also requires FLEDERMAP_ARCHIVE_ROOTS
-    to be set, even though `serve` itself never reads it -- point it at any
-    existing directory if this command is the only one you run. Vendor JS/CSS
-    (Leaflet, HTMX, Alpine) are fetched into FLEDERMAP_STATIC_ROOT
-    automatically on first run, or whenever the cache is missing something --
-    see `fetch-assets` to pre-warm that cache (e.g. for an offline install)
-    instead of fetching it at server startup.
+    """Run the web map. Reads FLEDERMAP_DATABASE_URL, FLEDERMAP_MEDIA_ROOT,
+    and FLEDERMAP_ARCHIVE_ROOTS (all required) and, optionally,
+    FLEDERMAP_STATIC_ROOT, FLEDERMAP_HOST, and FLEDERMAP_PORT.
+    FLEDERMAP_ARCHIVE_ROOTS is used by the recording-details page's
+    detail-image routes, which render straight from the source WAV on every
+    request rather than a cached file. Vendor JS/CSS (Leaflet, HTMX, Alpine)
+    are fetched into FLEDERMAP_STATIC_ROOT automatically on first run, or
+    whenever the cache is missing something -- see `fetch-assets` to
+    pre-warm that cache (e.g. for an offline install) instead of fetching it
+    at server startup.
     """
     try:
         config = Config.from_env()
@@ -383,6 +384,7 @@ def serve(host: str | None, port: int | None) -> None:
         engine,
         config.static_root,
         config.media_root,
+        config.archive_roots,
     )
     app.run(
         host=host if host is not None else config.host,

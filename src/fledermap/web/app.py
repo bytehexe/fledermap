@@ -21,6 +21,7 @@ def create_app(
     engine: Engine,
     static_root: Path,
     media_root: Path,
+    archive_roots: tuple[Path, ...] = (),
 ) -> flask.Flask:
     """`static_root` is `Config.static_root` -- where
     `services/vendor_assets.py`'s `ensure_vendor_assets` fetches Leaflet/HTMX/Alpine.
@@ -33,10 +34,17 @@ def create_app(
     `media_root` is `Config.media_root` -- where `jobs/tasks.py` writes
     derived spectrograms and previews, served by the `media` Blueprint (see
     `web/views/media.py`).
+
+    `archive_roots` is `Config.archive_roots` -- needed only by the
+    recording-details page's detail-image routes (`web/views/media.py`) to
+    resolve a recording's source WAV file directly; defaults to `()` so
+    every other route, and every existing test that doesn't touch those
+    two, is unaffected.
     """
     app = flask.Flask(__name__)
     app.config["ENGINE"] = engine
     app.config["MEDIA_ROOT"] = media_root
+    app.config["ARCHIVE_ROOTS"] = archive_roots
     app.jinja_env.filters["detector_label"] = detector_label
 
     vendor_bp = flask.Blueprint(
