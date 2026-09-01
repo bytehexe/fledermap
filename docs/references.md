@@ -120,5 +120,14 @@ Not public; on this machine only.
 - `../poiidx` — the user's PostGIS OSM POI index, used to name derived locations.
   **It drops and recreates all its tables on any schema or filter-config
   mismatch**, which is why Fledermap uses a separate database (spec D11).
+  Open, unclaimed follow-up (2026-09-01): `services/site_naming.py`'s candidate-outside-the-site
+  check reprojects into a local UTM CRS and calls `shapely.intersects()` client-side, because
+  poiidx has no query-time "does this candidate intersect a given shape" capability of its own —
+  only `poi.py`'s `coordinates` field (real polygon/line geometry for way/relation-sourced POIs)
+  and `poiIdx.py`'s distance-based `get_nearest_pois`. A server-side `ST_Intersects` against the
+  `geography` column would be both more correct (true geodesic intersects, no UTM zone-edge
+  distortion) and cheaper than the client-side version. Deliberately not done as part of the
+  Fledermap fix that needed it: poiidx is a real pinned PyPI dependency (SN-1), not an editable
+  local one, so a poiidx change means a release cycle before the Fledermap fix could ship.
 - `../mkmapdiary` — the map-first presentation this project's UI is modelled on,
   and the source of the local-projection clustering approach.

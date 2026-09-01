@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 from geoalchemy2.elements import WKTElement
+from shapely.geometry import Point
 from sqlalchemy import select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session as OrmSession
@@ -12,6 +13,17 @@ from fledermap.jobs.app import ensure_schema
 from fledermap.jobs.tasks import app as jobs_app
 from fledermap.services import site_naming
 from fledermap.store.models import Site, SiteNameCache
+from fledermap.util.projection import LocalProjection
+
+
+def _offset_point(lon: float, lat: float, dx_m: float, dy_m: float) -> Point:
+    """A point dx_m/dy_m metres from (lon, lat), via the same LocalProjection
+    production code uses for the intersects check -- an exact metric offset,
+    not a degrees-per-metre approximation."""
+    origin = Point(lon, lat)
+    projection = LocalProjection(origin)
+    local_origin = projection.to_local(origin)
+    return projection.to_wgs(Point(local_origin.x + dx_m, local_origin.y + dy_m))
 
 
 def test_poiidx_connection_kwargs_parses_a_well_formed_url() -> None:
@@ -70,6 +82,43 @@ def test_poiidx_connection_kwargs_error_never_echoes_the_password() -> None:
     assert "s3cret" not in str(exc_info.value)
 
 
+def test_min_and_max_rank_match_poiidx_own_constants() -> None:
+    """_MIN_RANK/_MAX_RANK are a deliberate hand-mirror of poiidx.osm's
+    MIN_RANK/MAX_RANK, not an import (osm.py isn't part of poiidx's public
+    API -- poiidx/__init__.py never re-exports it, and poiidx is a real
+    pinned dependency, not an editable one this codebase controls). That
+    means nothing ties the two copies together automatically -- this test
+    is the tie: it fails loudly the day poiidx's own band changes, instead
+    of _target_rank silently drifting out of sync (code review finding,
+    2026-09-01)."""
+    import poiidx.osm
+
+    assert site_naming._MIN_RANK == poiidx.osm.MIN_RANK
+    assert site_naming._MAX_RANK == poiidx.osm.MAX_RANK
+
+
+@pytest.mark.parametrize(
+    "site_radius_m",
+    [0.5, 5.0, 20.0, 50.0, 100.0, 300.0, 1000.0, 5000.0, 50_000.0, 300_000.0],
+)
+def test_target_rank_matches_poiidx_calculate_rank(site_radius_m: float) -> None:
+    """Pins _target_rank's actual formula shape to poiidx's own
+    calculate_rank(radius=...), not just the MIN_RANK/MAX_RANK boundary
+    constants above -- a future poiidx formula retune within the same band
+    would pass the constants-only test while every non-boundary target
+    silently diverged from what poiidx's own scanner would assign (code
+    review finding, 2026-09-01). The one deliberate divergence, exercised by
+    the 300km case: poiidx returns None below _MIN_RANK ("too coarse to be
+    a POI's rank at all"), _target_rank clips to _MIN_RANK instead, since it
+    always needs a concrete target to compare candidates against -- see
+    _target_rank's own docstring."""
+    import poiidx.osm
+
+    poiidx_rank = poiidx.osm.calculate_rank(radius=site_radius_m)
+    expected = site_naming._MIN_RANK if poiidx_rank is None else poiidx_rank
+    assert site_naming._target_rank(site_radius_m) == expected
+
+
 def test_load_filter_config_returns_the_expected_symbols() -> None:
     config = site_naming._load_filter_config()
     symbols = {entry["symbol"] for entry in config}
@@ -119,7 +168,7 @@ def test_name_site_returns_the_cached_value_without_calling_poiidx(
     with OrmSession(engine) as session:
         session.add(
             SiteNameCache(
-                geohash=site_naming._cache_key(13.405, 52.520),
+                geohash=site_naming._cache_key(13.405, 52.520, 50.0),
                 name="Tiergarten",
                 admin_path="Berlin > Mitte",
                 fetched_at=datetime(2026, 8, 28, tzinfo=UTC),
@@ -127,22 +176,31 @@ def test_name_site_returns_the_cached_value_without_calling_poiidx(
         )
         session.commit()
 
-        result = site_naming.name_site(session, 13.405, 52.520, radius_m=300.0)
+        result = site_naming.name_site(
+            session,
+            13.405,
+            52.520,
+            radius_m=300.0,
+            site_radius_m=50.0,
+        )
 
     assert result == ("Tiergarten", "Berlin > Mitte")
 
 
 @pytest.mark.db
-@pytest.mark.skip
-def test_name_site_prefers_the_lowest_rank_poi_over_the_nearest(
+def test_name_site_prefers_the_poi_whose_rank_matches_a_small_sites_own_scale(
     engine: Engine,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """A tiny site (20m radius) wants the most specific name available, not
+    the broad one -- generalises the old (buggy) 'lowest rank always wins'
+    rule with a rank matched to the site's own scale (design spec SN-7,
+    corrected 2026-09-01)."""
     monkeypatch.setattr(
         site_naming.poiidx,
         "get_nearest_pois",
         lambda *a, **k: [
-            {"name": "Nearby Bench", "rank": 23},
+            {"name": "Nearby Bench", "rank": 23, "coordinates": Point(13.405, 52.520)},
             {"name": "Tiergarten", "rank": 16},
         ],
     )
@@ -153,9 +211,381 @@ def test_name_site_prefers_the_lowest_rank_poi_over_the_nearest(
     )
 
     with OrmSession(engine) as session:
-        result = site_naming.name_site(session, 13.405, 52.520, radius_m=300.0)
+        result = site_naming.name_site(
+            session,
+            13.405,
+            52.520,
+            radius_m=300.0,
+            site_radius_m=20.0,
+        )
 
     assert result == ("Nearby Bench", "Berlin > Mitte")
+
+
+@pytest.mark.db
+def test_name_site_prefers_a_broader_poi_when_the_site_is_large(
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The flip side of the test above: a large site (4km radius -- e.g. a
+    transect-derived hotspot, not a stationary point) wants the broad name,
+    not the most specific candidate in range. Same two candidates, opposite
+    winner, purely from site_radius_m."""
+    monkeypatch.setattr(
+        site_naming.poiidx,
+        "get_nearest_pois",
+        lambda *a, **k: [
+            {"name": "Nearby Bench", "rank": 23, "coordinates": Point(13.405, 52.520)},
+            {"name": "Tiergarten", "rank": 16},
+        ],
+    )
+    monkeypatch.setattr(
+        site_naming.poiidx,
+        "get_administrative_hierarchy_string",
+        lambda *a, **k: "Berlin > Mitte",
+    )
+
+    with OrmSession(engine) as session:
+        result = site_naming.name_site(
+            session,
+            13.405,
+            52.520,
+            radius_m=300.0,
+            site_radius_m=4000.0,
+        )
+
+    assert result == ("Tiergarten", "Berlin > Mitte")
+
+
+@pytest.mark.db
+def test_name_site_demotes_a_specific_poi_proven_outside_the_site(
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A candidate specific enough to matter (rank > 19) whose own geometry
+    sits well outside the site loses to a broader candidate that isn't
+    checked, even though its rank is a worse match for the site's own scale
+    -- reproduces the real 'named after something outside its borders' bug
+    found against real field data 2026-09-01."""
+    far = _offset_point(13.405, 52.520, dx_m=300.0, dy_m=0.0)
+    monkeypatch.setattr(
+        site_naming.poiidx,
+        "get_nearest_pois",
+        lambda *a, **k: [
+            {"name": "Nearby Bench", "rank": 23, "coordinates": far},
+            {"name": "Tiergarten", "rank": 16},
+        ],
+    )
+    monkeypatch.setattr(
+        site_naming.poiidx,
+        "get_administrative_hierarchy_string",
+        lambda *a, **k: "Berlin > Mitte",
+    )
+
+    with OrmSession(engine) as session:
+        result = site_naming.name_site(
+            session,
+            13.405,
+            52.520,
+            radius_m=300.0,
+            site_radius_m=20.0,
+        )
+
+    assert result == ("Tiergarten", "Berlin > Mitte")
+
+
+@pytest.mark.db
+def test_name_site_tolerates_a_near_miss_within_the_margin(
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A candidate just outside the site's own radius but within the 15m
+    tolerance margin (GPS/OSM-digitization noise) is NOT demoted -- found
+    against a real site where a 3m miss would otherwise have flipped an
+    already-correct name to a needlessly broad one."""
+    near_miss = _offset_point(13.405, 52.520, dx_m=30.0, dy_m=0.0)
+    monkeypatch.setattr(
+        site_naming.poiidx,
+        "get_nearest_pois",
+        lambda *a, **k: [
+            {"name": "Nearby Bench", "rank": 23, "coordinates": near_miss},
+            {"name": "Tiergarten", "rank": 16},
+        ],
+    )
+    monkeypatch.setattr(
+        site_naming.poiidx,
+        "get_administrative_hierarchy_string",
+        lambda *a, **k: "Berlin > Mitte",
+    )
+
+    with OrmSession(engine) as session:
+        result = site_naming.name_site(
+            session,
+            13.405,
+            52.520,
+            radius_m=300.0,
+            site_radius_m=20.0,
+        )
+
+    assert result == ("Nearby Bench", "Berlin > Mitte")
+
+
+@pytest.mark.db
+def test_name_site_never_checks_geometry_for_a_low_rank_candidate(
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """rank <= 19 is exempt from the intersects check regardless of actual
+    distance -- isolates the threshold itself from the far/near behaviour
+    covered above. Without the exemption this would still resolve to
+    'Tiergarten' by rank alone (2 candidates in this data are *both* far, so
+    if geometry mattered for the exempt one too, we couldn't tell); the
+    exemption is what makes it certain rather than incidental."""
+    far = _offset_point(13.405, 52.520, dx_m=300.0, dy_m=0.0)
+    monkeypatch.setattr(
+        site_naming.poiidx,
+        "get_nearest_pois",
+        lambda *a, **k: [
+            {"name": "Nearby Bench", "rank": 21, "coordinates": far},
+            {"name": "Tiergarten", "rank": 17},
+        ],
+    )
+    monkeypatch.setattr(
+        site_naming.poiidx,
+        "get_administrative_hierarchy_string",
+        lambda *a, **k: "Berlin > Mitte",
+    )
+
+    with OrmSession(engine) as session:
+        result = site_naming.name_site(
+            session,
+            13.405,
+            52.520,
+            radius_m=300.0,
+            site_radius_m=20.0,
+        )
+
+    assert result == ("Tiergarten", "Berlin > Mitte")
+
+
+@pytest.mark.db
+def test_name_site_exempts_rank_19_but_checks_rank_20(
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The exact _INTERSECTS_RANK_THRESHOLD boundary: rank 19 is exempt
+    (no geometry needed), rank 20 is checked. Without demotion, rank 20
+    would win here on rank-distance alone (|20-23|=3 < |19-23|=4) -- with
+    it, the far rank-20 candidate is demoted and rank 19 wins instead,
+    proving the boundary is exactly where the threshold constant says
+    (code review test-coverage finding, 2026-09-01)."""
+    far = _offset_point(13.405, 52.520, dx_m=300.0, dy_m=0.0)
+    monkeypatch.setattr(
+        site_naming.poiidx,
+        "get_nearest_pois",
+        lambda *a, **k: [
+            {"name": "Rank Nineteen", "rank": 19},
+            {"name": "Rank Twenty", "rank": 20, "coordinates": far},
+        ],
+    )
+    monkeypatch.setattr(
+        site_naming.poiidx,
+        "get_administrative_hierarchy_string",
+        lambda *a, **k: "Berlin > Mitte",
+    )
+
+    with OrmSession(engine) as session:
+        result = site_naming.name_site(
+            session,
+            13.405,
+            52.520,
+            radius_m=300.0,
+            site_radius_m=20.0,
+        )
+
+    assert result == ("Rank Nineteen", "Berlin > Mitte")
+
+
+@pytest.mark.db
+def test_name_site_breaks_ties_by_rank_distance_among_demoted_candidates(
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When every candidate is demoted (none intersects), the tie-break is
+    still rank-distance-to-target, not list order. Every existing 'demoted'
+    test pairs the far candidate with an exempt low-rank fallback, so
+    outside_penalty alone decided the winner -- this is the only test where
+    abs(rank - target) actually has to do the deciding (code review
+    test-coverage finding, 2026-09-01)."""
+    far = _offset_point(13.405, 52.520, dx_m=300.0, dy_m=0.0)
+    monkeypatch.setattr(
+        site_naming.poiidx,
+        "get_nearest_pois",
+        lambda *a, **k: [
+            {"name": "Rank Twenty", "rank": 20, "coordinates": far},
+            {"name": "Rank Twenty Three", "rank": 23, "coordinates": far},
+        ],
+    )
+    monkeypatch.setattr(
+        site_naming.poiidx,
+        "get_administrative_hierarchy_string",
+        lambda *a, **k: "Berlin > Mitte",
+    )
+
+    with OrmSession(engine) as session:
+        # site_radius_m=20 -> target_rank=23: "Rank Twenty Three" is the
+        # closer match (distance 0) even though both are equally demoted.
+        result = site_naming.name_site(
+            session,
+            13.405,
+            52.520,
+            radius_m=300.0,
+            site_radius_m=20.0,
+        )
+
+    assert result == ("Rank Twenty Three", "Berlin > Mitte")
+
+
+@pytest.mark.db
+def test_name_site_demotes_a_candidate_with_no_geometry_instead_of_crashing(
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`Poi.coordinates` is schema-NOT-NULL in poiidx today, but nothing
+    here should depend on that holding forever -- a candidate specific
+    enough to need checking (rank > 19) with no usable geometry must be
+    treated as unverifiable (demoted), not crash the whole resolution
+    (code review finding, 2026-09-01)."""
+    monkeypatch.setattr(
+        site_naming.poiidx,
+        "get_nearest_pois",
+        lambda *a, **k: [
+            {"name": "No Geometry", "rank": 23, "coordinates": None},
+            {"name": "Tiergarten", "rank": 16},
+        ],
+    )
+    monkeypatch.setattr(
+        site_naming.poiidx,
+        "get_administrative_hierarchy_string",
+        lambda *a, **k: "Berlin > Mitte",
+    )
+
+    with OrmSession(engine) as session:
+        result = site_naming.name_site(
+            session,
+            13.405,
+            52.520,
+            radius_m=300.0,
+            site_radius_m=20.0,
+        )
+
+    assert result == ("Tiergarten", "Berlin > Mitte")
+
+
+@pytest.mark.db
+def test_name_site_widens_the_search_radius_to_the_sites_own_extent(
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A site bigger than the configured search-radius default must not
+    have its own footprint go unsearched."""
+    captured: dict[str, object] = {}
+
+    def fake_get_nearest_pois(point: object, **kwargs: object) -> list[object]:
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setattr(site_naming.poiidx, "get_nearest_pois", fake_get_nearest_pois)
+    monkeypatch.setattr(
+        site_naming.poiidx,
+        "get_administrative_hierarchy_string",
+        lambda *a, **k: "",
+    )
+
+    with OrmSession(engine) as session:
+        site_naming.name_site(
+            session,
+            13.405,
+            52.520,
+            radius_m=300.0,
+            site_radius_m=1000.0,
+        )
+
+    assert captured["max_distance"] == 1000.0
+    # buffer drives poiidx's own region-loading (init_regions_by_shape), a
+    # separate mechanism from max_distance's candidate filtering -- without
+    # it a widened search near a poiidx region boundary silently stays
+    # confined to the origin point's single region (code review finding,
+    # 2026-09-01).
+    assert captured["buffer"] == 1000.0
+
+
+@pytest.mark.db
+def test_name_site_does_not_shrink_the_search_radius_below_the_configured_default(
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_get_nearest_pois(point: object, **kwargs: object) -> list[object]:
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setattr(site_naming.poiidx, "get_nearest_pois", fake_get_nearest_pois)
+    monkeypatch.setattr(
+        site_naming.poiidx,
+        "get_administrative_hierarchy_string",
+        lambda *a, **k: "",
+    )
+
+    with OrmSession(engine) as session:
+        site_naming.name_site(
+            session,
+            13.405,
+            52.520,
+            radius_m=300.0,
+            site_radius_m=10.0,
+        )
+
+    assert captured["max_distance"] == 300.0
+    assert captured["buffer"] == 300.0
+
+
+@pytest.mark.db
+def test_name_site_widens_the_admin_hierarchy_lookup_too(
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """get_administrative_hierarchy_string goes through the identical
+    init_regions_by_shape mechanism as get_nearest_pois -- the first buffer
+    fix only widened the sibling call, leaving a large site's admin-path
+    fallback silently confined to the origin point's single poiidx region
+    (code review finding, 2026-09-01)."""
+    monkeypatch.setattr(site_naming.poiidx, "get_nearest_pois", lambda *a, **k: [])
+    captured: dict[str, object] = {}
+
+    def fake_get_administrative_hierarchy_string(
+        point: object, **kwargs: object
+    ) -> str:
+        captured.update(kwargs)
+        return ""
+
+    monkeypatch.setattr(
+        site_naming.poiidx,
+        "get_administrative_hierarchy_string",
+        fake_get_administrative_hierarchy_string,
+    )
+
+    with OrmSession(engine) as session:
+        site_naming.name_site(
+            session,
+            13.405,
+            52.520,
+            radius_m=300.0,
+            site_radius_m=1000.0,
+        )
+
+    assert captured["buffer"] == 1000.0
 
 
 @pytest.mark.db
@@ -171,7 +601,13 @@ def test_name_site_falls_back_to_administrative_hierarchy_when_no_poi_found(
     )
 
     with OrmSession(engine) as session:
-        result = site_naming.name_site(session, 13.405, 52.520, radius_m=300.0)
+        result = site_naming.name_site(
+            session,
+            13.405,
+            52.520,
+            radius_m=300.0,
+            site_radius_m=50.0,
+        )
 
     assert result == ("Berlin > Mitte", "Berlin > Mitte")
 
@@ -189,10 +625,16 @@ def test_name_site_returns_none_when_poiidx_resolves_nothing(
     )
 
     with OrmSession(engine) as session:
-        result = site_naming.name_site(session, 13.405, 52.520, radius_m=300.0)
+        result = site_naming.name_site(
+            session,
+            13.405,
+            52.520,
+            radius_m=300.0,
+            site_radius_m=50.0,
+        )
         cached = session.scalar(
             select(SiteNameCache).where(
-                SiteNameCache.geohash == site_naming._cache_key(13.405, 52.520),
+                SiteNameCache.geohash == site_naming._cache_key(13.405, 52.520, 50.0),
             ),
         )
 
@@ -217,12 +659,18 @@ def test_name_site_writes_through_the_cache_on_a_miss(
     )
 
     with OrmSession(engine) as session:
-        site_naming.name_site(session, 13.405, 52.520, radius_m=300.0)
+        site_naming.name_site(
+            session,
+            13.405,
+            52.520,
+            radius_m=300.0,
+            site_radius_m=50.0,
+        )
         session.commit()
 
         cached = session.scalar(
             select(SiteNameCache).where(
-                SiteNameCache.geohash == site_naming._cache_key(13.405, 52.520),
+                SiteNameCache.geohash == site_naming._cache_key(13.405, 52.520, 50.0),
             ),
         )
 
@@ -231,10 +679,111 @@ def test_name_site_writes_through_the_cache_on_a_miss(
     assert cached.admin_path == "Berlin > Mitte"
 
 
-def _unnamed_site(lon: float, lat: float) -> Site:
+@pytest.mark.db
+def test_name_site_cache_does_not_conflate_sites_of_very_different_scale(
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two Sites at the same rounded coordinate but very different
+    site_radius_m (a small stationary site and a large transect-derived one
+    happening to centre on the same spot) must resolve -- and cache --
+    independently. SiteNameCache.geohash is unique, so if the cache key were
+    coordinate-only, whichever site resolved first would permanently win the
+    slot for both, defeating SN-7's fix for the second one (code review
+    finding, 2026-09-01)."""
+    monkeypatch.setattr(
+        site_naming.poiidx,
+        "get_nearest_pois",
+        lambda *a, **k: [
+            {"name": "Nearby Bench", "rank": 23, "coordinates": Point(13.405, 52.520)},
+            {"name": "Tiergarten", "rank": 16},
+        ],
+    )
+    monkeypatch.setattr(
+        site_naming.poiidx,
+        "get_administrative_hierarchy_string",
+        lambda *a, **k: "Berlin > Mitte",
+    )
+
+    with OrmSession(engine) as session:
+        small_site_result = site_naming.name_site(
+            session,
+            13.405,
+            52.520,
+            radius_m=300.0,
+            site_radius_m=20.0,
+        )
+        session.commit()
+
+        large_site_result = site_naming.name_site(
+            session,
+            13.405,
+            52.520,
+            radius_m=300.0,
+            site_radius_m=4000.0,
+        )
+
+    assert small_site_result == ("Nearby Bench", "Berlin > Mitte")
+    assert large_site_result == ("Tiergarten", "Berlin > Mitte")
+
+
+@pytest.mark.db
+def test_name_site_cache_separates_sites_whose_target_rank_bucket_would_collide(
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The test above uses radii (20 vs 4000) whose _target_rank buckets
+    already differ -- it would pass even with the coarser bucketing this
+    test catches. _target_rank clips to _MAX_RANK for essentially every
+    radius under ~250m, so two sites at 10m and 200m both bucket to the same
+    target rank despite genuinely different demotion behaviour (code review
+    finding, 2026-09-01: _cache_key must bucket the radius itself, not the
+    saturating target-rank derived from it)."""
+    far = _offset_point(13.405, 52.520, dx_m=100.0, dy_m=0.0)
+    monkeypatch.setattr(
+        site_naming.poiidx,
+        "get_nearest_pois",
+        lambda *a, **k: [
+            {"name": "Nearby Bench", "rank": 23, "coordinates": far},
+            {"name": "Tiergarten", "rank": 16},
+        ],
+    )
+    monkeypatch.setattr(
+        site_naming.poiidx,
+        "get_administrative_hierarchy_string",
+        lambda *a, **k: "Berlin > Mitte",
+    )
+
+    with OrmSession(engine) as session:
+        # 100m away is outside a 10m site's padded extent (10+15=25m) --
+        # the specific candidate is demoted, so the exempt broad one wins.
+        small_site_result = site_naming.name_site(
+            session,
+            13.405,
+            52.520,
+            radius_m=300.0,
+            site_radius_m=10.0,
+        )
+        session.commit()
+
+        # ...but inside a 200m site's (200+15=215m) -- not demoted, and its
+        # rank is a perfect match for a site this size, so it wins outright.
+        large_site_result = site_naming.name_site(
+            session,
+            13.405,
+            52.520,
+            radius_m=300.0,
+            site_radius_m=200.0,
+        )
+
+    assert small_site_result == ("Tiergarten", "Berlin > Mitte")
+    assert large_site_result == ("Nearby Bench", "Berlin > Mitte")
+
+
+def _unnamed_site(lon: float, lat: float, radius_m: float = 50.0) -> Site:
     return Site(
         centroid=WKTElement(f"POINT({lon} {lat})", srid=4326),
-        radius_m=50.0,
+        radius_m=radius_m,
         recording_count=1,
         first_at=datetime(2026, 8, 28, tzinfo=UTC),
         last_at=datetime(2026, 8, 28, tzinfo=UTC),
@@ -271,7 +820,7 @@ def test_enqueue_site_naming_resolves_a_cache_hit_directly_without_a_job(
     with OrmSession(engine) as session:
         session.add(
             SiteNameCache(
-                geohash=site_naming._cache_key(13.405, 52.520),
+                geohash=site_naming._cache_key(13.405, 52.520, 50.0),
                 name="Tiergarten",
                 admin_path="Berlin > Mitte",
                 fetched_at=datetime(2026, 8, 28, tzinfo=UTC),
@@ -373,3 +922,38 @@ def test_enqueue_site_naming_queueing_lock_is_coordinate_based_not_id_based(
     assert (
         second_count == 0
     )  # same queueing_lock as the first -- refused as a duplicate
+
+
+@pytest.mark.db
+def test_enqueue_site_naming_does_not_conflate_queueing_locks_across_scales(
+    engine: Engine,
+) -> None:
+    """The opposite of the test above: two Site rows at the same rounded
+    coordinate but genuinely different radius_m are NOT the same site
+    reappearing across a rebuild -- each must get its own naming job, not
+    have the second silently swallowed as an AlreadyEnqueued duplicate of
+    the first (code review finding, 2026-09-01 -- a direct consequence of
+    the target-rank cache-bucketing bug _cache_key had at the time)."""
+    jobs_app.open(engine)
+    ensure_schema(jobs_app, engine)
+
+    with OrmSession(engine) as session:
+        session.add(_unnamed_site(13.405, 52.520, radius_m=10.0))
+        session.commit()
+        first_count = site_naming.enqueue_site_naming(
+            session,
+            engine,
+            poiidx_database_url="postgresql://u:p@localhost/poiidx_bats_db",
+        )
+
+    with OrmSession(engine) as session:
+        session.add(_unnamed_site(13.405, 52.520, radius_m=200.0))
+        session.commit()
+        second_count = site_naming.enqueue_site_naming(
+            session,
+            engine,
+            poiidx_database_url="postgresql://u:p@localhost/poiidx_bats_db",
+        )
+
+    assert first_count == 1
+    assert second_count == 1  # different scale -- its own job, not swallowed

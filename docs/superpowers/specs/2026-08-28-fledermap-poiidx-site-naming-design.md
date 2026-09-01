@@ -119,8 +119,11 @@ def name_site(centroid: Point, radius_m: float) -> tuple[str, str] | None:
    design implies) and check `SiteNameCache` first. A hit returns immediately — no poiidx call.
 2. On a miss: call `poiidx.get_nearest_pois(shape, max_distance=N, limit=K)`, where `shape` is a
    buffer around `centroid` (or the site's own extent). Among the results within `N`, pick the
-   **lowest `rank`** (poiidx: lower rank = more important), not merely the nearest — a well-known
-   suburb 80m away should out-rank an untagged POI 20m away.
+   candidate whose `rank` is **closest to a target rank derived from the site's own radius**
+   (corrected 2026-09-01 — see SN-7 below; the original "lowest rank always wins" rule shipped,
+   then a hotfix flipped it to "highest rank always wins" to fix the symptom that produced, and
+   *that* shipped a different bug: sites named after something too specific to represent their own
+   area, sometimes outside it entirely).
 3. No POI found within `N` → fall back to `poiidx.get_administrative_hierarchy_string()`, which
    depends only on administrative-boundary containment, not nearby tagged POIs, so it's always
    available.
@@ -221,7 +224,8 @@ site that existed before this feature shipped, or one whose job failed past its 
 | SN-4 | `derive_sites` is not changed to preserve unchanged sites across a rebuild — that's a separate, higher-risk change to clustering identity; `SiteNameCache` solves the actual repeat-work problem at much smaller scope. |
 | SN-5 | `enqueue_site_naming` checks `SiteNameCache` synchronously before enqueueing anything, so a stable site's name survives every `derive_sites` rebuild without a job round-trip. |
 | SN-6 | `name_site_task` uses a single static Procrastinate `lock`, not a second dedicated worker process, to serialize poiidx access. |
-| SN-7 | Among POI candidates within the search radius, the lowest-`rank` result wins over the merely-nearest one. |
+| SN-7 | **Superseded 2026-09-01.** Original: "the lowest-`rank` result wins over the merely-nearest one." Shipped, then hand-patched to the opposite ("highest rank wins") to fix the symptom that rule produced (every site named after its city) — which shipped a different bug (sites named after something too specific for their own area, sometimes outside it). Corrected rule, validated against real field data: among candidates within the search radius (which is now `max(N, site's own radius)`, not `N` alone, so a site bigger than the configured default is never searched smaller than its own footprint), pick the one whose `rank` is closest to a target rank computed from the site's own radius via poiidx's own nominatim-style formula (`services/site_naming.py`'s `_target_rank`) — a small site wants a specific name, a large one wants a broad one. Additionally, any candidate specific enough to matter (`rank > 19`) whose own geometry (poiidx returns real polygon/line geometry for way/relation-sourced POIs, not just a centroid) does not intersect the site's own extent — padded by a 15m tolerance margin for GPS/OSM-digitization noise — is sorted behind every candidate that does, though never discarded outright. `SiteNameCache.geohash` was widened (migration `cef39eb1d63b`) and its cache key now buckets the site's own radius (not the saturating target rank) alongside the coordinate, so two sites of genuinely different scale at the same rounded coordinate resolve — and cache, and enqueue their naming jobs — independently. |
+| SN-8 (open) | `_INTERSECTS_RANK_THRESHOLD` (19) and `_INTERSECTS_MARGIN_M` (15m) are hardcoded, tuned against one device's field data at one location (code review finding, 2026-09-01). Deliberately not made configurable yet — no second location's data exists to tune against, and `site_naming_radius_m` is the config surface that's actually needed today. If a different region/device's POI density or GPS accuracy makes these need retuning, that's the trigger to promote them to config (same TOML/env pattern as `site_naming_radius_m`), not before. |
 
 ## Open items
 

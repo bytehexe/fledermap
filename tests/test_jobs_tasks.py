@@ -574,7 +574,10 @@ def test_name_site_task_writes_the_resolved_name_onto_the_site(
     monkeypatch.setattr(
         site_naming,
         "name_site",
-        lambda session, lon, lat, *, radius_m: ("Tiergarten", "Berlin > Mitte"),
+        lambda session, lon, lat, *, radius_m, site_radius_m: (
+            "Tiergarten",
+            "Berlin > Mitte",
+        ),
     )
     jobs_app.open(engine)
     ensure_schema(jobs_app, engine)
@@ -625,7 +628,7 @@ def test_name_site_task_leaves_the_site_unnamed_when_poiidx_resolves_nothing(
     monkeypatch.setattr(
         site_naming,
         "name_site",
-        lambda session, lon, lat, *, radius_m: None,
+        lambda session, lon, lat, *, radius_m, site_radius_m: None,
     )
     jobs_app.open(engine)
     ensure_schema(jobs_app, engine)
@@ -665,6 +668,64 @@ def test_name_site_task_leaves_the_site_unnamed_when_poiidx_resolves_nothing(
         refreshed = session.get(Site, site_id)
         assert refreshed is not None
         assert refreshed.name is None
+
+
+def test_name_site_task_passes_the_sites_own_radius_to_name_site(
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """site.radius_m must reach name_site -- it drives both the search
+    radius and the rank-target selection (services/site_naming.py)."""
+    monkeypatch.setattr(site_naming, "ensure_connected", lambda url: None)
+    captured: dict[str, object] = {}
+
+    def fake_name_site(
+        session: object,
+        lon: float,
+        lat: float,
+        *,
+        radius_m: float,
+        site_radius_m: float,
+    ) -> tuple[str, str | None] | None:
+        captured["site_radius_m"] = site_radius_m
+        return None
+
+    monkeypatch.setattr(site_naming, "name_site", fake_name_site)
+    jobs_app.open(engine)
+    ensure_schema(jobs_app, engine)
+
+    with OrmSession(engine) as session:
+        site = Site(
+            centroid=WKTElement("POINT(13.405 52.520)", srid=4326),
+            radius_m=123.5,
+            recording_count=1,
+            first_at=datetime(2026, 8, 28, tzinfo=UTC),
+            last_at=datetime(2026, 8, 28, tzinfo=UTC),
+        )
+        session.add(site)
+        session.commit()
+        site_id = site.id
+
+    config = Config(
+        database_url="postgresql://x/y",
+        archive_roots=(Path("/archive"),),
+        poiidx_database_url="postgresql://u:p@localhost/poiidx_bats_db",
+        site_naming_radius_m=300.0,
+    )
+    name_site_task.configure(
+        lock=_NAME_SITE_LOCK,
+        queueing_lock=name_site_queueing_lock(str(site_id)),
+    ).defer(site_id=site_id)
+    _run_worker(
+        engine,
+        wait=False,
+        install_signal_handlers=False,
+        listen_notify=False,
+        queues=["geo"],
+        additional_context={"config": config, "engine": engine},
+    )
+
+    assert captured["site_radius_m"] == 123.5
 
 
 def test_name_site_queueing_lock_is_per_site() -> None:

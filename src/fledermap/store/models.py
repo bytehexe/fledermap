@@ -244,7 +244,15 @@ class SiteNameCache(Base):
     __tablename__ = "site_name_cache"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    geohash: Mapped[str] = mapped_column(String(16), unique=True, index=True)
+    # Widened from String(16) (migration 2026-09-01): _cache_key folds in a
+    # radius bucket alongside the coordinate, since the resolved name now
+    # depends on the querying site's own radius too (services/site_naming.py's
+    # SN-7 fix, _radius_bucket) -- worst case "-90.000,-180.000,99990" is 22
+    # chars, String(16) had zero headroom to begin with. (Corrected 2026-09-01,
+    # code review: an earlier version of this comment described an abandoned
+    # target-rank-bucket scheme, whose 2-digit suffix gave a shorter, no
+    # longer accurate worst case.)
+    geohash: Mapped[str] = mapped_column(String(24), unique=True, index=True)
     name: Mapped[str] = mapped_column(Text)
     admin_path: Mapped[str | None] = mapped_column(Text)
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

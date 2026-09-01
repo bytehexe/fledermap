@@ -133,6 +133,7 @@ def name_site_task(context: procrastinate.JobContext, site_id: int) -> None:
             lon,
             lat,
             radius_m=config.site_naming_radius_m,
+            site_radius_m=site.radius_m,
         )
         if resolved is not None:
             site.name, site.admin_path = resolved
