@@ -512,12 +512,6 @@ def test_name_site_widens_the_search_radius_to_the_sites_own_extent(
         )
 
     assert captured["max_distance"] == 1000.0
-    # buffer drives poiidx's own region-loading (init_regions_by_shape), a
-    # separate mechanism from max_distance's candidate filtering -- without
-    # it a widened search near a poiidx region boundary silently stays
-    # confined to the origin point's single region (code review finding,
-    # 2026-09-01).
-    assert captured["buffer"] == 1000.0
 
 
 @pytest.mark.db
@@ -548,28 +542,43 @@ def test_name_site_does_not_shrink_the_search_radius_below_the_configured_defaul
         )
 
     assert captured["max_distance"] == 300.0
-    assert captured["buffer"] == 300.0
 
 
 @pytest.mark.db
-def test_name_site_widens_the_admin_hierarchy_lookup_too(
+def test_name_site_never_passes_buffer_to_poiidx(
     engine: Engine,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """get_administrative_hierarchy_string goes through the identical
-    init_regions_by_shape mechanism as get_nearest_pois -- the first buffer
-    fix only widened the sibling call, leaving a large site's admin-path
-    fallback silently confined to the origin point's single poiidx region
-    (code review finding, 2026-09-01)."""
-    monkeypatch.setattr(site_naming.poiidx, "get_nearest_pois", lambda *a, **k: [])
-    captured: dict[str, object] = {}
+    """Neither poiidx call is ever given `buffer=`, on ANY site size --
+    confirmed 2026-09-01 against the real installed poiidx==0.0.9 (not
+    mocked): `PoiIdx.init_regions_by_shape` does
+    `local_shape.convex_hull().buffer(buffer)` whenever `buffer is not None`,
+    but shapely's `convex_hull` is a PROPERTY, not a method -- calling it
+    with `()` invokes the geometry it returns (a Point, say) as if IT were
+    callable, crashing with `TypeError: 'Point' object is not callable' on
+    every single call, for any buffer value. This is a real poiidx bug, not
+    a design choice here, and it isn't buffer-value-dependent, so there is
+    no safe value to pass -- omitting `buffer` entirely is the only option
+    until poiidx ships a fix (tracked in docs/references.md). An earlier
+    version of this code DID pass buffer (to fix a real, separate
+    region-confinement gap for large sites) and broke every name_site_task
+    run in production the moment it merged -- no test caught it because
+    every test here mocks poiidx.get_nearest_pois and never touches the
+    real package."""
+    nearest_kwargs: dict[str, object] = {}
+    admin_kwargs: dict[str, object] = {}
+
+    def fake_get_nearest_pois(point: object, **kwargs: object) -> list[object]:
+        nearest_kwargs.update(kwargs)
+        return []
 
     def fake_get_administrative_hierarchy_string(
         point: object, **kwargs: object
     ) -> str:
-        captured.update(kwargs)
+        admin_kwargs.update(kwargs)
         return ""
 
+    monkeypatch.setattr(site_naming.poiidx, "get_nearest_pois", fake_get_nearest_pois)
     monkeypatch.setattr(
         site_naming.poiidx,
         "get_administrative_hierarchy_string",
@@ -585,7 +594,8 @@ def test_name_site_widens_the_admin_hierarchy_lookup_too(
             site_radius_m=1000.0,
         )
 
-    assert captured["buffer"] == 1000.0
+    assert "buffer" not in nearest_kwargs
+    assert "buffer" not in admin_kwargs
 
 
 @pytest.mark.db

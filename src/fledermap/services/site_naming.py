@@ -289,28 +289,27 @@ def name_site(
 
     point = Point(lon, lat)
     search_radius_m = max(radius_m, site_radius_m)
+    # `buffer=` is deliberately NEVER passed to either poiidx call below.
+    # It should be (it drives poiidx's own region-loading via
+    # init_regions_by_shape, a separate mechanism from max_distance's
+    # candidate filtering -- without it a widened search near a poiidx
+    # region boundary stays silently confined to the origin point's single
+    # region), but the installed poiidx==0.0.9 crashes unconditionally
+    # whenever buffer is not None: PoiIdx.init_regions_by_shape does
+    # `local_shape.convex_hull().buffer(buffer)`, and shapely's convex_hull
+    # is a property, not a method -- calling it with () invokes whatever
+    # geometry it returns as if THAT were callable, raising
+    # "TypeError: 'Point' object is not callable" on every call, for any
+    # buffer value. Confirmed 2026-09-01 against the real package, not
+    # mocked: an earlier version of this code passed buffer and broke every
+    # name_site_task run in production the moment it merged. Tracked as a
+    # poiidx bug in docs/references.md -- revisit once fixed upstream.
     pois = poiidx.get_nearest_pois(
         point,
-        # buffer drives poiidx's own region-loading (init_regions_by_shape),
-        # a separate mechanism from max_distance's candidate filtering --
-        # without it a widened search near a poiidx region boundary stays
-        # silently confined to the origin point's single region, undermining
-        # the whole point of widening for a large site (code review finding,
-        # 2026-09-01).
-        buffer=search_radius_m,
         max_distance=search_radius_m,
         limit=_CANDIDATE_LIMIT,
     )
-    # Same buffer reasoning as get_nearest_pois above -- this call goes
-    # through the identical init_regions_by_shape mechanism (code review
-    # finding, 2026-09-01: the first fix only widened the sibling call).
-    admin_path = (
-        poiidx.get_administrative_hierarchy_string(
-            point,
-            buffer=search_radius_m,
-        )
-        or None
-    )
+    admin_path = poiidx.get_administrative_hierarchy_string(point) or None
 
     name: str | None
     if pois:

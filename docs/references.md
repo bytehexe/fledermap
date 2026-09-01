@@ -129,5 +129,21 @@ Not public; on this machine only.
   distortion) and cheaper than the client-side version. Deliberately not done as part of the
   Fledermap fix that needed it: poiidx is a real pinned PyPI dependency (SN-1), not an editable
   local one, so a poiidx change means a release cycle before the Fledermap fix could ship.
+  **Confirmed bug in `poiIdx.py`'s `init_regions_by_shape`, found 2026-09-01 in production**
+  (installed `poiidx==0.0.9`, not the local checkout — those can differ): `if buffer is not None:
+  ... local_shape.convex_hull().buffer(buffer)`. `convex_hull` is a shapely *property*, not a
+  method — calling it with `()` invokes whatever geometry it returns (a `Point`, typically) as if
+  that were itself callable, raising `TypeError: 'Point' object is not callable`. This fires for
+  **every** non-`None` `buffer` value, unconditionally — there is no workaround value, only
+  omitting `buffer` avoids it. Fledermap's `services/site_naming.py` briefly passed `buffer=` (to
+  fix the region-confinement gap described above) and broke every real `name_site_task` run the
+  moment it merged to `main`; no test caught it because every Fledermap test mocks
+  `poiidx.get_nearest_pois` rather than calling the real package (a real coverage gap, not just a
+  poiidx one — worth an occasional real, non-mocked smoke check against a live `poiidx_bats_db`
+  before merging anything that changes how poiidx is called). Fledermap reverted to never passing
+  `buffer` (commit on `fix/poiidx-buffer-crash`, 2026-09-01) until poiidx ships a real fix
+  (`local_shape.convex_hull.buffer(buffer)`, dropping the `()`) and Fledermap's pin moves to a
+  version that includes it — at which point BOTH this bug note and the region-confinement gap
+  above should be revisited together, since fixing one re-enables fixing the other.
 - `../mkmapdiary` — the map-first presentation this project's UI is modelled on,
   and the source of the local-projection clustering approach.
