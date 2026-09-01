@@ -87,6 +87,21 @@ document.addEventListener("DOMContentLoaded", () => {
     for (const [key, value] of [...params.entries()]) {
       if (!value) params.delete(key);
     }
+    // taxon_exclude's checkbox is disabled via Alpine's `:disabled="!taxon"`,
+    // and FormData silently omits disabled fields -- but Alpine's own DOM
+    // update is queued on a microtask, while this listener runs
+    // synchronously in the same tick as the taxon <select>'s own "input"
+    // event. Re-picking a taxon right after "Any" can read the checkbox's
+    // *stale* disabled=true from a moment ago, so FormData drops
+    // taxon_exclude even though the box is visibly checked (reported bug:
+    // re-select a taxon, "not" stays ticked but stops applying). Reading
+    // .checked directly sidesteps the disabled attribute's timing entirely.
+    const exclude = form.elements.taxon_exclude;
+    if (params.get("taxon") && exclude && exclude.checked) {
+      params.set("taxon_exclude", "1");
+    } else {
+      params.delete("taxon_exclude");
+    }
     return params;
   }
 
@@ -316,9 +331,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const relY = (event.clientY - rect.top) / rect.height;
     const timeS = relX * durationS;
     const freqKhz = (1 - relY) * maxFreqKhz;
-    readout.textContent = `${freqKhz.toFixed(1)} kHz, ${timeS.toFixed(3)} s`;
+    readout.textContent = `${timeS.toFixed(3)} s\n${freqKhz.toFixed(1)} kHz`;
     readout.style.left = `${event.clientX + 12}px`;
-    readout.style.top = `${event.clientY + 12}px`;
+    readout.style.top = `${event.clientY - 12}px`;
     readout.hidden = false;
   });
   drawerBody.addEventListener("mouseleave", () => {
@@ -364,6 +379,23 @@ document.addEventListener("DOMContentLoaded", () => {
     // -- the URL and history need to follow, same as a fresh marker click.
     openPanel = { kind: "recording", id: hash };
     pushUrl();
+  });
+
+  // Same HX-Trigger mechanism as recording-selected above, for the site
+  // panel -- fits the view to the site's actual extent (centroid + radius)
+  // rather than merely panning to its centroid at whatever zoom the map
+  // already happened to be at. Without this, opening a site panel (a fresh
+  // click, or restoring one from the URL on reload) left the map wherever
+  // it was -- on reload from a bare panel=<id> URL that's the initial
+  // "whole of Germany" view, since fitToVisible() is deliberately skipped
+  // whenever the URL names a panel (see the popstate/initial-load comments
+  // below) on the assumption that opening the panel itself would supply a
+  // more specific destination, same as it does for a recording.
+  document.body.addEventListener("site-selected", (event) => {
+    const { latitude, longitude, radius_m } = event.detail;
+    if (latitude == null || longitude == null) return;
+    const bounds = L.circle([latitude, longitude], { radius: radius_m || 0 }).getBounds();
+    map.fitBounds(bounds, { maxZoom: 15 });
   });
 
   // Step 4: Add drag-resize on the handle

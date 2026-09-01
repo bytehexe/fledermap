@@ -148,17 +148,32 @@ def recording_panel(audio_hash: str) -> flask.Response:
 
 
 @views_bp.get("/sites/<int:site_id>/panel")
-def site_panel(site_id: int) -> str:
+def site_panel(site_id: int) -> flask.Response:
     engine = flask.current_app.config["ENGINE"]
     with OrmSession(engine) as session:
         detail = site_detail(session, site_id)
         if detail is None:
-            return flask.render_template("_site_panel.html", found=False)
+            html = flask.render_template("_site_panel.html", found=False)
+            return flask.make_response(html)
         point = decode_point(detail.site.centroid)
         label = detail.site.name if detail.site.name else fallback_site_label(point)
-        return flask.render_template(
+        html = flask.render_template(
             "_site_panel.html",
             found=True,
             detail=detail,
             label=label,
         )
+
+    response = flask.make_response(html)
+    if point is not None:
+        response.headers["HX-Trigger"] = json.dumps(
+            {
+                "site-selected": {
+                    "id": site_id,
+                    "latitude": point[1],
+                    "longitude": point[0],
+                    "radius_m": detail.site.radius_m,
+                },
+            },
+        )
+    return response
