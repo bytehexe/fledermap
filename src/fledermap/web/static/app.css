@@ -268,13 +268,20 @@ button:disabled { cursor: default; opacity: 0.5; }
   gap: 0.5rem;
 }
 
+/* .panel-header is shared with _site_panel.html's own title+button row --
+   wrap (rather than squeeze) is what keeps a long title from crowding its
+   button into an ugly multi-line wrap (caught from a real screenshot with
+   a long site name); the button itself never shrinks or wraps its own
+   text, so it stays a normal-looking button on whichever line it lands. */
 .panel-header {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 0.5rem;
 }
 .panel-header h2 { margin: 0 0 0.25rem; font-size: 1.15rem; }
+.panel-header button { flex-shrink: 0; white-space: nowrap; }
 .favourite-toggle {
   font-size: 1.1rem;
   line-height: 1;

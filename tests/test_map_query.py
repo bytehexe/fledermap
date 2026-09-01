@@ -237,6 +237,39 @@ def test_favourite_only_false_has_no_effect(engine: Engine) -> None:
     assert {r.id for r in results} == {starred.id, plain.id}
 
 
+def test_favourite_only_combines_with_taxon_as_an_and_not_an_or(
+    engine: Engine,
+) -> None:
+    """Code review of b4fe7e8 found every favourite_only test paired it only
+    with a no-op filter (verdict=all) -- this pins it against a genuine
+    second constraint instead, proving the two AND together rather than one
+    silently overriding the other."""
+    with OrmSession(engine) as session:
+        wanted = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
+        other = Taxon(rank="species", scientific_name="Eptesicus serotinus")
+        session.add_all([wanted, other])
+        session.flush()
+        matching = _recording(
+            session,
+            audio_hash="a" * 64,
+            taxon_id=wanted.id,
+            favourite=True,
+        )
+        # Same taxon but not favourited -- must be excluded by favourite_only.
+        _recording(session, audio_hash="b" * 64, taxon_id=wanted.id, favourite=False)
+        # Favourited but a different taxon -- must be excluded by taxon_id.
+        _recording(session, audio_hash="c" * 64, taxon_id=other.id, favourite=True)
+        session.commit()
+
+        results = filtered_recordings(
+            session,
+            taxon_id=wanted.id,
+            favourite_only=True,
+        )
+
+    assert [r.id for r in results] == [matching.id]
+
+
 def test_session_id_filters_recordings(engine: Engine) -> None:
     with OrmSession(engine) as session:
         wanted = AnnotationSession(
