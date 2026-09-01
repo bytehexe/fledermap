@@ -36,6 +36,10 @@ consistent, known scale.
   that time and plays; native browser scroll handles panning; the crosshair readout already built
   for the drawer is ported over (same freq/time math, simpler here since there's no
   `object-fit: fill` stretch to account for).
+- A playback cursor: a line tracking the `<audio>` element's current position during playback
+  (not the mouse — that's the crosshair, above). If it scrolls out of the visible area, the view
+  snaps back just enough to bring it into view again — no continuous auto-follow/centering (see
+  "Future slots" below for that, as an explicit later toggle rather than default behavior).
 - Rendered directly from the raw audio on each request — no derived-media cache file, no
   Procrastinate job. A visible loading state while that render happens.
 - A "Details" link from the drawer's recording panel to this page.
@@ -152,6 +156,14 @@ Extends `app.js`'s existing patterns (no new library):
   drawer's version — the drawer's math has to undo `object-fit: fill`'s independent-axis
   stretching (`relative-position * range`); this page's fixed scale means it's a direct
   `pixel / px-per-unit` computation, no stretch to account for.
+- **Playback cursor**: a `timeupdate` listener on the page's `<audio>` element positions an
+  absolutely-placed line inside the same `position: relative` spectrogram wrapper already
+  committed to for overlays (§3/§5) — `x = currentTime * 1000 * DETAIL_PX_PER_MS`, same unit
+  conversion the click handler uses in reverse. Snap-into-view-when-off-screen only (no
+  continuous auto-follow — see "Future slots" below): on each `timeupdate`, if the cursor's `x`
+  falls outside the scroll container's current visible range, scroll just enough to bring it
+  back into view (equivalent to `scrollIntoView` with nearest-edge behavior), otherwise leave
+  the scroll position alone.
 
 ### 5. Future slots (not built, kept in mind)
 
@@ -166,6 +178,12 @@ own kind of clutter. What's actually committed to now, and why it's enough:
 - **Sound-level-spectrum panel**: a separate chart, likely below or beside the main pair; today's
   layout doesn't preclude adding a panel there.
 - **HET playback controls**: per the backlog's own plantuml sketch, a row near the audio player.
+- **Continuous auto-scroll-follow** (the view stays centered/pinned on the playback cursor
+  throughout playback, rather than only snapping when it goes off-screen): explicitly considered
+  and deferred, not rejected — for this data (long, mostly-quiet recordings with sparse calls),
+  snap-only may well be the better default long-term too, not just the simpler starting point.
+  If wanted later, add it as an explicit user-facing toggle rather than replacing snap-only
+  outright.
 
 ## Decisions
 
