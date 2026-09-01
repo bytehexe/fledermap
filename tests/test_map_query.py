@@ -155,6 +155,40 @@ def test_taxon_filters_by_current_best_taxon(engine: Engine) -> None:
     assert [r.id for r in results] == [matching.id]
 
 
+def test_taxon_exclude_keeps_everything_but_the_named_taxon(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        excluded = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
+        other = Taxon(rank="species", scientific_name="Eptesicus serotinus")
+        session.add_all([excluded, other])
+        session.flush()
+        different_species = _recording(session, audio_hash="a" * 64, taxon_id=other.id)
+        no_id = _recording(session, audio_hash="b" * 64, verdict=Verdict.NO_ID)
+        _recording(session, audio_hash="c" * 64, taxon_id=excluded.id)
+        session.commit()
+
+        results = filtered_recordings(
+            session,
+            verdict="all",
+            taxon_id=excluded.id,
+            taxon_exclude=True,
+        )
+
+    assert {r.id for r in results} == {different_species.id, no_id.id}
+
+
+def test_taxon_exclude_without_a_taxon_id_has_no_effect(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
+        session.add(taxon)
+        session.flush()
+        recording = _recording(session, audio_hash="a" * 64, taxon_id=taxon.id)
+        session.commit()
+
+        results = filtered_recordings(session, taxon_exclude=True)
+
+    assert [r.id for r in results] == [recording.id]
+
+
 def test_session_id_filters_recordings(engine: Engine) -> None:
     with OrmSession(engine) as session:
         wanted = AnnotationSession(

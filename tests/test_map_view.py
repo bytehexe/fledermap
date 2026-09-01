@@ -42,6 +42,7 @@ def test_map_page_includes_the_filter_form(engine: Engine, tmp_path: Path) -> No
     html = response.get_data(as_text=True)
     assert 'name="verdict"' in html
     assert 'name="taxon"' in html
+    assert 'name="taxon_exclude"' in html
     assert 'name="from"' in html
     assert 'name="to"' in html
     assert 'name="session"' in html
@@ -368,6 +369,57 @@ def test_recording_panel_shows_prev_next_within_filters(
     )
 
     assert f"/recordings/{'a' * 64}/panel" in html
+    assert f"/recordings/{'c' * 64}/panel" in html
+
+
+def test_recording_panel_taxon_exclude_omits_neighbors_of_the_named_taxon(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        excluded = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
+        session.add(excluded)
+        session.flush()
+        excluded_id = excluded.id
+        early = Recording(
+            audio_hash="a" * 64,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, 20, 0, tzinfo=UTC),
+        )
+        middle = Recording(
+            audio_hash="b" * 64,
+            path="b.wav",
+            recorded_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+        )
+        late = Recording(
+            audio_hash="c" * 64,
+            path="c.wav",
+            recorded_at=datetime(2026, 8, 25, 22, 0, tzinfo=UTC),
+        )
+        session.add_all([early, middle, late])
+        session.flush()
+        session.add(
+            Identification(
+                recording_id=early.id,
+                source=IdSource.EMT_GUANO,
+                verdict=Verdict.SPECIES,
+                taxon_id=excluded.id,
+                first_seen_at=early.recorded_at,
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    html = (
+        app.test_client()
+        .get(
+            f"/recordings/{'b' * 64}/panel"
+            f"?verdict=all&taxon={excluded_id}&taxon_exclude=1",
+        )
+        .get_data(as_text=True)
+    )
+
+    assert f"/recordings/{'a' * 64}/panel" not in html
     assert f"/recordings/{'c' * 64}/panel" in html
 
 

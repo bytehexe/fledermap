@@ -72,6 +72,7 @@ def filtered_recordings(
     date_from: datetime | None = None,
     date_to: datetime | None = None,
     taxon_id: int | None = None,
+    taxon_exclude: bool = False,
     verdict: Verdict | Literal["all"] | None = None,
     session_id: int | None = None,
     site_id: int | None = None,
@@ -104,8 +105,15 @@ def filtered_recordings(
         best = current_best_identification(r)
         if not _passes_verdict_filter(best, verdict):
             continue
-        if taxon_id is not None and (best is None or best.taxon_id != taxon_id):
-            continue
+        if taxon_id is not None:
+            # `taxon_exclude` inverts the match rather than negating the
+            # whole filter -- a recording with no taxon at all (no
+            # identification, NoID, Noise, or an unmapped species) still
+            # isn't taxon_id, so it's included under "not X" the same way
+            # it's excluded under plain "X".
+            matches = best is not None and best.taxon_id == taxon_id
+            if matches == taxon_exclude:
+                continue
         results.append(r)
     return results
 

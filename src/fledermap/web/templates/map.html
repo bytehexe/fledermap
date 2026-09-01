@@ -23,6 +23,10 @@
           {% endfor %}
         </select>
       </label>
+      <label title="Show everything except the selected taxon">
+        <input type="checkbox" name="taxon_exclude" value="1" x-model="taxon_exclude" :disabled="!taxon">
+        not
+      </label>
       <label>Session
         <select name="session" x-model="session">
           <option value="">Any</option>

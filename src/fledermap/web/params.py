@@ -65,6 +65,15 @@ def parse_int(raw: str | None) -> int | None:
     return int(raw) if raw else None
 
 
+def parse_bool(raw: str | None) -> bool:
+    """Presence-based flag param (e.g. `taxon_exclude=1`) -- absent or empty
+    means False, any non-empty value means True. Never raises: an
+    unrecognised value like `taxon_exclude=nope` is still "set", so it's
+    treated as True rather than a 400 -- there's no wrong string here the
+    way there is for `taxon=notanumber`."""
+    return bool(raw)
+
+
 def fallback_site_label(point: tuple[float, float] | None) -> str:
     """P4-1: Site.name is unpopulated until poiidx naming ships as its own
     task -- fall back to a rounded-coordinate label rather than block on

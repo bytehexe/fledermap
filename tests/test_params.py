@@ -1,6 +1,18 @@
 from __future__ import annotations
 
-from fledermap.web.params import detector_label
+from fledermap.web.params import detector_label, parse_bool
+
+
+def test_parse_bool_absent_is_false() -> None:
+    assert parse_bool(None) is False
+
+
+def test_parse_bool_empty_string_is_false() -> None:
+    assert parse_bool("") is False
+
+
+def test_parse_bool_present_is_true() -> None:
+    assert parse_bool("1") is True
 
 
 def test_detector_label_none_falls_back() -> None:

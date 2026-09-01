@@ -18,6 +18,7 @@ from fledermap.store.models import Recording, Site, Taxon
 from fledermap.web.params import (
     fallback_site_label,
     parse_bbox,
+    parse_bool,
     parse_datetime,
     parse_int,
     parse_verdict,
@@ -79,6 +80,7 @@ def recordings_geojson() -> ResponseReturnValue:
         date_from = parse_datetime(flask.request.args.get("from"))
         date_to = parse_datetime(flask.request.args.get("to"), end_of_day=True)
         taxon_id = parse_int(flask.request.args.get("taxon"))
+        taxon_exclude = parse_bool(flask.request.args.get("taxon_exclude"))
         verdict = parse_verdict(flask.request.args.get("verdict"))
         session_id = parse_int(flask.request.args.get("session"))
         site_id = parse_int(flask.request.args.get("site"))
@@ -93,6 +95,7 @@ def recordings_geojson() -> ResponseReturnValue:
             date_from=date_from,
             date_to=date_to,
             taxon_id=taxon_id,
+            taxon_exclude=taxon_exclude,
             verdict=verdict,
             session_id=session_id,
             site_id=site_id,

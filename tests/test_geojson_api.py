@@ -352,6 +352,61 @@ def test_non_numeric_four_part_bbox_returns_400(
     assert "bbox" in response.get_json()["error"]
 
 
+def test_recordings_geojson_taxon_exclude_omits_the_named_taxon(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        excluded = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
+        other = Taxon(rank="species", scientific_name="Eptesicus serotinus")
+        session.add_all([excluded, other])
+        session.flush()
+        kept = Recording(
+            audio_hash="a" * 64,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            geom=WKTElement("POINT(10 50)", srid=4326),
+        )
+        dropped = Recording(
+            audio_hash="b" * 64,
+            path="b.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            geom=WKTElement("POINT(11 51)", srid=4326),
+        )
+        session.add_all([kept, dropped])
+        session.flush()
+        session.add(
+            Identification(
+                recording_id=kept.id,
+                source=IdSource.EMT_GUANO,
+                verdict=Verdict.SPECIES,
+                taxon_id=other.id,
+                first_seen_at=datetime(2026, 8, 25, tzinfo=UTC),
+            ),
+        )
+        session.add(
+            Identification(
+                recording_id=dropped.id,
+                source=IdSource.EMT_GUANO,
+                verdict=Verdict.SPECIES,
+                taxon_id=excluded.id,
+                first_seen_at=datetime(2026, 8, 25, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+        kept_hash = kept.audio_hash
+        excluded_id = excluded.id
+
+    client = _app_client(engine, tmp_path)
+    response = client.get(
+        f"/api/recordings.geojson?taxon={excluded_id}&taxon_exclude=1",
+    )
+
+    assert response.status_code == 200
+    hashes = [f["properties"]["audio_hash"] for f in response.get_json()["features"]]
+    assert hashes == [kept_hash]
+
+
 def test_invalid_taxon_param_returns_400_not_500(
     engine: Engine,
     tmp_path: Path,

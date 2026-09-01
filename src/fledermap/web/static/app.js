@@ -22,6 +22,7 @@ function filterForm() {
     from: params.get("from") || "",
     to: params.get("to") || "",
     taxon: params.get("taxon") || "",
+    taxon_exclude: params.get("taxon_exclude") === "1",
     session: params.get("session") || "",
     source: params.get("source") || "",
     verdict: params.get("verdict") || "",
