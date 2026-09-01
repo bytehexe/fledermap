@@ -31,8 +31,12 @@ repos:
         language: system
         pass_filenames: false
       - id: tests
-        name: tests
-        entry: hatch test
+        name: tests (excl. db)
+        # DB-marked tests spin up a fresh PostGIS testcontainer each run, which
+        # dominates wall-clock time and needs Docker (blocked by the sandbox
+        # here besides). Run the full suite, incl. -m db, as a separate step
+        # before merging -- see CLAUDE.md's Environment gotchas section.
+        entry: hatch test -m "not db"
         language: system
         pass_filenames: false
       - id: commit-msg-conventional

@@ -64,6 +64,12 @@ to it when you find a new source.
 
 ## Tooling
 
+- **Pre-commit's `tests` hook runs `hatch test -m "not db"`, not the full suite.** DB-marked
+  tests spin up a fresh PostGIS testcontainer each run, which dominates wall-clock time (~120s
+  vs ~3s for everything else) and needs Docker, which the sandbox blocks here besides. Run the
+  full `hatch test` (incl. `-m db`, `dangerouslyDisableSandbox: true`) yourself before merging
+  or opening a PR — pre-commit no longer does this for you. No CI runs it either yet (tracked as
+  its own backlog item).
 - `hatch run types:check` runs mypy over **`tests/` as well as `src/`**. Test code must
   type-check: bind an `X | None`, assert it is not None, then dereference. Not `# type: ignore`.
 - **A new `Config.from_env` field needs a test asserting the constructed `Config`'s attribute,
