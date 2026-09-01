@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import os
 import stat
+import subprocess
 import sys
 import time
 from collections.abc import Awaitable, Callable, Iterator, Sequence
@@ -1110,3 +1111,55 @@ def test_install_refuses_on_a_non_linux_platform(
 
     assert result.exit_code != 0
     assert "Linux" in result.output
+
+
+def test_install_reports_missing_systemctl_cleanly(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli_main.sys, "platform", "linux")
+    monkeypatch.setattr(
+        cli_main.shutil,
+        "which",
+        lambda _name: "/home/janna/.local/bin/fledermap",
+    )
+
+    def fake_run(args: list[str], **_kwargs: object) -> None:
+        raise FileNotFoundError("systemctl")
+
+    monkeypatch.setattr(cli_main.subprocess, "run", fake_run)
+
+    runner = CliRunner()
+    env = {"XDG_CONFIG_HOME": str(tmp_path)}
+
+    result = runner.invoke(cli, ["install"], env=env)
+
+    assert result.exit_code != 0
+    assert not isinstance(result.exception, FileNotFoundError)
+    assert "systemctl" in result.output
+
+
+def test_install_reports_a_failed_systemctl_call_cleanly(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli_main.sys, "platform", "linux")
+    monkeypatch.setattr(
+        cli_main.shutil,
+        "which",
+        lambda _name: "/home/janna/.local/bin/fledermap",
+    )
+
+    def fake_run(args: list[str], **kwargs: object) -> None:
+        raise subprocess.CalledProcessError(returncode=1, cmd=args)
+
+    monkeypatch.setattr(cli_main.subprocess, "run", fake_run)
+
+    runner = CliRunner()
+    env = {"XDG_CONFIG_HOME": str(tmp_path)}
+
+    result = runner.invoke(cli, ["install"], env=env)
+
+    assert result.exit_code != 0
+    assert not isinstance(result.exception, subprocess.CalledProcessError)
+    assert "systemctl" in result.output

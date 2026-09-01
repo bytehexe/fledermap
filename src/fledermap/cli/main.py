@@ -482,6 +482,12 @@ def install() -> None:
     run` isn't a sensible target for a persistent background service (its
     env's path isn't stable across `hatch env remove`), so this makes no
     attempt to detect or support that case.
+
+    Safe to re-run (e.g. after a pipx upgrade moves the venv) -- unit files
+    are overwritten unconditionally. Note this does NOT restart an
+    already-running serve/worker: `enable --now` only starts units that
+    aren't already active, so an in-place upgrade needs a manual
+    `systemctl --user restart fledermap.target` to pick up the new path.
     """
     if sys.platform != "linux":
         raise click.ClickException(
@@ -500,11 +506,21 @@ def install() -> None:
     for filename, content in render_unit_files(exe).items():
         (unit_dir / filename).write_text(content)
 
-    subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
-    subprocess.run(
+    for systemctl_args in (
+        ["systemctl", "--user", "daemon-reload"],
         ["systemctl", "--user", "enable", "--now", "fledermap.target"],
-        check=True,
-    )
+    ):
+        try:
+            subprocess.run(systemctl_args, check=True)
+        except FileNotFoundError as exc:
+            msg = (
+                "systemctl not found -- fledermap install needs a systemd "
+                "user session (`systemctl --user ...`)."
+            )
+            raise click.ClickException(msg) from exc
+        except subprocess.CalledProcessError as exc:
+            msg = f"`{' '.join(systemctl_args)}` failed: {exc}"
+            raise click.ClickException(msg) from exc
 
     click.echo(f"Installed systemd --user units to {unit_dir}")
     click.echo(
