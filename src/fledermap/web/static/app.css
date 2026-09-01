@@ -462,3 +462,45 @@ button:disabled { cursor: default; opacity: 0.5; }
   border-bottom: 1px solid var(--color-border);
   font-size: 0.9rem;
 }
+
+/* Recording details page (design spec 2026-09-01, section 3/4). */
+.detail-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  margin: 0.75rem 0;
+}
+.detail-body { display: flex; }
+/* Sticky, not scrolled with the graphs -- pinned on the left the same way
+   a DAW's own frequency ruler stays put while the timeline scrolls under
+   it. Cheap: one CSS property, no JS. */
+.detail-axis-freq {
+  position: sticky;
+  left: 0;
+  width: 3.5em;
+  flex-shrink: 0;
+  background: var(--color-bg);
+  z-index: 1;
+}
+.detail-graphs { display: flex; flex-direction: column; }
+.detail-axis-time { position: relative; height: 1.2rem; }
+.detail-spectrogram-wrap { position: relative; cursor: crosshair; }
+.detail-spectrogram, .detail-oscillogram { display: block; }
+.detail-axis-tick {
+  position: absolute;
+  font-size: 0.7rem;
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+.detail-axis-tick-time { top: 0; transform: translateX(-50%); }
+.detail-axis-tick-freq { right: 0.3em; transform: translateY(-50%); }
+.playback-cursor {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--color-accent);
+  pointer-events: none;
+}
+.playback-cursor[hidden] { display: none; }
+.detail-loading[hidden] { display: none; }
