@@ -11,7 +11,12 @@ from sqlalchemy.orm import Session as OrmSession
 from fledermap.jobs.app import ensure_schema
 from fledermap.jobs.tasks import app as jobs_app
 from fledermap.media.paths import oscillogram_path, preview_path, spectrogram_path
-from fledermap.services.media import backfill_media, enqueue_media
+from fledermap.services.media import (
+    backfill_media,
+    enqueue_media,
+    resolve_recording,
+    resolve_wav_path,
+)
 from fledermap.store.models import Recording
 
 pytestmark = pytest.mark.db
@@ -118,8 +123,8 @@ def test_backfill_media_skips_a_recording_flagged_missing(
     tmp_path: Path,
 ) -> None:
     """A recording with `missing_since` set has no source file, so
-    `jobs.tasks._resolve_recording` would raise `FileNotFoundError` on every
-    attempt. Enqueueing it only burns retries."""
+    `resolve_recording` would raise `FileNotFoundError` on every attempt.
+    Enqueueing it only burns retries."""
     jobs_app.open(engine)
     ensure_schema(jobs_app, engine)
     media_root = tmp_path / "media"
@@ -138,3 +143,34 @@ def test_backfill_media_skips_a_recording_flagged_missing(
     assert count == 1
     assert _todo_job_count(engine, present_hash) == 3
     assert _todo_job_count(engine, gone_hash) == 0
+
+
+def test_resolve_wav_path_raises_filenotfounderror_for_out_of_range_index() -> None:
+    """A root list shrunk after some recordings were tagged with a
+    since-removed index must fail clearly, the same way `resolve_recording`
+    already does for a missing source file (design spec section 3)."""
+    recording = Recording(
+        audio_hash="h6" * 32,
+        path="a.wav",
+        recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+        archive_root_index=2,
+    )
+
+    with pytest.raises(FileNotFoundError) as excinfo:
+        resolve_wav_path((Path("/one"), Path("/two")), recording)
+
+    message = str(excinfo.value)
+    assert "archive_root_index 2" in message
+    assert "only 2 root" in message
+
+
+def test_resolve_recording_raises_filenotfounderror_when_missing_since_is_set(
+    engine: Engine,
+) -> None:
+    with OrmSession(engine) as session:
+        recording = _make_recording(session, audio_hash="h7" * 32, path="c.wav")
+        recording.missing_since = datetime(2026, 8, 25, tzinfo=UTC)
+        session.commit()
+
+        with pytest.raises(FileNotFoundError, match="h7" * 32):
+            resolve_recording(session, "h7" * 32)

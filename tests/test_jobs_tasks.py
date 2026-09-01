@@ -17,7 +17,6 @@ from fledermap.jobs.app import ensure_schema, make_worker_connector
 from fledermap.jobs.tasks import (
     _INGEST_CYCLE_LOCK,
     _NAME_SITE_LOCK,
-    _resolve_wav_path,
     make_preview_task,
     name_site_queueing_lock,
     name_site_task,
@@ -305,26 +304,6 @@ def test_task_fails_permanently_for_a_missing_source_file(
     # `procrastinate_finish_job`, so a `max_attempts=3` job runs the original
     # plus 3 retries and lands on 4.
     assert attempts == 4
-
-
-def test_resolve_wav_path_raises_filenotfounderror_for_out_of_range_index() -> None:
-    """Minor 1: a bare `IndexError` from `archive_roots[recording.archive_root_index]`
-    is not acceptable if a root list shrinks after some recordings were
-    tagged with a since-removed index (spec §3) -- must fail clearly, the
-    same way `_resolve_recording` already does for a missing source file."""
-    recording = Recording(
-        audio_hash="h6" * 32,
-        path="a.wav",
-        recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
-        archive_root_index=2,
-    )
-
-    with pytest.raises(FileNotFoundError) as excinfo:
-        _resolve_wav_path((Path("/one"), Path("/two")), recording)
-
-    message = str(excinfo.value)
-    assert "archive_root_index 2" in message
-    assert "only 2 root" in message
 
 
 def test_task_fails_permanently_for_an_out_of_range_archive_root_index(

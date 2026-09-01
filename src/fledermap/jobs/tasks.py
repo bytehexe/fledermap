@@ -15,7 +15,6 @@ from datetime import timedelta
 from pathlib import Path
 
 import procrastinate
-from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.config import Config
@@ -42,7 +41,7 @@ from fledermap.services.ingest import (
     sweep_missing,
 )
 from fledermap.store.geo import decode_point
-from fledermap.store.models import Recording, Site
+from fledermap.store.models import Site
 from fledermap.store.seed import seed_taxonomy
 
 app = make_job_app()
@@ -151,45 +150,24 @@ def name_site_task(
         session.commit()
 
 
-def _resolve_recording(session: OrmSession, audio_hash: str) -> Recording:
-    recording = session.scalars(
-        select(Recording).where(Recording.audio_hash == audio_hash),
-    ).one()
-    if recording.missing_since is not None:
-        msg = f"recording {audio_hash} has no source file (missing_since set)"
-        raise FileNotFoundError(msg)
-    return recording
-
-
-def _resolve_wav_path(archive_roots: tuple[Path, ...], recording: Recording) -> Path:
-    """`archive_root_index` out of range means a root list shrank after some
-    recordings were tagged with a since-removed index -- fail clearly the
-    same way `_resolve_recording` does above, rather than a bare `IndexError`
-    (spec §3)."""
-    try:
-        root = archive_roots[recording.archive_root_index]
-    except IndexError as exc:
-        msg = (
-            f"recording {recording.audio_hash} references archive_root_index "
-            f"{recording.archive_root_index}, but only {len(archive_roots)} "
-            f"root(s) are configured"
-        )
-        raise FileNotFoundError(msg) from exc
-    return root / recording.path
-
-
 @app.task(queue="media", pass_context=True, retry=_RETRY)
 def render_spectrogram_task(
     context: procrastinate.JobContext,
     audio_hash: str,
 ) -> None:
+    # Local import: `services.media` imports task objects FROM this module
+    # at ITS top level, so a top-level import here would be circular (same
+    # reasoning as `run_ingest_cycle`'s own local `enqueue_media` import,
+    # below).
+    from fledermap.services.media import resolve_recording, resolve_wav_path
+
     archive_roots: tuple[Path, ...] = context.additional_context["archive_roots"]
     media_root: Path = context.additional_context["media_root"]
     engine = context.additional_context["engine"]
 
     with OrmSession(engine) as session:
-        recording = _resolve_recording(session, audio_hash)
-        wav_path = _resolve_wav_path(archive_roots, recording)
+        recording = resolve_recording(session, audio_hash)
+        wav_path = resolve_wav_path(archive_roots, recording)
 
     out_path = spectrogram_path(media_root, audio_hash)
     render_spectrogram(wav_path, out_path, params=DEFAULT_SPECTROGRAM_PARAMS)
@@ -200,13 +178,16 @@ def render_oscillogram_task(
     context: procrastinate.JobContext,
     audio_hash: str,
 ) -> None:
+    # Local import: see `render_spectrogram_task` above.
+    from fledermap.services.media import resolve_recording, resolve_wav_path
+
     archive_roots: tuple[Path, ...] = context.additional_context["archive_roots"]
     media_root: Path = context.additional_context["media_root"]
     engine = context.additional_context["engine"]
 
     with OrmSession(engine) as session:
-        recording = _resolve_recording(session, audio_hash)
-        wav_path = _resolve_wav_path(archive_roots, recording)
+        recording = resolve_recording(session, audio_hash)
+        wav_path = resolve_wav_path(archive_roots, recording)
 
     out_path = oscillogram_path(media_root, audio_hash)
     render_oscillogram(wav_path, out_path, params=DEFAULT_OSCILLOGRAM_PARAMS)
@@ -214,13 +195,16 @@ def render_oscillogram_task(
 
 @app.task(queue="media", pass_context=True, retry=_RETRY)
 def make_preview_task(context: procrastinate.JobContext, audio_hash: str) -> None:
+    # Local import: see `render_spectrogram_task` above.
+    from fledermap.services.media import resolve_recording, resolve_wav_path
+
     archive_roots: tuple[Path, ...] = context.additional_context["archive_roots"]
     media_root: Path = context.additional_context["media_root"]
     engine = context.additional_context["engine"]
 
     with OrmSession(engine) as session:
-        recording = _resolve_recording(session, audio_hash)
-        wav_path = _resolve_wav_path(archive_roots, recording)
+        recording = resolve_recording(session, audio_hash)
+        wav_path = resolve_wav_path(archive_roots, recording)
 
     out_path = preview_path(media_root, audio_hash)
     make_preview(wav_path, out_path)

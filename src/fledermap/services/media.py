@@ -25,6 +25,37 @@ from fledermap.media.paths import oscillogram_path, preview_path, spectrogram_pa
 from fledermap.store.models import Recording
 
 
+def resolve_recording(session: OrmSession, audio_hash: str) -> Recording:
+    """Moved here from `jobs/tasks.py` -- a second legitimate consumer (the
+    recording-details page's serving routes, `web/views/media.py`) is what
+    promotes a private helper to a shared, public one (design spec
+    Decisions)."""
+    recording = session.scalars(
+        select(Recording).where(Recording.audio_hash == audio_hash),
+    ).one()
+    if recording.missing_since is not None:
+        msg = f"recording {audio_hash} has no source file (missing_since set)"
+        raise FileNotFoundError(msg)
+    return recording
+
+
+def resolve_wav_path(archive_roots: tuple[Path, ...], recording: Recording) -> Path:
+    """`archive_root_index` out of range means a root list shrank after some
+    recordings were tagged with a since-removed index -- fail clearly the
+    same way `resolve_recording` does above, rather than a bare
+    `IndexError`."""
+    try:
+        root = archive_roots[recording.archive_root_index]
+    except IndexError as exc:
+        msg = (
+            f"recording {recording.audio_hash} references archive_root_index "
+            f"{recording.archive_root_index}, but only {len(archive_roots)} "
+            f"root(s) are configured"
+        )
+        raise FileNotFoundError(msg) from exc
+    return root / recording.path
+
+
 def enqueue_media(created_hashes: list[str], engine: Engine) -> None:
     """Defer all three tasks for each hash, locked/queueing-locked per design spec
     §7. Called from `cli/main.py`'s `ingest` command AFTER `session.commit()`
@@ -95,7 +126,7 @@ def backfill_media(db_session: OrmSession, media_root: Path) -> int:
     """Enqueue media for every recording that doesn't already have all three
     files on disk at the current params. Returns the count enqueued.
 
-    Recordings flagged missing are excluded: `jobs.tasks._resolve_recording`
+    Recordings flagged missing are excluded: `resolve_recording` above
     raises `FileNotFoundError` for anything with `missing_since` set, so
     without this filter a `sweep_missing` that flags N recordings would make
     the next backfill defer 3N jobs guaranteed to fail every retry."""
