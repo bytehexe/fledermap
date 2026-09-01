@@ -1042,3 +1042,71 @@ def test_fetch_assets_command_reports_integrity_failure_cleanly(
 
     assert result.exit_code != 0
     assert "bad hash" in result.output
+
+
+def test_install_writes_units_and_enables_the_target(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli_main.sys, "platform", "linux")
+    monkeypatch.setattr(
+        cli_main.shutil,
+        "which",
+        lambda _name: "/home/janna/.local/bin/fledermap",
+    )
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        cli_main.subprocess,
+        "run",
+        lambda args, **_kwargs: calls.append(list(args)),
+    )
+
+    runner = CliRunner()
+    env = {"XDG_CONFIG_HOME": str(tmp_path)}
+
+    result = runner.invoke(cli, ["install"], env=env)
+
+    assert result.exit_code == 0, result.output
+    unit_dir = tmp_path / "systemd" / "user"
+    assert (unit_dir / "fledermap.target").exists()
+    assert (unit_dir / "fledermap-serve.service").exists()
+    assert (unit_dir / "fledermap-worker.service").exists()
+    assert (
+        "/home/janna/.local/bin/fledermap serve"
+        in (unit_dir / "fledermap-serve.service").read_text()
+    )
+    assert calls == [
+        ["systemctl", "--user", "daemon-reload"],
+        ["systemctl", "--user", "enable", "--now", "fledermap.target"],
+    ]
+
+
+def test_install_fails_cleanly_when_fledermap_not_on_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli_main.sys, "platform", "linux")
+    monkeypatch.setattr(cli_main.shutil, "which", lambda _name: None)
+
+    runner = CliRunner()
+    env = {"XDG_CONFIG_HOME": str(tmp_path)}
+
+    result = runner.invoke(cli, ["install"], env=env)
+
+    assert result.exit_code != 0
+    assert "not found on PATH" in result.output
+
+
+def test_install_refuses_on_a_non_linux_platform(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli_main.sys, "platform", "darwin")
+
+    runner = CliRunner()
+    env = {"XDG_CONFIG_HOME": str(tmp_path)}
+
+    result = runner.invoke(cli, ["install"], env=env)
+
+    assert result.exit_code != 0
+    assert "Linux" in result.output

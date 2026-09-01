@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
+import subprocess
+import sys
 import time
 import urllib.error
 from datetime import timedelta
@@ -32,6 +35,7 @@ from fledermap.services.ingest import (
 )
 from fledermap.services.media import backfill_media, enqueue_media
 from fledermap.services.site_naming import enqueue_site_naming
+from fledermap.services.systemd_install import render_unit_files, systemd_user_dir
 from fledermap.services.vendor_assets import (
     ASSETS,
     IntegrityError,
@@ -467,3 +471,42 @@ def backfill_site_names_command(force: bool) -> None:
         session.commit()
 
     click.echo(f"enqueued {count}")
+
+
+@cli.command()
+def install() -> None:
+    """Generate and enable systemd --user units for `serve` + `worker`, so
+    both survive logout/reboot without a terminal open. Linux only (systemd
+    --user has no equivalent elsewhere); assumes an already-installed
+    `fledermap` (pipx, pip, ...) is on PATH -- a dev checkout run via `hatch
+    run` isn't a sensible target for a persistent background service (its
+    env's path isn't stable across `hatch env remove`), so this makes no
+    attempt to detect or support that case.
+    """
+    if sys.platform != "linux":
+        raise click.ClickException(
+            "fledermap install only supports Linux (systemd --user).",
+        )
+
+    exe = shutil.which("fledermap")
+    if exe is None:
+        raise click.ClickException(
+            "fledermap not found on PATH -- install it first "
+            "(e.g. `pipx install fledermap`, or `pip install .`).",
+        )
+
+    unit_dir = systemd_user_dir()
+    unit_dir.mkdir(parents=True, exist_ok=True)
+    for filename, content in render_unit_files(exe).items():
+        (unit_dir / filename).write_text(content)
+
+    subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
+    subprocess.run(
+        ["systemctl", "--user", "enable", "--now", "fledermap.target"],
+        check=True,
+    )
+
+    click.echo(f"Installed systemd --user units to {unit_dir}")
+    click.echo(
+        "Manage with: systemctl --user {status,restart,stop} fledermap.target",
+    )
