@@ -10,6 +10,60 @@ Authoritative domain sources — species codes, names, file formats — live in
 @docs/references.md. Check there before hand-entering a code or a chunk layout, and add
 to it when you find a new source.
 
+## Commands
+
+All Python execution goes through `hatch` (see "Python tooling — hatch" below) — never bare
+`python`/`pip`.
+
+- `hatch test` — full suite, including `db`-marked tests (spins up a real PostGIS testcontainer;
+  needs `dangerouslyDisableSandbox: true`, see below).
+- `hatch test -m "not db"` — fast subset, no Docker; what pre-commit's `tests` hook runs.
+- `hatch test tests/test_foo.py::test_name` — a single test.
+- `hatch fmt` — ruff check --fix + ruff format (this project's own pinned config, not hatch's
+  bundled one — see `[tool.hatch.envs.hatch-static-analysis]` in `pyproject.toml`).
+- `hatch run types:check` — mypy over `src/fledermap`, `tests`, **and** `scripts` (see "Tooling"
+  below for why test code must type-check too).
+- `hatch build -t wheel` — build the wheel; the way to verify something actually ships (see the
+  `scripts/` bullet below).
+- `fledermap ingest|derive|worker|serve|fetch-assets|enqueue-media|backfill-site-names` — the CLI
+  entry point (`src/fledermap/cli/main.py`, installed as the `fledermap` script). `hatch run
+  fledermap <command>` runs it inside the managed env without a separate install step.
+
+## Architecture
+
+Roughly a pipeline, each stage its own top-level package under `src/fledermap/`:
+
+- **`ingest/`** — read-only parsing of archive files (RIFF/WAV chunk walking, GUANO and `wamd`
+  metadata, filename conventions) into merged per-recording metadata. Never writes to the
+  archive (D16).
+- **`derive/`** — turns ingested recordings into sessions (by detector + time gap) and sites (by
+  geographic clustering of identified activity, `geo_cluster.py`/`sites.py`).
+- **`domain/`** — pure vocabulary: `codes.py` (`IdSource`, `Verdict`, species code sources),
+  `metadata.py`. No I/O, no SQLAlchemy.
+- **`store/`** — SQLAlchemy models (`models.py`), DB bootstrap (`db.py`), PostGIS geometry
+  helpers (`geo.py`), seed data (`seed.py`). Migrations live in `alembic/` at the repo root, not
+  under `src/` (see "Migrations" below).
+- **`services/`** — the use-case layer the CLI and web app both call into: `ingest.py`/
+  `derive.py` drive the pipeline stages above end-to-end, `map_query.py` is the single definition
+  of what the map's active filters mean (shared by every GeoJSON/panel route — see its own
+  module docstring), `media.py` enqueues/checks derived-media jobs, `site_naming.py` wraps the
+  poiidx integration, `current_best.py` picks a recording's current-best identification.
+- **`jobs/`** — the Procrastinate async task queue: `app.py` bootstraps its schema (see the
+  "Procrastinate's schema has no upgrade path here" bullet below), `tasks.py` defines the jobs
+  (media rendering, site naming), `watch.py` is the filesystem watcher `fledermap worker` runs.
+- **`media/`** — pure renderers (spectrogram, oscillogram, Opus preview via `ffmpeg`) plus
+  `paths.py`, which defines the derived-media cache layout under `FLEDERMAP_MEDIA_ROOT`.
+- **`web/`** — the Flask app: `views/` (map, sessions, drawer-panel HTML routes), `api/`
+  (GeoJSON endpoints), `templates/` + `static/` (server-rendered Jinja + htmx + Alpine.js +
+  Leaflet, no frontend build step — vendor JS/CSS is fetched into `FLEDERMAP_STATIC_ROOT`, see
+  below).
+- **`cli/main.py`** — the `fledermap` entry point tying the above together into the commands
+  listed above.
+
+`scripts/` (repo root, not under `src/`) is dev-only git-hook tooling — never part of the built
+wheel; see the `scripts/` bullet under "Environment gotchas" before assuming CLI-adjacent code
+belongs there.
+
 ## Environment gotchas
 
 - **Docker is blocked by the command sandbox.** Any `db`-marked test (testcontainers + PostGIS)
