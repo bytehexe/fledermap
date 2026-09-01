@@ -176,6 +176,30 @@ def test_taxon_exclude_keeps_everything_but_the_named_taxon(engine: Engine) -> N
     assert {r.id for r in results} == {different_species.id, no_id.id}
 
 
+def test_taxon_exclude_under_default_verdict_still_hides_noise_and_no_id(
+    engine: Engine,
+) -> None:
+    """The default verdict (species-only) filter runs before the taxon check,
+    so `taxon_exclude` under it means "some OTHER identified species" --
+    NoID/Noise are excluded by the verdict filter regardless of
+    `taxon_exclude`, not included the way they are under `verdict="all"`
+    (see test_taxon_exclude_keeps_everything_but_the_named_taxon)."""
+    with OrmSession(engine) as session:
+        excluded = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
+        other = Taxon(rank="species", scientific_name="Eptesicus serotinus")
+        session.add_all([excluded, other])
+        session.flush()
+        different_species = _recording(session, audio_hash="a" * 64, taxon_id=other.id)
+        _recording(session, audio_hash="b" * 64, verdict=Verdict.NO_ID)
+        _recording(session, audio_hash="c" * 64, verdict=Verdict.NOISE)
+        _recording(session, audio_hash="d" * 64, taxon_id=excluded.id)
+        session.commit()
+
+        results = filtered_recordings(session, taxon_id=excluded.id, taxon_exclude=True)
+
+    assert [r.id for r in results] == [different_species.id]
+
+
 def test_taxon_exclude_without_a_taxon_id_has_no_effect(engine: Engine) -> None:
     with OrmSession(engine) as session:
         taxon = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
