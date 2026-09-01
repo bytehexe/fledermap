@@ -791,3 +791,24 @@ def test_recording_panel_links_session_to_session_detail(
 
     html = response.get_data(as_text=True)
     assert f'href="/sessions/{session_id}"' in html
+
+
+def test_recording_panel_links_to_the_details_page(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="g1" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/recordings/{'g1' * 32}/panel?verdict=all")
+
+    html = response.get_data(as_text=True)
+    assert f'href="/recordings/{"g1" * 32}"' in html
