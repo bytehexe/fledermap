@@ -210,3 +210,58 @@ own kind of clutter. What's actually committed to now, and why it's enough:
   not been timed against actual field recordings. If this turns out to be slow enough that the
   loading state feels bad rather than merely present, switching to the existing cache mechanism
   (Non-goals) is the documented escape hatch, not a redesign.
+
+## Addendum (2026-09-01): tiling — WebP's pixel limit was never checked against real durations
+
+Found by the final whole-branch review after Tasks 1–6 shipped, not during design: at
+`DETAIL_PX_PER_MS = 19.0`, any recording longer than ≈0.86s produces a spectrogram wider than
+WebP's hard 16383px encode limit. Verified against real field recordings
+(`~/Bat Sessions/Session_20260826_173533`): 67 of 68 files would 500 from the detail-image routes,
+and — worse — the page's "Rendering…" placeholder never clears, since the `<img>`'s `load` event
+never fires on a failed request, so there is no visible error state at all. Neither task's tests
+caught this because both used a synthetic 0.02s test recording, three orders of magnitude under
+the boundary.
+
+**Decision: tile the render**, not cap duration or switch format. Cap-duration or cap-width both
+compromise the feature's actual point (seeing an entire recording at a true locked scale);
+PNG raises the pixel ceiling but trades one hard failure (WebP's limit) for another (a 30s
+recording is ~482MB of uncompressed RGB per request, plus browsers have their own decode limits).
+Tiling is the only option that keeps the locked-scale invariant intact for recordings of any
+length, and — done right — fixes the *memory* half of the problem along with the *pixel-limit*
+half (a tile only ever decodes/processes its own slice of the WAV, not the whole file).
+
+**Shape of the fix:**
+
+- `render_spectrogram`/`render_oscillogram` (`media/`) gain an optional `time_range_s: tuple[float,
+  float] | None = None` parameter. When set, only that slice of the decoded PCM is processed —
+  the STFT (spectrogram) or peak-envelope bucketing (oscillogram) never sees samples outside the
+  window. Defaults to `None` (whole file), so every existing caller (the cached drawer pipeline in
+  `jobs/tasks.py`) is unaffected — this is additive, not a behavior change for existing callers,
+  and the Global Constraint below is revised to reflect exactly that scope.
+- A new pure `detail_tiles(total_width_px: int) -> list[DetailTile]` in `services/recording_detail.py`
+  splits a recording's full locked-scale width into fixed-width chunks (a new
+  `DETAIL_MAX_TILE_WIDTH_PX` constant, comfortably under WebP's 16383px limit — 8000px chosen: wide
+  margin, still few enough tiles for a typical recording that the per-tile request count stays
+  reasonable). `DetailParams` gains a `tiles: list[DetailTile]` field.
+- The two detail-image routes become tile-indexed: `GET
+  /recordings/<audio_hash>/detail-spectrogram/<int:tile_index>.webp` and the oscillogram
+  equivalent — 404 for an out-of-range tile index, same as every other 404 case this page's routes
+  already handle.
+- The template renders one `<img>` per tile, laid out edge-to-edge (no gaps) in a flex row inside
+  the existing scrollable container, instead of one single (previously oversized) image.
+- The client JS's click/crosshair/playback-cursor math switches from measuring against a single
+  `<img>`'s `getBoundingClientRect()` to measuring against the tiled row's — the tiles have no
+  gaps between them, so this is "measure the container instead of one image," not "make every
+  computation tile-aware."
+
+**Global Constraint revision:** "No new derived-media artifact type... this reuses the existing
+pure `render_spectrogram`/`render_oscillogram` unmodified" (original Non-goals) is revised to: the
+renderers gain one new *optional*, backward-compatible parameter (`time_range_s`, defaulting to
+`None`) rather than staying literally unmodified — every other Non-goal (no cache, no
+Procrastinate job, no `paths.py` entry) still holds exactly as written.
+
+Two smaller bugs surfaced by the same review are folded into this addendum's implementation since
+they land in the same files: `recording_details.html` never loaded `alpine.min.js` despite
+including `_nav.html` (an Alpine component) — the theme toggle and sidebar were inert on this page
+— and a source WAV missing from disk (the window between a file being deleted/moved and the next
+`sweep_missing` run) 500ed instead of 404ing as this spec's §2 step 2 already requires.
