@@ -264,6 +264,7 @@ def name_site(
     *,
     radius_m: float,
     site_radius_m: float,
+    force: bool = False,
 ) -> tuple[str, str | None] | None:
     """Resolve (name, admin_path) for a coordinate, cache-first through
     SiteNameCache. Returns None if poiidx could not resolve anything at all
@@ -278,13 +279,21 @@ def name_site(
     for its own footprint -- see _select_best_poi for how site_radius_m also
     drives which candidate wins.
 
+    `force=True` (added 2026-09-01, backfill-site-names --force /
+    derive --force) skips a cache hit and re-queries poiidx unconditionally
+    -- for a coordinate whose cached name predates a poiidx_filter_config.yaml
+    widening or a real poiidx reindex, the normal cache-first path would
+    otherwise serve the exact same stale answer forever, since nothing
+    about a `derive_sites` rebuild (which only resets `Site.name`, never
+    touches `SiteNameCache`) would ever invalidate it.
+
     Caller must have already called `ensure_connected` this process --
     this function never calls poiidx.init() itself."""
     key = _cache_key(lon, lat, site_radius_m)
     cached = db_session.scalar(
         select(SiteNameCache).where(SiteNameCache.geohash == key),
     )
-    if cached is not None:
+    if cached is not None and not force:
         return cached.name, cached.admin_path
 
     point = Point(lon, lat)
@@ -325,14 +334,22 @@ def name_site(
     if name is None:
         return None
 
-    db_session.add(
-        SiteNameCache(
-            geohash=key,
-            name=name,
-            admin_path=admin_path,
-            fetched_at=datetime.now(UTC),
-        ),
-    )
+    if cached is not None:
+        # Forced refresh of an existing row -- update in place rather than
+        # `db_session.add`ing a second row, which would violate the geohash
+        # UNIQUE constraint.
+        cached.name = name
+        cached.admin_path = admin_path
+        cached.fetched_at = datetime.now(UTC)
+    else:
+        db_session.add(
+            SiteNameCache(
+                geohash=key,
+                name=name,
+                admin_path=admin_path,
+                fetched_at=datetime.now(UTC),
+            ),
+        )
     return name, admin_path
 
 
@@ -341,6 +358,7 @@ def enqueue_site_naming(
     engine: Engine,
     *,
     poiidx_database_url: str | None,
+    force: bool = False,
 ) -> int:
     """Cache-first resolution for every Site still missing a name. Called
     right after derive_sites()+commit() -- its wholesale rebuild resets
@@ -348,6 +366,15 @@ def enqueue_site_naming(
     `backfill-site-names` CLI command. Returns the number of name_site jobs
     actually deferred; a SiteNameCache hit is resolved directly onto the
     Site row instead and does not count.
+
+    `force=True` (added 2026-09-01, backfill-site-names --force / derive
+    --force) skips the cache-hit shortcut below and always defers a
+    name_site job, so a stale SiteNameCache row (e.g. from before a
+    poiidx_filter_config.yaml widening) gets genuinely re-resolved instead
+    of being copied verbatim onto the Site row again. It also uses a
+    force-specific queueing lock (see name_site_queueing_lock) so the
+    forced job can't collide with, and get silently dropped as a duplicate
+    of, an already-pending normal job for the same coordinate.
 
     A true no-op when poiidx isn't configured at all -- the "optional
     integration, current behaviour preserved" goal (design spec Goals)."""
@@ -371,15 +398,15 @@ def enqueue_site_naming(
         cached = db_session.scalar(
             select(SiteNameCache).where(SiteNameCache.geohash == key),
         )
-        if cached is not None:
+        if cached is not None and not force:
             site.name = cached.name
             site.admin_path = cached.admin_path
             continue
         try:
             name_site_task.configure(
                 lock=_NAME_SITE_LOCK,
-                queueing_lock=name_site_queueing_lock(key),
-            ).defer(site_id=site.id)
+                queueing_lock=name_site_queueing_lock(key, force=force),
+            ).defer(site_id=site.id, force=force)
         except procrastinate.exceptions.AlreadyEnqueued:
             continue
         enqueued += 1

@@ -807,6 +807,76 @@ def test_backfill_site_names_command_enqueues_an_unnamed_site(
     assert "enqueued 1" in result.output
 
 
+def test_backfill_site_names_command_force_flag_reaches_enqueue_site_naming(
+    clean_database_url: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """--force must actually reach enqueue_site_naming as force=True, not
+    just be accepted and silently dropped."""
+    captured: dict[str, object] = {}
+
+    def fake_enqueue_site_naming(
+        session: object,
+        engine: object,
+        *,
+        poiidx_database_url: str | None,
+        force: bool = False,
+    ) -> int:
+        captured["force"] = force
+        return 0
+
+    monkeypatch.setattr(
+        "fledermap.cli.main.enqueue_site_naming",
+        fake_enqueue_site_naming,
+    )
+
+    env = {
+        "FLEDERMAP_DATABASE_URL": clean_database_url,
+        "FLEDERMAP_ARCHIVE_ROOTS": str(tmp_path / "archive"),
+    }
+    runner = CliRunner()
+
+    result = runner.invoke(cli, ["backfill-site-names", "--force"], env=env)
+
+    assert result.exit_code == 0, result.output
+    assert captured["force"] is True
+
+
+def test_derive_command_force_flag_reaches_enqueue_site_naming(
+    clean_database_url: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_enqueue_site_naming(
+        session: object,
+        engine: object,
+        *,
+        poiidx_database_url: str | None,
+        force: bool = False,
+    ) -> int:
+        captured["force"] = force
+        return 0
+
+    monkeypatch.setattr(
+        "fledermap.cli.main.enqueue_site_naming",
+        fake_enqueue_site_naming,
+    )
+
+    env = {
+        "FLEDERMAP_DATABASE_URL": clean_database_url,
+        "FLEDERMAP_ARCHIVE_ROOTS": str(tmp_path / "archive"),
+    }
+    runner = CliRunner()
+
+    result = runner.invoke(cli, ["derive", "--force"], env=env)
+
+    assert result.exit_code == 0, result.output
+    assert captured["force"] is True
+
+
 def test_serve_command_starts_without_error(
     clean_database_url: str,
     tmp_path: Path,

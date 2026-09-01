@@ -204,7 +204,19 @@ def ingest(ctx: click.Context, sweep: bool) -> None:
 
 
 @cli.command()
-def derive() -> None:
+@click.option(
+    "--force",
+    is_flag=True,
+    default=False,
+    help=(
+        "Re-resolve site names from poiidx even where SiteNameCache already "
+        "has an answer for that coordinate -- for a poiidx_filter_config.yaml "
+        "change or a poiidx reindex whose effect the cache would otherwise "
+        "hide forever, since derive_sites resets Site.name but never touches "
+        "SiteNameCache."
+    ),
+)
+def derive(force: bool) -> None:
     """Partition sessions and rebuild sites from what `ingest` has stored.
 
     Headless — no web. Site naming is enqueued (poiidx jobs, resolved off
@@ -239,6 +251,7 @@ def derive() -> None:
             session,
             engine,
             poiidx_database_url=config.poiidx_database_url,
+            force=force,
         )
         session.commit()
 
@@ -419,7 +432,18 @@ def enqueue_media_command() -> None:
 
 
 @cli.command(name="backfill-site-names")
-def backfill_site_names_command() -> None:
+@click.option(
+    "--force",
+    is_flag=True,
+    default=False,
+    help=(
+        "Re-resolve site names from poiidx even where SiteNameCache already "
+        "has an answer for that coordinate -- for a poiidx_filter_config.yaml "
+        "change or a poiidx reindex whose effect the cache would otherwise "
+        "hide forever."
+    ),
+)
+def backfill_site_names_command(force: bool) -> None:
     """Resolve names for any Site still missing one via poiidx -- for sites
     that predate this feature, or whose name_site job failed past its retry
     budget. A no-op (reports "enqueued 0") if FLEDERMAP_POIIDX_DATABASE_URL
@@ -438,6 +462,7 @@ def backfill_site_names_command() -> None:
             session,
             engine,
             poiidx_database_url=config.poiidx_database_url,
+            force=force,
         )
         session.commit()
 

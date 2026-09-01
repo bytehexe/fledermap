@@ -91,12 +91,22 @@ def preview_lock_key(audio_hash: str) -> str:
 _NAME_SITE_LOCK = "poiidx-name-site"
 
 
-def name_site_queueing_lock(cache_key: str) -> str:
-    return f"name_site:{cache_key}"
+def name_site_queueing_lock(cache_key: str, *, force: bool = False) -> str:
+    """A forced refresh gets its own lock namespace -- otherwise it would
+    collide with (and get silently dropped as an AlreadyEnqueued duplicate
+    of) an already-pending normal job for the same coordinate, which is
+    exactly the collision the plain lock relies on for legitimate
+    derive_sites rebuilds of the SAME real site."""
+    suffix = ":force" if force else ""
+    return f"name_site:{cache_key}{suffix}"
 
 
 @app.task(queue="geo", pass_context=True, retry=_RETRY)
-def name_site_task(context: procrastinate.JobContext, site_id: int) -> None:
+def name_site_task(
+    context: procrastinate.JobContext,
+    site_id: int,
+    force: bool = False,
+) -> None:
     """Resolve one Site's name via poiidx, off the request path entirely
     (design spec Goals: "never a web handler"). `_NAME_SITE_LOCK` -- a
     single static value shared by every name_site job, applied at defer
@@ -134,6 +144,7 @@ def name_site_task(context: procrastinate.JobContext, site_id: int) -> None:
             lat,
             radius_m=config.site_naming_radius_m,
             site_radius_m=site.radius_m,
+            force=force,
         )
         if resolved is not None:
             site.name, site.admin_path = resolved

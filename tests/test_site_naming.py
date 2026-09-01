@@ -221,6 +221,97 @@ def test_name_site_returns_the_cached_value_without_calling_poiidx(
 
 
 @pytest.mark.db
+def test_name_site_force_bypasses_the_cache(
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """force=True re-queries poiidx even on a cache hit -- for a coordinate
+    whose cached name predates a poiidx filter-config widening or reindex,
+    the normal cache-first path would serve the stale answer forever."""
+    monkeypatch.setattr(
+        site_naming.poiidx,
+        "get_nearest_pois",
+        lambda *a, **k: [{"name": "Fresh Match", "rank": 16}],
+    )
+    monkeypatch.setattr(
+        site_naming.poiidx,
+        "get_administrative_hierarchy_string",
+        lambda *a, **k: "Berlin > Mitte",
+    )
+
+    with OrmSession(engine) as session:
+        session.add(
+            SiteNameCache(
+                geohash=site_naming._cache_key(13.405, 52.520, 50.0),
+                name="Stale Match",
+                admin_path="Berlin > Mitte",
+                fetched_at=datetime(2026, 8, 28, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+        result = site_naming.name_site(
+            session,
+            13.405,
+            52.520,
+            radius_m=300.0,
+            site_radius_m=50.0,
+            force=True,
+        )
+
+    assert result == ("Fresh Match", "Berlin > Mitte")
+
+
+@pytest.mark.db
+def test_name_site_force_updates_the_existing_cache_row_in_place(
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A forced refresh must not try to INSERT a second row under the same
+    (unique) geohash -- it has to update the existing one."""
+    monkeypatch.setattr(
+        site_naming.poiidx,
+        "get_nearest_pois",
+        lambda *a, **k: [{"name": "Fresh Match", "rank": 16}],
+    )
+    monkeypatch.setattr(
+        site_naming.poiidx,
+        "get_administrative_hierarchy_string",
+        lambda *a, **k: "Berlin > Mitte",
+    )
+
+    with OrmSession(engine) as session:
+        session.add(
+            SiteNameCache(
+                geohash=site_naming._cache_key(13.405, 52.520, 50.0),
+                name="Stale Match",
+                admin_path="Berlin > Mitte",
+                fetched_at=datetime(2026, 8, 28, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+        site_naming.name_site(
+            session,
+            13.405,
+            52.520,
+            radius_m=300.0,
+            site_radius_m=50.0,
+            force=True,
+        )
+        session.commit()
+
+        rows = session.scalars(
+            select(SiteNameCache).where(
+                SiteNameCache.geohash == site_naming._cache_key(13.405, 52.520, 50.0),
+            ),
+        ).all()
+
+    assert len(rows) == 1
+    assert rows[0].name == "Fresh Match"
+
+
+@pytest.mark.db
 def test_name_site_prefers_the_poi_whose_rank_matches_a_small_sites_own_scale(
     engine: Engine,
     monkeypatch: pytest.MonkeyPatch,
@@ -887,6 +978,80 @@ def test_enqueue_site_naming_resolves_a_cache_hit_directly_without_a_job(
         assert refreshed is not None
         assert refreshed.name == "Tiergarten"
         assert refreshed.admin_path == "Berlin > Mitte"
+
+
+@pytest.mark.db
+def test_enqueue_site_naming_force_defers_a_job_instead_of_trusting_the_cache(
+    engine: Engine,
+) -> None:
+    """The opposite of the test above: force=True must not take the
+    inline-resolve-from-cache shortcut, even though a cache entry exists --
+    it defers a job (which re-queries poiidx) instead."""
+    jobs_app.open(engine)
+    ensure_schema(jobs_app, engine)
+
+    with OrmSession(engine) as session:
+        session.add(
+            SiteNameCache(
+                geohash=site_naming._cache_key(13.405, 52.520, 50.0),
+                name="Tiergarten",
+                admin_path="Berlin > Mitte",
+                fetched_at=datetime(2026, 8, 28, tzinfo=UTC),
+            ),
+        )
+        site = _unnamed_site(13.405, 52.520)
+        session.add(site)
+        session.commit()
+        site_id = site.id
+
+        count = site_naming.enqueue_site_naming(
+            session,
+            engine,
+            poiidx_database_url="postgresql://u:p@localhost/poiidx_bats_db",
+            force=True,
+        )
+        session.commit()
+
+    assert count == 1
+    with OrmSession(engine) as session:
+        refreshed = session.get(Site, site_id)
+        assert refreshed is not None
+        assert refreshed.name is None  # not resolved inline -- the job hasn't run
+
+
+@pytest.mark.db
+def test_enqueue_site_naming_force_does_not_collide_with_a_pending_normal_job(
+    engine: Engine,
+) -> None:
+    """A forced run must use a distinct queueing lock from the normal path
+    -- otherwise an already-pending normal job for the same coordinate
+    silently swallows the forced one as an AlreadyEnqueued duplicate,
+    exactly the collision SN's coordinate-based dedup relies on for
+    legitimate rebuilds."""
+    jobs_app.open(engine)
+    ensure_schema(jobs_app, engine)
+
+    with OrmSession(engine) as session:
+        session.add(_unnamed_site(13.405, 52.520))
+        session.commit()
+        normal_count = site_naming.enqueue_site_naming(
+            session,
+            engine,
+            poiidx_database_url="postgresql://u:p@localhost/poiidx_bats_db",
+        )
+
+    with OrmSession(engine) as session:
+        session.add(_unnamed_site(13.405, 52.520))
+        session.commit()
+        forced_count = site_naming.enqueue_site_naming(
+            session,
+            engine,
+            poiidx_database_url="postgresql://u:p@localhost/poiidx_bats_db",
+            force=True,
+        )
+
+    assert normal_count == 1
+    assert forced_count == 1  # distinct lock -- not swallowed as a duplicate
 
 
 @pytest.mark.db
