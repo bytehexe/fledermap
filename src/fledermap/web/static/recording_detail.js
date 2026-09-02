@@ -80,6 +80,11 @@ document.addEventListener("DOMContentLoaded", () => {
   const maxFreqKhz = parseFloat(firstTile.dataset.maxFreqKhz);
   const pxPerMs = parseFloat(firstTile.dataset.pxPerMs);
   const pxPerKhz = parseFloat(firstTile.dataset.pxPerKhz);
+  // The <audio> element plays the x10 time-expanded preview (media/preview.py) -- its
+  // currentTime is on THAT clock, not the spectrogram/oscillogram's native-real-time locked
+  // scale. 1s of expanded playback is 1 / timeExpansionFactor real seconds: divide by this
+  // factor to go from audio.currentTime to spectrogram-time, multiply to go the other way.
+  const timeExpansionFactor = parseFloat(firstTile.dataset.timeExpansionFactor);
 
   // Dense axis (design spec section 3): fixed ms/kHz intervals, built from
   // the exact same data attributes the crosshair/cursor math below uses --
@@ -131,7 +136,8 @@ document.addEventListener("DOMContentLoaded", () => {
   wrap.addEventListener("click", (event) => {
     const rect = wrap.getBoundingClientRect();
     const xPx = event.clientX - rect.left;
-    audio.currentTime = xPx / pxPerMs / 1000;
+    const spectrogramTimeS = xPx / pxPerMs / 1000;
+    audio.currentTime = spectrogramTimeS * timeExpansionFactor;
     audio.play();
   });
 
@@ -158,7 +164,8 @@ document.addEventListener("DOMContentLoaded", () => {
   // <audio>'s currentTime, snaps the scroll container into view only when
   // the cursor goes off-screen -- no continuous auto-follow by default.
   audio.addEventListener("timeupdate", () => {
-    const xPx = audio.currentTime * 1000 * pxPerMs;
+    const spectrogramTimeS = audio.currentTime / timeExpansionFactor;
+    const xPx = spectrogramTimeS * 1000 * pxPerMs;
     cursor.style.left = `${xPx}px`;
     cursor.hidden = false;
 

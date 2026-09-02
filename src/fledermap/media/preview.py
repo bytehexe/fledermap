@@ -19,7 +19,11 @@ import tempfile
 import wave
 from pathlib import Path
 
-_TIME_EXPANSION_FACTOR = 10
+# Public: the recording details page's JS needs this to convert between the
+# preview <audio>'s expanded playback clock and the spectrogram/oscillogram's
+# native-real-time locked scale (audio.currentTime is on THIS expanded
+# timeline, not the images' one) -- see web/views/recording_detail.py.
+TIME_EXPANSION_FACTOR = 10
 
 
 def make_preview(wav_path: Path, out_path: Path) -> None:
@@ -30,7 +34,7 @@ def make_preview(wav_path: Path, out_path: Path) -> None:
         params = src.getparams()
         frames = src.readframes(src.getnframes())
 
-    slow_rate = params.framerate // _TIME_EXPANSION_FACTOR
+    slow_rate = params.framerate // TIME_EXPANSION_FACTOR
 
     tmp_wav_fd, tmp_wav_name = tempfile.mkstemp(suffix=".wav")
     os.close(tmp_wav_fd)

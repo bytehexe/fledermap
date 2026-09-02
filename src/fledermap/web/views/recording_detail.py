@@ -10,6 +10,7 @@ import flask
 from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
 
+from fledermap.media.preview import TIME_EXPANSION_FACTOR
 from fledermap.services.current_best import current_best_identification
 from fledermap.services.recording_detail import (
     DETAIL_PX_PER_KHZ,
@@ -66,5 +67,6 @@ def recording_details_page(audio_hash: str) -> flask.Response:
             params=params,
             px_per_ms=DETAIL_PX_PER_MS,
             px_per_khz=DETAIL_PX_PER_KHZ,
+            time_expansion_factor=TIME_EXPANSION_FACTOR,
         )
     return flask.make_response(html)

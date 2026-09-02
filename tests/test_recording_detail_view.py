@@ -51,6 +51,35 @@ def test_recording_details_page_renders_the_recording(
     assert f"/recordings/{'f2' * 32}/detail-oscillogram/0.webp" in html
 
 
+def test_recording_details_page_bakes_in_the_preview_time_expansion_factor(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """The <audio> element plays the same x10 time-expanded preview
+    `media/preview.py` renders everywhere else -- `audio.currentTime` is on
+    that expanded timeline, not the spectrogram's native-real-time locked
+    scale, so the JS needs this factor to convert between them (cursor sync
+    and click-to-play were both wrong without it: the cursor crawled at 1/10
+    speed and scrolled off the image with ~90% of playback still left)."""
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="f5" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                duration_s=0.5,
+                samplerate_hz=256_000,
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/recordings/{'f5' * 32}")
+
+    html = response.get_data(as_text=True)
+    assert 'data-time-expansion-factor="10"' in html
+
+
 def test_recording_details_page_renders_one_img_per_tile(
     engine: Engine,
     tmp_path: Path,
