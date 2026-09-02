@@ -13,6 +13,7 @@ any real `Recording` row never reaches them.
 from __future__ import annotations
 
 import dataclasses
+import logging
 import os
 import tempfile
 from collections.abc import Callable
@@ -37,6 +38,8 @@ from fledermap.services.recording_detail import (
 from fledermap.store.models import Recording
 
 media_bp = flask.Blueprint("media", __name__)
+
+logger = logging.getLogger(__name__)
 
 
 def _known_hash(session: OrmSession, audio_hash: str) -> bool:
@@ -161,7 +164,8 @@ def detail_spectrogram(audio_hash: str, tile_index: int) -> ResponseReturnValue:
                 time_range_s=time_range_s,
             ),
         )
-    except UnreadableWavError:
+    except UnreadableWavError as exc:
+        logger.warning("unreadable source WAV for %s: %s", audio_hash, exc)
         flask.abort(404)
 
 
@@ -185,5 +189,6 @@ def detail_oscillogram(audio_hash: str, tile_index: int) -> ResponseReturnValue:
                 time_range_s=time_range_s,
             ),
         )
-    except UnreadableWavError:
+    except UnreadableWavError as exc:
+        logger.warning("unreadable source WAV for %s: %s", audio_hash, exc)
         flask.abort(404)

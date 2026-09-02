@@ -467,6 +467,41 @@ def test_detail_spectrogram_404s_for_a_truncated_source_file(
     assert response.status_code == 404
 
 
+def test_detail_spectrogram_404s_for_a_header_only_source_file(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    archive_root.mkdir()
+    # Truncated right after the header: a valid fmt chunk, but an empty data chunk --
+    # zero PCM bytes, no wave.Error/EOFError/ValueError from decoding itself.
+    wav_bytes = build_wav([(b"fmt ", fmt_payload(256_000)), (b"data", b"")])
+    (archive_root / "header_only.wav").write_bytes(wav_bytes)
+
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="e9" * 32,
+                path="header_only.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                duration_s=0.02,
+                samplerate_hz=256_000,
+            ),
+        )
+        session.commit()
+
+    app = create_app(
+        engine,
+        tmp_path / "static",
+        tmp_path / "media",
+        archive_roots=(archive_root,),
+    )
+    response = app.test_client().get(
+        f"/recordings/{'e9' * 32}/detail-spectrogram/0.webp"
+    )
+    assert response.status_code == 404
+
+
 def test_detail_oscillogram_404s_for_a_truncated_source_file(
     engine: Engine,
     tmp_path: Path,

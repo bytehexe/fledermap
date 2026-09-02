@@ -28,11 +28,15 @@ def read_pcm(wav_path: Path) -> tuple[np.ndarray, int]:
     averaged down to mono) plus the file's own sample rate.
 
     Raises `UnreadableWavError` for a file that isn't a valid RIFF/WAVE
-    container (`wave.open` itself raises `wave.Error`/`EOFError`), or one
+    container (`wave.open` itself raises `wave.Error`/`EOFError`), one
     truncated mid-sample -- `wave.readframes` silently returns however many
     bytes are actually on disk rather than raising, so a short read only
     surfaces once `np.frombuffer`/`reshape` see a byte count that doesn't
-    evenly divide into samples (`ValueError`).
+    evenly divide into samples (`ValueError`) -- or one that decodes
+    "successfully" but is unusable downstream: a header-only file with no PCM
+    data at all, or a corrupt `fmt ` chunk claiming a zero sample rate.
+    Neither of those raises on its own, so they're checked explicitly after
+    the decode rather than caught as an exception.
     """
     try:
         with wave.open(str(wav_path), "rb") as wav:
@@ -43,5 +47,13 @@ def read_pcm(wav_path: Path) -> tuple[np.ndarray, int]:
         if n_channels > 1:
             samples = samples.reshape(-1, n_channels).mean(axis=1)
     except (wave.Error, EOFError, ValueError) as exc:
-        raise UnreadableWavError(f"cannot read PCM from {wav_path}: {exc}") from exc
+        raise UnreadableWavError(
+            f"cannot read PCM from {wav_path}: {type(exc).__name__}: {exc}"
+        ) from exc
+    if samplerate <= 0:
+        raise UnreadableWavError(
+            f"cannot read PCM from {wav_path}: sample rate {samplerate}"
+        )
+    if samples.size == 0:
+        raise UnreadableWavError(f"cannot read PCM from {wav_path}: no PCM data")
     return samples, samplerate
