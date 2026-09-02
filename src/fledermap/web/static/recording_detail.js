@@ -49,6 +49,21 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     tiles.forEach((img) => {
+      // This script tag sits at the end of <body>, after every tile <img> --
+      // on a fast (e.g. local) server, some of the earliest tiles can finish
+      // loading before this code ever runs. A `load`/`error` listener
+      // attached after the fact never fires for those, so `remaining` would
+      // never reach 0 and the placeholder would never clear. `img.complete`
+      // is true once a load has been attempted, success or failure alike;
+      // `naturalWidth === 0` distinguishes a failed attempt from a real one.
+      if (img.complete) {
+        if (img.naturalWidth === 0) {
+          hadError = true;
+          img.dataset.failed = "true";
+        }
+        settle();
+        return;
+      }
       img.addEventListener("load", settle);
       img.addEventListener("error", () => {
         hadError = true;
