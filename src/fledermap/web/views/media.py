@@ -13,6 +13,7 @@ any real `Recording` row never reaches them.
 from __future__ import annotations
 
 import dataclasses
+import logging
 import os
 import tempfile
 from collections.abc import Callable
@@ -27,6 +28,7 @@ from sqlalchemy.orm import Session as OrmSession
 from fledermap.media.oscillogram import OscillogramParams, render_oscillogram
 from fledermap.media.paths import oscillogram_path, preview_path, spectrogram_path
 from fledermap.media.spectrogram import SpectrogramParams, render_spectrogram
+from fledermap.media.wav_pcm import UnreadableWavError
 from fledermap.services.media import resolve_recording, resolve_wav_path
 from fledermap.services.recording_detail import (
     DETAIL_PX_PER_MS,
@@ -36,6 +38,8 @@ from fledermap.services.recording_detail import (
 from fledermap.store.models import Recording
 
 media_bp = flask.Blueprint("media", __name__)
+
+logger = logging.getLogger(__name__)
 
 
 def _known_hash(session: OrmSession, audio_hash: str) -> bool:
@@ -151,14 +155,18 @@ def detail_spectrogram(audio_hash: str, tile_index: int) -> ResponseReturnValue:
         (tile.start_px + tile.width_px) / DETAIL_PX_PER_MS / 1000,
     )
     tile_params = dataclasses.replace(spectrogram_params, width_px=tile.width_px)
-    return _serve_temp_render(
-        lambda out: render_spectrogram(
-            wav_path,
-            out,
-            params=tile_params,
-            time_range_s=time_range_s,
-        ),
-    )
+    try:
+        return _serve_temp_render(
+            lambda out: render_spectrogram(
+                wav_path,
+                out,
+                params=tile_params,
+                time_range_s=time_range_s,
+            ),
+        )
+    except UnreadableWavError as exc:
+        logger.warning("unreadable source WAV for %s: %s", audio_hash, exc)
+        flask.abort(404)
 
 
 @media_bp.get("/recordings/<audio_hash>/detail-oscillogram/<int:tile_index>.webp")
@@ -172,11 +180,15 @@ def detail_oscillogram(audio_hash: str, tile_index: int) -> ResponseReturnValue:
         (tile.start_px + tile.width_px) / DETAIL_PX_PER_MS / 1000,
     )
     tile_params = dataclasses.replace(oscillogram_params, width_px=tile.width_px)
-    return _serve_temp_render(
-        lambda out: render_oscillogram(
-            wav_path,
-            out,
-            params=tile_params,
-            time_range_s=time_range_s,
-        ),
-    )
+    try:
+        return _serve_temp_render(
+            lambda out: render_oscillogram(
+                wav_path,
+                out,
+                params=tile_params,
+                time_range_s=time_range_s,
+            ),
+        )
+    except UnreadableWavError as exc:
+        logger.warning("unreadable source WAV for %s: %s", audio_hash, exc)
+        flask.abort(404)
