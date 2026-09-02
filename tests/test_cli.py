@@ -1104,6 +1104,92 @@ def test_install_writes_units_and_enables_the_target(
     ]
 
 
+def test_install_restart_flag_also_restarts_the_target(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli_main.sys, "platform", "linux")
+    monkeypatch.setattr(
+        cli_main.shutil,
+        "which",
+        lambda _name: "/home/janna/.local/bin/fledermap",
+    )
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        cli_main.subprocess,
+        "run",
+        lambda args, **_kwargs: calls.append(list(args)),
+    )
+
+    runner = CliRunner()
+    env = {"XDG_CONFIG_HOME": str(tmp_path)}
+
+    result = runner.invoke(cli, ["install", "--restart"], env=env)
+
+    assert result.exit_code == 0, result.output
+    assert calls == [
+        ["systemctl", "--user", "daemon-reload"],
+        ["systemctl", "--user", "enable", "--now", "fledermap.target"],
+        ["systemctl", "--user", "restart", "fledermap.target"],
+    ]
+
+
+def test_install_without_restart_flag_does_not_restart_the_target(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli_main.sys, "platform", "linux")
+    monkeypatch.setattr(
+        cli_main.shutil,
+        "which",
+        lambda _name: "/home/janna/.local/bin/fledermap",
+    )
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        cli_main.subprocess,
+        "run",
+        lambda args, **_kwargs: calls.append(list(args)),
+    )
+
+    runner = CliRunner()
+    env = {"XDG_CONFIG_HOME": str(tmp_path)}
+
+    result = runner.invoke(cli, ["install"], env=env)
+
+    assert result.exit_code == 0, result.output
+    assert calls == [
+        ["systemctl", "--user", "daemon-reload"],
+        ["systemctl", "--user", "enable", "--now", "fledermap.target"],
+    ]
+
+
+def test_install_reports_a_failed_restart_call_cleanly(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli_main.sys, "platform", "linux")
+    monkeypatch.setattr(
+        cli_main.shutil,
+        "which",
+        lambda _name: "/home/janna/.local/bin/fledermap",
+    )
+
+    def fake_run(args: list[str], **_kwargs: object) -> None:
+        if args[2] == "restart":
+            raise subprocess.CalledProcessError(returncode=1, cmd=args)
+
+    monkeypatch.setattr(cli_main.subprocess, "run", fake_run)
+
+    runner = CliRunner()
+    env = {"XDG_CONFIG_HOME": str(tmp_path)}
+
+    result = runner.invoke(cli, ["install", "--restart"], env=env)
+
+    assert result.exit_code != 0
+    assert not isinstance(result.exception, subprocess.CalledProcessError)
+    assert "systemctl" in result.output
+
+
 def test_install_fails_cleanly_when_fledermap_not_on_path(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

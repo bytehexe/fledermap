@@ -505,7 +505,19 @@ def backfill_site_names_command(force: bool) -> None:
 
 
 @cli.command()
-def install() -> None:
+@click.option(
+    "--restart",
+    is_flag=True,
+    help=(
+        "Also restart fledermap.target now, so an already-running serve/"
+        "worker picks up a new install path immediately (e.g. after a pipx "
+        "upgrade). Without this flag, `enable --now` only starts units that "
+        "aren't already active, so an in-place upgrade needs a manual "
+        "`systemctl --user restart fledermap.target` -- --restart does that "
+        "for you."
+    ),
+)
+def install(*, restart: bool) -> None:
     """Generate and enable systemd --user units for `serve` + `worker`, so
     both survive logout/reboot without a terminal open. Linux only (systemd
     --user has no equivalent elsewhere); assumes an already-installed
@@ -518,7 +530,8 @@ def install() -> None:
     are overwritten unconditionally. Note this does NOT restart an
     already-running serve/worker: `enable --now` only starts units that
     aren't already active, so an in-place upgrade needs a manual
-    `systemctl --user restart fledermap.target` to pick up the new path.
+    `systemctl --user restart fledermap.target` to pick up the new path --
+    pass --restart to have this command do that for you.
     """
     if sys.platform != "linux":
         raise click.ClickException(
@@ -537,10 +550,14 @@ def install() -> None:
     for filename, content in render_unit_files(exe).items():
         (unit_dir / filename).write_text(content)
 
-    for systemctl_args in (
+    systemctl_calls = [
         ["systemctl", "--user", "daemon-reload"],
         ["systemctl", "--user", "enable", "--now", "fledermap.target"],
-    ):
+    ]
+    if restart:
+        systemctl_calls.append(["systemctl", "--user", "restart", "fledermap.target"])
+
+    for systemctl_args in systemctl_calls:
         try:
             subprocess.run(systemctl_args, check=True)
         except FileNotFoundError as exc:
