@@ -76,6 +76,9 @@ def test_recording_details_page_renders_one_img_per_tile(
     assert "/detail-spectrogram/0.webp" in html
     assert "/detail-spectrogram/1.webp" in html
     assert "/detail-spectrogram/2.webp" in html
+    assert "/detail-oscillogram/0.webp" in html
+    assert "/detail-oscillogram/1.webp" in html
+    assert "/detail-oscillogram/2.webp" in html
 
 
 def test_recording_details_page_explains_missing_metadata(

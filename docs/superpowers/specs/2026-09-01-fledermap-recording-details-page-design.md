@@ -227,8 +227,24 @@ compromise the feature's actual point (seeing an entire recording at a true lock
 PNG raises the pixel ceiling but trades one hard failure (WebP's limit) for another (a 30s
 recording is ~482MB of uncompressed RGB per request, plus browsers have their own decode limits).
 Tiling is the only option that keeps the locked-scale invariant intact for recordings of any
-length, and — done right — fixes the *memory* half of the problem along with the *pixel-limit*
-half (a tile only ever decodes/processes its own slice of the WAV, not the whole file).
+length, and fixes the *pixel-limit* half of the problem, which is the actual blocker.
+
+**Correction (final whole-branch review, 2026-09-01):** the paragraph above originally also
+claimed tiling fixes the *memory* half of the problem — that a tile only ever decodes/processes
+its own slice of the WAV. That is false for the shipped implementation. Peak normalization is
+computed from the WHOLE file, a deliberate correctness choice (see Task 7's design), so every
+tile request still runs the full STFT (spectrogram) or reads the full sample array (oscillogram)
+over the ENTIRE file — only the final resize/encode step is narrowed to `time_range_s`. Measured
+on the shipped code: a single 8000px tile for a 15s/256kHz recording takes ~0.48s CPU and peaks
+at ~180MB RSS. A full page view of that recording issues 36 spectrogram + 36 oscillogram tile
+requests — roughly 20–35s of total server CPU and ~1GB RSS with a browser's ~6 parallel
+connections. A 30s recording roughly doubles both. This is a known, accepted tradeoff of
+prioritizing whole-file-peak-normalization correctness over per-request cost, not a bug to fix in
+this fix wave. Two real options exist for a future optimization (documented as follow-up, not
+required now): compute the whole-file peak once and thread it into the renderer instead of
+recomputing the full STFT per tile-request, or fall back to the feature's own documented escape
+hatch — switch to the existing params-hash-based derived-media cache, which the original spec's
+Non-goals section already names as the contained follow-up if render cost becomes a problem.
 
 **Shape of the fix:**
 

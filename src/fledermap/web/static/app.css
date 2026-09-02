@@ -505,3 +505,4 @@ button:disabled { cursor: default; opacity: 0.5; }
 }
 .playback-cursor[hidden] { display: none; }
 .detail-loading[hidden] { display: none; }
+.detail-spectrogram-tile[hidden], .detail-oscillogram-tile[hidden] { display: none; }

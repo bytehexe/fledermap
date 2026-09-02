@@ -31,13 +31,29 @@ document.addEventListener("DOMContentLoaded", () => {
   // would otherwise flash broken-looking gaps.
   function revealWhenAllLoaded(tiles, loadingEl) {
     let remaining = tiles.length;
-    tiles.forEach((img) => {
-      img.addEventListener("load", () => {
-        remaining -= 1;
-        if (remaining === 0) {
+    let hadError = false;
+
+    function settle() {
+      remaining -= 1;
+      if (remaining === 0) {
+        if (hadError) {
+          loadingEl.textContent = "Some tiles failed to render.";
+          loadingEl.hidden = false;
+        } else {
           loadingEl.hidden = true;
-          tiles.forEach((t) => { t.hidden = false; });
         }
+        tiles.forEach((t) => {
+          if (!t.dataset.failed) t.hidden = false;
+        });
+      }
+    }
+
+    tiles.forEach((img) => {
+      img.addEventListener("load", settle);
+      img.addEventListener("error", () => {
+        hadError = true;
+        img.dataset.failed = "true";
+        settle();
       });
     });
   }
