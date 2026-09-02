@@ -41,8 +41,12 @@ Roughly a pipeline, each stage its own top-level package under `src/fledermap/`:
 - **`domain/`** — pure vocabulary: `codes.py` (`IdSource`, `Verdict`, species code sources),
   `metadata.py`. No I/O, no SQLAlchemy.
 - **`store/`** — SQLAlchemy models (`models.py`), DB bootstrap (`db.py`), PostGIS geometry
-  helpers (`geo.py`), seed data (`seed.py`). Migrations live in `alembic/` at the repo root, not
-  under `src/` (see "Migrations" below).
+  helpers (`geo.py`), seed data (`seed.py`). Migrations live in `src/fledermap/alembic/` — inside
+  the package, not a repo-root sibling — specifically so hatchling's default src-layout wheel
+  packaging ships them; `alembic.ini` (still at the repo root, for dev-time `alembic revision
+  --autogenerate`) points `script_location` there, and `cli/main.py`'s `_alembic_script_location()`
+  resolves the same directory at runtime via `importlib.resources.files("fledermap")` — one code
+  path for both an editable dev install and a real pipx/pip install (see "Migrations" below).
 - **`services/`** — the use-case layer the CLI and web app both call into: `ingest.py`/
   `derive.py` drive the pipeline stages above end-to-end, `map_query.py` is the single definition
   of what the map's active filters mean (shared by every GeoJSON/panel route — see its own
@@ -134,9 +138,6 @@ belongs there.
 - When mypy cannot resolve a third-party import, **add the package to the `types` env** in
   `pyproject.toml`. A global `ignore_missing_imports` has been rejected twice here — it
   blind-spots every future dependency.
-- Ruff treats top-level `alembic` as **first-party** (there is an `alembic/` directory at the
-  repo root), so `from alembic import command` sorts with the `fledermap` imports while
-  `from alembic.autogenerate import ...` stays in the third-party block. Let `--fix` do it.
 - **Test output must be pristine** — a warning is a defect. Fix the cause, never add a
   `filterwarnings` ignore. One such ignore was removed after it turned out never to have worked:
   module-scoped filters match where a warning is *raised*, not where the deprecated module is

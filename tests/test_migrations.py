@@ -6,10 +6,10 @@ from __future__ import annotations
 
 import ast
 from collections.abc import Iterator
-from pathlib import Path
 from typing import Any
 
 import pytest
+from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.config import Config
 from alembic.migration import MigrationContext
@@ -17,7 +17,7 @@ from sqlalchemy import Engine, text
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.exc import IntegrityError
 
-from alembic import command
+from fledermap.cli.main import _alembic_script_location
 from fledermap.domain.codes import (
     IdSource,
     MergeResolution,
@@ -28,8 +28,6 @@ from fledermap.store.db import make_engine
 from fledermap.store.models import Base
 
 pytestmark = pytest.mark.db
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture
@@ -48,7 +46,7 @@ def migrated_engine(postgis_url: str) -> Iterator[Engine]:
     # created before this fixture runs, at a random point in the session.
     # `script_location` and `sqlalchemy.url` are the only settings upgrade needs.
     cfg = Config()
-    cfg.set_main_option("script_location", str(PROJECT_ROOT / "alembic"))
+    cfg.set_main_option("script_location", str(_alembic_script_location()))
     cfg.set_main_option("sqlalchemy.url", postgis_url)
     command.upgrade(cfg, "head")
 
@@ -298,7 +296,7 @@ def _migration_idsource_literal() -> list[str]:
     about source code.
     """
     tree = ast.parse(
-        (PROJECT_ROOT / "alembic" / "versions" / "0001_initial.py").read_text(),
+        (_alembic_script_location() / "versions" / "0001_initial.py").read_text(),
     )
     for node in ast.walk(tree):
         if (

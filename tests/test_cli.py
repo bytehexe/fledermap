@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session as OrmSession
 import fledermap.cli.main as cli_main
 from fledermap.cli.main import (
     EXIT_SWEEP_REFUSED,
+    _alembic_script_location,
     _fetch_missing_vendor_assets_or_die,
     _run_migrations,
     cli,
@@ -226,6 +227,27 @@ def test_worker_rejects_a_nonexistent_archive_root(tmp_path: Path) -> None:
     assert result.exit_code == 1, result.output
     assert "archive root(s) do not exist" in result.output
     assert str(missing_root) in result.output
+
+
+def test_alembic_script_location_resolves_to_a_real_directory_with_the_migration_scripts() -> (
+    None
+):
+    """`_alembic_script_location` is resolved via `importlib.resources` against
+    the INSTALLED `fledermap` package -- not a hardcoded directory-depth guess
+    relative to this file (the bug this replaces: `Path(__file__).parents[3]`
+    only landed on the repo root for a dev/editable install; under a real
+    install (pipx, `pip install`) there is no `src/` layer, so it silently
+    pointed at a nonexistent path and `alembic upgrade head` failed with
+    `CommandError: Path doesn't exist`). This must resolve to a real directory
+    with real migration scripts in BOTH a dev checkout and a real install --
+    exercised here in dev-checkout form; `tests/test_packaging.py` proves the
+    scripts actually ship in the built wheel for the real-install form."""
+    location = _alembic_script_location()
+
+    assert location.is_dir()
+    assert (location / "env.py").is_file()
+    assert (location / "versions").is_dir()
+    assert any((location / "versions").glob("*.py"))
 
 
 def test_migration_populates_alembic_version(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.resources
 import logging
 import shutil
 import subprocess
@@ -14,11 +15,11 @@ from pathlib import Path
 
 import click
 import procrastinate
+from alembic import command as alembic_command
 from alembic.config import Config as AlembicConfig
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session as OrmSession
 
-from alembic import command as alembic_command
 from fledermap.config import Config, ConfigError, resolve_static_root
 from fledermap.derive.sessions import partition_sessions
 from fledermap.jobs.app import ensure_schema, make_worker_connector
@@ -46,11 +47,6 @@ from fledermap.store.db import make_engine
 from fledermap.store.seed import seed_taxonomy
 from fledermap.web.app import create_app
 
-# Repo root: src/fledermap/cli/main.py -> cli -> fledermap -> src -> repo root.
-# `alembic/` lives at the repo root, not inside the installed package, mirroring
-# the layout `tests/test_migrations.py` already assumes.
-_PROJECT_ROOT = Path(__file__).resolve().parents[3]
-
 logger = logging.getLogger(__name__)
 
 # Distinct from ConfigError's exit code (1, via click.ClickException) AND from
@@ -73,6 +69,39 @@ logger = logging.getLogger(__name__)
 EXIT_SWEEP_REFUSED = 3
 
 
+def _alembic_script_location() -> Path:
+    """Where the packaged Alembic migration scripts live -- resolved via
+    `importlib.resources` against the INSTALLED `fledermap` package, not a
+    hardcoded directory-depth guess relative to this file.
+
+    A prior version computed this as
+    `Path(__file__).resolve().parents[3] / "alembic"`, which only landed on
+    the repo root for a dev/editable install (`hatch run`, where this file
+    lives at `<repo>/src/fledermap/cli/main.py`). Under a REAL install (pipx,
+    `pip install`), there is no `src/` layer -- this file ends up at
+    `.../site-packages/fledermap/cli/main.py` -- so that guess pointed at a
+    nonexistent directory, and every command that touches the database
+    (`ingest`, `serve`, `worker`, ...) failed with
+    `alembic.util.exc.CommandError: Path doesn't exist`.
+
+    The scripts now live at `src/fledermap/alembic/` -- a real subdirectory
+    of the `fledermap` package itself, not a sibling `alembic/` at the repo
+    root -- specifically so hatchling's default src-layout packaging (which
+    already ships everything under `src/fledermap/**`, no extra config
+    needed) includes them in the built wheel automatically.
+    `importlib.resources.files("fledermap")` then resolves correctly no
+    matter how `fledermap` got onto this machine: it points at
+    `src/fledermap` for an editable dev install (confirmed: this is a real
+    on-disk directory, not a build artifact, so the migration scripts are
+    visible immediately with no rebuild step) and at the real installed
+    package directory for pipx/pip. One code path, no install-mode branching.
+    `tests/test_packaging.py` proves the scripts actually ship in a built
+    wheel; this function's own test proves it resolves to a real directory
+    with real scripts in dev-checkout form.
+    """
+    return Path(str(importlib.resources.files("fledermap"))) / "alembic"
+
+
 def _run_migrations(database_url: str) -> None:
     """Build (or update) the schema via the real Alembic migration.
 
@@ -89,7 +118,7 @@ def _run_migrations(database_url: str) -> None:
     `tests/test_migrations.py`'s `migrated_engine` fixture).
     """
     cfg = AlembicConfig()
-    cfg.set_main_option("script_location", str(_PROJECT_ROOT / "alembic"))
+    cfg.set_main_option("script_location", str(_alembic_script_location()))
     cfg.set_main_option("sqlalchemy.url", database_url)
     alembic_command.upgrade(cfg, "head")
 
