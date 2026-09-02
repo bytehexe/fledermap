@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from fledermap.services.recording_detail import (
     DETAIL_MAX_FREQ_KHZ,
     DETAIL_MAX_TILE_WIDTH_PX,
@@ -87,12 +89,26 @@ def test_locked_scale_and_fft_constants_match_the_spec_decision() -> None:
     """Pins the values chosen by the 2026-09-02 scale/FFT spike (see the design spec's dated
     addendum) -- a future change to these constants should be a deliberate spec update, not an
     accidental edit that silently drifts from what's documented."""
-    # Exact 1:1 with the real STFT hop at DETAIL_WINDOW_MS/DETAIL_OVERLAP for a 256kHz recording
-    # (this project's EMT device rate) -- see DETAIL_PX_PER_MS's own derivation comment.
-    assert DETAIL_PX_PER_MS == 256_000 / 58 / 1000
     assert DETAIL_PX_PER_KHZ == 4.7
     assert DETAIL_WINDOW_MS == 1.5
     assert DETAIL_OVERLAP == 0.85
+
+
+def test_detail_px_per_ms_is_exactly_1to1_with_the_real_stft_hop() -> None:
+    """`DETAIL_PX_PER_MS` must stay the exact reciprocal of the real STFT hop at
+    `DETAIL_WINDOW_MS`/`DETAIL_OVERLAP` -- recomputed independently here via `stft_hop_samples`
+    (not by re-asserting `recording_detail.py`'s own literal), so a future change to either FFT
+    constant without also updating the scale actually fails a test instead of silently going
+    stale (round 3's design spec addendum makes this exact-1:1 property the whole point of the
+    chosen value)."""
+    from fledermap.media.spectrogram import stft_hop_samples
+
+    # 256kHz, this project's EMT device rate -- see the design spec's addendum
+    samplerate_hz = 256_000
+    hop = stft_hop_samples(samplerate_hz, DETAIL_WINDOW_MS, DETAIL_OVERLAP)
+    assert DETAIL_PX_PER_MS == samplerate_hz / hop / 1000
+    display_px_per_real_column = (hop / samplerate_hz * 1000) * DETAIL_PX_PER_MS
+    assert display_px_per_real_column == pytest.approx(1.0)
 
 
 def test_detail_params_spectrogram_uses_the_detail_only_fft_constants() -> None:

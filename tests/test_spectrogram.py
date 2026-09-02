@@ -13,6 +13,7 @@ from fledermap.media.spectrogram import (
     SpectrogramParams,
     effective_max_freq_hz,
     render_spectrogram,
+    stft_hop_samples,
 )
 
 
@@ -410,3 +411,31 @@ def test_render_spectrogram_tile_boundaries_dont_show_a_seam(tmp_path: Path) -> 
     # pre-fix (~5.5, independent per-tile resize) and post-fix (~2.6, box= on the full image).
     boundary_diff = np.abs(a[:, -1, :] - b[:, 0, :]).mean()
     assert boundary_diff < 4.0
+
+
+def test_stft_hop_samples_matches_render_spectrogram_s_own_nperseg_noverlap_formula() -> (
+    None
+):
+    """`stft_hop_samples` must compute the exact same hop `render_spectrogram` (this file) uses
+    internally -- recomputed independently here from the same source formulas
+    (`nperseg = int(samplerate_hz * window_ms / 1000)`, `noverlap = int(nperseg * overlap)`), not
+    just re-asserting `stft_hop_samples`'s own implementation, so a future edit that changes one
+    but not the other actually fails a test."""
+    samplerate_hz, window_ms, overlap = 256_000, 1.5, 0.85
+    nperseg = int(samplerate_hz * window_ms / 1000)
+    noverlap = int(nperseg * overlap)
+    expected_hop = nperseg - noverlap
+
+    assert stft_hop_samples(samplerate_hz, window_ms, overlap) == expected_hop
+    assert (
+        expected_hop == 58
+    )  # this project's EMT rate at the shipped detail-page FFT params
+
+
+def test_stft_hop_samples_floors_nperseg_at_8() -> None:
+    # A window so short at a low samplerate that samplerate_hz * window_ms / 1000 rounds under 8 --
+    # the floor matters because a near-zero nperseg would make noverlap >= nperseg (a negative or
+    # zero hop), same failure shape `render_spectrogram`'s own nperseg clamp exists to prevent.
+    assert stft_hop_samples(samplerate_hz=8_000, window_ms=0.1, overlap=0.5) == 8 - int(
+        8 * 0.5
+    )

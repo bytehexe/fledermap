@@ -113,6 +113,20 @@ def effective_max_freq_hz(samplerate_hz: float, params: SpectrogramParams) -> fl
     return min(params.max_freq_hz, samplerate_hz / 2)
 
 
+def stft_hop_samples(samplerate_hz: float, window_ms: float, overlap: float) -> int:
+    """The real STFT hop length in samples for these params -- the same `nperseg`/`noverlap`
+    formula `render_spectrogram` uses internally (minus its `len(samples)` floor, which only
+    matters for a signal shorter than one window and isn't knowable ahead of a real recording).
+    Exposed as its own function -- not just inlined in `render_spectrogram` -- because
+    `services/recording_detail.py` needs this exact number too, to derive its locked time scale
+    at the exact point where one real STFT column maps to one display pixel; a second, hand-copied
+    formula there would drift from this one silently the same way `effective_max_freq_hz`'s
+    docstring above warns about for `web/views/map.py`."""
+    nperseg = max(int(samplerate_hz * window_ms / 1000), 8)
+    noverlap = int(nperseg * overlap)
+    return nperseg - noverlap
+
+
 def render_spectrogram(
     wav_path: Path,
     out_path: Path,

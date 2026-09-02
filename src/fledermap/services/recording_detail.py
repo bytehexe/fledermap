@@ -10,25 +10,44 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from fledermap.media.oscillogram import OscillogramParams
-from fledermap.media.spectrogram import SpectrogramParams
+from fledermap.media.spectrogram import SpectrogramParams, stft_hop_samples
+
+# Chosen 2026-09-02 from a two-round visual comparison against a real field recording (design
+# spec's dated addendum) -- detail-page-only, deliberately independent of `SpectrogramParams`'s
+# own `window_ms`/`overlap` defaults, which the drawer/overview's cached renders use instead
+# (Janna's ruling: the overview compresses far more time into the same screen width, so there's
+# no reason to assume one FFT window suits both -- tune this page for this page). Defined before
+# `DETAIL_PX_PER_MS` below, which derives from these two.
+DETAIL_WINDOW_MS = 1.5
+DETAIL_OVERLAP = 0.85
+
+# This project's EMT device rate -- the reference samplerate `DETAIL_PX_PER_MS` below is computed
+# against. A recording at a different samplerate shifts slightly off the exact 1:1 point that
+# computation targets -- unavoidable for a single fixed scale shared across every recording, same
+# tradeoff the existing `DETAIL_MAX_FREQ_KHZ` ceiling below already accepts.
+_DETAIL_REFERENCE_SAMPLERATE_HZ = 256_000
 
 # Derived from the Skiba identification guide's 10ms:40kHz convention against
 # a ~15cm target print height (96dpi CSS px) -- explicitly a tunable
 # starting point, not a final number (design spec Decisions): refine once
 # real recordings are actually on screen. Revised 2026-09-02 (19.0 -> 12.0 -> exact 1:1) across
 # three rounds of visual comparison against a real field recording -- see the design spec's dated
-# addenda for the full reasoning and the render-cost tradeoffs of `DETAIL_WINDOW_MS`/
-# `DETAIL_OVERLAP` below.
+# addenda for the full reasoning.
 #
-# Round 3 pushed the scale to the exact 1:1 point with the real STFT hop: at DETAIL_WINDOW_MS/
-# DETAIL_OVERLAP, `nperseg = int(1.5 * 256_000 / 1000) = 384`, `noverlap = int(384 * 0.85) = 326`,
-# so each real STFT column covers `hop = nperseg - noverlap = 58` samples -- exactly 58/256_000
-# seconds at this project's EMT device rate (256kHz). `DETAIL_PX_PER_MS` is computed as the
-# reciprocal of that, in ms, so one real STFT column maps to exactly one display pixel with no
-# further squeeze possible without discarding real time resolution (a recording at a different
-# samplerate shifts slightly off this exact ratio -- unavoidable for a single fixed scale shared
-# across every recording, same tradeoff the existing DETAIL_MAX_FREQ_KHZ ceiling already accepts).
-DETAIL_PX_PER_MS = 256_000 / 58 / 1000
+# Round 3 pushed the scale to the exact 1:1 point with the real STFT hop: computed via
+# `stft_hop_samples` (`media/spectrogram.py`) -- the same `nperseg`/`noverlap` formula
+# `render_spectrogram` uses internally -- rather than a hand-copied literal, so a later change to
+# `DETAIL_WINDOW_MS`/`DETAIL_OVERLAP` recomputes this automatically instead of silently going
+# stale (see that function's docstring for why a second, hand-copied formula is a real risk here).
+# One real STFT column maps to exactly one display pixel: no further squeeze is possible without
+# discarding real time resolution.
+DETAIL_PX_PER_MS = (
+    _DETAIL_REFERENCE_SAMPLERATE_HZ
+    / stft_hop_samples(
+        _DETAIL_REFERENCE_SAMPLERATE_HZ, DETAIL_WINDOW_MS, DETAIL_OVERLAP
+    )
+    / 1000
+)
 DETAIL_PX_PER_KHZ = 4.7
 # A ceiling, not a promise every recording reaches it -- clamped to the
 # recording's own Nyquist limit below, same convention
@@ -38,13 +57,6 @@ DETAIL_MAX_FREQ_KHZ = 120.0
 # exists: at DETAIL_PX_PER_MS (~4.4138), any recording longer than ~3.71s would otherwise produce
 # a spectrogram wider than that limit (design spec's 2026-09-01 tiling addendum).
 DETAIL_MAX_TILE_WIDTH_PX = 8000
-# Chosen 2026-09-02 from a two-round visual comparison against a real field recording (design
-# spec's dated addendum) -- detail-page-only, deliberately independent of `SpectrogramParams`'s
-# own `window_ms`/`overlap` defaults, which the drawer/overview's cached renders use instead
-# (Janna's ruling: the overview compresses far more time into the same screen width, so there's
-# no reason to assume one FFT window suits both -- tune this page for this page).
-DETAIL_WINDOW_MS = 1.5
-DETAIL_OVERLAP = 0.85
 
 
 @dataclass(frozen=True)
