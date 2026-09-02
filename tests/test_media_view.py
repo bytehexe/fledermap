@@ -425,3 +425,78 @@ def test_detail_spectrogram_404s_when_the_source_file_is_missing_from_disk(
     )
 
     assert response.status_code == 404
+
+
+def test_detail_spectrogram_404s_for_a_truncated_source_file(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    archive_root.mkdir()
+    wav_bytes = build_wav(
+        [(b"fmt ", fmt_payload(256_000)), (b"data", _sine_pcm(duration_s=0.02))],
+    )
+    # Drop an odd number of trailing bytes: the header still claims the original data length,
+    # but the file itself ends mid-sample -- `wave.readframes` returns the (odd-length) bytes
+    # actually present rather than raising, so this only fails downstream in
+    # `np.frombuffer(raw, dtype=np.int16)`. This is the real corrupt/truncated-file shape, not a
+    # synthetic exception.
+    (archive_root / "truncated.wav").write_bytes(wav_bytes[:-501])
+
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="e7" * 32,
+                path="truncated.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                duration_s=0.02,
+                samplerate_hz=256_000,
+            ),
+        )
+        session.commit()
+
+    app = create_app(
+        engine,
+        tmp_path / "static",
+        tmp_path / "media",
+        archive_roots=(archive_root,),
+    )
+    response = app.test_client().get(
+        f"/recordings/{'e7' * 32}/detail-spectrogram/0.webp"
+    )
+    assert response.status_code == 404
+
+
+def test_detail_oscillogram_404s_for_a_truncated_source_file(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    archive_root.mkdir()
+    wav_bytes = build_wav(
+        [(b"fmt ", fmt_payload(256_000)), (b"data", _sine_pcm(duration_s=0.02))],
+    )
+    (archive_root / "truncated.wav").write_bytes(wav_bytes[:-501])
+
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="e8" * 32,
+                path="truncated.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                duration_s=0.02,
+                samplerate_hz=256_000,
+            ),
+        )
+        session.commit()
+
+    app = create_app(
+        engine,
+        tmp_path / "static",
+        tmp_path / "media",
+        archive_roots=(archive_root,),
+    )
+    response = app.test_client().get(
+        f"/recordings/{'e8' * 32}/detail-oscillogram/0.webp"
+    )
+    assert response.status_code == 404
