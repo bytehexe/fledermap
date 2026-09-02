@@ -80,6 +80,35 @@ def test_recording_details_page_bakes_in_the_preview_time_expansion_factor(
     assert 'data-time-expansion-factor="10"' in html
 
 
+def test_recording_details_page_puts_oscillogram_above_spectrogram(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """Matches the drawer panel's own convention (`_recording_panel.html`,
+    CLAUDE.md's "Derived media rendering" section): the oscillogram is "a
+    compact strip above" the main, taller spectrogram view, not below it.
+    The two were the other way round here until 2026-09-02."""
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="f6" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                duration_s=0.5,
+                samplerate_hz=256_000,
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/recordings/{'f6' * 32}")
+
+    html = response.get_data(as_text=True)
+    assert html.index('id="detail-oscillogram-wrap"') < html.index(
+        'id="detail-spectrogram-wrap"',
+    )
+
+
 def test_recording_details_page_renders_one_img_per_tile(
     engine: Engine,
     tmp_path: Path,

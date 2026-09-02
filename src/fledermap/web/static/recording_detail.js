@@ -18,6 +18,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const spectrogramLoading = document.getElementById("spectrogram-loading");
   const oscillogramTiles = Array.from(document.querySelectorAll(".detail-oscillogram-tile"));
   const oscillogramLoading = document.getElementById("oscillogram-loading");
+  const oscillogramWrap = document.getElementById("detail-oscillogram-wrap");
   const wrap = document.getElementById("detail-spectrogram-wrap");
   const cursor = document.getElementById("playback-cursor");
   const readout = document.getElementById("crosshair-readout");
@@ -29,7 +30,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // Reveal-on-load (design spec section 3): every tile in a row must load before that row's
   // placeholder clears -- a partially-loaded row (some tiles rendered, others still pending)
   // would otherwise flash broken-looking gaps.
-  function revealWhenAllLoaded(tiles, loadingEl) {
+  function revealWhenAllLoaded(tiles, loadingEl, onSettled) {
     let remaining = tiles.length;
     let hadError = false;
 
@@ -45,6 +46,7 @@ document.addEventListener("DOMContentLoaded", () => {
         tiles.forEach((t) => {
           if (!t.dataset.failed) t.hidden = false;
         });
+        if (onSettled) onSettled();
       }
     }
 
@@ -72,8 +74,6 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     });
   }
-  revealWhenAllLoaded(spectrogramTiles, spectrogramLoading);
-  revealWhenAllLoaded(oscillogramTiles, oscillogramLoading);
 
   const firstTile = spectrogramTiles[0];
   const durationS = parseFloat(firstTile.dataset.durationS);
@@ -108,12 +108,19 @@ document.addEventListener("DOMContentLoaded", () => {
     freqAxis.innerHTML = "";
     // `.detail-axis-freq` and `.detail-graphs` are flex siblings that both
     // start at the top of `.detail-body` -- but the spectrogram image
-    // itself starts lower than that, below `.detail-axis-time`'s row. A
-    // tick's `top` has to include that same offset or it aligns against
-    // the wrong origin (verify this against a real screenshot in Step 3 --
-    // it's exactly the kind of thing that looks right in the code and
-    // wrong on screen).
-    const spectrogramTop = timeAxis.offsetHeight;
+    // itself starts lower than that, below `.detail-axis-time`'s row AND
+    // the oscillogram row that now sits above the spectrogram (compact
+    // strip above the main view, matching the drawer panel's convention).
+    // A tick's `top` has to include all of that offset or it aligns
+    // against the wrong origin. Read fresh each call, not cached: before
+    // the oscillogram tiles settle, `oscillogramWrap`'s own height is 0
+    // (its images are still `hidden`) and `oscillogramLoading`'s
+    // placeholder text fills that space instead -- this function is
+    // called again once that row settles (see `revealWhenAllLoaded`
+    // below) so the final tick positions always reflect the real,
+    // settled layout, not a stale snapshot from before it.
+    const spectrogramTop =
+      timeAxis.offsetHeight + oscillogramLoading.offsetHeight + oscillogramWrap.offsetHeight;
     for (let khz = 0; khz <= maxFreqKhz; khz += FREQ_TICK_KHZ) {
       const tick = document.createElement("span");
       tick.className = "detail-axis-tick detail-axis-tick-freq";
@@ -128,6 +135,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
   if (timeAxis && !Number.isNaN(durationS) && !Number.isNaN(pxPerMs)) buildTimeAxis();
   if (freqAxis && !Number.isNaN(maxFreqKhz) && !Number.isNaN(pxPerKhz)) buildFreqAxis();
+
+  // Now that every const/function these settle callbacks close over is defined: start loading
+  // the tiles. The oscillogram settling re-runs buildFreqAxis with its final, settled height --
+  // some tiles can already be `img.complete` by the time this runs (see the comment in
+  // `revealWhenAllLoaded` above), which would call back into buildFreqAxis synchronously, so
+  // this must come after every one of those declarations, not before.
+  revealWhenAllLoaded(spectrogramTiles, spectrogramLoading);
+  revealWhenAllLoaded(oscillogramTiles, oscillogramLoading, () => {
+    if (freqAxis && !Number.isNaN(maxFreqKhz) && !Number.isNaN(pxPerKhz)) buildFreqAxis();
+  });
 
   // Click-to-play, crosshair, and the playback cursor all now measure against `wrap`'s own
   // bounding rect (the tiled row's container) rather than a single `<img>`'s -- the tiles sit
