@@ -199,24 +199,35 @@ def render_spectrogram(
     lut = _palette_lut(params.palette)
     rgb = lut[indices]
 
+    full_image = Image.fromarray(rgb, mode="RGB")
+    box = None
     if time_range_s is not None:
         # `rgb.shape[1]` (the STFT's own column count) is always >= 1 for any nonzero-length
         # signal (the `nperseg` clamp above guarantees at least one window fits). Clamping
-        # `end_idx` to be at least `start_idx + 1` guarantees a non-empty slice even for a very
+        # `end_idx` to be at least `start_idx + 1` guarantees a non-empty region even for a very
         # narrow tile (the last tile in a recording whose width doesn't divide evenly by
         # `DETAIL_MAX_TILE_WIDTH_PX` can be as little as 1px wide -- narrower than a single STFT
-        # column's own time resolution) -- without this, `Image.fromarray` on a zero-width array
+        # column's own time resolution) -- without this, `resize(box=...)` on a zero-width box
         # raises rather than degrading gracefully.
         start_s, end_s = time_range_s
         start_idx = max(0, min(int(np.searchsorted(times, start_s)), rgb.shape[1] - 1))
         end_idx = max(
             start_idx + 1, min(int(np.searchsorted(times, end_s)), rgb.shape[1])
         )
-        rgb = rgb[:, start_idx:end_idx, :]
+        box = (start_idx, 0, end_idx, rgb.shape[0])
 
-    image = Image.fromarray(rgb, mode="RGB").resize(
-        (params.width_px, params.height_px),
-    )
+    # `box`, not a manual `rgb[:, start_idx:end_idx, :]` slice-then-resize: resizing a
+    # pre-sliced array independently per tile starves the resampling kernel of real pixels
+    # just past each tile's own edge, so it falls back to clamping/replicating its own edge
+    # column instead -- two independently-resized tiles then don't quite agree at the seam
+    # between them, visible as a faint vertical line at every tile boundary (confirmed against
+    # a real field recording 2026-09-02; reproduced in isolation with a synthetic gradient:
+    # crop-then-resize left neighbouring boundary pixels off by ~2, `resize(box=...)` on the
+    # full (unsliced) image made them agree exactly). `box` instead tells Pillow which *region*
+    # of the FULL, un-sliced image to resample -- the kernel can then sample real pixels from
+    # just outside the box, the same way it would if this tile weren't being rendered
+    # separately at all.
+    image = full_image.resize((params.width_px, params.height_px), box=box)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(dir=out_path.parent, suffix=".webp.tmp")

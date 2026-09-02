@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from PIL import Image
+from scipy.signal import chirp
 
 from fledermap.media.spectrogram import (
     SpectrogramParams,
@@ -350,3 +351,62 @@ def test_render_spectrogram_time_range_normalizes_to_the_whole_file_peak(
     # in its own file. This is the whole point: normalization must use the WHOLE file's peak, not
     # the tile's own slice.
     assert sliced_pixels.mean() < standalone_pixels.mean()
+
+
+def _chirp_wav(
+    path: Path,
+    *,
+    f0_hz: float = 20_000.0,
+    f1_hz: float = 100_000.0,
+    samplerate: int = 256_000,
+    duration_s: float = 0.1,
+) -> None:
+    """A linear frequency sweep -- unlike `_sine_wav`'s single stationary tone, this has real
+    spectral structure that keeps changing continuously across a tile boundary, so a boundary
+    artifact from two independently-resized tiles not agreeing has something to actually show up
+    against (a stationary tone's spectrogram columns barely differ from each other at all, tile
+    boundary or not)."""
+    n = int(samplerate * duration_s)
+    t = np.arange(n) / samplerate
+    sig = 30_000 * chirp(t, f0=f0_hz, f1=f1_hz, t1=duration_s, method="linear")
+    pcm = struct.pack(f"<{n}h", *sig.astype(np.int16).tolist())
+
+    fmt_payload = struct.pack("<HHIIHH", 1, 1, samplerate, samplerate * 2, 2, 16)
+
+    def chunk(chunk_id: bytes, payload: bytes) -> bytes:
+        out = chunk_id + struct.pack("<I", len(payload)) + payload
+        if len(payload) % 2:
+            out += b"\x00"
+        return out
+
+    body = b"WAVE" + chunk(b"fmt ", fmt_payload) + chunk(b"data", pcm)
+    path.write_bytes(b"RIFF" + struct.pack("<I", len(body)) + body)
+
+
+def test_render_spectrogram_tile_boundaries_dont_show_a_seam(tmp_path: Path) -> None:
+    """Two adjacent tiles of the same recording sit edge-to-edge with no gap on the recording
+    details page (services/recording_detail.py's `detail_tiles`) -- rendering each tile's own
+    slice of STFT columns independently, resized up to its own pixel width, starved the
+    resampling kernel of real pixels just past each tile's own edge (it fell back to clamping/
+    replicating its own edge column instead), so the two tiles' resized edges didn't quite agree:
+    a visible vertical seam at every tile boundary (confirmed against a real field recording
+    2026-09-02). `render_spectrogram` now resizes the FULL, un-sliced image with a `box=` region
+    instead, so the resampling kernel can see real neighbouring pixels just outside each tile's
+    own edge, same as if the whole recording were rendered as one image and cropped afterward."""
+    wav_path = tmp_path / "chirp.wav"
+    _chirp_wav(wav_path)
+
+    tile_a = tmp_path / "tile_a.webp"
+    tile_b = tmp_path / "tile_b.webp"
+    params = SpectrogramParams(width_px=200, height_px=64)
+    render_spectrogram(wav_path, tile_a, params=params, time_range_s=(0.0, 0.05))
+    render_spectrogram(wav_path, tile_b, params=params, time_range_s=(0.05, 0.1))
+
+    a = np.array(Image.open(tile_a), dtype=np.float64)
+    b = np.array(Image.open(tile_b), dtype=np.float64)
+
+    # Tile A's rightmost column immediately precedes tile B's leftmost column in time -- they
+    # should read as continuous, not as a jump. 4.0 sits between what this exact chirp measured
+    # pre-fix (~5.5, independent per-tile resize) and post-fix (~2.6, box= on the full image).
+    boundary_diff = np.abs(a[:, -1, :] - b[:, 0, :]).mean()
+    assert boundary_diff < 4.0
