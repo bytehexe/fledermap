@@ -12,6 +12,7 @@ any real `Recording` row never reaches them.
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import tempfile
 from collections.abc import Callable
@@ -27,7 +28,11 @@ from fledermap.media.oscillogram import OscillogramParams, render_oscillogram
 from fledermap.media.paths import oscillogram_path, preview_path, spectrogram_path
 from fledermap.media.spectrogram import SpectrogramParams, render_spectrogram
 from fledermap.services.media import resolve_recording, resolve_wav_path
-from fledermap.services.recording_detail import detail_params
+from fledermap.services.recording_detail import (
+    DETAIL_PX_PER_MS,
+    DetailTile,
+    detail_params,
+)
 from fledermap.store.models import Recording
 
 media_bp = flask.Blueprint("media", __name__)
@@ -88,16 +93,15 @@ def preview(audio_hash: str) -> ResponseReturnValue:
     )
 
 
-def _detail_wav_and_params(
+def _detail_tile_context(
     audio_hash: str,
-) -> tuple[Path, SpectrogramParams, OscillogramParams] | None:
-    """Resolves `audio_hash` to (wav_path, spectrogram_params,
-    oscillogram_params) for the two detail-render routes below, or None if
-    the recording is unknown, has no source file, or is missing the
-    duration/samplerate metadata `detail_params` needs (design spec section
-    2, step 2) -- each case is a 404, not a 500, since these routes are
-    reachable by an arbitrary URL unlike the Procrastinate tasks these two
-    resolve functions were originally written for."""
+    tile_index: int,
+) -> tuple[Path, SpectrogramParams, OscillogramParams, DetailTile] | None:
+    """Resolves `audio_hash` and `tile_index` to (wav_path, spectrogram_params,
+    oscillogram_params, tile) for the two detail-render routes below, or None for any of: unknown
+    recording, no source file (`missing_since` set OR the file simply isn't on disk -- design
+    spec section 2 step 2's "missing file" case covers both, only the first of which Task 3
+    originally handled), missing duration/samplerate metadata, or an out-of-range `tile_index`."""
     engine = flask.current_app.config["ENGINE"]
     archive_roots = flask.current_app.config["ARCHIVE_ROOTS"]
     with OrmSession(engine) as session:
@@ -111,8 +115,13 @@ def _detail_wav_and_params(
             wav_path = resolve_wav_path(archive_roots, recording)
         except FileNotFoundError:
             return None
+        if not wav_path.exists():
+            return None
         params = detail_params(recording.duration_s, recording.samplerate_hz)
-    return wav_path, params.spectrogram, params.oscillogram
+    if tile_index < 0 or tile_index >= len(params.tiles):
+        return None
+    tile = params.tiles[tile_index]
+    return wav_path, params.spectrogram, params.oscillogram, tile
 
 
 def _serve_temp_render(make: Callable[[Path], None]) -> ResponseReturnValue:
@@ -131,23 +140,43 @@ def _serve_temp_render(make: Callable[[Path], None]) -> ResponseReturnValue:
     return flask.Response(data, mimetype="image/webp")
 
 
-@media_bp.get("/recordings/<audio_hash>/detail-spectrogram.webp")
-def detail_spectrogram(audio_hash: str) -> ResponseReturnValue:
-    context = _detail_wav_and_params(audio_hash)
+@media_bp.get("/recordings/<audio_hash>/detail-spectrogram/<int:tile_index>.webp")
+def detail_spectrogram(audio_hash: str, tile_index: int) -> ResponseReturnValue:
+    context = _detail_tile_context(audio_hash, tile_index)
     if context is None:
         flask.abort(404)
-    wav_path, spectrogram_params, _oscillogram_params = context
+    wav_path, spectrogram_params, _oscillogram_params, tile = context
+    time_range_s = (
+        tile.start_px / DETAIL_PX_PER_MS / 1000,
+        (tile.start_px + tile.width_px) / DETAIL_PX_PER_MS / 1000,
+    )
+    tile_params = dataclasses.replace(spectrogram_params, width_px=tile.width_px)
     return _serve_temp_render(
-        lambda out: render_spectrogram(wav_path, out, params=spectrogram_params),
+        lambda out: render_spectrogram(
+            wav_path,
+            out,
+            params=tile_params,
+            time_range_s=time_range_s,
+        ),
     )
 
 
-@media_bp.get("/recordings/<audio_hash>/detail-oscillogram.webp")
-def detail_oscillogram(audio_hash: str) -> ResponseReturnValue:
-    context = _detail_wav_and_params(audio_hash)
+@media_bp.get("/recordings/<audio_hash>/detail-oscillogram/<int:tile_index>.webp")
+def detail_oscillogram(audio_hash: str, tile_index: int) -> ResponseReturnValue:
+    context = _detail_tile_context(audio_hash, tile_index)
     if context is None:
         flask.abort(404)
-    wav_path, _spectrogram_params, oscillogram_params = context
+    wav_path, _spectrogram_params, oscillogram_params, tile = context
+    time_range_s = (
+        tile.start_px / DETAIL_PX_PER_MS / 1000,
+        (tile.start_px + tile.width_px) / DETAIL_PX_PER_MS / 1000,
+    )
+    tile_params = dataclasses.replace(oscillogram_params, width_px=tile.width_px)
     return _serve_temp_render(
-        lambda out: render_oscillogram(wav_path, out, params=oscillogram_params),
+        lambda out: render_oscillogram(
+            wav_path,
+            out,
+            params=tile_params,
+            time_range_s=time_range_s,
+        ),
     )

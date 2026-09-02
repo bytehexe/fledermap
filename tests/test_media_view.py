@@ -12,7 +12,10 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.media.paths import oscillogram_path, preview_path, spectrogram_path
-from fledermap.services.recording_detail import DETAIL_PX_PER_MS
+from fledermap.services.recording_detail import (
+    DETAIL_MAX_TILE_WIDTH_PX,
+    DETAIL_PX_PER_MS,
+)
 from fledermap.store.models import Recording
 from fledermap.web.app import create_app
 from tests.fixtures import build_wav, fmt_payload
@@ -187,7 +190,9 @@ def test_detail_spectrogram_renders_at_the_locked_scale(
         tmp_path / "media",
         archive_roots=(archive_root,),
     )
-    response = app.test_client().get(f"/recordings/{'d1' * 32}/detail-spectrogram.webp")
+    response = app.test_client().get(
+        f"/recordings/{'d1' * 32}/detail-spectrogram/0.webp"
+    )
 
     assert response.status_code == 200
     assert response.mimetype == "image/webp"
@@ -223,10 +228,10 @@ def test_detail_oscillogram_shares_the_spectrogram_s_width(
         archive_roots=(archive_root,),
     )
     spectrogram_response = app.test_client().get(
-        f"/recordings/{'d2' * 32}/detail-spectrogram.webp",
+        f"/recordings/{'d2' * 32}/detail-spectrogram/0.webp",
     )
     oscillogram_response = app.test_client().get(
-        f"/recordings/{'d2' * 32}/detail-oscillogram.webp",
+        f"/recordings/{'d2' * 32}/detail-oscillogram/0.webp",
     )
 
     spectrogram_image = Image.open(io.BytesIO(spectrogram_response.data))
@@ -239,7 +244,9 @@ def test_detail_spectrogram_404s_for_an_unknown_hash(
     tmp_path: Path,
 ) -> None:
     app = create_app(engine, tmp_path / "static", tmp_path / "media")
-    response = app.test_client().get(f"/recordings/{'e1' * 32}/detail-spectrogram.webp")
+    response = app.test_client().get(
+        f"/recordings/{'e1' * 32}/detail-spectrogram/0.webp"
+    )
 
     assert response.status_code == 404
 
@@ -260,6 +267,161 @@ def test_detail_spectrogram_404s_when_duration_is_missing(
         session.commit()
 
     app = create_app(engine, tmp_path / "static", tmp_path / "media")
-    response = app.test_client().get(f"/recordings/{'e2' * 32}/detail-spectrogram.webp")
+    response = app.test_client().get(
+        f"/recordings/{'e2' * 32}/detail-spectrogram/0.webp"
+    )
+
+    assert response.status_code == 404
+
+
+def test_detail_spectrogram_tile_renders_at_the_tile_s_own_width(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    archive_root.mkdir()
+    duration_s = 0.02
+    _write_wav(archive_root / "a.wav", duration_s=duration_s)
+
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="d3" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                duration_s=duration_s,
+                samplerate_hz=256_000,
+            ),
+        )
+        session.commit()
+
+    app = create_app(
+        engine,
+        tmp_path / "static",
+        tmp_path / "media",
+        archive_roots=(archive_root,),
+    )
+    response = app.test_client().get(
+        f"/recordings/{'d3' * 32}/detail-spectrogram/0.webp"
+    )
+
+    assert response.status_code == 200
+    image = Image.open(io.BytesIO(response.data))
+    assert image.width == round(
+        duration_s * 1000 * DETAIL_PX_PER_MS
+    )  # single tile: whole width
+
+
+def test_detail_spectrogram_404s_for_an_out_of_range_tile_index(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    archive_root.mkdir()
+    duration_s = 0.02
+    _write_wav(archive_root / "a.wav", duration_s=duration_s)
+
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="d4" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                duration_s=duration_s,
+                samplerate_hz=256_000,
+            ),
+        )
+        session.commit()
+
+    app = create_app(
+        engine,
+        tmp_path / "static",
+        tmp_path / "media",
+        archive_roots=(archive_root,),
+    )
+    response = app.test_client().get(
+        f"/recordings/{'d4' * 32}/detail-spectrogram/1.webp"
+    )
+
+    assert response.status_code == 404
+
+
+def test_detail_spectrogram_renders_multiple_tiles_for_a_long_recording(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    archive_root.mkdir()
+    # DETAIL_MAX_TILE_WIDTH_PX (8000) / DETAIL_PX_PER_MS (19.0) / 1000 ~= 0.421s per tile --
+    # 1.0s needs 3 tiles (8000 + 8000 + 3000 = 19000px total width).
+    duration_s = 1.0
+    _write_wav(archive_root / "long.wav", duration_s=duration_s)
+
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="d5" * 32,
+                path="long.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                duration_s=duration_s,
+                samplerate_hz=256_000,
+            ),
+        )
+        session.commit()
+
+    app = create_app(
+        engine,
+        tmp_path / "static",
+        tmp_path / "media",
+        archive_roots=(archive_root,),
+    )
+    client = app.test_client()
+
+    tile_0 = client.get(f"/recordings/{'d5' * 32}/detail-spectrogram/0.webp")
+    tile_1 = client.get(f"/recordings/{'d5' * 32}/detail-spectrogram/1.webp")
+    tile_2 = client.get(f"/recordings/{'d5' * 32}/detail-spectrogram/2.webp")
+    tile_3 = client.get(f"/recordings/{'d5' * 32}/detail-spectrogram/3.webp")
+
+    assert tile_0.status_code == tile_1.status_code == tile_2.status_code == 200
+    assert tile_3.status_code == 404  # only 3 tiles exist for this duration
+    image_0 = Image.open(io.BytesIO(tile_0.data))
+    image_2 = Image.open(io.BytesIO(tile_2.data))
+    assert image_0.width == DETAIL_MAX_TILE_WIDTH_PX
+    assert (
+        image_2.width
+        == round(duration_s * 1000 * DETAIL_PX_PER_MS) - 2 * DETAIL_MAX_TILE_WIDTH_PX
+    )
+
+
+def test_detail_spectrogram_404s_when_the_source_file_is_missing_from_disk(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    archive_root.mkdir()
+    # No file written at archive_root / "gone.wav" -- missing_since is NOT set (that's a
+    # different, already-covered case); this is the "the file just isn't there" case.
+
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="d6" * 32,
+                path="gone.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                duration_s=0.02,
+                samplerate_hz=256_000,
+            ),
+        )
+        session.commit()
+
+    app = create_app(
+        engine,
+        tmp_path / "static",
+        tmp_path / "media",
+        archive_roots=(archive_root,),
+    )
+    response = app.test_client().get(
+        f"/recordings/{'d6' * 32}/detail-spectrogram/0.webp"
+    )
 
     assert response.status_code == 404

@@ -28,7 +28,7 @@
             <img
               id="detail-spectrogram"
               class="detail-spectrogram"
-              src="{{ url_for('media.detail_spectrogram', audio_hash=recording.audio_hash) }}"
+              src="{{ url_for('media.detail_spectrogram', audio_hash=recording.audio_hash, tile_index=0) }}"
               alt="Spectrogram"
               data-duration-s="{{ duration_s }}"
               data-max-freq-khz="{{ params.max_freq_khz }}"
@@ -42,7 +42,7 @@
           <img
             id="detail-oscillogram"
             class="detail-oscillogram"
-            src="{{ url_for('media.detail_oscillogram', audio_hash=recording.audio_hash) }}"
+            src="{{ url_for('media.detail_oscillogram', audio_hash=recording.audio_hash, tile_index=0) }}"
             alt="Waveform"
             hidden
           >

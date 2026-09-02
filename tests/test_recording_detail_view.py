@@ -47,8 +47,8 @@ def test_recording_details_page_renders_the_recording(
     assert response.status_code == 200
     html = response.get_data(as_text=True)
     assert "Echo Meter Touch 2" in html
-    assert f"/recordings/{'f2' * 32}/detail-spectrogram.webp" in html
-    assert f"/recordings/{'f2' * 32}/detail-oscillogram.webp" in html
+    assert f"/recordings/{'f2' * 32}/detail-spectrogram/0.webp" in html
+    assert f"/recordings/{'f2' * 32}/detail-oscillogram/0.webp" in html
 
 
 def test_recording_details_page_explains_missing_metadata(
@@ -72,4 +72,4 @@ def test_recording_details_page_explains_missing_metadata(
     assert response.status_code == 200
     html = response.get_data(as_text=True)
     assert "cannot render" in html.lower()
-    assert "detail-spectrogram.webp" not in html
+    assert "detail-spectrogram/0.webp" not in html

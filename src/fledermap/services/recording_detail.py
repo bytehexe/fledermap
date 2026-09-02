@@ -22,6 +22,32 @@ DETAIL_PX_PER_KHZ = 4.7
 # recording's own Nyquist limit below, same convention
 # `spectrogram.effective_max_freq_hz` already uses for the drawer.
 DETAIL_MAX_FREQ_KHZ = 120.0
+# Comfortably under WebP's hard 16383px encode-dimension limit -- the whole reason tiling
+# exists: at DETAIL_PX_PER_MS=19.0, any recording longer than ~0.86s would otherwise produce a
+# spectrogram wider than that limit (design spec's 2026-09-01 tiling addendum).
+DETAIL_MAX_TILE_WIDTH_PX = 8000
+
+
+@dataclass(frozen=True)
+class DetailTile:
+    index: int
+    start_px: int
+    width_px: int
+
+
+def detail_tiles(total_width_px: int) -> list[DetailTile]:
+    """Split a recording's full locked-scale width into fixed-width chunks, each safely under
+    WebP's pixel limit. The last tile absorbs whatever remainder doesn't fill a full
+    `DETAIL_MAX_TILE_WIDTH_PX` chunk -- covers the full width with no gaps and no overlap."""
+    tiles = []
+    start = 0
+    index = 0
+    while start < total_width_px:
+        width = min(DETAIL_MAX_TILE_WIDTH_PX, total_width_px - start)
+        tiles.append(DetailTile(index=index, start_px=start, width_px=width))
+        start += width
+        index += 1
+    return tiles
 
 
 @dataclass(frozen=True)
@@ -29,6 +55,7 @@ class DetailParams:
     spectrogram: SpectrogramParams
     oscillogram: OscillogramParams
     max_freq_khz: float
+    tiles: list[DetailTile]
 
 
 def detail_params(duration_s: float, samplerate_hz: float) -> DetailParams:
@@ -50,4 +77,5 @@ def detail_params(duration_s: float, samplerate_hz: float) -> DetailParams:
         spectrogram=spectrogram,
         oscillogram=oscillogram,
         max_freq_khz=max_freq_hz / 1000,
+        tiles=detail_tiles(width_px),
     )
