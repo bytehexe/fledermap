@@ -14,10 +14,14 @@ for the handful of concrete failure modes a malformed WAV can hit, and the two d
 in `web/views/media.py` catch it and 404, exactly like the existing missing-file case. Task 2 is a
 spike: a throwaway comparison script renders a few `window_ms`/`overlap`/scale combinations
 against a real field recording into a single contact-sheet image for Janna to eyeball, then the
-chosen combination becomes the new constants in `services/recording_detail.py` and
-`media/spectrogram.py`'s `SpectrogramParams` defaults, with a dated deviation note in the design
-spec (project convention: a pinned "D-decision" number changes only with a spec update alongside
-the code, per `CLAUDE.md`'s recording-details section).
+chosen combination becomes two new, detail-page-only constants in `services/recording_detail.py`
+(`DETAIL_WINDOW_MS`, `DETAIL_OVERLAP`, alongside the existing `DETAIL_PX_PER_MS`/
+`DETAIL_PX_PER_KHZ`) — deliberately not a change to `media/spectrogram.py`'s shared
+`SpectrogramParams` defaults, which the drawer/overview's cached renders also use and which may
+warrant different tuning (the overview compresses far more time into the same screen width;
+Janna's ruling, see Task 2 below) — with a dated deviation note in the design spec (project
+convention: a pinned "D-decision" number changes only with a spec update alongside the code, per
+`CLAUDE.md`'s recording-details section).
 
 **Tech Stack:** Python/Flask, `wave` (stdlib), numpy, Pillow — same stack as the existing
 `media/` and `web/views/media.py` code this touches.
@@ -31,10 +35,13 @@ the code, per `CLAUDE.md`'s recording-details section).
   `tests/` too).
 - New tests must be run and shown RED before the implementation, then GREEN after (Task 1; Task 2
   has one small test of its own, see below).
-- `hatch test -m "not db"` is the fast pre-commit subset; both new tests in this plan are
-  `db`-marked (they go through the Flask app + a real `Recording` row), so also run the full
-  `hatch test` (needs `dangerouslyDisableSandbox: true`, Docker) before considering either task
-  done — pre-commit will not catch a `db`-marked regression.
+- `hatch test -m "not db"` is the fast pre-commit subset. Task 1's new tests are `db`-marked (they
+  go through the Flask app + a real `Recording` row) — pre-commit will not catch a regression
+  there, so run the full `hatch test` (needs `dangerouslyDisableSandbox: true`, Docker) before
+  considering it done. Task 2's new tests are plain unit tests on the pure `detail_params()`
+  function (`tests/test_recording_detail_service.py` carries no `db` mark) — the fast subset
+  already covers them, though the full suite is still worth running once per Step 7 below since
+  this task also touches the shared `detail_params()` other code paths depend on.
 - Do not touch `jobs/tasks.py`'s cached-drawer render path in either task — both tasks are scoped
   to the standalone detail-page routes only (`web/views/media.py`'s `detail_spectrogram`/
   `detail_oscillogram`, and the constants `detail_params` computes from).
@@ -309,26 +316,43 @@ This task is a spike, not a mechanical constant change (see this plan's Goal, ab
 themselves are trivial to edit, but which values are right needs eyes on real output first. Steps
 1-3 produce that comparison; Steps 4-7 apply whatever Janna picks after seeing it.
 
+**Ruling (2026-09-02, Janna): the detail page gets its own FFT parameters, not a change to the
+shared `SpectrogramParams` default.** `SpectrogramParams`'s dataclass-field defaults
+(`window_ms=3.0`, `overlap=0.5`) are what `jobs/tasks.py`'s cached drawer/overview pipeline
+renders with too (`DEFAULT_SPECTROGRAM_PARAMS = SpectrogramParams()`, `jobs/tasks.py:173`) —
+changing the shared default would silently retune the overview's renders as a side effect of a
+detail-page-only investigation. The overview compresses far more time into the same screen width
+than the detail page's locked scale does, so there is no reason to assume one FFT window suits
+both — tune the detail page for the detail page; if the result later turns out to suit the
+overview too, that's a separate, deliberate decision to make then, not an assumption to bake in
+now. Concretely: this task adds two new named constants in `services/recording_detail.py`
+(`DETAIL_WINDOW_MS`, `DETAIL_OVERLAP`) and passes them explicitly into the `SpectrogramParams(...)`
+construction already inside `detail_params()` — `media/spectrogram.py`'s `SpectrogramParams` class
+itself is **not modified**, and `jobs/tasks.py` is untouched (this also simplifies the plan: the
+Global Constraint above forbidding changes to the cached-drawer path now holds trivially, not just
+by convention).
+
 **Files:**
 - Create: `scripts/detail_scale_spike.py` (dev-only, not part of the shipped wheel — same category
   as the other `scripts/` git-hook tooling per `CLAUDE.md`'s "Environment gotchas"; this one is a
   one-off comparison generator, not wired into any hook)
-- Modify: `src/fledermap/services/recording_detail.py` (`DETAIL_PX_PER_MS`, `DETAIL_PX_PER_KHZ`)
-- Modify: `src/fledermap/media/spectrogram.py:32-33` (`SpectrogramParams.window_ms`,
-  `SpectrogramParams.overlap` defaults)
+- Modify: `src/fledermap/services/recording_detail.py` (`DETAIL_PX_PER_MS`, `DETAIL_PX_PER_KHZ`,
+  and two new constants `DETAIL_WINDOW_MS`/`DETAIL_OVERLAP`, all consumed by `detail_params()`)
 - Modify: `docs/superpowers/specs/2026-09-01-fledermap-recording-details-page-design.md` (dated
   deviation note, §1)
-- Test: `tests/test_recording_detail.py` (new constant-value assertion; the file likely already
-  exists for `detail_params`/`detail_tiles` — check with `ls tests/test_recording_detail.py`
-  before assuming this is a new file)
+- Test: `tests/test_recording_detail_service.py` (new constant-value assertions — this is the
+  real, existing file covering `detail_params`/`detail_tiles`; the plan's earlier draft guessed
+  `tests/test_recording_detail.py`, which does not exist — verified via
+  `hatch test -m "not db"` output before writing this task)
 
 **Interfaces:**
 - Consumes: `fledermap.media.spectrogram.render_spectrogram` (existing signature, unchanged —
-  the spike script is just another caller, like `jobs/tasks.py`).
-- Produces: nothing new for other code — this task only changes the *values* of
-  `DETAIL_PX_PER_MS`, `DETAIL_PX_PER_KHZ`, `SpectrogramParams.window_ms`, and
-  `SpectrogramParams.overlap`, which every existing caller of `detail_params`/`SpectrogramParams`
-  already consumes by name.
+  the spike script is just another caller, like `jobs/tasks.py`), and `SpectrogramParams` itself
+  (unchanged dataclass, just constructed with different explicit field values here than
+  `jobs/tasks.py` uses).
+- Produces: `DETAIL_WINDOW_MS: float` and `DETAIL_OVERLAP: float` in `services/recording_detail.py`
+  — new, detail-page-only constants, alongside the existing `DETAIL_PX_PER_MS`/`DETAIL_PX_PER_KHZ`.
+  Nothing outside `detail_params()` needs to consume them directly.
 
 - [ ] **Step 1: Write the comparison script**
 
@@ -458,27 +482,31 @@ do not pick a row unilaterally and proceed past this step without her answer.
 
 Using Janna's picked `(window_ms, overlap, px_per_ms)` — for illustration below, assume she picks
 row 2 `(3.0, 0.85, 19.0)` (more overlap, same window and scale); substitute whatever she actually
-picked:
+picked.
 
-In `src/fledermap/media/spectrogram.py`, change the `SpectrogramParams` default:
+In `src/fledermap/services/recording_detail.py`, add the two new constants near
+`DETAIL_PX_PER_MS`/`DETAIL_PX_PER_KHZ` (keep the existing comment style — these are named,
+provisional, spec-pinned values, same category as their neighbors):
 
 ```python
-    window_ms: float = 3.0
-    overlap: float = 0.85
+# Chosen 2026-09-02 from a visual comparison against a real field recording (design spec's dated
+# addendum below) -- detail-page-only, deliberately independent of `SpectrogramParams`'s own
+# `window_ms`/`overlap` defaults, which the drawer/overview's cached renders use instead (Janna's
+# ruling: the overview compresses far more time into the same screen width, so there's no reason
+# to assume one FFT window suits both -- tune this page for this page).
+DETAIL_WINDOW_MS = 3.0  # replace with the actually-chosen value
+DETAIL_OVERLAP = 0.85  # replace with the actually-chosen value
 ```
 
-(Leave `window_ms` at whatever she picked — this example keeps it unchanged. If she picked a row
-that also changes `px_per_ms`, edit `DETAIL_PX_PER_MS` in
-`src/fledermap/services/recording_detail.py` to match — do not leave the spike script's value and
-the shipped constant disagreeing.)
+If she picked a row that also changes `px_per_ms`, edit `DETAIL_PX_PER_MS`'s existing value to
+match — do not leave the spike script's value and the shipped constant disagreeing.
 
-Note: this default is also what `jobs/tasks.py`'s cached drawer pipeline renders with — the Global
-Constraints section above scopes this plan to the detail-page routes, but `SpectrogramParams`'
-default is shared by construction (it's the one dataclass both callers build from). If Janna wants
-the drawer's cached render left at the old default and only the detail page's fresh renders
-changed, that needs an explicit second `SpectrogramParams` instance passed at the two detail routes
-instead of touching the shared default — flag this back to her rather than silently picking one;
-don't decide it here.
+Then thread the two new constants into `detail_params()`'s existing `SpectrogramParams(...)` call
+(the one that already sets `width_px`/`height_px`/`max_freq_hz`) — add `window_ms=DETAIL_WINDOW_MS,
+overlap=DETAIL_OVERLAP` as two more keyword arguments there. `media/spectrogram.py` itself is not
+touched — `SpectrogramParams`'s own field defaults, and `jobs/tasks.py`'s
+`DEFAULT_SPECTROGRAM_PARAMS`, are unaffected, so the drawer/overview's cached renders keep
+rendering exactly as before this task.
 
 - [ ] **Step 5: Update the spec's dated deviation note**
 
@@ -498,10 +526,12 @@ Quantified against a real bat-call screenshot 2026-09-02 (see backlog): at the o
 not a rendering defect. Time resolution was the actual bottleneck, not frequency (333Hz/bin against
 564 display px for 0-120kHz was comparatively well-matched).
 
-Changed defaults (`media/spectrogram.py`'s `SpectrogramParams`, `services/recording_detail.py`'s
-`DETAIL_PX_PER_MS`/`DETAIL_PX_PER_KHZ`): <fill in exactly what Step 4 set, and the new
-px-per-real-STFT-column stretch ratio computed the same way as the paragraph above, so a future
-reader doesn't have to re-derive it>.
+Changed (`services/recording_detail.py`'s new `DETAIL_WINDOW_MS`/`DETAIL_OVERLAP`, and
+`DETAIL_PX_PER_MS`/`DETAIL_PX_PER_KHZ` if those also changed): <fill in exactly what Step 4 set,
+and the new px-per-real-STFT-column stretch ratio computed the same way as the paragraph above, so
+a future reader doesn't have to re-derive it>. Detail-page-only — `media/spectrogram.py`'s
+`SpectrogramParams` defaults, and therefore the drawer/overview's cached renders, are unchanged;
+see this task's "Ruling" note above for why the two were deliberately not tied together.
 ```
 
 Fill in the placeholder with the real chosen numbers before committing — this plan cannot know
@@ -511,50 +541,64 @@ exists to prevent — resolve it here, don't leave it for a later pass).
 
 - [ ] **Step 6: Add a constant-value regression test**
 
-Check first whether `tests/test_recording_detail.py` exists:
-
-```bash
-ls tests/test_recording_detail.py
-```
-
-If it exists, add this test to it; if not, this step's test is likely already covered by an
-existing `detail_params`-shape test elsewhere — search before creating a new file
-(`grep -rln DETAIL_PX_PER_MS tests/`). Either way, add (adjusting the expected values to whatever
-was actually picked in Step 4):
+Add to `tests/test_recording_detail_service.py` (this is the real existing test file for
+`detail_params`/`detail_tiles` — confirmed via `hatch test -m "not db"` output, not guessed;
+`tests/test_recording_detail.py` does not exist, don't create it):
 
 ```python
-def test_locked_scale_constants_match_the_spec_decision() -> None:
+def test_locked_scale_and_fft_constants_match_the_spec_decision() -> None:
     """Pins the values chosen by the 2026-09-02 scale/FFT spike (see the design spec's dated
     addendum) -- a future change to these constants should be a deliberate spec update, not an
     accidental edit that silently drifts from what's documented."""
-    from fledermap.services.recording_detail import DETAIL_PX_PER_KHZ, DETAIL_PX_PER_MS
+    from fledermap.services.recording_detail import (
+        DETAIL_OVERLAP,
+        DETAIL_PX_PER_KHZ,
+        DETAIL_PX_PER_MS,
+        DETAIL_WINDOW_MS,
+    )
 
     assert DETAIL_PX_PER_MS == 19.0  # replace with the actually-chosen value
     assert DETAIL_PX_PER_KHZ == 4.7  # replace with the actually-chosen value
+    assert DETAIL_WINDOW_MS == 3.0  # replace with the actually-chosen value
+    assert DETAIL_OVERLAP == 0.85  # replace with the actually-chosen value
 
 
-def test_default_spectrogram_params_match_the_spec_decision() -> None:
+def test_detail_params_spectrogram_uses_the_detail_only_fft_constants() -> None:
+    """Detail-page-only (this task's ruling, see Task 2 above) -- `detail_params()` must build its
+    `SpectrogramParams` from `DETAIL_WINDOW_MS`/`DETAIL_OVERLAP`, not `SpectrogramParams`'s own
+    class defaults, which the drawer/overview's cached pipeline uses instead. This is the guard
+    against silently coupling the two back together in a future edit."""
     from fledermap.media.spectrogram import SpectrogramParams
+    from fledermap.services.recording_detail import (
+        DETAIL_OVERLAP,
+        DETAIL_WINDOW_MS,
+        detail_params,
+    )
 
-    params = SpectrogramParams()
-    assert params.window_ms == 3.0  # replace with the actually-chosen value
-    assert params.overlap == 0.85  # replace with the actually-chosen value
+    params = detail_params(duration_s=1.0, samplerate_hz=256_000)
+    assert params.spectrogram.window_ms == DETAIL_WINDOW_MS
+    assert params.spectrogram.overlap == DETAIL_OVERLAP
+    # The shared class defaults must be untouched -- this is what keeps the drawer/overview
+    # unaffected by this task.
+    assert SpectrogramParams().window_ms == 3.0
+    assert SpectrogramParams().overlap == 0.5
 ```
 
-Run: `hatch test tests/test_recording_detail.py -v` (or wherever Step 6 placed it)
-Expected: PASS, asserting the exact values Step 4 wrote — this test's only job is to catch future
-drift between the code and the spec's dated addendum, not to validate the numbers are "correct"
-(there's no correctness check possible here beyond "matches what was decided").
+Run: `hatch test tests/test_recording_detail_service.py -v`
+Expected: PASS, asserting the exact values Step 4 wrote, and that `SpectrogramParams`'s own
+defaults are untouched — this test's only job is to catch future drift, both from the spec's
+dated addendum and from the detail-page/drawer independence this task's ruling established, not
+to validate the numbers are "correct" (there's no correctness check possible here beyond "matches
+what was decided").
 
 - [ ] **Step 7: Full verification and commit**
 
 Run: `hatch fmt && hatch run types:check && hatch test` (the full suite, including `-m db`,
-`dangerouslyDisableSandbox: true` — this touches shared defaults, so the whole suite needs to stay
-green, not just the fast subset).
+`dangerouslyDisableSandbox: true`).
 
 ```bash
-git add src/fledermap/media/spectrogram.py src/fledermap/services/recording_detail.py \
-  scripts/detail_scale_spike.py tests/test_recording_detail.py \
+git add src/fledermap/services/recording_detail.py \
+  scripts/detail_scale_spike.py tests/test_recording_detail_service.py \
   docs/superpowers/specs/2026-09-01-fledermap-recording-details-page-design.md
 git commit -m "fix: revise detail-page FFT window and locked scale from a real-recording comparison"
 ```
@@ -575,6 +619,10 @@ git commit -m "fix: revise detail-page FFT window and locked scale from a real-r
 - **Placeholder scan:** Step 5's spec-addendum template and Step 6's example asserted values are
   deliberately marked as needing the real chosen numbers substituted in — flagged explicitly in the
   step text as a required fill-in before commit, not left silent.
-- **Cached-drawer-pipeline interaction (Task 2 Step 4):** flagged explicitly as a decision to route
-  back to Janna, not resolved unilaterally in either direction, since `SpectrogramParams`'s default
-  is shared by both the drawer's cached pipeline and the detail page's fresh renders.
+- **Cached-drawer-pipeline interaction (Task 2):** originally flagged as a decision to route back
+  to Janna rather than resolved unilaterally, since `SpectrogramParams`'s default is shared by both
+  the drawer's cached pipeline and the detail page's fresh renders. Resolved 2026-09-02 — her
+  ruling: keep them independent (two new detail-page-only constants, threaded explicitly into
+  `detail_params()`'s own `SpectrogramParams(...)` call, `SpectrogramParams`'s class defaults and
+  `jobs/tasks.py` untouched). The plan is updated throughout to reflect this instead of the
+  originally-proposed shared-default edit.
