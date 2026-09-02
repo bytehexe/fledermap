@@ -352,9 +352,9 @@ def test_detail_spectrogram_renders_multiple_tiles_for_a_long_recording(
 ) -> None:
     archive_root = tmp_path / "archive"
     archive_root.mkdir()
-    # DETAIL_MAX_TILE_WIDTH_PX (8000) / DETAIL_PX_PER_MS (12.0) / 1000 ~= 0.667s per tile --
-    # 1.5s needs 3 tiles (8000 + 8000 + 2000 = 18000px total width).
-    duration_s = 1.5
+    # DETAIL_MAX_TILE_WIDTH_PX (8000) / DETAIL_PX_PER_MS (~4.4138) / 1000 ~= 1.8125s per tile --
+    # 4.0s needs 3 tiles (8000 + 8000 + 1655 = 17655px total width).
+    duration_s = 4.0
     _write_wav(archive_root / "long.wav", duration_s=duration_s)
 
     with OrmSession(engine) as session:

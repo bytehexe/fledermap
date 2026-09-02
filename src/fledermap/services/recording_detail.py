@@ -15,18 +15,28 @@ from fledermap.media.spectrogram import SpectrogramParams
 # Derived from the Skiba identification guide's 10ms:40kHz convention against
 # a ~15cm target print height (96dpi CSS px) -- explicitly a tunable
 # starting point, not a final number (design spec Decisions): refine once
-# real recordings are actually on screen. Revised 2026-09-02 (19.0 -> 12.0) by a two-round visual
-# comparison against a real field recording -- see the design spec's dated addendum for the full
-# reasoning and the render-cost tradeoffs of `DETAIL_WINDOW_MS`/`DETAIL_OVERLAP` below.
-DETAIL_PX_PER_MS = 12.0
+# real recordings are actually on screen. Revised 2026-09-02 (19.0 -> 12.0 -> exact 1:1) across
+# three rounds of visual comparison against a real field recording -- see the design spec's dated
+# addenda for the full reasoning and the render-cost tradeoffs of `DETAIL_WINDOW_MS`/
+# `DETAIL_OVERLAP` below.
+#
+# Round 3 pushed the scale to the exact 1:1 point with the real STFT hop: at DETAIL_WINDOW_MS/
+# DETAIL_OVERLAP, `nperseg = int(1.5 * 256_000 / 1000) = 384`, `noverlap = int(384 * 0.85) = 326`,
+# so each real STFT column covers `hop = nperseg - noverlap = 58` samples -- exactly 58/256_000
+# seconds at this project's EMT device rate (256kHz). `DETAIL_PX_PER_MS` is computed as the
+# reciprocal of that, in ms, so one real STFT column maps to exactly one display pixel with no
+# further squeeze possible without discarding real time resolution (a recording at a different
+# samplerate shifts slightly off this exact ratio -- unavoidable for a single fixed scale shared
+# across every recording, same tradeoff the existing DETAIL_MAX_FREQ_KHZ ceiling already accepts).
+DETAIL_PX_PER_MS = 256_000 / 58 / 1000
 DETAIL_PX_PER_KHZ = 4.7
 # A ceiling, not a promise every recording reaches it -- clamped to the
 # recording's own Nyquist limit below, same convention
 # `spectrogram.effective_max_freq_hz` already uses for the drawer.
 DETAIL_MAX_FREQ_KHZ = 120.0
 # Comfortably under WebP's hard 16383px encode-dimension limit -- the whole reason tiling
-# exists: at DETAIL_PX_PER_MS=12.0, any recording longer than ~1.37s would otherwise produce a
-# spectrogram wider than that limit (design spec's 2026-09-01 tiling addendum).
+# exists: at DETAIL_PX_PER_MS (~4.4138), any recording longer than ~3.71s would otherwise produce
+# a spectrogram wider than that limit (design spec's 2026-09-01 tiling addendum).
 DETAIL_MAX_TILE_WIDTH_PX = 8000
 # Chosen 2026-09-02 from a two-round visual comparison against a real field recording (design
 # spec's dated addendum) -- detail-page-only, deliberately independent of `SpectrogramParams`'s

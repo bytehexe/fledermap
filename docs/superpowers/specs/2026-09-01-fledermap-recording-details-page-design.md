@@ -321,3 +321,33 @@ drawer/overview's cached renders, are unchanged. The overview compresses far mor
 same screen width than the detail page's locked scale does, so there is no reason to assume one
 FFT window suits both; if this tuning later turns out to suit the overview too, that is a separate,
 deliberate decision to make then, not an assumption baked in here.
+
+## Addendum (2026-09-02, round 3): squeezed further, to the exact 1:1 STFT-column boundary
+
+Asked directly: with `DETAIL_WINDOW_MS`/`DETAIL_OVERLAP` now fixed at 1.5/0.85 (the addendum
+above), how much further can `DETAIL_PX_PER_MS` be squeezed before the display starts losing real
+time resolution rather than just getting physically smaller? A visual sweep (12.0 → 9.0 → 6.0 →
+4.0, same call as before, `window_ms`/`overlap` held fixed) showed the call shape staying clean
+all the way down -- squeezing the scale alone doesn't blur anything, since it doesn't touch the
+FFT itself, only how large the result is drawn.
+
+But there is a real floor: each real STFT column is `hop = nperseg - noverlap` samples wide
+(`nperseg=384`, `noverlap=int(384*0.85)=326`, so `hop=58` samples = 58/256_000s at 256kHz). Once
+`display px per real column` (`= hop_s * 1000 * DETAIL_PX_PER_MS`) drops below 1.0, Pillow's
+resize is no longer just shrinking the picture -- it starts averaging more than one real column
+into a single display pixel, genuinely discarding time resolution the same way the original
+28.5px/column *over*-stretch produced blur in the other direction. Verified against the actual
+resize math, not assumed: 12.0 → 2.72px/column, 9.0 → 2.04, 6.0 → 1.36, 4.0 → 0.91 (already past
+the boundary).
+
+**Final: `DETAIL_PX_PER_MS = 256_000 / 58 / 1000 ≈ 4.4138`** -- the exact point where
+`display px per real column = 1.0`, computed from `DETAIL_WINDOW_MS`/`DETAIL_OVERLAP` and the
+256kHz EMT device rate rather than picked by eye, and confirmed visually to still read the call
+shape cleanly at that exact boundary (a bracketed 6.0 / 4.4138 / 4.0 comparison). This is as far
+as this lever can go without cost: below it, "squeeze more" stops being free.
+
+Downstream effects: `DETAIL_MAX_TILE_WIDTH_PX` (unchanged at 8000px) now covers ~1.8125s per tile
+(was ~0.667s at 12.0), so the WebP-tiling threshold moves to ~3.71s (was ~1.37s) -- fewer tiles per
+recording, proportionally less render CPU, a further instance of the same side benefit the 19.0 →
+12.0 change already produced. `DETAIL_PX_PER_KHZ` (frequency axis) is untouched -- this round only
+touched the time axis.

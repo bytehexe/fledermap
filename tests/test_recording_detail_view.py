@@ -94,7 +94,7 @@ def test_recording_details_page_reserves_the_final_wrap_sizes_up_front(
                 audio_hash="f7" * 32,
                 path="a.wav",
                 recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
-                duration_s=0.5,  # width_px = round(500 * 12.0) = 6000
+                duration_s=0.5,  # width_px = round(500 * 4.4138) = 2207
                 samplerate_hz=256_000,
             ),
         )
@@ -104,8 +104,8 @@ def test_recording_details_page_reserves_the_final_wrap_sizes_up_front(
     response = app.test_client().get(f"/recordings/{'f7' * 32}")
 
     html = response.get_data(as_text=True)
-    assert 'style="width: 6000px; height: 48px;"' in html  # oscillogram wrap
-    assert 'style="width: 6000px; height: 564px;"' in html  # spectrogram wrap
+    assert 'style="width: 2207px; height: 48px;"' in html  # oscillogram wrap
+    assert 'style="width: 2207px; height: 564px;"' in html  # spectrogram wrap
 
 
 def test_recording_details_page_puts_oscillogram_above_spectrogram(
@@ -147,7 +147,7 @@ def test_recording_details_page_renders_one_img_per_tile(
                 audio_hash="f4" * 32,
                 path="a.wav",
                 recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
-                duration_s=1.5,  # needs 3 tiles at DETAIL_MAX_TILE_WIDTH_PX=8000, DETAIL_PX_PER_MS=12.0
+                duration_s=4.0,  # needs 3 tiles at DETAIL_MAX_TILE_WIDTH_PX=8000, DETAIL_PX_PER_MS~=4.4138
                 samplerate_hz=256_000,
             ),
         )

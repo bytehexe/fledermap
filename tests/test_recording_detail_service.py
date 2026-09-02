@@ -74,9 +74,9 @@ def test_detail_tiles_covers_the_full_width_with_no_gaps_or_overlap() -> None:
 
 
 def test_detail_params_includes_tiles_matching_the_spectrogram_width() -> None:
-    # A duration long enough to need more than one tile at DETAIL_PX_PER_MS=12.0:
-    # DETAIL_MAX_TILE_WIDTH_PX (8000) / 12.0 / 1000 ~= 0.667s per tile.
-    params = detail_params(duration_s=1.0, samplerate_hz=256_000)
+    # A duration long enough to need more than one tile at DETAIL_PX_PER_MS (~4.4138):
+    # DETAIL_MAX_TILE_WIDTH_PX (8000) / 4.4138 / 1000 ~= 1.8125s per tile.
+    params = detail_params(duration_s=2.0, samplerate_hz=256_000)
 
     covered = sum(tile.width_px for tile in params.tiles)
     assert covered == params.spectrogram.width_px
@@ -87,7 +87,9 @@ def test_locked_scale_and_fft_constants_match_the_spec_decision() -> None:
     """Pins the values chosen by the 2026-09-02 scale/FFT spike (see the design spec's dated
     addendum) -- a future change to these constants should be a deliberate spec update, not an
     accidental edit that silently drifts from what's documented."""
-    assert DETAIL_PX_PER_MS == 12.0
+    # Exact 1:1 with the real STFT hop at DETAIL_WINDOW_MS/DETAIL_OVERLAP for a 256kHz recording
+    # (this project's EMT device rate) -- see DETAIL_PX_PER_MS's own derivation comment.
+    assert DETAIL_PX_PER_MS == 256_000 / 58 / 1000
     assert DETAIL_PX_PER_KHZ == 4.7
     assert DETAIL_WINDOW_MS == 1.5
     assert DETAIL_OVERLAP == 0.85
