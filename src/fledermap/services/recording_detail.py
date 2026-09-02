@@ -15,17 +15,26 @@ from fledermap.media.spectrogram import SpectrogramParams
 # Derived from the Skiba identification guide's 10ms:40kHz convention against
 # a ~15cm target print height (96dpi CSS px) -- explicitly a tunable
 # starting point, not a final number (design spec Decisions): refine once
-# real recordings are actually on screen.
-DETAIL_PX_PER_MS = 19.0
+# real recordings are actually on screen. Revised 2026-09-02 (19.0 -> 12.0) by a two-round visual
+# comparison against a real field recording -- see the design spec's dated addendum for the full
+# reasoning and the render-cost tradeoffs of `DETAIL_WINDOW_MS`/`DETAIL_OVERLAP` below.
+DETAIL_PX_PER_MS = 12.0
 DETAIL_PX_PER_KHZ = 4.7
 # A ceiling, not a promise every recording reaches it -- clamped to the
 # recording's own Nyquist limit below, same convention
 # `spectrogram.effective_max_freq_hz` already uses for the drawer.
 DETAIL_MAX_FREQ_KHZ = 120.0
 # Comfortably under WebP's hard 16383px encode-dimension limit -- the whole reason tiling
-# exists: at DETAIL_PX_PER_MS=19.0, any recording longer than ~0.86s would otherwise produce a
+# exists: at DETAIL_PX_PER_MS=12.0, any recording longer than ~1.37s would otherwise produce a
 # spectrogram wider than that limit (design spec's 2026-09-01 tiling addendum).
 DETAIL_MAX_TILE_WIDTH_PX = 8000
+# Chosen 2026-09-02 from a two-round visual comparison against a real field recording (design
+# spec's dated addendum) -- detail-page-only, deliberately independent of `SpectrogramParams`'s
+# own `window_ms`/`overlap` defaults, which the drawer/overview's cached renders use instead
+# (Janna's ruling: the overview compresses far more time into the same screen width, so there's
+# no reason to assume one FFT window suits both -- tune this page for this page).
+DETAIL_WINDOW_MS = 1.5
+DETAIL_OVERLAP = 0.85
 
 
 @dataclass(frozen=True)
@@ -71,6 +80,8 @@ def detail_params(duration_s: float, samplerate_hz: float) -> DetailParams:
         width_px=width_px,
         height_px=height_px,
         max_freq_hz=max_freq_hz,
+        window_ms=DETAIL_WINDOW_MS,
+        overlap=DETAIL_OVERLAP,
     )
     oscillogram = OscillogramParams(width_px=width_px)
     return DetailParams(

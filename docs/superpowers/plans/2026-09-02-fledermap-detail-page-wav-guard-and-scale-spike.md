@@ -354,7 +354,9 @@ by convention).
   — new, detail-page-only constants, alongside the existing `DETAIL_PX_PER_MS`/`DETAIL_PX_PER_KHZ`.
   Nothing outside `detail_params()` needs to consume them directly.
 
-- [ ] **Step 1: Write the comparison script**
+- [x] **Step 1: Write the comparison script** — done 2026-09-02 (see Step 2 for a bug found and
+  fixed during its first real run: the shown code below already reflects the fix, a lowered
+  `--duration-s` default).
 
 Create `scripts/detail_scale_spike.py`:
 
@@ -369,7 +371,12 @@ combinations side by side as rows in one contact-sheet PNG, so the choice is a v
 not a numbers-only guess.
 
 Usage:
-    hatch run python scripts/detail_scale_spike.py <path-to-wav> [--start-s 0.0] [--duration-s 1.0]
+    hatch run python scripts/detail_scale_spike.py <path-to-wav> [--start-s 0.0] [--duration-s 0.05]
+
+Note on --duration-s: `duration_s * px_per_ms` must stay under WebP's 16383px encode limit for
+every candidate (the highest `px_per_ms` in CANDIDATES governs) -- the default here is deliberately
+short (one call, not a whole recording) both for that reason and because zooming into a single call
+is a better test of sharpness than a wide, mostly-silent window anyway.
 """
 
 from __future__ import annotations
@@ -392,6 +399,15 @@ CANDIDATES: list[tuple[float, float, float]] = [
     (3.0, 0.5, 12.0),  # unchanged FFT, less display stretch
     (1.5, 0.5, 12.0),  # both levers together
 ]
+```
+
+This is round 1's `CANDIDATES` list, shown here as originally planned/run. Round 2 (an ad hoc
+follow-up, see below) edited `CANDIDATES` in place to sweep `overlap` instead — the committed
+`scripts/detail_scale_spike.py` reflects round 2's final state (the real file is the source of
+truth for what shipped; this block is a historical record of round 1's starting point, not
+resynced after each round).
+
+```python
 
 ROW_LABEL_HEIGHT_PX = 24
 
@@ -400,7 +416,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("wav_path", type=Path)
     parser.add_argument("--start-s", type=float, default=0.0)
-    parser.add_argument("--duration-s", type=float, default=1.0)
+    parser.add_argument("--duration-s", type=float, default=0.05)
     parser.add_argument(
         "--out", type=Path, default=Path("detail_scale_spike_contact_sheet.png")
     )
@@ -452,54 +468,68 @@ if __name__ == "__main__":
     main()
 ```
 
-- [ ] **Step 2: Run it against a real field recording**
+- [x] **Step 2: Run it against a real field recording** — done 2026-09-02.
 
-Run:
-```bash
-hatch run python scripts/detail_scale_spike.py \
-  ~/Bat\ Sessions/Session_20260826_173533/<a-file-with-a-visible-call>.wav \
-  --start-s <call-start> --duration-s 1.0
-```
+The archive at `~/Bat Sessions/Session_20260826_173533/` has grown since `CLAUDE.md`'s "10 files,
+none identified" note was written — it now has files with real species codes. Used
+`PIPPIP_20260826_220519.wav` (*Pipistrellus pipistrellus*, verified against `taxa_eu.yaml`'s
+`emt: PIPPIP` mapping, not guessed from the filename), 4.2s, 256kHz mono.
 
-Pick `--start-s` from a file already known to contain a call — check
-`docs/superpowers/specs/2026-08-23-fledermap-fledermap-design.md`'s R1-R3 section or the app's own
-map/drawer for which of the 10 sample files has one (per `CLAUDE.md`, 9 of the 10 are "No ID"/
-"Noise", not silence — pick one with an actual visible call shape in the existing drawer
-spectrogram, not just any file).
+Hit a real bug in this script's own first draft: the plan's original `--duration-s 1.0` default
+combined with `px_per_ms=19.0` produces a 19000px-wide image, over WebP's 16383px encode limit —
+the same class of bug already fixed once in this project for the tiling addendum (see the design
+spec). Fixed by lowering the default to `0.05` and zooming into one real call instead of a full
+second — also a better sharpness test than a long, mostly-silent window (see the script's updated
+docstring above). Found the call's location first by rendering a full-file low-res overview,
+then a 300ms zoom to see individual "hockey stick" pulses, then ran the actual comparison at
+`--start-s 0.08 --duration-s 0.06`, giving a 1140×1530px contact sheet — one full call plus
+margin, at every candidate's own scale.
 
-Expected: `detail_scale_spike_contact_sheet.png` written, 5 labelled rows, one per candidate.
+- [x] **Step 3: Get Janna's read on the contact sheet** — done 2026-09-02.
 
-- [ ] **Step 3: Get Janna's read on the contact sheet**
+Sent via `SendUserFile` (embedding a 1140px-wide image inline in chat wasn't legible enough — she
+asked for the file directly). She also sent a screenshot of the EMT device's own onboard
+spectrogram view for the same file as a sanity check (a different renderer/scale, not a
+like-for-like comparison, but it renders the same calls as thin, sharp strokes, consistent with
+the sharper candidates over the blurry baseline).
 
-Show her the PNG (or its path) and ask which row's call shape reads most clearly — sharp edges,
-distinguishable frequency sweep, least visible blur/smear — against the tradeoffs already named in
-the backlog note this task closes: more `overlap` costs more render CPU per tile; a smaller
-`window_ms` trades away frequency resolution; a smaller `px_per_ms` shrinks tile count/render cost
-as a side benefit but makes the on-screen image physically smaller. This is the decision point —
-do not pick a row unilaterally and proceed past this step without her answer.
+**Round 1 pick: `window_ms=1.5`, `px_per_ms=12.0`** (row 5) — sharp like the other `window_ms=1.5`
+candidate (row 3), but physically smaller/cheaper since it also drops `px_per_ms`, with no
+sharpness tradeoff from that second lever (it's independent of the FFT window). Her reasoning:
+Pipistrelle is among the shorter/narrower-band calls in this project's species list, so sharpness
+holding up here is closer to a worst-case check than a best-case one.
 
-- [ ] **Step 4: Apply the chosen values**
+**Round 2 (2026-09-02): overlap sweep on top of round 1's pick.** Row 2 in round 1
+(`window_ms=3.0`, `overlap=0.85`) had already shown that raising `overlap` alone sharpens a fixed
+window, so a second contact sheet held `window_ms=1.5`/`px_per_ms=12.0` fixed and swept
+`overlap` ∈ {0.5, 0.75, 0.85, 0.95} on the same real call. Visible, diminishing-returns effect: the
+staircase/blocky edge on the steep initial sweep smooths into a more continuous curve from
+0.5→0.75→0.85, then only marginally further from 0.85→0.95. Janna's pick: **0.85** — the
+smoothing has plateaued by then, and each further overlap step costs more render CPU per tile
+(more overlapping STFT windows to compute) for no new information, just a smoother interpolation
+between the same underlying time-resolution steps.
 
-Using Janna's picked `(window_ms, overlap, px_per_ms)` — for illustration below, assume she picks
-row 2 `(3.0, 0.85, 19.0)` (more overlap, same window and scale); substitute whatever she actually
-picked.
+**Final: `window_ms=1.5`, `overlap=0.85`, `px_per_ms=12.0`.**
+
+- [x] **Step 4: Apply the chosen values** — values below are final, confirmed by both rounds above.
 
 In `src/fledermap/services/recording_detail.py`, add the two new constants near
 `DETAIL_PX_PER_MS`/`DETAIL_PX_PER_KHZ` (keep the existing comment style — these are named,
 provisional, spec-pinned values, same category as their neighbors):
 
 ```python
-# Chosen 2026-09-02 from a visual comparison against a real field recording (design spec's dated
-# addendum below) -- detail-page-only, deliberately independent of `SpectrogramParams`'s own
-# `window_ms`/`overlap` defaults, which the drawer/overview's cached renders use instead (Janna's
-# ruling: the overview compresses far more time into the same screen width, so there's no reason
-# to assume one FFT window suits both -- tune this page for this page).
-DETAIL_WINDOW_MS = 3.0  # replace with the actually-chosen value
-DETAIL_OVERLAP = 0.85  # replace with the actually-chosen value
+# Chosen 2026-09-02 from a two-round visual comparison against a real field recording (design
+# spec's dated addendum below) -- detail-page-only, deliberately independent of
+# `SpectrogramParams`'s own `window_ms`/`overlap` defaults, which the drawer/overview's cached
+# renders use instead (Janna's ruling: the overview compresses far more time into the same screen
+# width, so there's no reason to assume one FFT window suits both -- tune this page for this page).
+DETAIL_WINDOW_MS = 1.5
+DETAIL_OVERLAP = 0.85
 ```
 
-If she picked a row that also changes `px_per_ms`, edit `DETAIL_PX_PER_MS`'s existing value to
-match — do not leave the spike script's value and the shipped constant disagreeing.
+This also changes `px_per_ms` (19.0 → 12.0) — edit `DETAIL_PX_PER_MS`'s existing value from
+`19.0` to `12.0` to match; do not leave the spike script's value and the shipped constant
+disagreeing. (`DETAIL_PX_PER_KHZ` is unaffected — the spike only varied the time axis.)
 
 Then thread the two new constants into `detail_params()`'s existing `SpectrogramParams(...)` call
 (the one that already sets `width_px`/`height_px`/`max_freq_hz`) — add `window_ms=DETAIL_WINDOW_MS,
@@ -507,6 +537,11 @@ overlap=DETAIL_OVERLAP` as two more keyword arguments there. `media/spectrogram.
 touched — `SpectrogramParams`'s own field defaults, and `jobs/tasks.py`'s
 `DEFAULT_SPECTROGRAM_PARAMS`, are unaffected, so the drawer/overview's cached renders keep
 rendering exactly as before this task.
+
+Also update `DETAIL_MAX_TILE_WIDTH_PX`'s comment two lines above `DETAIL_MAX_TILE_WIDTH_PX` itself
+(currently reads "at DETAIL_PX_PER_MS=19.0, any recording longer than ~0.86s would otherwise
+produce a spectrogram wider than that limit") — the `19.0` and `~0.86s` are now stale against the
+new `12.0`. Recompute: `16383 / 12.0 ≈ 1365ms ≈ 1.37s`.
 
 - [ ] **Step 5: Update the spec's dated deviation note**
 
@@ -526,18 +561,36 @@ Quantified against a real bat-call screenshot 2026-09-02 (see backlog): at the o
 not a rendering defect. Time resolution was the actual bottleneck, not frequency (333Hz/bin against
 564 display px for 0-120kHz was comparatively well-matched).
 
-Changed (`services/recording_detail.py`'s new `DETAIL_WINDOW_MS`/`DETAIL_OVERLAP`, and
-`DETAIL_PX_PER_MS`/`DETAIL_PX_PER_KHZ` if those also changed): <fill in exactly what Step 4 set,
-and the new px-per-real-STFT-column stretch ratio computed the same way as the paragraph above, so
-a future reader doesn't have to re-derive it>. Detail-page-only — `media/spectrogram.py`'s
-`SpectrogramParams` defaults, and therefore the drawer/overview's cached renders, are unchanged;
-see this task's "Ruling" note above for why the two were deliberately not tied together.
-```
+Chosen in two rounds, both visually, against a real `PIPPIP` call in
+`~/Bat Sessions/Session_20260826_173533/PIPPIP_20260826_220519.wav`, round 1 cross-checked against
+the EMT device's own onboard spectrogram view rendering the same calls as thin, sharp strokes:
+`DETAIL_WINDOW_MS=1.5` (was 3.0), `DETAIL_OVERLAP=0.85` (was 0.5), `DETAIL_PX_PER_MS=12.0` (was
+19.0) -- new, detail-page-only constants in `services/recording_detail.py`, threaded explicitly
+into `detail_params()`'s `SpectrogramParams(...)` call. `DETAIL_PX_PER_KHZ` is unchanged at 4.7.
+Round 1 picked `window_ms`/`px_per_ms`; round 2 held those fixed and swept `overlap` upward
+(0.5/0.75/0.85/0.95), picking 0.85 -- the staircase/blocky edge on the call's steep initial sweep
+visibly smooths through 0.75 and 0.85, then only marginally further at 0.95, for more render CPU
+per tile each step (more overlapping STFT windows to compute) and no new information, just a
+smoother interpolation between the same underlying time-resolution steps.
 
-Fill in the placeholder with the real chosen numbers before committing — this plan cannot know
-Janna's answer in advance, but the committed spec must not contain a placeholder (a bare `<fill
-in...>` left in committed docs is exactly the kind of gap `CLAUDE.md`'s "No Placeholders" convention
-exists to prevent — resolve it here, don't leave it for a later pass).
+Time: `nperseg` shrinks from 768 to 384 samples (256kHz) and `noverlap` rises to 326 (`overlap`
+0.85 of 384), so each real STFT column (`hop = nperseg - noverlap` samples) now covers ~0.23ms
+(was 1.5ms) -- at the new 12px/ms scale that's **~2.7 display px per real column** (was 28.5px), a
+~10.5x reduction in the stretch that produced the tile-seam blur. (`overlap` only affects hop/time
+resolution, not frequency resolution -- see next paragraph.)
+
+Frequency: bin width doubles from 333Hz to 667Hz (`samplerate/nperseg` with a halved window,
+`overlap` has no effect here), so the vertical stretch worsens from 1.57px/bin to **3.13px/bin**
+(564 display px across 180 bins to 120kHz, up from 360 bins) -- the traded-away cost of the
+sharper time axis, deliberately accepted: the visual comparison showed the call shape reading more
+clearly overall despite this, and Pipistrellus calls (used for the comparison) are among the
+shorter/narrower-band calls in this project's species list (`docs/references.md`), so this is
+closer to a worst-case than a best-case check for how much frequency detail survives.
+
+Detail-page-only — `media/spectrogram.py`'s `SpectrogramParams` defaults, and therefore the
+drawer/overview's cached renders, are unchanged; see this task's "Ruling" note above for why the
+two were deliberately not tied together.
+```
 
 - [ ] **Step 6: Add a constant-value regression test**
 
@@ -557,10 +610,10 @@ def test_locked_scale_and_fft_constants_match_the_spec_decision() -> None:
         DETAIL_WINDOW_MS,
     )
 
-    assert DETAIL_PX_PER_MS == 19.0  # replace with the actually-chosen value
-    assert DETAIL_PX_PER_KHZ == 4.7  # replace with the actually-chosen value
-    assert DETAIL_WINDOW_MS == 3.0  # replace with the actually-chosen value
-    assert DETAIL_OVERLAP == 0.85  # replace with the actually-chosen value
+    assert DETAIL_PX_PER_MS == 12.0
+    assert DETAIL_PX_PER_KHZ == 4.7
+    assert DETAIL_WINDOW_MS == 1.5
+    assert DETAIL_OVERLAP == 0.85
 
 
 def test_detail_params_spectrogram_uses_the_detail_only_fft_constants() -> None:

@@ -281,3 +281,43 @@ they land in the same files: `recording_details.html` never loaded `alpine.min.j
 including `_nav.html` (an Alpine component) — the theme toggle and sidebar were inert on this page
 — and a source WAV missing from disk (the window between a file being deleted/moved and the next
 `sweep_missing` run) 500ed instead of 404ing as this spec's §2 step 2 already requires.
+
+## Addendum (2026-09-02): FFT window and locked scale, revised from a real-recording comparison
+
+Quantified against a real bat-call screenshot 2026-09-02 (see backlog): at the original
+`window_ms=3.0`/`overlap=0.5`/`DETAIL_PX_PER_MS=19.0`, each real STFT column (1.5ms at
+`nperseg=768`, 256kHz) was stretched to 28.5 display px -- the visible tile-boundary blur was this,
+not a rendering defect. Time resolution was the actual bottleneck, not frequency (333Hz/bin against
+564 display px for 0-120kHz was comparatively well-matched).
+
+Chosen in two rounds, both visually, against a real `PIPPIP` call in
+`~/Bat Sessions/Session_20260826_173533/PIPPIP_20260826_220519.wav`, round 1 cross-checked against
+the EMT device's own onboard spectrogram view rendering the same calls as thin, sharp strokes:
+`DETAIL_WINDOW_MS=1.5` (was 3.0), `DETAIL_OVERLAP=0.85` (was 0.5), `DETAIL_PX_PER_MS=12.0` (was
+19.0) -- new, detail-page-only constants in `services/recording_detail.py`, threaded explicitly
+into `detail_params()`'s `SpectrogramParams(...)` call. `DETAIL_PX_PER_KHZ` is unchanged at 4.7.
+Round 1 picked `window_ms`/`px_per_ms`; round 2 held those fixed and swept `overlap` upward
+(0.5/0.75/0.85/0.95), picking 0.85 -- the staircase/blocky edge on the call's steep initial sweep
+visibly smooths through 0.75 and 0.85, then only marginally further at 0.95, for more render CPU
+per tile each step (more overlapping STFT windows to compute) and no new information, just a
+smoother interpolation between the same underlying time-resolution steps.
+
+Time: `nperseg` shrinks from 768 to 384 samples (256kHz) and `noverlap` rises to 326 (`overlap`
+0.85 of 384), so each real STFT column (`hop = nperseg - noverlap` samples) now covers ~0.23ms
+(was 1.5ms) -- at the new 12px/ms scale that's ~2.7 display px per real column (was 28.5px), a
+~10.5x reduction in the stretch that produced the tile-seam blur. (`overlap` only affects hop/time
+resolution, not frequency resolution -- see next paragraph.)
+
+Frequency: bin width doubles from 333Hz to 667Hz (`samplerate/nperseg` with a halved window,
+`overlap` has no effect here), so the vertical stretch worsens from 1.57px/bin to 3.13px/bin (564
+display px across 180 bins to 120kHz, up from 360 bins) -- the traded-away cost of the sharper time
+axis, deliberately accepted: the visual comparison showed the call shape reading more clearly
+overall despite this, and Pipistrellus calls (used for the comparison) are among the
+shorter/narrower-band calls in this project's species list (`docs/references.md`), so this is
+closer to a worst-case than a best-case check for how much frequency detail survives.
+
+Detail-page-only — `media/spectrogram.py`'s `SpectrogramParams` defaults, and therefore the
+drawer/overview's cached renders, are unchanged. The overview compresses far more time into the
+same screen width than the detail page's locked scale does, so there is no reason to assume one
+FFT window suits both; if this tuning later turns out to suit the overview too, that is a separate,
+deliberate decision to make then, not an assumption baked in here.
