@@ -12,13 +12,13 @@
 // page, and `app.js`'s own crosshair only ever binds to `#drawer-body`.
 
 document.addEventListener("DOMContentLoaded", () => {
-  const spectrogramImg = document.getElementById("detail-spectrogram");
-  if (!spectrogramImg) return; // missing duration/samplerate metadata -- no locked-scale render
+  const spectrogramTiles = Array.from(document.querySelectorAll(".detail-spectrogram-tile"));
+  if (spectrogramTiles.length === 0) return; // missing duration/samplerate metadata
 
   const spectrogramLoading = document.getElementById("spectrogram-loading");
-  const oscillogramImg = document.getElementById("detail-oscillogram");
+  const oscillogramTiles = Array.from(document.querySelectorAll(".detail-oscillogram-tile"));
   const oscillogramLoading = document.getElementById("oscillogram-loading");
-  const wrap = document.querySelector(".detail-spectrogram-wrap");
+  const wrap = document.getElementById("detail-spectrogram-wrap");
   const cursor = document.getElementById("playback-cursor");
   const readout = document.getElementById("crosshair-readout");
   const audio = document.getElementById("detail-audio");
@@ -26,22 +26,29 @@ document.addEventListener("DOMContentLoaded", () => {
   const timeAxis = document.getElementById("detail-axis-time");
   const freqAxis = document.getElementById("detail-axis-freq");
 
-  // Reveal-on-load (design spec section 3): there is no cache-hit fast path
-  // here -- every visit renders fresh -- so the "Rendering…" placeholder
-  // stays up until each image's own `load` event actually fires.
-  spectrogramImg.addEventListener("load", () => {
-    spectrogramLoading.hidden = true;
-    spectrogramImg.hidden = false;
-  });
-  oscillogramImg.addEventListener("load", () => {
-    oscillogramLoading.hidden = true;
-    oscillogramImg.hidden = false;
-  });
+  // Reveal-on-load (design spec section 3): every tile in a row must load before that row's
+  // placeholder clears -- a partially-loaded row (some tiles rendered, others still pending)
+  // would otherwise flash broken-looking gaps.
+  function revealWhenAllLoaded(tiles, loadingEl) {
+    let remaining = tiles.length;
+    tiles.forEach((img) => {
+      img.addEventListener("load", () => {
+        remaining -= 1;
+        if (remaining === 0) {
+          loadingEl.hidden = true;
+          tiles.forEach((t) => { t.hidden = false; });
+        }
+      });
+    });
+  }
+  revealWhenAllLoaded(spectrogramTiles, spectrogramLoading);
+  revealWhenAllLoaded(oscillogramTiles, oscillogramLoading);
 
-  const durationS = parseFloat(spectrogramImg.dataset.durationS);
-  const maxFreqKhz = parseFloat(spectrogramImg.dataset.maxFreqKhz);
-  const pxPerMs = parseFloat(spectrogramImg.dataset.pxPerMs);
-  const pxPerKhz = parseFloat(spectrogramImg.dataset.pxPerKhz);
+  const firstTile = spectrogramTiles[0];
+  const durationS = parseFloat(firstTile.dataset.durationS);
+  const maxFreqKhz = parseFloat(firstTile.dataset.maxFreqKhz);
+  const pxPerMs = parseFloat(firstTile.dataset.pxPerMs);
+  const pxPerKhz = parseFloat(firstTile.dataset.pxPerKhz);
 
   // Dense axis (design spec section 3): fixed ms/kHz intervals, built from
   // the exact same data attributes the crosshair/cursor math below uses --
@@ -86,19 +93,19 @@ document.addEventListener("DOMContentLoaded", () => {
   if (timeAxis && !Number.isNaN(durationS) && !Number.isNaN(pxPerMs)) buildTimeAxis();
   if (freqAxis && !Number.isNaN(maxFreqKhz) && !Number.isNaN(pxPerKhz)) buildFreqAxis();
 
-  // Click-to-play (design spec section 4).
-  spectrogramImg.addEventListener("click", (event) => {
-    const rect = spectrogramImg.getBoundingClientRect();
+  // Click-to-play, crosshair, and the playback cursor all now measure against `wrap`'s own
+  // bounding rect (the tiled row's container) rather than a single `<img>`'s -- the tiles sit
+  // edge-to-edge with no gaps, so the container's rect spans exactly the full locked-scale
+  // width, same as the single image did before tiling.
+  wrap.addEventListener("click", (event) => {
+    const rect = wrap.getBoundingClientRect();
     const xPx = event.clientX - rect.left;
     audio.currentTime = xPx / pxPerMs / 1000;
     audio.play();
   });
 
-  // Crosshair (design spec section 4) -- simpler than the drawer's own
-  // version: no `object-fit: fill` stretch to undo, direct
-  // pixel / px-per-unit division.
   wrap.addEventListener("mousemove", (event) => {
-    const rect = spectrogramImg.getBoundingClientRect();
+    const rect = wrap.getBoundingClientRect();
     const xPx = event.clientX - rect.left;
     const yPx = event.clientY - rect.top;
     if (xPx < 0 || yPx < 0 || xPx > rect.width || yPx > rect.height) {

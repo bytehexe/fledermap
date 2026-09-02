@@ -23,29 +23,37 @@
         <div class="detail-axis-freq" id="detail-axis-freq"></div>
         <div class="detail-graphs">
           <div class="detail-axis-time" id="detail-axis-time"></div>
-          <div class="detail-spectrogram-wrap">
+          <div class="detail-spectrogram-wrap" id="detail-spectrogram-wrap">
             <p class="media-placeholder detail-loading" id="spectrogram-loading">Rendering…</p>
+            {% for tile in params.tiles %}
             <img
-              id="detail-spectrogram"
-              class="detail-spectrogram"
-              src="{{ url_for('media.detail_spectrogram', audio_hash=recording.audio_hash, tile_index=0) }}"
-              alt="Spectrogram"
+              class="detail-spectrogram-tile"
+              src="{{ url_for('media.detail_spectrogram', audio_hash=recording.audio_hash, tile_index=tile.index) }}"
+              alt="Spectrogram tile {{ tile.index }}"
+              width="{{ tile.width_px }}"
+              height="{{ params.spectrogram.height_px }}"
               data-duration-s="{{ duration_s }}"
               data-max-freq-khz="{{ params.max_freq_khz }}"
               data-px-per-ms="{{ px_per_ms }}"
               data-px-per-khz="{{ px_per_khz }}"
               hidden
             >
+            {% endfor %}
             <div class="playback-cursor" id="playback-cursor" hidden></div>
           </div>
           <p class="media-placeholder detail-loading" id="oscillogram-loading">Rendering…</p>
-          <img
-            id="detail-oscillogram"
-            class="detail-oscillogram"
-            src="{{ url_for('media.detail_oscillogram', audio_hash=recording.audio_hash, tile_index=0) }}"
-            alt="Waveform"
-            hidden
-          >
+          <div class="detail-oscillogram-wrap" id="detail-oscillogram-wrap">
+            {% for tile in params.tiles %}
+            <img
+              class="detail-oscillogram-tile"
+              src="{{ url_for('media.detail_oscillogram', audio_hash=recording.audio_hash, tile_index=tile.index) }}"
+              alt="Waveform tile {{ tile.index }}"
+              width="{{ tile.width_px }}"
+              height="48"
+              hidden
+            >
+            {% endfor %}
+          </div>
         </div>
       </div>
     </div>
@@ -57,6 +65,7 @@
     {% endif %}
   </main>
   <div id="crosshair-readout" class="crosshair-readout" hidden></div>
+  <script src="{{ url_for('vendor.static', filename='alpine.min.js') }}" defer></script>
   <script src="{{ url_for('static', filename='recording_detail.js') }}"></script>
 </body>
 </html>

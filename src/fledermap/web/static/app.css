@@ -484,8 +484,9 @@ button:disabled { cursor: default; opacity: 0.5; }
 }
 .detail-graphs { display: flex; flex-direction: column; }
 .detail-axis-time { position: relative; height: 1.2rem; }
-.detail-spectrogram-wrap { position: relative; cursor: crosshair; }
-.detail-spectrogram, .detail-oscillogram { display: block; }
+.detail-spectrogram-wrap { position: relative; cursor: crosshair; display: flex; }
+.detail-oscillogram-wrap { position: relative; display: flex; }
+.detail-spectrogram-tile, .detail-oscillogram-tile { display: block; }
 .detail-axis-tick {
   position: absolute;
   font-size: 0.7rem;

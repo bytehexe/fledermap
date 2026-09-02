@@ -51,6 +51,33 @@ def test_recording_details_page_renders_the_recording(
     assert f"/recordings/{'f2' * 32}/detail-oscillogram/0.webp" in html
 
 
+def test_recording_details_page_renders_one_img_per_tile(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="f4" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                duration_s=1.0,  # needs 3 tiles at DETAIL_MAX_TILE_WIDTH_PX=8000, DETAIL_PX_PER_MS=19.0
+                samplerate_hz=256_000,
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/recordings/{'f4' * 32}")
+
+    html = response.get_data(as_text=True)
+    assert html.count('class="detail-spectrogram-tile"') == 3
+    assert html.count('class="detail-oscillogram-tile"') == 3
+    assert "/detail-spectrogram/0.webp" in html
+    assert "/detail-spectrogram/1.webp" in html
+    assert "/detail-spectrogram/2.webp" in html
+
+
 def test_recording_details_page_explains_missing_metadata(
     engine: Engine,
     tmp_path: Path,
