@@ -80,6 +80,34 @@ def test_recording_details_page_bakes_in_the_preview_time_expansion_factor(
     assert 'data-time-expansion-factor="10"' in html
 
 
+def test_recording_details_page_reserves_the_final_wrap_sizes_up_front(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """Both wraps get their real final width/height inline, from the same server-known
+    numbers the tiles themselves use, instead of collapsing to whatever their (all-`hidden`)
+    children happen to take up -- avoids a layout jump once tiles reveal, and means the
+    scroll container's horizontal range is correct from the very first paint."""
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="f7" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                duration_s=0.5,  # width_px = round(500 * 19.0) = 9500
+                samplerate_hz=256_000,
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/recordings/{'f7' * 32}")
+
+    html = response.get_data(as_text=True)
+    assert 'style="width: 9500px; height: 48px;"' in html  # oscillogram wrap
+    assert 'style="width: 9500px; height: 564px;"' in html  # spectrogram wrap
+
+
 def test_recording_details_page_puts_oscillogram_above_spectrogram(
     engine: Engine,
     tmp_path: Path,

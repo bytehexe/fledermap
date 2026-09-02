@@ -30,7 +30,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // Reveal-on-load (design spec section 3): every tile in a row must load before that row's
   // placeholder clears -- a partially-loaded row (some tiles rendered, others still pending)
   // would otherwise flash broken-looking gaps.
-  function revealWhenAllLoaded(tiles, loadingEl, onSettled) {
+  function revealWhenAllLoaded(tiles, loadingEl) {
     let remaining = tiles.length;
     let hadError = false;
 
@@ -46,7 +46,6 @@ document.addEventListener("DOMContentLoaded", () => {
         tiles.forEach((t) => {
           if (!t.dataset.failed) t.hidden = false;
         });
-        if (onSettled) onSettled();
       }
     }
 
@@ -89,7 +88,11 @@ document.addEventListener("DOMContentLoaded", () => {
   // Dense axis (design spec section 3): fixed ms/kHz intervals, built from
   // the exact same data attributes the crosshair/cursor math below uses --
   // the labels can never drift out of sync with the actual rendered scale.
-  const TIME_TICK_MS = 50;
+  // 50ms was too sparse to be useful at the current 19px/ms scale (~950px
+  // between labels -- one or two per screen at typical zoom); 20ms lands a
+  // label roughly every 380px, still with comfortable room for the "0.02s"-
+  // style text to not collide with its neighbours.
+  const TIME_TICK_MS = 20;
   const FREQ_TICK_KHZ = 10;
 
   function buildTimeAxis() {
@@ -112,15 +115,13 @@ document.addEventListener("DOMContentLoaded", () => {
     // the oscillogram row that now sits above the spectrogram (compact
     // strip above the main view, matching the drawer panel's convention).
     // A tick's `top` has to include all of that offset or it aligns
-    // against the wrong origin. Read fresh each call, not cached: before
-    // the oscillogram tiles settle, `oscillogramWrap`'s own height is 0
-    // (its images are still `hidden`) and `oscillogramLoading`'s
-    // placeholder text fills that space instead -- this function is
-    // called again once that row settles (see `revealWhenAllLoaded`
-    // below) so the final tick positions always reflect the real,
-    // settled layout, not a stale snapshot from before it.
-    const spectrogramTop =
-      timeAxis.offsetHeight + oscillogramLoading.offsetHeight + oscillogramWrap.offsetHeight;
+    // against the wrong origin. `oscillogramWrap.offsetHeight` is safe to
+    // read here even before its tiles load: the template reserves its
+    // real final height inline (`style="height: ...px"`, from the same
+    // server-known number the tiles themselves use), so it doesn't
+    // collapse to 0 while its images are still `hidden` the way it would
+    // without that reservation.
+    const spectrogramTop = timeAxis.offsetHeight + oscillogramWrap.offsetHeight;
     for (let khz = 0; khz <= maxFreqKhz; khz += FREQ_TICK_KHZ) {
       const tick = document.createElement("span");
       tick.className = "detail-axis-tick detail-axis-tick-freq";
@@ -136,15 +137,8 @@ document.addEventListener("DOMContentLoaded", () => {
   if (timeAxis && !Number.isNaN(durationS) && !Number.isNaN(pxPerMs)) buildTimeAxis();
   if (freqAxis && !Number.isNaN(maxFreqKhz) && !Number.isNaN(pxPerKhz)) buildFreqAxis();
 
-  // Now that every const/function these settle callbacks close over is defined: start loading
-  // the tiles. The oscillogram settling re-runs buildFreqAxis with its final, settled height --
-  // some tiles can already be `img.complete` by the time this runs (see the comment in
-  // `revealWhenAllLoaded` above), which would call back into buildFreqAxis synchronously, so
-  // this must come after every one of those declarations, not before.
   revealWhenAllLoaded(spectrogramTiles, spectrogramLoading);
-  revealWhenAllLoaded(oscillogramTiles, oscillogramLoading, () => {
-    if (freqAxis && !Number.isNaN(maxFreqKhz) && !Number.isNaN(pxPerKhz)) buildFreqAxis();
-  });
+  revealWhenAllLoaded(oscillogramTiles, oscillogramLoading);
 
   // Click-to-play, crosshair, and the playback cursor all now measure against `wrap`'s own
   // bounding rect (the tiled row's container) rather than a single `<img>`'s -- the tiles sit

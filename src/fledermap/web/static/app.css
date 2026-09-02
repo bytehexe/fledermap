@@ -506,3 +506,18 @@ button:disabled { cursor: default; opacity: 0.5; }
 .playback-cursor[hidden] { display: none; }
 .detail-loading[hidden] { display: none; }
 .detail-spectrogram-tile[hidden], .detail-oscillogram-tile[hidden] { display: none; }
+/* The wraps now reserve their real final width/height inline (recording_details.html) --
+   stretch `.media-placeholder` to fill that whole reserved box (it already has
+   `height: 100%` from its shared rule; this adds the matching width) instead of shrinking
+   to its own text size, and a slow pulse to read as "in progress" rather than a static
+   "nothing here" the same class means elsewhere (the drawer's own -- correctly static --
+   "not processed yet" placeholder, a terminal state, never gets this animation). */
+.detail-spectrogram-wrap .media-placeholder,
+.detail-oscillogram-wrap .media-placeholder {
+  width: 100%;
+  animation: detail-loading-pulse 1.6s ease-in-out infinite;
+}
+@keyframes detail-loading-pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
