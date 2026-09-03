@@ -98,6 +98,13 @@ document.addEventListener("DOMContentLoaded", () => {
   function buildTimeAxis() {
     timeAxis.innerHTML = "";
     const totalMs = durationS * 1000;
+    // The mirror image of the ms===0 case below: the LAST tick drawn is `TIME_TICK_MS`-aligned,
+    // so it lands a few ms (and therefore a few px) short of the recording's true end -- close
+    // enough that a centered label's bled-right half can still stick out past the actual
+    // rendered image content on the right, widening `.detail-scroll`'s scrollable range with a
+    // sliver of empty background past the real content (found 2026-09-03 on a real recording,
+    // visible once the sticky freq axis fix above let scrolling reach all the way to the end).
+    const lastMs = Math.floor(totalMs / TIME_TICK_MS) * TIME_TICK_MS;
     for (let ms = 0; ms <= totalMs; ms += TIME_TICK_MS) {
       const tick = document.createElement("span");
       tick.className = "detail-axis-tick detail-axis-tick-time";
@@ -108,8 +115,10 @@ document.addEventListener("DOMContentLoaded", () => {
       // it would bleed its left half into negative-x territory -- exactly where the sticky,
       // opaque `.detail-axis-freq` column sits, hiding half the label under it. Left-align
       // this one tick instead: it also reads as more correct for an origin label, which has
-      // nothing to its left to straddle.
+      // nothing to its left to straddle. The LAST tick gets the same treatment mirrored --
+      // right-align it (bleed left, into existing content, never past the real right edge).
       if (ms === 0) tick.style.transform = "translateX(0)";
+      else if (ms === lastMs) tick.style.transform = "translateX(-100%)";
       tick.textContent = `${(ms / 1000).toFixed(2)}s`;
       timeAxis.appendChild(tick);
     }
