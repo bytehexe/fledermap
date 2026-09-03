@@ -403,7 +403,7 @@ def test_a_disappearing_site_is_deleted_without_disturbing_others(
     identification), only its own Site row goes away -- an unrelated site
     elsewhere must keep its id, not get renumbered as a side effect."""
     with OrmSession(engine) as session:
-        _recording("a", session, 13.4000, 52.5000)
+        a = _recording("a", session, 13.4000, 52.5000)
         _recording("b", session, 13.4001, 52.5000)
         far_a = _recording("far-a", session, 20.0000, 50.0000)
         far_b = _recording("far-b", session, 20.0001, 50.0000)
@@ -411,10 +411,9 @@ def test_a_disappearing_site_is_deleted_without_disturbing_others(
 
         derive_sites(session, eps_m=75.0, min_points=2)
         session.commit()
-        sites_before = {
-            s.recording_count: s.id for s in session.scalars(select(Site)).all()
-        }
-        surviving_site_id = sites_before[2]
+        session.refresh(a)
+        surviving_site_id = a.site_id
+        assert surviving_site_id is not None  # sanity: "a" clustered with "b"
 
         session.delete(far_a)
         session.delete(far_b)
