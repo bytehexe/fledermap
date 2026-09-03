@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -13,7 +14,11 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.config import Config
-from fledermap.jobs.app import ensure_schema, make_worker_connector
+from fledermap.jobs.app import (
+    ensure_schema,
+    make_worker_connector,
+    requeue_stalled_jobs,
+)
 from fledermap.jobs.tasks import (
     _INGEST_CYCLE_LOCK,
     _NAME_SITE_LOCK,
@@ -370,6 +375,111 @@ def test_duplicate_defer_with_the_same_queueing_lock_is_refused(
             lock=spectrogram_lock_key(audio_hash),
             queueing_lock=spectrogram_lock_key(audio_hash),
         ).defer(audio_hash=audio_hash)
+
+
+def _requeue_stalled_jobs_sync(engine: Engine) -> list[int]:
+    database_url = engine.url.set(drivername="postgresql").render_as_string(
+        hide_password=False,
+    )
+
+    async def _requeue() -> list[int]:
+        with jobs_app.replace_connector(
+            make_worker_connector(database_url),
+        ) as worker_app:
+            async with worker_app.open_async():
+                return await requeue_stalled_jobs(worker_app)
+
+    return asyncio.run(_requeue())
+
+
+def _job_status(engine: Engine, job_id: int) -> str:
+    with engine.connect() as conn:
+        return conn.execute(
+            text("SELECT status FROM procrastinate_jobs WHERE id = :id"),
+            {"id": job_id},
+        ).scalar_one()
+
+
+def test_requeue_stalled_jobs_recovers_a_job_a_dead_worker_left_doing(
+    engine: Engine,
+) -> None:
+    """Reproduces the real-deployment bug: a worker process dies mid-job,
+    leaving it stuck in `doing` under its lock forever (`worker_id` NULL --
+    exactly what a crashed process leaves behind, confirmed against the
+    real `procrastinate_jobs` row). Every later attempt at the same
+    `lock=` -- cron tick or watchdog event -- then queues behind a lock
+    that will never be released, on its own, again."""
+    jobs_app.open(engine)
+    ensure_schema(jobs_app, engine)
+    audio_hash = "h5" * 32
+    lock = spectrogram_lock_key(audio_hash)
+
+    render_spectrogram_task.configure(lock=lock, queueing_lock=lock).defer(
+        audio_hash=audio_hash,
+    )
+
+    with engine.connect() as conn:
+        job_id = conn.execute(
+            text(
+                "UPDATE procrastinate_jobs SET status = 'doing' "
+                "WHERE task_name = 'fledermap.jobs.tasks.render_spectrogram_task' "
+                "RETURNING id",
+            ),
+        ).scalar_one()
+        conn.commit()
+
+    requeued = _requeue_stalled_jobs_sync(engine)
+
+    assert requeued == [job_id]
+    assert _job_status(engine, job_id) == "todo"
+
+
+def test_requeue_stalled_jobs_fails_instead_of_retrying_when_a_successor_is_already_queued(
+    engine: Engine,
+) -> None:
+    """Reproduces the exact production incident, not just the simpler single
+    -job case above: a `doing` job crashes AND, before this recovery ever
+    ran, a later cron tick/watchdog event already re-deferred a fresh `todo`
+    job under the SAME `queueing_lock` (`AlreadyEnqueued` only blocks a
+    SECOND `todo` under one queueing_lock -- one already-`doing` plus one
+    freshly `todo` coexist just fine). `retry_job` flips `doing` -> `todo`
+    unconditionally, which collides with that pre-existing `todo` job on
+    `procrastinate_jobs_queueing_lock_idx_v1` and raises
+    `procrastinate.exceptions.UniqueViolation` -- confirmed against the real
+    `bats_db` restart, not hypothesised. The stalled job must be marked
+    `failed` instead in that case, which is always safe (neither the `doing`
+    -only lock index nor the `todo`-only queueing_lock index cares about
+    `failed`) -- the pre-existing `todo` successor is the one that goes on
+    to run."""
+    jobs_app.open(engine)
+    ensure_schema(jobs_app, engine)
+    lock = _INGEST_CYCLE_LOCK
+
+    run_ingest_cycle.configure(lock=lock, queueing_lock=lock).defer(timestamp=1)
+
+    with engine.connect() as conn:
+        stuck_id = conn.execute(
+            text(
+                "UPDATE procrastinate_jobs SET status = 'doing' "
+                "WHERE task_name = 'fledermap.jobs.tasks.run_ingest_cycle' "
+                "RETURNING id",
+            ),
+        ).scalar_one()
+        conn.commit()
+
+    # A later cron tick/watchdog event re-defers under the same
+    # queueing_lock while the crashed job is still (wrongly) `doing` --
+    # exactly what happened in production.
+    successor_id = run_ingest_cycle.configure(lock=lock, queueing_lock=lock).defer(
+        timestamp=2,
+    )
+
+    requeued = _requeue_stalled_jobs_sync(engine)
+
+    assert requeued == [stuck_id]
+    assert _job_status(engine, stuck_id) == "failed"
+    # The pre-existing successor is untouched and still runnable.
+    assert _job_status(engine, successor_id) == "todo"
 
 
 def _make_config(

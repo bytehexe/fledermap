@@ -22,7 +22,11 @@ from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.config import Config, ConfigError, resolve_static_root
 from fledermap.derive.sessions import partition_sessions
-from fledermap.jobs.app import ensure_schema, make_worker_connector
+from fledermap.jobs.app import (
+    ensure_schema,
+    make_worker_connector,
+    requeue_stalled_jobs,
+)
 from fledermap.jobs.tasks import _INGEST_CYCLE_LOCK, run_ingest_cycle
 from fledermap.jobs.tasks import app as jobs_app
 from fledermap.jobs.watch import start_watching
@@ -326,6 +330,14 @@ async def _run_worker_async(config: Config, engine: Engine, *, wait: bool) -> No
         # do this on its own, so it must be opened explicitly here too.
         # Without it, `run_worker_async` raises `AppNotOpen` immediately.
         async with worker_app.open_async():
+            # Recover anything a previous, now-dead worker process left
+            # stuck in `doing` -- see `requeue_stalled_jobs`'s docstring.
+            # Before starting the watcher/worker loop: a job still stuck
+            # under a lock (e.g. `_INGEST_CYCLE_LOCK`) would otherwise
+            # silently block every cron tick and watchdog event this
+            # process ever tries for that lock.
+            await requeue_stalled_jobs(worker_app)
+
             loop = asyncio.get_running_loop()
             observer = start_watching(config.archive_roots, loop, _defer_ingest_cycle)
             try:

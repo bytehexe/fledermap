@@ -47,10 +47,16 @@ investigation):
 
 from __future__ import annotations
 
+import logging
+from datetime import UTC, datetime
+
 import procrastinate
 from procrastinate.contrib.sqlalchemy import SQLAlchemyPsycopg2Connector
+from procrastinate.jobs import Status as _JobStatus
 from sqlalchemy import text
 from sqlalchemy.engine import Engine, make_url
+
+logger = logging.getLogger(__name__)
 
 
 def make_job_app() -> procrastinate.App:
@@ -135,3 +141,89 @@ def make_worker_connector(database_url: str) -> procrastinate.PsycopgConnector:
     """An async-capable connector for running the worker -- see module
     docstring point 2. `database_url` is normalised by `_worker_conninfo`."""
     return procrastinate.PsycopgConnector(conninfo=_worker_conninfo(database_url))
+
+
+async def requeue_stalled_jobs(worker_app: procrastinate.App) -> list[int]:
+    """Recover jobs a crashed worker process abandoned mid-run.
+
+    Procrastinate enforces `lock=` (e.g. `_INGEST_CYCLE_LOCK`) with a DB
+    constraint that allows only one `doing` job per lock name. If a worker
+    process dies mid-job (OOM kill, `docker kill`, the host suspending --
+    all observed on the real deployment), that job is left stuck in `doing`
+    forever: nothing in Procrastinate itself, or previously in this
+    codebase, ever moves it out again. Every later attempt to run that same
+    locked task -- cron tick or watchdog event alike -- then queues behind a
+    lock that will never be released, silently. This is exactly what
+    happened to `run_ingest_cycle` on the real deployment: one `doing` job
+    orphaned by a crash on 2026-08-30 wedged EVERY subsequent periodic and
+    filesystem-triggered ingest for the following three days, with nothing
+    in the worker's own logs to show it -- confirmed against
+    `procrastinate_jobs`/`procrastinate_events` directly.
+
+    `job_manager.get_stalled_jobs()` (no `nb_seconds`) is Procrastinate's
+    documented, non-deprecated way to find these: a `doing` job whose
+    `worker_id` is NULL, or points at a worker row whose heartbeat has gone
+    stale. `retry_job` flips it back to `todo` (Procrastinate's own SQL
+    comment: "Retry a job, changing it from 'doing' to 'todo'"), which
+    releases the lock and lets the task run again -- safe here because
+    every locked task in this codebase (`run_ingest_cycle`, the per-hash
+    media renders, `name_site_task`) is written to be idempotent/re-runnable
+    (design spec §5-7).
+
+    A stalled job is not always alone, though -- exactly what the real
+    deployment hit: while `run_ingest_cycle`'s job sat wedged `doing` for
+    three days, cron ticks and watchdog events kept trying and landed one
+    fresh `todo` job behind it under the same `queueing_lock` (the
+    `AlreadyEnqueued` guard only blocks a SECOND `todo` job under one
+    queueing_lock -- one `doing` plus one `todo` coexist just fine).
+    `retry_job` flips the stalled job straight to `todo` unconditionally,
+    which then collides with that pre-existing `todo` job on
+    `procrastinate_jobs_queueing_lock_idx_v1` and raises
+    `procrastinate.exceptions.UniqueViolation` -- confirmed against the
+    real deployment's restart, not hypothesised. In that case the stalled
+    job is marked `failed` instead (`finish_job`, "Finish a job, changing
+    it from 'doing' to 'failed'"): always safe, since `failed` isn't
+    covered by the `doing`-only lock index or the `todo`-only
+    queueing_lock index, and the pre-existing `todo` successor is the one
+    that goes on to run -- nothing is lost, since it carries the same
+    task, args, and (by construction) queueing_lock.
+
+    Must run against an app whose connector is already the async worker
+    connector, opened (`async with worker_app.open_async():`) -- same
+    requirement as `run_worker_async` itself (module docstring point 2).
+    Called once per worker-process startup (`cli/main.py`'s
+    `_run_worker_async`, right after `open_async()`), since a process
+    restart is the natural recovery point after whatever killed the
+    previous one.
+    """
+    stalled = await worker_app.job_manager.get_stalled_jobs()
+    requeued: list[int] = []
+    for job in stalled:
+        assert job.id is not None  # every job read back from the DB has an id
+        try:
+            await worker_app.job_manager.retry_job(job, retry_at=datetime.now(UTC))
+        except procrastinate.exceptions.UniqueViolation:
+            await worker_app.job_manager.finish_job_by_id_async(
+                job_id=job.id,
+                status=_JobStatus.FAILED,
+                delete_job=False,
+            )
+            logger.warning(
+                "stalled job %d (task=%s, lock=%s) could not be retried -- a "
+                "successor is already queued under the same queueing_lock; "
+                "marked failed instead",
+                job.id,
+                job.task_name,
+                job.lock,
+            )
+            requeued.append(job.id)
+            continue
+        requeued.append(job.id)
+        logger.warning(
+            "requeued stalled job %d (task=%s, lock=%s) -- a previous worker "
+            "process likely crashed mid-run",
+            job.id,
+            job.task_name,
+            job.lock,
+        )
+    return requeued
