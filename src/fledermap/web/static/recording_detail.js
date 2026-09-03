@@ -102,6 +102,14 @@ document.addEventListener("DOMContentLoaded", () => {
       const tick = document.createElement("span");
       tick.className = "detail-axis-tick detail-axis-tick-time";
       tick.style.left = `${ms * pxPerMs}px`;
+      // Every other tick is centered on its mark via `.detail-axis-tick-time`'s
+      // `transform: translateX(-50%)`, which is fine -- adjacent labels' bled-over halves
+      // just share the empty gap between marks. The 0ms tick sits at `left: 0`, so centering
+      // it would bleed its left half into negative-x territory -- exactly where the sticky,
+      // opaque `.detail-axis-freq` column sits, hiding half the label under it. Left-align
+      // this one tick instead: it also reads as more correct for an origin label, which has
+      // nothing to its left to straddle.
+      if (ms === 0) tick.style.transform = "translateX(0)";
       tick.textContent = `${(ms / 1000).toFixed(2)}s`;
       timeAxis.appendChild(tick);
     }

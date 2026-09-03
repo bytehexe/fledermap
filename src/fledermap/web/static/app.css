@@ -470,7 +470,15 @@ button:disabled { cursor: default; opacity: 0.5; }
   border-radius: 4px;
   margin: 0.75rem 0;
 }
-.detail-body { display: flex; }
+/* `width: max-content` matters, not just cosmetic: without it this flex row is a normal
+   in-flow block whose `width: auto` fills its containing block (`.detail-scroll`'s visible
+   width), even though its children (`.detail-graphs`, holding the full-length spectrogram/
+   oscillogram) are far wider and overflow it. `.detail-scroll` still scrolls fine either way
+   (scrollable overflow follows descendants' painted extent regardless), but
+   `.detail-axis-freq`'s `position: sticky` below is bounded by ITS containing block --
+   `.detail-body` -- so a too-narrow `.detail-body` caps how far the sticky column can travel
+   before it hits that edge and un-sticks, well short of the actual scrollable range. */
+.detail-body { display: flex; width: max-content; }
 /* Sticky, not scrolled with the graphs -- pinned on the left the same way
    a DAW's own frequency ruler stays put while the timeline scrolls under
    it. Cheap: one CSS property, no JS. */
