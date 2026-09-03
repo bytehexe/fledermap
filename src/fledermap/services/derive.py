@@ -83,10 +83,18 @@ def derive_sites(
         and best.verdict == Verdict.SPECIES
     ]
 
-    # Capture the previous run's site membership before touching anything,
-    # so unchanged clusters below can be matched back to their old site and
-    # reuse its id instead of getting a new one.
-    previous_members: dict[int, set[int]] = {}
+    # Capture the previous run's sites and their membership before touching
+    # anything, so unchanged clusters below can be matched back to their old
+    # site and reuse its id instead of getting a new one. `existing_site_ids`
+    # is queried separately from `Site` itself, not inferred from which sites
+    # still have members in `Recording` -- a site whose every member
+    # `Recording` row was deleted outright (rather than just losing its
+    # `site_id`) would otherwise vanish from `previous_members` entirely and
+    # never be recognised as stale, leaking its row forever.
+    existing_site_ids = set(db_session.scalars(select(Site.id)))
+    previous_members: dict[int, set[int]] = {
+        site_id: set() for site_id in existing_site_ids
+    }
     for site_id, recording_id in db_session.execute(
         select(Recording.site_id, Recording.id).where(Recording.site_id.is_not(None)),
     ):
@@ -191,7 +199,7 @@ def derive_sites(
             recording.site_id = site.id
         report.site_count += 1
 
-    stale_site_ids = set(previous_members) - matched_site_ids
+    stale_site_ids = existing_site_ids - matched_site_ids
     if stale_site_ids:
         db_session.execute(delete(Site).where(Site.id.in_(stale_site_ids)))
 
