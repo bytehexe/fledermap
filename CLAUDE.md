@@ -218,6 +218,13 @@ under "Environment gotchas" before assuming CLI-adjacent code belongs there.
   Procrastinate's own versioned migrations. Bumping the `procrastinate` dependency (pinned
   `>=3.9,<4` for this reason) therefore means running those migrations against every existing
   database **by hand**; Alembic does not cover them.
+- **`worker` already runs an ingest cycle at startup, not just on the `*/5 * * * *` cron tick** —
+  Procrastinate's own periodic-deferrer catch-up (`procrastinate.periodic.PeriodicDeferrer`), not
+  anything this project's code arranges: with no prior deferral recorded, it looks up the cron's
+  most recent previous tick via `croniter.get_prev()` and defers it immediately, as long as that
+  tick is within `max_delay` (10 minutes) of now — which a 5-minute cron always satisfies. Pinned
+  down by `tests/test_cli.py::test_worker_ingests_a_pre_existing_file_at_startup_without_waiting_for_the_cron_tick`
+  so a future `procrastinate` bump can't silently change it unnoticed.
 
 ## Migrations
 
