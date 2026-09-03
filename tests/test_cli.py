@@ -729,6 +729,73 @@ def test_worker_wait_mode_picks_up_a_file_dropped_in_after_startup(
     )
 
 
+def test_worker_ingests_a_pre_existing_file_at_startup_without_waiting_for_the_cron_tick(
+    clean_database_url: str,
+    tmp_path: Path,
+) -> None:
+    """A file already sitting in the archive when `worker` starts gets
+    ingested within a couple of seconds, not after the next `*/5 * * * *`
+    tick (`_INGEST_CYCLE_CRON`, jobs/tasks.py).
+
+    This isn't the watchdog/debounce path -- the file is present BEFORE the
+    worker (and its Observer) ever starts, so no filesystem event fires for
+    it. It's Procrastinate's OWN periodic-deferrer catch-up
+    (`procrastinate.periodic.PeriodicDeferrer.get_timestamps`): with no prior
+    `last_defers` entry, it looks up the cron's most recent PREVIOUS tick via
+    `croniter.get_prev()` and defers it immediately, as long as that tick is
+    within `max_delay` (10 minutes) of now -- which a 5-minute cron always
+    is. So `run_ingest_cycle` already fires on worker startup with no code
+    change needed here; this test exists to pin that behaviour down with a
+    real assertion instead of leaving it as an implicit side effect of
+    Procrastinate's internals that a future dependency bump could silently
+    change. Companion to
+    `test_worker_wait_mode_picks_up_a_file_dropped_in_after_startup`, which
+    deliberately starves this same catch-up (empty archive at startup) to
+    isolate the watchdog path instead."""
+    archive = _archive_with_n_files(tmp_path, 1)
+    config = Config(
+        database_url=clean_database_url,
+        archive_roots=(archive,),
+        media_root=tmp_path / "media",
+    )
+    engine = make_engine(clean_database_url)
+
+    cli_main._run_migrations(config.database_url)
+    ensure_schema(cli_main.jobs_app, engine)
+
+    async def _drive() -> bool:
+        task = asyncio.create_task(
+            cli_main._run_worker_async(config, engine, wait=True),
+        )
+        try:
+            deadline = time.time() + 15  # comfortably above what the catch-up
+            # + a real ingest cycle need, comfortably below the 5-minute next
+            # scheduled tick -- so a pass here can only be the startup
+            # catch-up, never the regular cron.
+            found = False
+            while time.time() < deadline:
+                with OrmSession(engine) as session:
+                    if session.scalar(select(func.count()).select_from(Recording)):
+                        found = True
+                        break
+                await asyncio.sleep(0.2)
+            return found
+        finally:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    try:
+        found = asyncio.run(_drive())
+    finally:
+        engine.dispose()
+
+    assert found, (
+        "recording was not ingested within the timeout -- the startup "
+        "catch-up did not fire"
+    )
+
+
 def test_enqueue_media_command_reports_disk_gap_but_avoids_duplicate_jobs(
     clean_database_url: str,
     tmp_path: Path,
