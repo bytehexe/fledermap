@@ -326,9 +326,34 @@ def test_recordings_at_one_identical_fix_still_produce_a_site(engine: Engine) ->
         assert site.radius_m == pytest.approx(0.0, abs=1e-6)
 
 
-def test_rebuild_is_wholesale_and_idempotent(engine: Engine) -> None:
-    """Re-running with the same data doesn't duplicate sites; a recording that
-    drops out of the archive between runs loses its site cleanly."""
+def test_rebuild_is_idempotent(engine: Engine) -> None:
+    """Re-running with the same data doesn't duplicate sites."""
+    with OrmSession(engine) as session:
+        _recording("a", session, 13.4000, 52.5000)
+        _recording("b", session, 13.4001, 52.5000)
+        session.commit()
+
+        derive_sites(session, eps_m=75.0, min_points=2)
+        session.commit()
+
+        # Re-run with identical input.
+        report = derive_sites(session, eps_m=75.0, min_points=2)
+        session.commit()
+
+        assert report.site_count == 1
+        sites = session.scalars(select(Site)).all()
+        assert len(sites) == 1
+        recordings = session.scalars(select(Recording)).all()
+        assert all(r.site_id == sites[0].id for r in recordings)
+
+
+def test_a_rebuild_preserves_an_unchanged_sites_id(engine: Engine) -> None:
+    """The bug this guards against: a client (an open drawer panel, a
+    bookmarked map URL) references a site by id across worker cycles. If an
+    unchanged cluster gets a fresh id every rebuild, that reference goes
+    stale within minutes of a periodic worker running -- surfacing in the UI
+    as a spurious "site not found". Re-running with unchanged input must
+    keep the same `Site.id`, not just the same count."""
     with OrmSession(engine) as session:
         _recording("a", session, 13.4000, 52.5000)
         _recording("b", session, 13.4001, 52.5000)
@@ -343,9 +368,62 @@ def test_rebuild_is_wholesale_and_idempotent(engine: Engine) -> None:
         session.commit()
 
         assert report.site_count == 1
+        site = session.scalars(select(Site)).one()
+        assert site.id == first_site_id
+
+
+def test_a_site_that_gains_a_recording_keeps_its_id(engine: Engine) -> None:
+    """A cluster growing (a new identified recording lands near an existing
+    site) is still "the same place", not a new one."""
+    with OrmSession(engine) as session:
+        _recording("a", session, 13.4000, 52.5000)
+        _recording("b", session, 13.4001, 52.5000)
+        session.commit()
+
+        derive_sites(session, eps_m=75.0, min_points=2)
+        session.commit()
+        first_site_id = session.scalars(select(Site)).one().id
+
+        _recording("c", session, 13.4002, 52.5000)
+        session.commit()
+
+        report = derive_sites(session, eps_m=75.0, min_points=2)
+        session.commit()
+
+        assert report.site_count == 1
+        site = session.scalars(select(Site)).one()
+        assert site.id == first_site_id
+        assert site.recording_count == 3
+
+
+def test_a_disappearing_site_is_deleted_without_disturbing_others(
+    engine: Engine,
+) -> None:
+    """When a cluster's members all drop below `min_points` (or lose their
+    identification), only its own Site row goes away -- an unrelated site
+    elsewhere must keep its id, not get renumbered as a side effect."""
+    with OrmSession(engine) as session:
+        _recording("a", session, 13.4000, 52.5000)
+        _recording("b", session, 13.4001, 52.5000)
+        far_a = _recording("far-a", session, 20.0000, 50.0000)
+        far_b = _recording("far-b", session, 20.0001, 50.0000)
+        session.commit()
+
+        derive_sites(session, eps_m=75.0, min_points=2)
+        session.commit()
+        sites_before = {
+            s.recording_count: s.id for s in session.scalars(select(Site)).all()
+        }
+        surviving_site_id = sites_before[2]
+
+        session.delete(far_a)
+        session.delete(far_b)
+        session.commit()
+
+        report = derive_sites(session, eps_m=75.0, min_points=2)
+        session.commit()
+
+        assert report.site_count == 1
         sites = session.scalars(select(Site)).all()
         assert len(sites) == 1
-        # A fresh row (wholesale rebuild) — not necessarily the same id.
-        recordings = session.scalars(select(Recording)).all()
-        assert all(r.site_id == sites[0].id for r in recordings)
-        assert first_site_id is not None  # sanity: the fixture actually ran once
+        assert sites[0].id == surviving_site_id

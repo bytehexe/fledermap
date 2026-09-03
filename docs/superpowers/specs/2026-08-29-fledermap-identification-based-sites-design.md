@@ -39,8 +39,20 @@ transect):
 ## Non-goals
 
 - **`derive_sites`'s wholesale-rebuild-every-run architecture is unchanged.** `Site` stays a
-  derived projection with no persistent identity across a rebuild (P2-2: "tuning is free") — this
-  design only changes which recordings feed the rebuild, not how the rebuild itself works.
+  derived projection recomputed every cycle (P2-2: "tuning is free") — this design only changes
+  which recordings feed the rebuild, not how the rebuild itself works.
+
+  **Revised 2026-09-03:** the "no persistent identity across a rebuild" half of that original
+  claim turned out to be wrong once the worker actually ran on its real 5-minute cron (plus
+  startup catch-up) rather than intermittently — every cycle handing out fresh `Site.id`s meant
+  any client holding one across a cycle (an open drawer panel, a bookmarked map URL encoding
+  `panel=<site id>`) saw the map's `/sites/<id>/panel` route come back "not found" within minutes.
+  `derive_sites` now reconciles each rebuild against the previous run's recording membership: a
+  cluster whose members overlap an existing site's previous members most reuses that site's row
+  (id, and therefore whatever poiidx name it already carries) instead of getting a new one; only a
+  genuinely new cluster gets a fresh row, and only a site matched by nothing this run gets deleted.
+  Recomputation frequency and the wholesale nature of *building* the cluster set are unchanged —
+  only whether an unchanged result gets a new identity.
 - **Session *partitioning* (grouping recordings into sessions by detector + time gap) is
   unchanged.** Only the kind-classification layer built on top of it in Phase 5b goes away.
   Sessions themselves, `SessionMergeProposal`, and the merge-review workflow are untouched.

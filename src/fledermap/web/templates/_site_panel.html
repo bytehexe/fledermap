@@ -1,6 +1,7 @@
 {# src/fledermap/web/templates/_site_panel.html #}
 {% if not found %}
-<p>Site not found.</p>
+<p>Site not found. It may have changed since this page was loaded.</p>
+<button type="button" onclick="location.reload()">Reload page</button>
 {% else %}
 <div class="panel-header">
   <h2>{{ label }}</h2>
