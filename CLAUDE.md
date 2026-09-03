@@ -64,9 +64,9 @@ Roughly a pipeline, each stage its own top-level package under `src/fledermap/`:
 - **`cli/main.py`** — the `fledermap` entry point tying the above together into the commands
   listed above.
 
-`scripts/` (repo root, not under `src/`) is dev-only git-hook tooling — never part of the built
-wheel; see the `scripts/` bullet under "Environment gotchas" before assuming CLI-adjacent code
-belongs there.
+`scripts/` (repo root, not under `src/`) is dev-only tooling — git hooks, plus `db-backup.sh`/
+`db-restore.sh` (see "Database" below) — never part of the built wheel; see the `scripts/` bullet
+under "Environment gotchas" before assuming CLI-adjacent code belongs there.
 
 ## Environment gotchas
 
@@ -83,6 +83,9 @@ belongs there.
 - **`ffmpeg` and `ffprobe` must be installed and on `PATH`.** `media/preview.py` shells out to
   `ffmpeg` for Opus encoding and the preview tests read back with `ffprobe`. Missing, they fail
   loudly with `FileNotFoundError` — deliberately not skipped, so the gap can't hide.
+- **`pg_dump` and `pg_restore` must be installed and on `PATH`** (`postgresql-client`, same
+  package family as the server) for `scripts/db-backup.sh`/`scripts/db-restore.sh` — see "Backing
+  up the database before risky changes" below.
 - **`FLEDERMAP_MEDIA_ROOT` is optional as of 2026-08-26**, and is a *separate* directory from
   the archive root. The archive is read-only (D16); derived media is written only under the
   media root. It falls back to a `platformdirs` *data* directory (not a cache directory — see
@@ -114,7 +117,8 @@ belongs there.
   `FLEDERMAP_STATIC_ROOT` above).
 - **`scripts/` never ships in the built package** — only `src/fledermap/` does (hatchling's
   default src-layout packaging). `scripts/` is for dev-only tooling invoked from a checkout
-  (git hooks: `check_commit_msg.py`, `check_yaml.py`). Before treating "run this script
+  (git hooks: `check_commit_msg.py`, `check_yaml.py`; DB backup/restore: `db-backup.sh`,
+  `db-restore.sh`). Before treating "run this script
   manually, it's documented" as merely a UX rough edge, check whether the script would even
   exist for someone who installed the package rather than cloned the repo — `fetch_vendor_assets.py`
   lived there and silently couldn't run for any real install until this was caught. Verify with
@@ -145,6 +149,22 @@ belongs there.
 
 ## Database
 
+- **Back up `bats_db` before any schema change (migration), or any other operation that risks
+  data loss, with `scripts/db-backup.sh`.** We develop against live data (not optimal, but this
+  isn't a company), so this is the one thing that mitigates a big accidental loss. Dev-only
+  tooling, not a `fledermap` feature — see the "scripts/" bullet under Architecture — gitted (it
+  has to be reviewable/versioned like any other tool we rely on) but never shipped in the wheel.
+  It resolves the database URL the same way the CLI does (`Config.from_env()`, env var beats the
+  TOML config file) and shells out to `pg_dump -Fc`, writing a timestamped dump into `.db-backups/`
+  at the repo root (gitignored — the dumps themselves are never committed). No pruning: dumps are
+  kept forever, cleaned up by hand if disk space ever matters.
+  **Restoring one is `scripts/db-restore.sh --dangerously-restore <dump-file>`, and is
+  destructive** — it replaces the target database's current contents (`pg_restore --clean
+  --if-exists`). The flag is required and there is deliberately no interactive confirmation
+  prompt: a TTY prompt is not a real gate against an agent that can pipe an answer straight past
+  it. **Claude must ask for explicit human approval before ever invoking restore with
+  `--dangerously-restore`** — every time, not just once per session — the same way this harness's
+  own `dangerouslyDisableSandbox` needs a real trigger, not narrating the intent and proceeding.
 - **`bats_db` is never poiidx's database.** poiidx DROPS AND RECREATES all its tables on any
   schema/filter-config mismatch. Full warning in `src/fledermap/store/db.py`.
 - **Postgres treats NULLs as distinct**, so a `UniqueConstraint` over a nullable column does not

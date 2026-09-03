@@ -26,4 +26,7 @@ src/fledermap/__about__.py
 # Local secrets
 *.pwd
 .env
+
+# Dev-only DB dumps from scripts/db-backup.sh (scripts/db-restore.sh restores)
+/.db-backups/
 .worktrees/
