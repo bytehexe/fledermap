@@ -156,8 +156,11 @@ under "Environment gotchas" before assuming CLI-adjacent code belongs there.
   has to be reviewable/versioned like any other tool we rely on) but never shipped in the wheel.
   It resolves the database URL the same way the CLI does (`Config.from_env()`, env var beats the
   TOML config file) and shells out to `pg_dump -Fc`, writing a timestamped dump into `.db-backups/`
-  at the repo root (gitignored — the dumps themselves are never committed). No pruning: dumps are
-  kept forever, cleaned up by hand if disk space ever matters.
+  at the repo root (gitignored — the dumps themselves are never committed; overridable via
+  `DB_BACKUP_DIR`, which is how `tests/test_db_backup_restore.py` keeps its throwaway dumps out of
+  the real directory). No pruning: dumps are kept forever, cleaned up by hand if disk space ever
+  matters. **Never `rm` (or otherwise clear out) `.db-backups/` itself** — it's the one place
+  these backups exist; gitignored means git never protects it, so deleting it is unrecoverable.
   **Restoring one is `scripts/db-restore.sh --dangerously-restore <dump-file>`, and is
   destructive** — it replaces the target database's current contents (`pg_restore --clean
   --if-exists`). The flag is required and there is deliberately no interactive confirmation
@@ -165,6 +168,24 @@ under "Environment gotchas" before assuming CLI-adjacent code belongs there.
   it. **Claude must ask for explicit human approval before ever invoking restore with
   `--dangerously-restore`** — every time, not just once per session — the same way this harness's
   own `dangerouslyDisableSandbox` needs a real trigger, not narrating the intent and proceeding.
+  **If `fledermap.target` (or any process holding a DB connection) is running, stop it before
+  restoring and start it again after** (`systemctl --user stop/start fledermap.target` on a
+  machine with the systemd install — see
+  `project-fledermap-systemd-install-on-this-machine` memory). `--clean` needs to `DROP`/`ALTER`
+  tables a live worker or web process may hold locks or open transactions against; verified live
+  on 2026-09-03 by stopping the target for the restore and restarting it after, confirmed with a
+  clean `journalctl` (no errors) and the map serving real data afterward.
+  `pg_dump`'s `--clean` output also includes `DROP EXTENSION IF EXISTS postgis` (and,
+  on a fuller postgis install, its sibling extensions/schemas) — the connecting role is never
+  its owner (a superuser creates it once at DB setup; `0001_initial.py`'s own
+  `CREATE EXTENSION IF NOT EXISTS` is a no-op after that), so restoring it verbatim fails with
+  `must be owner of extension postgis`. `db-restore.sh` already excludes it (and
+  `spatial_ref_sys`/the tiger/topology family, plus every schema `COMMENT` — cosmetic metadata
+  that can hit the same ownership mismatch on `public`, since Postgres 15+'s `public` schema is
+  owned via the dynamic `pg_database_owner` pseudo-role) via a filtered `pg_restore -L` TOC list —
+  this isn't "our data," it's infrastructure the migration already guarantees exists on any
+  target — confirmed against the real `bats_db` and covered by
+  `tests/test_db_backup_restore.py::test_backup_then_restore_succeeds_when_role_does_not_own_postgis`.
 - **`bats_db` is never poiidx's database.** poiidx DROPS AND RECREATES all its tables on any
   schema/filter-config mismatch. Full warning in `src/fledermap/store/db.py`.
 - **Postgres treats NULLs as distinct**, so a `UniqueConstraint` over a nullable column does not

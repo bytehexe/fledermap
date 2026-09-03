@@ -22,7 +22,10 @@ set -euo pipefail
 # psycopg's own async connector.
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BACKUP_DIR="$REPO_ROOT/.db-backups"
+# Overridable so tests/test_db_backup_restore.py can point this at an
+# isolated tmp_path instead of the real backup directory -- a test run
+# must never leave its throwaway dumps mixed in with real ones.
+BACKUP_DIR="${DB_BACKUP_DIR:-$REPO_ROOT/.db-backups}"
 
 DATABASE_URL="$(cd "$REPO_ROOT" && hatch run python -c \
   "from fledermap.config import Config
