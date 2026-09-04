@@ -11,6 +11,7 @@ from pathlib import Path
 import numpy as np
 from scipy import signal
 
+from fledermap.media.opus_pipeline import encode_pcm_as_opus
 from fledermap.media.wav_pcm import read_pcm
 
 # Bounds the peak-frequency search window -- NOT a real bandpass filter (a
@@ -42,3 +43,52 @@ def compute_peak_frequency_hz(wav_path: Path) -> float:
     windowed_freqs = freqs[in_window]
     windowed_psd = psd[in_window]
     return float(windowed_freqs[np.argmax(windowed_psd)])
+
+
+# Rejects the near-`2*tune_freq_hz` sum-frequency component the mix also
+# produces, keeping only the audible difference-frequency component. 20kHz
+# comfortably covers human hearing while staying well below any plausible
+# sum-frequency artifact given the tune frequencies this feature targets
+# (bat calls, tens of kHz and up).
+_LOWPASS_CUTOFF_HZ = 20_000.0
+_LOWPASS_ORDER = 8
+_OUTPUT_SAMPLERATE_HZ = 48_000
+
+
+def render_heterodyne_preview(
+    wav_path: Path,
+    out_path: Path,
+    *,
+    tune_freq_hz: float,
+) -> None:
+    """Mix `wav_path`'s audio down to audible range around `tune_freq_hz`
+    (classic heterodyne technique) and render it to `out_path` as Opus."""
+    samples, samplerate = read_pcm(wav_path)
+    t = np.arange(len(samples)) / samplerate
+    local_oscillator = np.cos(2 * np.pi * tune_freq_hz * t)
+    mixed = samples * local_oscillator
+
+    sos = signal.butter(
+        _LOWPASS_ORDER,
+        _LOWPASS_CUTOFF_HZ,
+        btype="low",
+        fs=samplerate,
+        output="sos",
+    )
+    filtered = signal.sosfiltfilt(sos, mixed)
+
+    resampled = signal.resample_poly(filtered, _OUTPUT_SAMPLERATE_HZ, samplerate)
+    # Normalise to int16 range headroom-safe -- the mix + filter can produce
+    # values outside the original PCM's amplitude range.
+    peak = np.max(np.abs(resampled))
+    if peak > 0:
+        resampled = resampled / peak * 32000
+    pcm_int16 = resampled.astype(np.int16)
+
+    encode_pcm_as_opus(
+        frames=pcm_int16.tobytes(),
+        nchannels=1,
+        sampwidth=2,
+        framerate=_OUTPUT_SAMPLERATE_HZ,
+        out_path=out_path,
+    )
