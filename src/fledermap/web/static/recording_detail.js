@@ -163,6 +163,53 @@ document.addEventListener("DOMContentLoaded", () => {
   // bounding rect (the tiled row's container) rather than a single `<img>`'s -- the tiles sit
   // edge-to-edge with no gaps, so the container's rect spans exactly the full locked-scale
   // width, same as the single image did before tiling.
+  // Ruler tool: drag draws a live measurement box; a plain click (no drag) clears it. `rulerBox`
+  // is the one live DOM node for the current measurement -- created lazily on first drag, reused
+  // (repositioned) on subsequent drags, removed entirely on clear.
+  let rulerBox = null;
+
+  function clearRulerBox() {
+    if (rulerBox) {
+      rulerBox.remove();
+      rulerBox = null;
+    }
+  }
+
+  function updateRulerBox(dragStart, event) {
+    const rect = wrap.getBoundingClientRect();
+    const startX = dragStart.x - rect.left;
+    const startY = dragStart.y - rect.top;
+    const curX = event.clientX - rect.left;
+    const curY = event.clientY - rect.top;
+
+    const left = Math.min(startX, curX);
+    const top = Math.min(startY, curY);
+    const width = Math.abs(curX - startX);
+    const height = Math.abs(curY - startY);
+
+    const deltaTMs = Math.abs(curX - startX) / pxPerMs;
+    const deltaFKhz = Math.abs(curY - startY) / pxPerKhz;
+    // Pulse-repetition-rate reading (bat-call literature convention: inter-pulse interval -> Hz,
+    // the same relationship as note-duration -> BPM). A purely vertical drag has deltaTMs === 0
+    // -- guard the division rather than showing Infinity.
+    const hzText = deltaTMs > 0 ? `${(1000 / deltaTMs).toFixed(1)} Hz` : "—";
+
+    if (!rulerBox) {
+      rulerBox = document.createElement("div");
+      rulerBox.className = "ruler-box";
+      const label = document.createElement("span");
+      label.className = "ruler-label";
+      rulerBox.appendChild(label);
+      wrap.appendChild(rulerBox);
+    }
+    rulerBox.style.left = `${left}px`;
+    rulerBox.style.top = `${top}px`;
+    rulerBox.style.width = `${width}px`;
+    rulerBox.style.height = `${height}px`;
+    rulerBox.querySelector(".ruler-label").textContent =
+      `Δt: ${deltaTMs.toFixed(2)} ms (${hzText})\nΔf: ${deltaFKhz.toFixed(1)} kHz`;
+  }
+
   const toolbar = document.getElementById("detail-toolbar");
   const toolButtons = Array.from(toolbar.querySelectorAll(".tool-button"));
   let activeTool = "default";
@@ -175,6 +222,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     wrap.classList.toggle("tool-default", tool === "default");
     wrap.classList.toggle("tool-ruler", tool === "ruler");
+    clearRulerBox();
   }
 
   toolButtons.forEach((btn) => {
@@ -193,6 +241,15 @@ document.addEventListener("DOMContentLoaded", () => {
       },
       onDrag(event, dragStart) {
         scrollEl.scrollLeft = dragStart.scrollLeft - (event.clientX - dragStart.x);
+      },
+      onDragEnd() {},
+    },
+    ruler: {
+      onClick() {
+        clearRulerBox();
+      },
+      onDrag(event, dragStart) {
+        updateRulerBox(dragStart, event);
       },
       onDragEnd() {},
     },
