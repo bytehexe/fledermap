@@ -49,6 +49,38 @@ def test_encode_pcm_as_opus_produces_a_real_nonempty_opus_file(tmp_path: Path) -
     assert stream["codec_name"] == "opus"
 
 
+def test_encode_pcm_as_opus_uses_a_short_page_duration_for_precise_seeking(
+    tmp_path: Path,
+) -> None:
+    """Regression test for a real audible bug (Janna, 2026-09-04, live use, HET
+    mode, View Lock's play-button restart-to-floor): ffmpeg's `ogg` muxer
+    defaults `-page_duration` to 1,000,000us (a full second) -- confirmed via
+    `ffmpeg -h muxer=ogg`. Ogg seeking is page-granular, so with the default,
+    seeking to an arbitrary point inside a page can require the decoder to
+    start up to ~1s before the requested position, which can surface as
+    already-heard audio audibly repeating right after a seek/resume. A short
+    `-page_duration` (an ffmpeg-documented option, not a guess) makes nearly
+    every Opus frame start its own page, closing that gap.
+
+    Counting raw `OggS` page-header occurrences is a real structural
+    assertion, not a proxy: a page-per-frame encode of a few seconds produces
+    dozens of pages, while the 1s default produces only a handful -- confirmed
+    directly against real `ffmpeg` output before writing this test (6 pages
+    for a 3s file under the old default, 153 under a 20ms `-page_duration`)."""
+    out_path = tmp_path / "out.opus"
+
+    encode_pcm_as_opus(
+        frames=_sine_frames(duration_s=3.0),
+        nchannels=1,
+        sampwidth=2,
+        framerate=48_000,
+        out_path=out_path,
+    )
+
+    page_count = out_path.read_bytes().count(b"OggS")
+    assert page_count > 20  # the 1s default would produce roughly 3-6 for this duration
+
+
 def test_encode_pcm_as_opus_writes_atomically_leaving_no_temp_file_behind(
     tmp_path: Path,
 ) -> None:

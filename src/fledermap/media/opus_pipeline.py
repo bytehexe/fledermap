@@ -56,6 +56,16 @@ def encode_pcm_as_opus(
                     "libopus",
                     "-f",
                     "opus",
+                    # The `ogg` muxer's `-page_duration` defaults to 1,000,000us -- a full
+                    # second (confirmed via `ffmpeg -h muxer=ogg`) -- and Ogg seeking is
+                    # page-granular, so seeking anywhere inside a page can force the decoder
+                    # to start up to ~1s before the requested position. Every playback seek
+                    # in this app (click-to-play, rewind, View Lock's floor/ceiling restarts)
+                    # relies on landing close to where it asked for; the 1s default surfaced
+                    # as audibly repeated content right after a seek (Janna, 2026-09-04, live
+                    # use, HET mode). 20ms puts nearly every Opus frame on its own page.
+                    "-page_duration",
+                    "20000",
                     str(out_tmp_path),
                 ],
                 check=True,
