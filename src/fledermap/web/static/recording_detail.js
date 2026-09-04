@@ -1,11 +1,13 @@
 // src/fledermap/web/static/recording_detail.js
 //
 // Client-side interactions for the recording details page (design spec
-// 2026-09-01-fledermap-recording-details-page-design.md, section 4):
-// click-to-play, a ported crosshair readout, a playback-position cursor
-// that snaps into view when it scrolls off-screen, and the dense
-// fixed-interval axis gridlines the drawer's fixed 3-label axis doesn't
-// have room for. Pan is native browser scrolling -- nothing to build.
+// 2026-09-01-fledermap-recording-details-page-design.md, section 4, and
+// 2026-09-04-fledermap-recording-detail-tools-design.md for the toolbar):
+// a tool-switching toolbar with a Default tool (click-to-play, drag-to-pan)
+// and a Ruler tool (drag to measure Δt/Δf, click to clear), a ported
+// crosshair readout, a playback-position cursor that snaps into view when
+// it scrolls off-screen, and the dense fixed-interval axis gridlines the
+// drawer's fixed 3-label axis doesn't have room for.
 //
 // A dedicated per-page script (mirroring `session_map.js`'s own pattern),
 // not folded into `app.js`: this page's DOM ids don't exist on the map
@@ -198,7 +200,7 @@ document.addEventListener("DOMContentLoaded", () => {
       rulerBox = document.createElement("div");
       rulerBox.className = "ruler-box";
       const label = document.createElement("span");
-      label.className = "ruler-label";
+      label.className = "floating-readout ruler-label";
       rulerBox.appendChild(label);
       wrap.appendChild(rulerBox);
     }
@@ -263,10 +265,31 @@ document.addEventListener("DOMContentLoaded", () => {
   const DRAG_THRESHOLD_PX = 4;
 
   wrap.addEventListener("mousedown", (event) => {
+    // Primary button only: the `click` listener this replaced only ever fired for the primary
+    // (left) button, but `mousedown` fires for every button. Without this guard, a right-click
+    // seeks+plays audio (or clears the ruler) underneath the context menu it also opens, and a
+    // middle-click does the same while the browser starts its own autoscroll.
+    if (event.button !== 0) return;
+    // Stop the browser from starting a text selection (or, dragging an existing selection,
+    // native drag-and-drop) from this gesture -- either can swallow the `mouseup` below, which
+    // is exactly the stuck-gesture path `onMove`'s `buttons === 0` check self-heals below.
+    event.preventDefault();
+
     const dragStart = { x: event.clientX, y: event.clientY, scrollLeft: scrollEl.scrollLeft };
     let dragging = false;
 
     function onMove(moveEvent) {
+      // Self-heal: if no mouse button is currently held, the gesture is already over even
+      // though `mouseup` never reached us -- native drag-and-drop (see the `preventDefault`
+      // above) can swallow it entirely, which would otherwise leave `dragging` (and these
+      // `document`-scoped listeners) stuck, so every subsequent mouse move keeps panning or
+      // drawing ruler boxes with no button held. `buttons` reflects the browser's own live
+      // button state regardless of whether `mouseup` fired, so this always catches it on the
+      // very next move.
+      if (moveEvent.buttons === 0) {
+        onUp(moveEvent);
+        return;
+      }
       const movedPx = Math.hypot(moveEvent.clientX - dragStart.x, moveEvent.clientY - dragStart.y);
       if (!dragging && movedPx > DRAG_THRESHOLD_PX) {
         dragging = true;

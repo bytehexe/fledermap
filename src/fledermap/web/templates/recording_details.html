@@ -88,7 +88,7 @@
     <p>Missing duration or sample-rate metadata for this recording — cannot render at a locked scale.</p>
     {% endif %}
   </main>
-  <div id="crosshair-readout" class="crosshair-readout" hidden></div>
+  <div id="crosshair-readout" class="floating-readout crosshair-readout" hidden></div>
   <script src="{{ url_for('vendor.static', filename='alpine.min.js') }}" defer></script>
   <script src="{{ url_for('static', filename='recording_detail.js') }}"></script>
 </body>
