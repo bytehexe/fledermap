@@ -18,6 +18,7 @@ from fledermap.media.spectrogram import (
 from fledermap.services.current_best import current_best_identification
 from fledermap.services.map_query import (
     filtered_recordings,
+    has_unregistered_species,
     list_sessions,
     list_taxa,
     neighbor_recordings,
@@ -31,6 +32,7 @@ from fledermap.web.params import (
     parse_bool,
     parse_datetime,
     parse_int,
+    parse_taxon_filter,
     parse_verdict,
 )
 
@@ -45,6 +47,7 @@ def map_page() -> str:
             "map.html",
             taxa=list_taxa(session),
             sessions=list_sessions(session),
+            has_unregistered_species=has_unregistered_species(session),
         )
 
 
@@ -62,7 +65,7 @@ def _render_recording_panel(
     try:
         date_from = parse_datetime(flask.request.args.get("from"))
         date_to = parse_datetime(flask.request.args.get("to"), end_of_day=True)
-        taxon_id = parse_int(flask.request.args.get("taxon"))
+        taxon_id = parse_taxon_filter(flask.request.args.get("taxon"))
         taxon_exclude = parse_bool(flask.request.args.get("taxon_exclude"))
         verdict = parse_verdict(flask.request.args.get("verdict"))
         session_id = parse_int(flask.request.args.get("session"))

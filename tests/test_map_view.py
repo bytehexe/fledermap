@@ -95,6 +95,48 @@ def test_taxon_filter_is_a_dropdown_of_real_taxa(
     assert f'<option value="{taxon_id}">Pipistrellus pipistrellus</option>' in html
 
 
+def test_taxon_filter_shows_unregistered_species_option_when_one_exists(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        r = Recording(
+            audio_hash="a" * 64,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add(r)
+        session.flush()
+        session.add(
+            Identification(
+                recording_id=r.id,
+                source=IdSource.EMT_FILENAME,
+                verdict=Verdict.SPECIES,
+                taxon_id=None,
+                raw_label="EPTNIL",
+                first_seen_at=datetime(2026, 8, 25, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    html = client.get("/").get_data(as_text=True)
+    assert '<option value="unregistered">Unregistered species</option>' in html
+
+
+def test_taxon_filter_omits_unregistered_species_option_when_none_exist(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    html = client.get("/").get_data(as_text=True)
+    assert "Unregistered species" not in html
+
+
 def test_taxon_option_includes_common_name_when_present(
     engine: Engine,
     tmp_path: Path,

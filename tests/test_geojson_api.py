@@ -407,6 +407,58 @@ def test_recordings_geojson_taxon_exclude_omits_the_named_taxon(
     assert hashes == [kept_hash]
 
 
+def test_recordings_geojson_taxon_unregistered_matches_unmapped_species(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        registered = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
+        session.add(registered)
+        session.flush()
+        unregistered = Recording(
+            audio_hash="a" * 64,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            geom=WKTElement("POINT(10 50)", srid=4326),
+        )
+        known = Recording(
+            audio_hash="b" * 64,
+            path="b.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            geom=WKTElement("POINT(11 51)", srid=4326),
+        )
+        session.add_all([unregistered, known])
+        session.flush()
+        session.add(
+            Identification(
+                recording_id=unregistered.id,
+                source=IdSource.EMT_FILENAME,
+                verdict=Verdict.SPECIES,
+                taxon_id=None,
+                raw_label="EPTNIL",
+                first_seen_at=datetime(2026, 8, 25, tzinfo=UTC),
+            ),
+        )
+        session.add(
+            Identification(
+                recording_id=known.id,
+                source=IdSource.EMT_GUANO,
+                verdict=Verdict.SPECIES,
+                taxon_id=registered.id,
+                first_seen_at=datetime(2026, 8, 25, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+        unregistered_hash = unregistered.audio_hash
+
+    client = _app_client(engine, tmp_path)
+    response = client.get("/api/recordings.geojson?taxon=unregistered")
+
+    assert response.status_code == 200
+    hashes = [f["properties"]["audio_hash"] for f in response.get_json()["features"]]
+    assert hashes == [unregistered_hash]
+
+
 def test_invalid_taxon_param_returns_400_not_500(
     engine: Engine,
     tmp_path: Path,

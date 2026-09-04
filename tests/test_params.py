@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fledermap.web.params import detector_label, parse_bool
+from fledermap.web.params import detector_label, parse_bool, parse_taxon_filter
 
 
 def test_parse_bool_absent_is_false() -> None:
@@ -13,6 +13,22 @@ def test_parse_bool_empty_string_is_false() -> None:
 
 def test_parse_bool_present_is_true() -> None:
     assert parse_bool("1") is True
+
+
+def test_parse_taxon_filter_absent_is_none() -> None:
+    assert parse_taxon_filter(None) is None
+
+
+def test_parse_taxon_filter_empty_string_is_none() -> None:
+    assert parse_taxon_filter("") is None
+
+
+def test_parse_taxon_filter_numeric_is_an_int() -> None:
+    assert parse_taxon_filter("42") == 42
+
+
+def test_parse_taxon_filter_unregistered_sentinel_passes_through() -> None:
+    assert parse_taxon_filter("unregistered") == "unregistered"
 
 
 def test_detector_label_none_falls_back() -> None:

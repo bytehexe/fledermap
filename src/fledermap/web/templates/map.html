@@ -19,6 +19,9 @@
         <label for="taxon-select">Taxon</label>
         <select name="taxon" id="taxon-select" x-model="taxon">
           <option value="">Any</option>
+          {% if has_unregistered_species %}
+          <option value="unregistered">Unregistered species</option>
+          {% endif %}
           {% for taxon in taxa %}
           <option value="{{ taxon.id }}">{{ taxon.scientific_name }}{% if taxon.common_name_en %} — {{ taxon.common_name_en }}{% endif %}</option>
           {% endfor %}

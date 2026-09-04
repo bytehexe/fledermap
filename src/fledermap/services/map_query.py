@@ -71,7 +71,7 @@ def filtered_recordings(
     bbox: BBox | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
-    taxon_id: int | None = None,
+    taxon_id: int | Literal["unregistered"] | None = None,
     taxon_exclude: bool = False,
     verdict: Verdict | Literal["all"] | None = None,
     session_id: int | None = None,
@@ -114,7 +114,19 @@ def filtered_recordings(
             # identification, NoID, Noise, or an unmapped species) still
             # isn't taxon_id, so it's included under "not X" the same way
             # it's excluded under plain "X".
-            matches = best is not None and best.taxon_id == taxon_id
+            if taxon_id == "unregistered":
+                # A single bucket for every SPECIES verdict whose code never
+                # mapped to a Taxon (see recording_headline in
+                # services/current_best.py), rather than filtering by the
+                # specific raw code -- see map_query.py's has_unregistered_species
+                # docstring for why.
+                matches = (
+                    best is not None
+                    and best.taxon_id is None
+                    and best.verdict == Verdict.SPECIES
+                )
+            else:
+                matches = best is not None and best.taxon_id == taxon_id
             if matches == taxon_exclude:
                 continue
         results.append(r)
@@ -192,6 +204,23 @@ def list_taxa(session: OrmSession) -> Sequence[Taxon]:
         .order_by(Taxon.scientific_name)
     )
     return list(session.scalars(stmt).all())
+
+
+def has_unregistered_species(session: OrmSession) -> bool:
+    """Whether the map's taxon filter dropdown needs its "Unregistered
+    species" option -- a single bucket for every SPECIES verdict whose raw
+    code never mapped to a Taxon (`recording_headline` in
+    `services/current_best.py` shows these as "<CODE> (unregistered
+    species)"). One bucket, not a per-code filter: the actual use case is
+    "show me everything the classifier saw that we don't recognise yet," not
+    usually one specific unmapped code (2026-09-04 design discussion) --
+    the per-code filter remains a separate, deferred feature."""
+    stmt = select(Identification.id).where(
+        Identification.taxon_id.is_(None),
+        Identification.verdict == Verdict.SPECIES,
+        Identification.superseded_at.is_(None),
+    )
+    return session.scalars(stmt.limit(1)).first() is not None
 
 
 def list_sessions(session: OrmSession) -> Sequence[AnnotationSession]:
