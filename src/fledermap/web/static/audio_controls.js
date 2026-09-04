@@ -19,6 +19,12 @@
 // same as picking HET manually would -- persistence only skips the extra
 // click to get there.
 const MODE_STORAGE_KEY = "fledermap-audio-mode";
+// Auto-tune lands a couple kHz ABOVE the detected peak, not exactly on it
+// (Janna, 2026-09-04) -- a real call is usually an FM sweep through the
+// peak rather than a steady tone at it, and tuning slightly above keeps
+// more of the sweep in the heterodyne's audible difference-frequency band
+// instead of mixing straight to a silent near-zero beat at the peak itself.
+const AUTO_TUNE_OFFSET_HZ = 2000;
 
 function initAudioControls(container, audioEl) {
   const previewUrl = container.dataset.previewUrl;
@@ -100,7 +106,7 @@ function initAudioControls(container, audioEl) {
     freqControl.hidden = false;
     fetchPeakFrequency().then((freqHz) => {
       if (mode !== "het") return;
-      freqInput.value = Math.round(freqHz / 1000);
+      freqInput.value = Math.round((freqHz + AUTO_TUNE_OFFSET_HZ) / 1000);
       setSource(hetUrlForFreq(freqInput.value));
     });
   }
@@ -125,7 +131,7 @@ function initAudioControls(container, audioEl) {
   freqReset.addEventListener("click", () => {
     fetchPeakFrequency().then((freqHz) => {
       if (mode !== "het") return;
-      freqInput.value = Math.round(freqHz / 1000);
+      freqInput.value = Math.round((freqHz + AUTO_TUNE_OFFSET_HZ) / 1000);
       setSource(hetUrlForFreq(freqInput.value));
     });
   });
