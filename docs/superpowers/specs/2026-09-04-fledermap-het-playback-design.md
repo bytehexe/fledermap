@@ -66,19 +66,27 @@ is itself part of the design (see Goals).
 
 Two functions, no DB/queue awareness, matching `preview.py`'s module shape:
 
-- **`compute_peak_frequency_hz(wav_path: Path) -> float`** — Welch power spectral density
-  (`scipy.signal.welch`) over the whole file, returns the frequency of maximum power WITHIN a
-  bounded search window, not the raw argmax over the full 0 Hz-Nyquist range. Janna, 2026-09-04:
-  a real recording's low end (below ~10kHz) often carries handling/wind noise that would
-  otherwise dominate the peak and mask the actual call -- rather than a real bandpass filter
-  (a bigger, separate design question, and the same one the already-planned `fledermap.noise`
-  classifier/denoising backlog items exist for), this reuses the SEARCH bound this codebase
-  already documents for the same reason (`CLAUDE.md`'s "Noise" backlog notes: *"data below
-  10 kHz is usually not helpful but sometimes loud"*) -- bins below ~10kHz and above
-  `SpectrogramParams.max_freq_hz`'s 128kHz ceiling are excluded from the argmax, not filtered
-  out of the signal itself. The computed value is directly visible to the user (pre-filled into
-  the frequency spinner in HET/auto mode), so a wrong pick is easy to catch by ear against real
-  recordings once this ships -- not a silent, unverifiable heuristic.
+- **`compute_peak_frequency_hz(wav_path: Path) -> float`** — STFT peak-hold over the whole
+  file: for each frequency bin WITHIN a bounded search window (not the raw argmax over the full
+  0 Hz-Nyquist range), takes the maximum power reached at any single instant, then returns the
+  frequency whose peak-hold value is highest. Janna, 2026-09-04: a real recording's low end
+  (below ~10kHz) often carries handling/wind noise that would otherwise dominate the peak and
+  mask the actual call -- rather than a real bandpass filter (a bigger, separate design
+  question, and the same one the already-planned `fledermap.noise` classifier/denoising backlog
+  items exist for), this reuses the SEARCH bound this codebase already documents for the same
+  reason (`CLAUDE.md`'s "Noise" backlog notes: *"data below 10 kHz is usually not helpful but
+  sometimes loud"*) -- bins below ~10kHz and above `SpectrogramParams.max_freq_hz`'s 128kHz
+  ceiling are excluded from the argmax, not filtered out of the signal itself. **Peak-hold, not
+  a time-averaged PSD** (`scipy.signal.welch`, the original approach — changed 2026-09-04 after
+  live use against a real field recording found near-continuous background noise at 10-11kHz,
+  present across ~70% of the file, beating a brief, loud ~45kHz Pipistrellus call under time
+  averaging simply by being present so much longer, even though the call was far louder in any
+  single instant): peak-hold favours a short loud transient over a persistent quiet tone,
+  matching how a real call actually stands out, at the cost of being more sensitive to a single
+  loud spike or click being mistaken for a call. The computed value is directly visible to the
+  user (pre-filled into the frequency spinner in HET/auto mode), so a wrong pick is easy to
+  catch by ear against real recordings -- not a silent, unverifiable heuristic, and the same
+  tolerance that already justified the original Welch-based design's own failure modes.
   Deliberately independent of `SpectrogramParams`/`render_full_spectrogram_image`'s own STFT —
   changing the spectrogram's display tuning (window/overlap, chosen for visualization) must
   never silently change what HET calls "the peak frequency" (chosen for audibility).
