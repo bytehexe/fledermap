@@ -359,6 +359,48 @@ document.addEventListener("DOMContentLoaded", () => {
     link.href = `${url.pathname}${url.search}`;
   });
 
+  // HET/TE control bar + click-to-play + playback cursor for the drawer panel
+  // (design spec 2026-09-04-fledermap-het-playback-design.md section 4) --
+  // delegated / re-initialized on every htmx swap, same reasoning as the
+  // crosshair listener above: #drawer-body's content is replaced wholesale.
+  let drawerAudioControls = null;
+  drawerBody.addEventListener("htmx:afterSwap", () => {
+    const controlsEl = drawerBody.querySelector(".audio-controls");
+    const audioEl = controlsEl ? controlsEl.querySelector("audio") : null;
+    drawerAudioControls = controlsEl && audioEl ? initAudioControls(controlsEl, audioEl) : null;
+    if (!drawerAudioControls || !audioEl) return;
+    // Bound once here, on the freshly-created `audioEl`, rather than inside a
+    // `play` listener -- `audioEl` survives repeated pause/resume cycles on
+    // the same panel instance (manual pause, TE/HET mode switch), so binding
+    // on every `play` would add a new listener each time with no matching
+    // removal. Same pattern as recording_detail.js's own `timeupdate` binding.
+    const img = drawerBody.querySelector(".spectrogram");
+    const cursor = drawerBody.querySelector(".playback-cursor");
+    if (!img || !cursor) return;
+    audioEl.addEventListener("timeupdate", () => {
+      const durationS = parseFloat(img.dataset.durationS);
+      if (Number.isNaN(durationS) || durationS <= 0) return;
+      const spectrogramTimeS = audioEl.currentTime / drawerAudioControls.getTimeExpansionFactor();
+      const relX = spectrogramTimeS / durationS;
+      cursor.style.left = `${relX * 100}%`;
+      cursor.hidden = false;
+    });
+  });
+
+  drawerBody.addEventListener("click", (event) => {
+    const img = event.target.closest(".spectrogram");
+    if (!img || !drawerAudioControls) return;
+    const audioEl = drawerBody.querySelector(".audio-controls audio");
+    if (!audioEl) return;
+    const durationS = parseFloat(img.dataset.durationS);
+    if (Number.isNaN(durationS)) return;
+    const rect = img.getBoundingClientRect();
+    const relX = (event.clientX - rect.left) / rect.width;
+    const spectrogramTimeS = relX * durationS;
+    audioEl.currentTime = spectrogramTimeS * drawerAudioControls.getTimeExpansionFactor();
+    audioEl.play();
+  });
+
   // Step 2: Listen for recording-selected to pan, reveal (zoom/spiderfy),
   // and highlight. Shared by a fresh marker click, prev/next inside the
   // drawer, and restoring a panel from the URL -- all three dispatch this

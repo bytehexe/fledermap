@@ -34,7 +34,8 @@
   </div>
   <div class="spectrogram-wrap">
     {% if spectrogram_ready %}
-    <img class="spectrogram" src="{{ url_for('media.spectrogram', audio_hash=recording.audio_hash) }}" alt="Spectrogram" data-duration-s="{{ duration_s }}" data-max-freq-khz="{{ max_freq_khz }}">
+    <img class="spectrogram" src="{{ url_for('media.spectrogram', audio_hash=recording.audio_hash) }}" alt="Spectrogram" data-duration-s="{{ duration_s }}" data-max-freq-khz="{{ max_freq_khz }}" data-time-expansion-factor="{{ time_expansion_factor }}">
+    <div class="playback-cursor" hidden></div>
     {% else %}
     <p class="media-placeholder">Spectrogram not processed yet.</p>
     {% endif %}
@@ -52,7 +53,23 @@
 
 <div class="audio-row">
   {% if preview_ready %}
-  <audio controls src="{{ url_for('media.preview', audio_hash=recording.audio_hash) }}"></audio>
+  <div
+    class="audio-controls"
+    data-preview-url="{{ url_for('media.preview', audio_hash=recording.audio_hash) }}"
+    data-het-preview-url-template="{{ url_for('media.het_preview', audio_hash=recording.audio_hash) }}?freq_hz=FREQ_HZ"
+    data-peak-frequency-url="{{ url_for('media.peak_frequency', audio_hash=recording.audio_hash) }}"
+    data-time-expansion-factor="{{ time_expansion_factor }}"
+  >
+    <button class="tool-button" data-mode="expanded" aria-pressed="true" title="Time Expansion (×10)">TE</button>
+    <button class="tool-button" data-mode="het" aria-pressed="false">HET</button>
+    <span class="het-freq-control" hidden>
+      <input type="number" class="het-freq-input" step="1" inputmode="decimal"> kHz
+      <button type="button" class="het-freq-reset" title="Reset to peak frequency">⟲</button>
+    </span>
+    <button type="button" class="playback-rewind" aria-label="Rewind to start">⏮</button>
+    <button type="button" class="playback-toggle" aria-label="Play">▶</button>
+    <audio hidden></audio>
+  </div>
   {% else %}
   <p class="media-placeholder">Audio preview not processed yet.</p>
   {% endif %}

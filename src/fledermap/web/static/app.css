@@ -339,6 +339,11 @@ button:disabled { cursor: default; opacity: 0.5; }
 }
 .axis-time { display: flex; justify-content: space-between; }
 .oscillogram-wrap, .spectrogram-wrap { min-width: 0; min-height: 0; }
+/* `.playback-cursor` (position: absolute, task 7) needs a positioned ancestor to anchor
+   against -- the detail page's equivalent `.detail-spectrogram-wrap` already has one, but
+   the drawer's `.spectrogram-wrap` didn't, which would place the cursor relative to the
+   next positioned ancestor up the tree (or the viewport) instead of the spectrogram image. */
+.spectrogram-wrap { position: relative; }
 .oscillogram, .spectrogram {
   display: block;
   width: 100%;

@@ -306,7 +306,9 @@ def test_recording_panel_renders_media_when_already_processed(
 
     assert '<img class="spectrogram"' in html
     assert '<img class="oscillogram"' in html
-    assert "<audio controls" in html
+    assert 'class="audio-controls"' in html
+    assert 'data-time-expansion-factor="10"' in html
+    assert '<div class="playback-cursor" hidden></div>' in html
     # Frequency axis: 128kHz default ceiling clamped to 256kHz/2 Nyquist.
     assert "128 kHz" in html
     # Time axis: full 0.5s duration.

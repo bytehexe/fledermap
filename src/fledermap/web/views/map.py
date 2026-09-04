@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import IdSource
 from fledermap.media.paths import oscillogram_path, preview_path, spectrogram_path
+from fledermap.media.preview import TIME_EXPANSION_FACTOR
 from fledermap.media.spectrogram import (
     DEFAULT_SPECTROGRAM_PARAMS,
     effective_max_freq_hz,
@@ -143,6 +144,7 @@ def _render_recording_panel(
             site_label=site_label,
             duration_s=recording.duration_s,
             max_freq_khz=max_freq_khz,
+            time_expansion_factor=TIME_EXPANSION_FACTOR,
         )
 
     return flask.make_response(html), point
