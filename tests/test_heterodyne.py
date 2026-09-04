@@ -114,6 +114,65 @@ def test_compute_peak_frequency_hz_ignores_a_louder_tone_below_the_search_window
     assert 38_000.0 < peak < 42_000.0
 
 
+def _persistent_tone_plus_brief_burst_wav(
+    path: Path,
+    *,
+    persistent_freq_hz: float,
+    persistent_amplitude: float,
+    burst_freq_hz: float,
+    burst_amplitude: float,
+    burst_fraction: float,
+    samplerate: int = 256_000,
+    duration_s: float = 0.3,
+) -> None:
+    """A quiet tone present for the WHOLE file, plus a brief, louder burst
+    near the end -- the shape of a real recording with persistent background
+    noise and a short, loud bat call (Janna, 2026-09-04, found against a
+    real field recording: a near-continuous 10-11kHz noise floor across
+    ~70% of the file outweighed a brief, loud ~45kHz Pipistrellus call under
+    a time-averaged PSD). `burst_fraction` controls how much of the file the
+    burst covers, unlike `_two_tone_wav` above where both tones run the
+    full duration."""
+    n_samples = int(samplerate * duration_s)
+    burst_start = int(n_samples * (1 - burst_fraction))
+    samples = []
+    for i in range(n_samples):
+        value = persistent_amplitude * math.sin(
+            2 * math.pi * persistent_freq_hz * i / samplerate
+        )
+        if i >= burst_start:
+            value += burst_amplitude * math.sin(
+                2 * math.pi * burst_freq_hz * i / samplerate
+            )
+        samples.append(int(value))
+    pcm = struct.pack(f"<{n_samples}h", *samples)
+    path.write_bytes(build_wav([(b"fmt ", fmt_payload(samplerate)), (b"data", pcm)]))
+
+
+def test_compute_peak_frequency_hz_prefers_a_brief_loud_call_over_persistent_quiet_noise(
+    tmp_path: Path,
+) -> None:
+    """The failure mode found live (2026-09-04) against a real recording: a
+    persistent low-level noise floor beats a brief, loud call under a
+    time-averaged PSD, simply by being present for nearly the whole file.
+    Reproduces the same shape synthetically -- a quiet tone for the entire
+    duration, a much louder tone for only the last 2% -- and asserts the
+    peak lands on the brief loud call, not the persistent quiet noise."""
+    wav_path = tmp_path / "tone.wav"
+    _persistent_tone_plus_brief_burst_wav(
+        wav_path,
+        persistent_freq_hz=11_000.0,
+        persistent_amplitude=3_000.0,
+        burst_freq_hz=45_000.0,
+        burst_amplitude=20_000.0,
+        burst_fraction=0.02,
+    )
+
+    peak = compute_peak_frequency_hz(wav_path)
+
+    assert 43_000.0 < peak < 47_000.0
+
+
 def _read_opus_as_mono_float(path: Path) -> tuple[np.ndarray, int]:
     """Decode an Opus file back to raw PCM via ffmpeg for FFT analysis in
     tests -- there's no pure-Python opus decoder already in this project's

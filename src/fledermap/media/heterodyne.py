@@ -28,27 +28,48 @@ _PEAK_SEARCH_MAX_HZ = 128_000.0
 
 
 def compute_peak_frequency_hz(wav_path: Path) -> float:
-    """Welch power spectral density over the whole file, returning the
-    frequency of maximum power WITHIN the bounded search window above --
-    deliberately independent of `SpectrogramParams`/
-    `render_full_spectrogram_image`'s own STFT: changing the spectrogram's
-    display tuning (window/overlap, chosen for visualization) must never
-    silently change what HET calls "the peak frequency" (chosen for
-    audibility). The result is directly visible to the user (pre-filled
-    into the frequency spinner in HET mode), so a wrong pick is easy to
-    catch by ear against real recordings."""
+    """STFT peak-hold over the whole file: for each frequency bin within the
+    bounded search window above, take the MAXIMUM power reached at any
+    single instant, then return the frequency whose peak-hold value is
+    highest -- deliberately independent of `SpectrogramParams`/
+    `render_full_spectrogram_image`'s own STFT (changing the spectrogram's
+    display tuning, chosen for visualization, must never silently change
+    what HET calls "the peak frequency", chosen for audibility). The result
+    is directly visible to the user (pre-filled into the frequency spinner
+    in HET mode), so a wrong pick is easy to catch by ear against real
+    recordings.
+
+    NOT a time-averaged PSD (`scipy.signal.welch`, the original approach) --
+    Janna, 2026-09-04, found a real field recording where near-continuous
+    background noise at 10-11kHz, present across ~70% of the file, beat a
+    brief, loud ~45kHz Pipistrellus call under time-averaging simply by
+    being present for so much longer, even though the call was far louder
+    in any single instant. Peak-hold favours a short loud transient over a
+    persistent quiet tone, matching how a real call actually stands out --
+    at the cost of being more sensitive to a single loud spike or click
+    (handling noise, a knock) being mistaken for a call. Accepted: the
+    auto-computed value is always user-visible and correctable in the
+    frequency spinner, the same tolerance the original Welch-based design
+    already accepted for its own failure modes."""
     samples, samplerate = read_pcm(wav_path)
-    freqs, psd = signal.welch(samples, fs=samplerate)
+    # Clamped rather than left at the default 1024: scipy warns and silently
+    # substitutes a shorter window itself for a file with fewer samples than
+    # that (e.g. a very short recording) -- clamping up front keeps this
+    # function's own test output warning-free without relying on scipy's
+    # fallback behavior.
+    nperseg = min(1024, len(samples))
+    freqs, _times, stft = signal.stft(samples, fs=samplerate, nperseg=nperseg)
+    power = np.abs(stft) ** 2
     in_window = (freqs >= _PEAK_SEARCH_MIN_HZ) & (freqs <= _PEAK_SEARCH_MAX_HZ)
     windowed_freqs = freqs[in_window]
-    windowed_psd = psd[in_window]
-    if windowed_psd.size == 0:
+    peak_hold = power[in_window].max(axis=1)
+    if peak_hold.size == 0:
         raise UnreadableWavError(
-            f"cannot compute peak frequency for {wav_path}: no PSD data in the "
+            f"cannot compute peak frequency for {wav_path}: no STFT data in the "
             f"{_PEAK_SEARCH_MIN_HZ:.0f}-{_PEAK_SEARCH_MAX_HZ:.0f}Hz search window "
             f"(samplerate too low)"
         )
-    return float(windowed_freqs[np.argmax(windowed_psd)])
+    return float(windowed_freqs[np.argmax(peak_hold)])
 
 
 # Rejects the near-`2*tune_freq_hz` sum-frequency component the mix also
