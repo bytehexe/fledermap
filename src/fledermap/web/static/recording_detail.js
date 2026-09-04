@@ -295,6 +295,54 @@ document.addEventListener("DOMContentLoaded", () => {
     return nativeXPxToTimeS(visibleRightNativePx);
   }
 
+  // Tighter boundary watch, `requestAnimationFrame`-driven (up to ~60 checks/second) rather
+  // than the `timeupdate` event the cursor-drawing code below also uses for the same check.
+  // `timeupdate` only fires a handful of times a second and the browser doesn't guarantee a
+  // fixed interval, so between two ticks real playback keeps going before JS gets a chance to
+  // pause it -- how far past the boundary it gets depends on that (variable) gap, which is
+  // exactly why it sometimes overran further than other times (Janna, 2026-09-04, live use:
+  // "in some rare cases plays just a little bit longer"). rAF can't make this perfectly
+  // sample-accurate (nothing JS-driven against an <audio> element can be -- there's no
+  // "pause at this exact sample" API), but polling ~15x more often than `timeupdate` typically
+  // does substantially tightens and evens out the overrun. The `timeupdate` handler's own
+  // boundary check stays in place below as a harmless fallback (pausing an already-paused
+  // element is a no-op) for whatever this loop might miss -- e.g. a tab backgrounded, where
+  // browsers throttle `requestAnimationFrame` but not `timeupdate`.
+  let boundaryWatchHandle = null;
+
+  function stopBoundaryWatch() {
+    if (boundaryWatchHandle !== null) {
+      cancelAnimationFrame(boundaryWatchHandle);
+      boundaryWatchHandle = null;
+    }
+  }
+
+  function stepBoundaryWatch() {
+    boundaryWatchHandle = null;
+    if (!viewLocked || audio.paused) return;
+    const spectrogramTimeS = audio.currentTime / audioControls.getTimeExpansionFactor();
+    const viewEndS = currentViewEndTimeS();
+    if (spectrogramTimeS >= viewEndS) {
+      const xPx = viewEndS * 1000 * pxPerMs;
+      cursor.style.left = `${xPx}px`;
+      cursor.hidden = false;
+      audio.pause();
+      return;
+    }
+    boundaryWatchHandle = requestAnimationFrame(stepBoundaryWatch);
+  }
+
+  // Covers every way playback can start while locked: the ▶ button, a spectrogram click, and
+  // engaging Lock View itself while already playing (the click handler below calls this too).
+  function startBoundaryWatchIfNeeded() {
+    if (viewLocked && !audio.paused && boundaryWatchHandle === null) {
+      boundaryWatchHandle = requestAnimationFrame(stepBoundaryWatch);
+    }
+  }
+  audio.addEventListener("play", startBoundaryWatchIfNeeded);
+  audio.addEventListener("pause", stopBoundaryWatch);
+  audio.addEventListener("ended", stopBoundaryWatch);
+
   function relayout() {
     fitDetailHeight();
     if (canBuildTimeAxis) buildTimeAxis();
@@ -409,8 +457,10 @@ document.addEventListener("DOMContentLoaded", () => {
     scrollEl.classList.toggle("view-locked", viewLocked);
     if (viewLocked) {
       lockedStartS = nativeXPxToTimeS(scrollEl.scrollLeft / currentScale);
+      startBoundaryWatchIfNeeded(); // covers locking while already mid-playback
     } else {
       lockedStartS = null;
+      stopBoundaryWatch();
     }
   });
 
