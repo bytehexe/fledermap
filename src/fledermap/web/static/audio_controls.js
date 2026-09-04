@@ -10,6 +10,15 @@
 // on page load; the drawer panel gets a fresh one every htmx swap, so its
 // caller (app.js) re-invokes this after every swap rather than once at
 // page load.
+//
+// Remembers the last-chosen mode (TE vs HET) across sessions, the same
+// `localStorage` mechanism `_theme_init.html` uses for dark/light mode
+// (Janna, 2026-09-04). Deliberately mode only, not a tuned frequency: a raw
+// absolute frequency wouldn't transfer between recordings (each has its own
+// peak), so HET always starts from THIS recording's own auto-computed peak,
+// same as picking HET manually would -- persistence only skips the extra
+// click to get there.
+const MODE_STORAGE_KEY = "fledermap-audio-mode";
 
 function initAudioControls(container, audioEl) {
   const previewUrl = container.dataset.previewUrl;
@@ -45,9 +54,29 @@ function initAudioControls(container, audioEl) {
     return peakFrequencyPromise;
   }
 
+  // Single source of truth for the toggle button's icon/label, driven by
+  // `audioEl.paused` directly rather than trusting only the 'play'/'pause'
+  // events to fire -- a mode switch's `setSource()` below calls
+  // `audioEl.pause()` immediately followed by reassigning `.src`, and
+  // (Janna, 2026-09-04, live use) the browser does not reliably deliver
+  // the 'pause' event in that exact sequence, leaving the icon stuck on
+  // "playing" after a pause that genuinely happened. Called both from the
+  // real audio events below AND explicitly wherever this module itself
+  // changes play state, so the icon can never drift from reality.
+  function syncToggleIcon() {
+    if (audioEl.paused) {
+      toggleButton.textContent = "▶"; // play icon
+      toggleButton.setAttribute("aria-label", "Play");
+    } else {
+      toggleButton.textContent = "⏸"; // pause icon
+      toggleButton.setAttribute("aria-label", "Pause");
+    }
+  }
+
   function setSource(url) {
     audioEl.pause();
     audioEl.src = url;
+    syncToggleIcon();
   }
 
   function hetUrlForFreq(freqKhz) {
@@ -56,6 +85,7 @@ function initAudioControls(container, audioEl) {
 
   function switchToTe() {
     mode = "expanded";
+    localStorage.setItem(MODE_STORAGE_KEY, mode);
     teButton.setAttribute("aria-pressed", "true");
     hetButton.setAttribute("aria-pressed", "false");
     freqControl.hidden = true;
@@ -64,6 +94,7 @@ function initAudioControls(container, audioEl) {
 
   function switchToHet() {
     mode = "het";
+    localStorage.setItem(MODE_STORAGE_KEY, mode);
     teButton.setAttribute("aria-pressed", "false");
     hetButton.setAttribute("aria-pressed", "true");
     freqControl.hidden = false;
@@ -112,18 +143,15 @@ function initAudioControls(container, audioEl) {
     if (audioEl.paused) audioEl.play();
     else audioEl.pause();
   });
-  audioEl.addEventListener("play", () => {
-    toggleButton.textContent = "⏸"; // pause icon
-    toggleButton.setAttribute("aria-label", "Pause");
-  });
-  ["pause", "ended"].forEach((eventName) => {
-    audioEl.addEventListener(eventName, () => {
-      toggleButton.textContent = "▶"; // play icon
-      toggleButton.setAttribute("aria-label", "Play");
-    });
+  ["play", "pause", "ended"].forEach((eventName) => {
+    audioEl.addEventListener(eventName, syncToggleIcon);
   });
 
-  switchToTe();
+  if (localStorage.getItem(MODE_STORAGE_KEY) === "het") {
+    switchToHet();
+  } else {
+    switchToTe();
+  }
 
   return {
     getTimeExpansionFactor: () => (mode === "expanded" ? timeExpansionFactor : 1),
