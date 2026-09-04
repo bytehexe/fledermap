@@ -12,6 +12,7 @@ from scipy.signal import chirp
 from fledermap.media.spectrogram import (
     SpectrogramParams,
     effective_max_freq_hz,
+    render_full_spectrogram_image,
     render_spectrogram,
     stft_hop_samples,
 )
@@ -292,6 +293,50 @@ def _two_tone_wav(
 
     body = b"WAVE" + chunk(b"fmt ", fmt_payload) + chunk(b"data", pcm)
     path.write_bytes(b"RIFF" + struct.pack("<I", len(body)) + body)
+
+
+def test_render_full_spectrogram_image_is_independent_of_tile_dimensions(
+    tmp_path: Path,
+) -> None:
+    """The extracted shared-computation step (render-cost optimization, v1 backlog: reused
+    across every tile of one recording-detail page load, `web/views/media.py`) must not depend
+    on `width_px`/`height_px` -- those only govern the FINAL per-tile resize, not the underlying
+    STFT/palette image, or caching it per-tile would defeat the whole point."""
+    wav_path = tmp_path / "call.wav"
+    _sine_wav(wav_path)
+
+    small = render_full_spectrogram_image(
+        wav_path, SpectrogramParams(width_px=64, height_px=32)
+    )
+    large = render_full_spectrogram_image(
+        wav_path, SpectrogramParams(width_px=4096, height_px=2048)
+    )
+
+    assert small.image.size == large.image.size
+
+
+def test_render_spectrogram_accepts_a_precomputed_full_image(tmp_path: Path) -> None:
+    """`render_spectrogram(..., full_image=...)` must produce pixel-identical output to a
+    normal call -- the caching caller (`detail_spectrogram`) relies on this equivalence to skip
+    recomputing the shared STFT/palette image across a page's tiles without changing what gets
+    rendered."""
+    wav_path = tmp_path / "call.wav"
+    _sine_wav(wav_path)
+    params = SpectrogramParams(width_px=64, height_px=32)
+
+    normal_out = tmp_path / "normal.webp"
+    render_spectrogram(wav_path, normal_out, params=params)
+
+    full_image = render_full_spectrogram_image(wav_path, params)
+    precomputed_out = tmp_path / "precomputed.webp"
+    render_spectrogram(wav_path, precomputed_out, params=params, full_image=full_image)
+
+    with (
+        Image.open(normal_out) as normal_img,
+        Image.open(precomputed_out) as precomputed_img,
+    ):
+        assert normal_img.size == precomputed_img.size
+        assert normal_img.tobytes() == precomputed_img.tobytes()
 
 
 def test_render_spectrogram_time_range_produces_the_requested_pixel_width(

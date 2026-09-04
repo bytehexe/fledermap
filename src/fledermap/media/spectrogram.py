@@ -14,6 +14,7 @@ import os
 import tempfile
 from dataclasses import dataclass, fields
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 from PIL import Image
@@ -127,37 +128,38 @@ def stft_hop_samples(samplerate_hz: float, window_ms: float, overlap: float) -> 
     return nperseg - noverlap
 
 
-def render_spectrogram(
+class FullSpectrogramImage(NamedTuple):
+    """`render_full_spectrogram_image`'s result: the rendered image plus the STFT's own `times`
+    array, which `render_spectrogram` needs to translate a `time_range_s` into a pixel `box`.
+    A plain typed pair rather than stashing `times` as an attribute on the `Image.Image` --
+    keeps both call sites free of `# type: ignore`s for an attribute PIL's own stubs don't know
+    about."""
+
+    image: Image.Image
+    times: np.ndarray
+
+
+def render_full_spectrogram_image(
     wav_path: Path,
-    out_path: Path,
-    *,
-    params: SpectrogramParams = SpectrogramParams(),
-    time_range_s: tuple[float, float] | None = None,
-) -> None:
-    """Render `wav_path`'s spectrogram to `out_path` as a WebP image.
+    params: SpectrogramParams,
+) -> FullSpectrogramImage:
+    """The expensive, tile-independent part of `render_spectrogram`: STFT via
+    `scipy.signal.spectrogram`, power converted to dB relative to the recording's own peak,
+    clipped to `params.dynamic_range_db` and mapped through `params.palette`'s colour lookup
+    table -- at the STFT's own native time/frequency resolution, NOT `params.width_px`/
+    `height_px` (those only matter for the final per-tile resize `render_spectrogram` does with
+    this image's help; two `SpectrogramParams` differing only in those two fields produce
+    identically-sized images here).
 
-    STFT via `scipy.signal.spectrogram`, power converted to dB relative to
-    the recording's own peak, clipped to `params.dynamic_range_db` and
-    mapped through `params.palette`'s colour lookup table. Both are ordinary
-    `SpectrogramParams` fields, so changing either one is just a settings
-    change -- `params_hash` exists precisely so that invalidates old renders
-    cleanly, without a schema change or a manual cache bust.
-
-    Writes to a temp file in `out_path`'s parent directory, then `os.replace`s
-    onto `out_path` -- atomic on the same filesystem, so a concurrent reader
-    never sees a partial file and two concurrent writers never interleave
-    (design spec §7's duplicate-enqueue protection is the queue-level half of
-    this; this is the filesystem-level half).
-
-    `time_range_s`, if given, renders only that `(start_s, end_s)` slice of
-    the recording -- for tiling a long recording into multiple images that
-    together stay under WebP's hard pixel-dimension limit. The STFT and
-    `peak` are still computed from the WHOLE file first, so normalisation
-    never drifts between tiles of the same recording -- only the final
-    slice-and-resize step is narrowed to `time_range_s`. Slicing the input
-    samples before computing the peak would make each tile self-normalise
-    independently, so the same call could render at different brightness
-    depending purely on which tile boundary it happened to fall inside.
+    Extracted out of `render_spectrogram` (render-cost optimization, v1 backlog "render-cost
+    optimization for tiled long recordings") so a caller rendering many tiles of the SAME
+    recording -- the standalone recording-detail page's `detail_spectrogram` route -- can
+    compute this once and reuse it via `render_spectrogram`'s `full_image` parameter, instead of
+    redoing the whole STFT (measured ~25% of one tile's render time on a real 30s field
+    recording) on every single tile request. `render_spectrogram` itself stays the single
+    source of truth for every other step (per-tile resize, atomic write) and every existing
+    caller (the drawer/overview's cached single-image render) is unaffected -- this function is
+    purely an extraction, not a behavior change.
     """
     samples, samplerate = read_pcm(wav_path)
 
@@ -214,21 +216,68 @@ def render_spectrogram(
     rgb = lut[indices]
 
     full_image = Image.fromarray(rgb, mode="RGB")
+    return FullSpectrogramImage(image=full_image, times=times)
+
+
+def render_spectrogram(
+    wav_path: Path,
+    out_path: Path,
+    *,
+    params: SpectrogramParams = SpectrogramParams(),
+    time_range_s: tuple[float, float] | None = None,
+    full_image: FullSpectrogramImage | None = None,
+) -> None:
+    """Render `wav_path`'s spectrogram to `out_path` as a WebP image.
+
+    See `render_full_spectrogram_image` for the STFT/normalize/palette details -- this function
+    calls it internally (unless `full_image` is already given, see below), then resizes to
+    `params.width_px`/`height_px` and writes the result.
+
+    Writes to a temp file in `out_path`'s parent directory, then `os.replace`s
+    onto `out_path` -- atomic on the same filesystem, so a concurrent reader
+    never sees a partial file and two concurrent writers never interleave
+    (design spec §7's duplicate-enqueue protection is the queue-level half of
+    this; this is the filesystem-level half).
+
+    `time_range_s`, if given, renders only that `(start_s, end_s)` slice of
+    the recording -- for tiling a long recording into multiple images that
+    together stay under WebP's hard pixel-dimension limit. The STFT and
+    `peak` are still computed from the WHOLE file first, so normalisation
+    never drifts between tiles of the same recording -- only the final
+    slice-and-resize step is narrowed to `time_range_s`. Slicing the input
+    samples before computing the peak would make each tile self-normalise
+    independently, so the same call could render at different brightness
+    depending purely on which tile boundary it happened to fall inside.
+
+    `full_image`, if given, is used instead of calling `render_full_spectrogram_image`
+    internally -- lets a caller rendering many tiles of the same recording (the
+    recording-detail page) compute it once and pass it to every tile's call, skipping the
+    repeated STFT. Must be a value `render_full_spectrogram_image(wav_path, params)` actually
+    returned (for the SAME `wav_path`/`params`) -- passing a mismatched image silently renders
+    the wrong content, since nothing here re-derives it from `wav_path` to check.
+    """
+    if full_image is None:
+        full_image = render_full_spectrogram_image(wav_path, params)
+    stft_image, times = full_image
+
     box = None
     if time_range_s is not None:
-        # `rgb.shape[1]` (the STFT's own column count) is always >= 1 for any nonzero-length
-        # signal (the `nperseg` clamp above guarantees at least one window fits). Clamping
-        # `end_idx` to be at least `start_idx + 1` guarantees a non-empty region even for a very
-        # narrow tile (the last tile in a recording whose width doesn't divide evenly by
-        # `DETAIL_MAX_TILE_WIDTH_PX` can be as little as 1px wide -- narrower than a single STFT
-        # column's own time resolution) -- without this, `resize(box=...)` on a zero-width box
-        # raises rather than degrading gracefully.
+        # `stft_image.width` (the STFT's own column count) is always >= 1 for any
+        # nonzero-length signal (the `nperseg` clamp in `render_full_spectrogram_image`
+        # guarantees at least one window fits). Clamping `end_idx` to be at least
+        # `start_idx + 1` guarantees a non-empty region even for a very narrow tile (the last
+        # tile in a recording whose width doesn't divide evenly by `DETAIL_MAX_TILE_WIDTH_PX`
+        # can be as little as 1px wide -- narrower than a single STFT column's own time
+        # resolution) -- without this, `resize(box=...)` on a zero-width box raises rather than
+        # degrading gracefully.
         start_s, end_s = time_range_s
-        start_idx = max(0, min(int(np.searchsorted(times, start_s)), rgb.shape[1] - 1))
-        end_idx = max(
-            start_idx + 1, min(int(np.searchsorted(times, end_s)), rgb.shape[1])
+        start_idx = max(
+            0, min(int(np.searchsorted(times, start_s)), stft_image.width - 1)
         )
-        box = (start_idx, 0, end_idx, rgb.shape[0])
+        end_idx = max(
+            start_idx + 1, min(int(np.searchsorted(times, end_s)), stft_image.width)
+        )
+        box = (start_idx, 0, end_idx, stft_image.height)
 
     # `box`, not a manual `rgb[:, start_idx:end_idx, :]` slice-then-resize: resizing a
     # pre-sliced array independently per tile starves the resampling kernel of real pixels
@@ -241,7 +290,7 @@ def render_spectrogram(
     # of the FULL, un-sliced image to resample -- the kernel can then sample real pixels from
     # just outside the box, the same way it would if this tile weren't being rendered
     # separately at all.
-    image = full_image.resize((params.width_px, params.height_px), box=box)
+    image = stft_image.resize((params.width_px, params.height_px), box=box)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(dir=out_path.parent, suffix=".webp.tmp")

@@ -393,6 +393,61 @@ def test_detail_spectrogram_renders_multiple_tiles_for_a_long_recording(
     )
 
 
+def test_detail_spectrogram_reuses_the_shared_image_across_a_recordings_tiles(
+    engine: Engine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Render-cost optimization (v1 backlog): the expensive STFT/palette computation is
+    identical for every tile of one recording, so it must be computed once per recording, not
+    once per tile request."""
+    import fledermap.web.views.media as media_view
+
+    archive_root = tmp_path / "archive"
+    archive_root.mkdir()
+    duration_s = 4.0  # 3 tiles, same shape as the multi-tile test above
+    _write_wav(archive_root / "long.wav", duration_s=duration_s)
+
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="d6" * 32,
+                path="long.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                duration_s=duration_s,
+                samplerate_hz=256_000,
+            ),
+        )
+        session.commit()
+
+    calls = []
+    real_render_full = media_view.render_full_spectrogram_image
+
+    def counting_render_full(wav_path, params):  # noqa: ANN001, ANN202
+        calls.append(1)
+        return real_render_full(wav_path, params)
+
+    monkeypatch.setattr(
+        media_view, "render_full_spectrogram_image", counting_render_full
+    )
+
+    app = create_app(
+        engine,
+        tmp_path / "static",
+        tmp_path / "media",
+        archive_roots=(archive_root,),
+    )
+    client = app.test_client()
+
+    for tile_index in range(3):
+        response = client.get(
+            f"/recordings/{'d6' * 32}/detail-spectrogram/{tile_index}.webp",
+        )
+        assert response.status_code == 200
+
+    assert len(calls) == 1  # NOT recomputed for tiles 1 and 2
+
+
 def test_detail_spectrogram_404s_when_the_source_file_is_missing_from_disk(
     engine: Engine,
     tmp_path: Path,

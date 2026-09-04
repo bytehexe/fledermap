@@ -27,7 +27,12 @@ from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.media.oscillogram import OscillogramParams, render_oscillogram
 from fledermap.media.paths import oscillogram_path, preview_path, spectrogram_path
-from fledermap.media.spectrogram import SpectrogramParams, render_spectrogram
+from fledermap.media.render_cache import SpectrogramImageCache
+from fledermap.media.spectrogram import (
+    SpectrogramParams,
+    render_full_spectrogram_image,
+    render_spectrogram,
+)
 from fledermap.media.wav_pcm import UnreadableWavError
 from fledermap.services.media import resolve_recording, resolve_wav_path
 from fledermap.services.recording_detail import (
@@ -40,6 +45,34 @@ from fledermap.store.models import Recording
 media_bp = flask.Blueprint("media", __name__)
 
 logger = logging.getLogger(__name__)
+
+# One cache for the whole `fledermap serve` process (design: media/render_cache.py's own
+# module docstring) -- reused across every tile of a recording-detail page load so
+# `detail_spectrogram` below computes the shared STFT/palette image once per view instead of
+# once per tile.
+_spectrogram_image_cache = SpectrogramImageCache()
+
+
+def _spectrogram_image_cache_key(
+    wav_path: Path,
+    params: SpectrogramParams,
+) -> tuple[object, ...]:
+    """Everything that affects `render_full_spectrogram_image`'s output -- deliberately
+    excluding `width_px`/`height_px` (those only govern the final per-tile resize, not the
+    cached shared image; including them would make every tile of one recording a cache miss
+    against every other tile, defeating the whole point). `wav_path`'s mtime guards against the
+    unlikely case of the same path later holding different content -- `resolve_wav_path`
+    already returns a different path after a real re-ID rename (D8), so this is a second,
+    cheap layer of safety, not the primary invalidation mechanism."""
+    return (
+        str(wav_path),
+        wav_path.stat().st_mtime_ns,
+        params.window_ms,
+        params.overlap,
+        params.max_freq_hz,
+        params.dynamic_range_db,
+        params.palette,
+    )
 
 
 def _known_hash(session: OrmSession, audio_hash: str) -> bool:
@@ -156,12 +189,22 @@ def detail_spectrogram(audio_hash: str, tile_index: int) -> ResponseReturnValue:
     )
     tile_params = dataclasses.replace(spectrogram_params, width_px=tile.width_px)
     try:
+        # Render-cost optimization (v1 backlog "render-cost optimization for tiled long
+        # recordings"): the STFT/palette image is identical across every tile of this
+        # recording, so it's computed once and reused for the rest of the page's tile
+        # requests instead of once per tile (media/render_cache.py).
+        cache_key = _spectrogram_image_cache_key(wav_path, spectrogram_params)
+        full_image = _spectrogram_image_cache.get_or_compute(
+            cache_key,
+            lambda: render_full_spectrogram_image(wav_path, spectrogram_params),
+        )
         return _serve_temp_render(
             lambda out: render_spectrogram(
                 wav_path,
                 out,
                 params=tile_params,
                 time_range_s=time_range_s,
+                full_image=full_image,
             ),
         )
     except UnreadableWavError as exc:
