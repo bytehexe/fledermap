@@ -169,13 +169,28 @@ def filtered_sites(
 
 
 def list_taxa(session: OrmSession) -> Sequence[Taxon]:
-    """Every taxon, for the map's taxon filter dropdown (a numeric ID input
-    is not something a person can use -- feedback on the first UI pass).
-    Ordered by scientific_name so the dropdown reads alphabetically
+    """Taxa actually found in this archive, for the map's taxon filter dropdown
+    (a numeric ID input is not something a person can use -- feedback on the
+    first UI pass). Restricted to taxa referenced by at least one
+    non-superseded Identification -- taxa_eu.yaml/the species list carry many
+    entries with no matching detection yet (CLAUDE.md's "Species codes"
+    section), and an option that can never match anything just clutters the
+    dropdown. Ordered by scientific_name so the dropdown reads alphabetically
     regardless of insertion order. Not scoped to any rank: a group- or
     genus-level taxon is as valid an identification, and so as valid a
     filter target, as a species (docs/references.md)."""
-    stmt = select(Taxon).order_by(Taxon.scientific_name)
+    stmt = (
+        select(Taxon)
+        .where(
+            Taxon.id.in_(
+                select(Identification.taxon_id).where(
+                    Identification.taxon_id.is_not(None),
+                    Identification.superseded_at.is_(None),
+                ),
+            ),
+        )
+        .order_by(Taxon.scientific_name)
+    )
     return list(session.scalars(stmt).all())
 
 

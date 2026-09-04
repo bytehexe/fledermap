@@ -65,6 +65,23 @@ def test_taxon_filter_is_a_dropdown_of_real_taxa(
     with OrmSession(engine) as session:
         taxon = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
         session.add(taxon)
+        session.flush()
+        r = Recording(
+            audio_hash="a" * 64,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add(r)
+        session.flush()
+        session.add(
+            Identification(
+                recording_id=r.id,
+                source=IdSource.EMT_GUANO,
+                verdict=Verdict.SPECIES,
+                taxon_id=taxon.id,
+                first_seen_at=datetime(2026, 8, 25, tzinfo=UTC),
+            ),
+        )
         session.commit()
         taxon_id = taxon.id
 
@@ -89,6 +106,23 @@ def test_taxon_option_includes_common_name_when_present(
             common_name_en="Serotine bat",
         )
         session.add(taxon)
+        session.flush()
+        r = Recording(
+            audio_hash="a" * 64,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add(r)
+        session.flush()
+        session.add(
+            Identification(
+                recording_id=r.id,
+                source=IdSource.EMT_GUANO,
+                verdict=Verdict.SPECIES,
+                taxon_id=taxon.id,
+                first_seen_at=datetime(2026, 8, 25, tzinfo=UTC),
+            ),
+        )
         session.commit()
 
     app = create_app(engine, tmp_path / "static", tmp_path / "media")

@@ -330,12 +330,12 @@ def test_filtered_sites_by_bbox_and_date(engine: Engine) -> None:
 
 def test_list_taxa_orders_alphabetically_by_scientific_name(engine: Engine) -> None:
     with OrmSession(engine) as session:
-        session.add_all(
-            [
-                Taxon(rank="species", scientific_name="Pipistrellus pipistrellus"),
-                Taxon(rank="species", scientific_name="Eptesicus serotinus"),
-            ],
-        )
+        pip = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
+        ept = Taxon(rank="species", scientific_name="Eptesicus serotinus")
+        session.add_all([pip, ept])
+        session.flush()
+        _recording(session, audio_hash="a" * 64, taxon_id=pip.id)
+        _recording(session, audio_hash="b" * 64, taxon_id=ept.id)
         session.commit()
 
         results = list_taxa(session)
@@ -344,6 +344,54 @@ def test_list_taxa_orders_alphabetically_by_scientific_name(engine: Engine) -> N
         "Eptesicus serotinus",
         "Pipistrellus pipistrellus",
     ]
+
+
+def test_list_taxa_excludes_taxa_with_no_identification(engine: Engine) -> None:
+    """A taxon that no recording has ever been identified as -- e.g. a species
+    entry from taxa_eu.yaml with no matching detection yet -- would clutter the
+    map's taxon filter dropdown with options that can never match anything."""
+    with OrmSession(engine) as session:
+        found = Taxon(rank="species", scientific_name="Eptesicus serotinus")
+        unfound = Taxon(rank="species", scientific_name="Nyctalus noctula")
+        session.add_all([found, unfound])
+        session.flush()
+        _recording(session, audio_hash="a" * 64, taxon_id=found.id)
+        session.commit()
+
+        results = list_taxa(session)
+
+    assert [t.scientific_name for t in results] == ["Eptesicus serotinus"]
+
+
+def test_list_taxa_excludes_a_taxon_whose_only_identification_is_superseded(
+    engine: Engine,
+) -> None:
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Eptesicus serotinus")
+        session.add(taxon)
+        session.flush()
+        r = Recording(
+            audio_hash="a" * 64,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add(r)
+        session.flush()
+        session.add(
+            Identification(
+                recording_id=r.id,
+                source=IdSource.EMT_GUANO,
+                verdict=Verdict.SPECIES,
+                taxon_id=taxon.id,
+                first_seen_at=datetime(2026, 8, 25, tzinfo=UTC),
+                superseded_at=datetime(2026, 8, 26, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+        results = list_taxa(session)
+
+    assert results == []
 
 
 def test_list_sessions_orders_most_recent_first(engine: Engine) -> None:
