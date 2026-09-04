@@ -18,6 +18,10 @@
     </p>
 
     {% if params %}
+    <div class="detail-toolbar" id="detail-toolbar">
+      <button type="button" class="tool-button" data-tool="default" aria-pressed="true">Default</button>
+      <button type="button" class="tool-button" data-tool="ruler" aria-pressed="false">Ruler</button>
+    </div>
     <div class="detail-scroll" id="detail-scroll">
       <div class="detail-body">
         <div class="detail-axis-freq" id="detail-axis-freq"></div>
@@ -45,6 +49,7 @@
               alt="Waveform tile {{ tile.index }}"
               width="{{ tile.width_px }}"
               height="{{ params.oscillogram.height_px }}"
+              draggable="false"
               hidden
             >
             {% endfor %}
@@ -67,6 +72,7 @@
               data-px-per-ms="{{ px_per_ms }}"
               data-px-per-khz="{{ px_per_khz }}"
               data-time-expansion-factor="{{ time_expansion_factor }}"
+              draggable="false"
               hidden
             >
             {% endfor %}

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -237,3 +238,66 @@ def test_recording_details_page_explains_missing_metadata(
     html = response.get_data(as_text=True)
     assert "cannot render" in html.lower()
     assert "detail-spectrogram/0.webp" not in html
+
+
+def test_recording_details_page_renders_the_tool_toolbar(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="fa" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                duration_s=0.5,
+                samplerate_hz=256_000,
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/recordings/{'fa' * 32}")
+
+    html = response.get_data(as_text=True)
+    assert (
+        '<button type="button" class="tool-button" data-tool="default" '
+        'aria-pressed="true">Default</button>' in html
+    )
+    assert (
+        '<button type="button" class="tool-button" data-tool="ruler" '
+        'aria-pressed="false">Ruler</button>' in html
+    )
+
+
+def test_recording_details_page_tiles_are_not_natively_draggable(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """A plain <img> is draggable by default -- clicking and dragging it triggers the
+    browser's native image drag-and-drop instead of the page's own pan-by-drag, which is
+    exactly the reported bug ("shows a drag cursor but does not drag")."""
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="fb" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                duration_s=0.5,
+                samplerate_hz=256_000,
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/recordings/{'fb' * 32}")
+
+    html = response.get_data(as_text=True)
+    tile_tags = [
+        tag
+        for tag in re.findall(r"<img[^>]*>", html)
+        if "detail-spectrogram-tile" in tag or "detail-oscillogram-tile" in tag
+    ]
+    assert tile_tags, "expected at least one tile <img>"
+    for tag in tile_tags:
+        assert 'draggable="false"' in tag
