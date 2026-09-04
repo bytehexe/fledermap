@@ -341,6 +341,24 @@ document.addEventListener("DOMContentLoaded", () => {
     readout.hidden = true;
   });
 
+  // The recording-details page's "Details" link needs to know where to
+  // send its own "back" link -- but the server rendering this panel only
+  // ever sees the filter params of the panel's own fetch, never `recording=`
+  // / `panel=`, which are added to the URL bar separately by pushUrl()
+  // (called from the click handler, or -- for prev/next and the HX-Trigger
+  // "recording-selected" path -- from that event's own handler below,
+  // always before this listener's swap-completed event fires). So the
+  // *only* place the full "what's on screen" URL is known is here, on the
+  // client, right after each swap -- read it fresh every time rather than
+  // trying to reconstruct it server-side.
+  drawerBody.addEventListener("htmx:afterSwap", () => {
+    const link = drawerBody.querySelector(".details-link");
+    if (!link) return;
+    const url = new URL(link.href, window.location.origin);
+    url.searchParams.set("return_to", window.location.pathname + window.location.search);
+    link.href = `${url.pathname}${url.search}`;
+  });
+
   // Step 2: Listen for recording-selected to pan, reveal (zoom/spiderfy),
   // and highlight. Shared by a fresh marker click, prev/next inside the
   // drawer, and restoring a panel from the URL -- all three dispatch this

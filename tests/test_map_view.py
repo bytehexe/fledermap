@@ -811,29 +811,4 @@ def test_recording_panel_links_to_the_details_page(
     response = app.test_client().get(f"/recordings/{'g1' * 32}/panel?verdict=all")
 
     html = response.get_data(as_text=True)
-    assert f'href="/recordings/{"g1" * 32}?return_to=' in html
-
-
-def test_recording_panel_details_link_preserves_the_current_filters_as_return_to(
-    engine: Engine,
-    tmp_path: Path,
-) -> None:
-    """So the details page's back link can return the user to the same
-    filtered map view they came from, instead of dropping their selectors
-    (Obsidian backlog: "'Back to' should probably also preserve
-    selectors")."""
-    with OrmSession(engine) as session:
-        session.add(
-            Recording(
-                audio_hash="g2" * 32,
-                path="a.wav",
-                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
-            ),
-        )
-        session.commit()
-
-    app = create_app(engine, tmp_path / "static", tmp_path / "media")
-    response = app.test_client().get(f"/recordings/{'g2' * 32}/panel?verdict=all")
-
-    html = response.get_data(as_text=True)
-    assert f'href="/recordings/{"g2" * 32}?return_to=/%3Fverdict%3Dall"' in html
+    assert f'href="/recordings/{"g1" * 32}"' in html
