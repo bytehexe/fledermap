@@ -32,8 +32,8 @@ is itself part of the design (see Goals).
   the spectrogram's own display parameters.
 - **Both pages** (recording-detail page, drawer panel) get the same custom audio control bar,
   replacing the native `<audio controls>` element: a TE/HET mode toggle, a frequency input
-  (HET mode only), and a play/pause button — no progress bar, since click-to-play + a playback
-  cursor make it redundant.
+  (HET mode only), and rewind-to-start + play/pause buttons — no progress bar, since
+  click-to-play + a playback cursor make it redundant.
 - **The drawer panel gains click-to-play and a playback cursor** for the first time (today
   it's detail-page-only) — needed for the control-bar unification above to make sense there too.
 
@@ -53,8 +53,6 @@ is itself part of the design (see Goals).
 - **No batdetect2-aware tuning** (peak-of-detected-calls, per-species tuning) — batdetect2
   doesn't exist as a classifier yet; those stay their own future backlog items exactly as
   already noted there.
-- **No Rewind button.** Clicking the start of the spectrogram already seeks there; a dedicated
-  button would duplicate that.
 - **No preserved playback position across a mode switch.** Switching between TE and HET stops
   playback — they're different underlying audio files. Revisit only if this proves annoying in
   practice.
@@ -126,6 +124,7 @@ with, e.g.:
     <input type="number" class="het-freq-input" step="1" inputmode="decimal"> kHz
     <button type="button" class="het-freq-reset" title="Reset to peak frequency">⟳</button>
   </span>
+  <button type="button" class="playback-rewind" aria-label="Rewind to start">⏮</button>
   <button type="button" class="playback-toggle" aria-label="Play">▶</button>
   <audio hidden></audio>
 </div>
@@ -147,6 +146,12 @@ language, no new button style needed).
   file" mechanism as a mode switch, just within HET mode.
 - **`.het-freq-reset` click:** re-fetch (or reuse the cached) peak frequency, reset the input
   and reload the audio.
+- **`.playback-rewind` click:** `<audio>.currentTime = 0` on whichever `<audio>` is currently
+  active, and (per section 4 below) snaps the playback cursor back to the start. Doesn't change
+  play/pause state — restarts from 0 mid-playback if already playing, stays paused at 0
+  otherwise. Added because clicking exactly the spectrogram's leftmost pixel to seek to the
+  very start is a fiddly, thin target (Janna, 2026-09-04) — worse on the drawer's smaller,
+  compressed scale than the detail page's.
 - **`.playback-toggle` click:** `<audio>.play()`/`.pause()`, icon/label reflects state via the
   existing `play`/`pause`/`ended` events.
 - **Any mode/frequency change stops playback** (`<audio>.pause()` before swapping `src`) —
