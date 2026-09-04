@@ -440,6 +440,33 @@ def test_recording_details_page_shows_the_favourite_toggle_starred(
     assert "★" in html
 
 
+def test_recording_details_page_loads_htmx(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """Regression test: the page's favourite button carries `hx-post`/`hx-target`/
+    `hx-swap` attributes but the page never included htmx.min.js -- only map.html did --
+    so those attributes were inert and clicking the star did nothing. Caught live: "Fav
+    button seems broken on the details page.\""""
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="a3" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                duration_s=0.5,
+                samplerate_hz=256_000,
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/recordings/{'a3' * 32}")
+
+    html = response.get_data(as_text=True)
+    assert "vendor/htmx.min.js" in html
+
+
 def test_toggle_favourite_with_panel_detail_returns_just_the_button_fragment(
     engine: Engine,
     tmp_path: Path,

@@ -120,6 +120,7 @@
      kept OUTSIDE the zoomed spectrogram wrap so the Δt/Δf readout text stays full-size even
      when `fitDetailHeight` has shrunk the image itself to fit the viewport. #}
   <div id="ruler-readout" class="floating-readout ruler-readout" hidden></div>
+  <script src="{{ url_for('vendor.static', filename='htmx.min.js') }}"></script>
   <script src="{{ url_for('vendor.static', filename='alpine.min.js') }}" defer></script>
   <script src="{{ url_for('static', filename='audio_controls.js') }}"></script>
   <script src="{{ url_for('static', filename='recording_detail.js') }}"></script>
