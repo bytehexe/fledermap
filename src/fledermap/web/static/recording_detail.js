@@ -157,16 +157,80 @@ document.addEventListener("DOMContentLoaded", () => {
   revealWhenAllLoaded(spectrogramTiles, spectrogramLoading);
   revealWhenAllLoaded(oscillogramTiles, oscillogramLoading);
 
-  // Click-to-play, crosshair, and the playback cursor all now measure against `wrap`'s own
+  // Tool switching (design spec 2026-09-04-fledermap-recording-detail-tools-design.md):
+  // `tools[activeTool]` implements onClick/onDrag/onDragEnd for whichever tool is selected.
+  // Click-to-play, crosshair, and the playback cursor all still measure against `wrap`'s own
   // bounding rect (the tiled row's container) rather than a single `<img>`'s -- the tiles sit
   // edge-to-edge with no gaps, so the container's rect spans exactly the full locked-scale
   // width, same as the single image did before tiling.
-  wrap.addEventListener("click", (event) => {
-    const rect = wrap.getBoundingClientRect();
-    const xPx = event.clientX - rect.left;
-    const spectrogramTimeS = xPx / pxPerMs / 1000;
-    audio.currentTime = spectrogramTimeS * timeExpansionFactor;
-    audio.play();
+  const toolbar = document.getElementById("detail-toolbar");
+  const toolButtons = Array.from(toolbar.querySelectorAll(".tool-button"));
+  let activeTool = "default";
+
+  function setActiveTool(tool) {
+    activeTool = tool;
+    toolButtons.forEach((btn) => {
+      const isActive = btn.dataset.tool === tool;
+      btn.setAttribute("aria-pressed", isActive ? "true" : "false");
+    });
+    wrap.classList.toggle("tool-default", tool === "default");
+    wrap.classList.toggle("tool-ruler", tool === "ruler");
+  }
+
+  toolButtons.forEach((btn) => {
+    btn.addEventListener("click", () => setActiveTool(btn.dataset.tool));
+  });
+  setActiveTool("default");
+
+  const tools = {
+    default: {
+      onClick(event) {
+        const rect = wrap.getBoundingClientRect();
+        const xPx = event.clientX - rect.left;
+        const spectrogramTimeS = xPx / pxPerMs / 1000;
+        audio.currentTime = spectrogramTimeS * timeExpansionFactor;
+        audio.play();
+      },
+      onDrag(event, dragStart) {
+        scrollEl.scrollLeft = dragStart.scrollLeft - (event.clientX - dragStart.x);
+      },
+      onDragEnd() {},
+    },
+  };
+
+  // Shared drag-vs-click state machine: mousedown starts tracking, then mousemove/mouseup are
+  // bound on `document` (not `wrap`) for the duration of the gesture -- a plain `wrap`-scoped
+  // listener would never see mouseup if the drag ends outside `wrap`'s bounds (a fast or wide
+  // drag), leaving the gesture stuck "in progress". 4px threshold: below it, treat as a click
+  // even if the mouse moved a hair between mousedown and mouseup.
+  const DRAG_THRESHOLD_PX = 4;
+
+  wrap.addEventListener("mousedown", (event) => {
+    const dragStart = { x: event.clientX, y: event.clientY, scrollLeft: scrollEl.scrollLeft };
+    let dragging = false;
+
+    function onMove(moveEvent) {
+      const movedPx = Math.hypot(moveEvent.clientX - dragStart.x, moveEvent.clientY - dragStart.y);
+      if (!dragging && movedPx > DRAG_THRESHOLD_PX) {
+        dragging = true;
+        wrap.classList.add("dragging");
+      }
+      if (dragging) tools[activeTool].onDrag(moveEvent, dragStart);
+    }
+
+    function onUp(upEvent) {
+      if (dragging) {
+        tools[activeTool].onDragEnd();
+      } else {
+        tools[activeTool].onClick(upEvent);
+      }
+      wrap.classList.remove("dragging");
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    }
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
   });
 
   wrap.addEventListener("mousemove", (event) => {
