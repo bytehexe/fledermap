@@ -355,7 +355,7 @@ button:disabled { cursor: default; opacity: 0.5; }
    appear, which defeats the point of reading values while scrubbing. */
 /* Shared visual look for a small floating text box drawn over the spectrogram
    (style-guide.md "promote on second use" -- `.crosshair-readout` had this
-   look first, `.ruler-label` needing the identical look is what turned it
+   look first, `.ruler-readout` needing the identical look is what turned it
    into a shared class instead of a second copy-pasted block). Positioning
    (fixed vs. absolute, z-index, transform, pointer-events, white-space) is
    genuinely different per element and stays on each element's own class. */
@@ -491,7 +491,7 @@ button:disabled { cursor: default; opacity: 0.5; }
 /* Recording details page (design spec 2026-09-01, section 3/4). */
 .detail-scroll {
   overflow-x: auto;
-  /* Vertical overflow is handled by shrinking `.detail-body`'s own scale
+  /* Vertical overflow is handled by shrinking the oscillogram/spectrogram wraps' own scale
      (recording_detail.js's `fitDetailHeight`), never by a scrollbar here --
      explicit, since leaving overflow-y unset resolves to `auto` per the CSS
      Overflow spec whenever overflow-x isn't `visible`. */
@@ -566,16 +566,21 @@ button:disabled { cursor: default; opacity: 0.5; }
   pointer-events: none;
 }
 .playback-cursor[hidden] { display: none; }
+/* `.ruler-box` (the dashed rectangle) lives inside the zoomed spectrogram wrap -- fine to
+   visually shrink along with the image it's measuring, same as the box drawn on a photo editor
+   shrinks with the photo when you zoom out. `.ruler-readout` (the Δt/Δf number readout) is a
+   SEPARATE, `position: fixed` element instead (recording_detail.js's `updateRulerBox`) so its
+   text stays fully readable regardless of how far the image itself has been shrunk to fit --
+   the numbers are the whole point of the tool, unlike the box outline. */
 .ruler-box {
   position: absolute;
   border: 1px dashed var(--color-overlay);
   background: color-mix(in srgb, var(--color-overlay) 12%, transparent);
   pointer-events: none;
 }
-.ruler-label {
-  position: absolute;
-  left: 0;
-  top: 0;
+.ruler-readout {
+  position: fixed;
+  z-index: 1001; /* matches .crosshair-readout -- see its own comment for why */
   /* `-100%` is relative to the label's own rendered height, so it always clears the box's
      top edge exactly regardless of the label's actual content height -- a fixed `top: -Nem`
      guess (the first version of this rule) undershot the real two-line-plus-padding height by
@@ -583,8 +588,10 @@ button:disabled { cursor: default; opacity: 0.5; }
      making it hard to see whether the box itself was positioned correctly. The extra 4px is
      breathing room, not part of the correctness fix. */
   transform: translateY(calc(-100% - 4px));
+  pointer-events: none;
   white-space: pre;
 }
+.ruler-readout[hidden] { display: none; }
 .detail-loading[hidden] { display: none; }
 .detail-spectrogram-tile[hidden], .detail-oscillogram-tile[hidden] { display: none; }
 /* The wraps now reserve their real final width/height inline (recording_details.html) --
