@@ -587,9 +587,18 @@ button:disabled { cursor: default; opacity: 0.5; }
    with the muted/border tokens (never the default track/thumb colors) whenever `.view-locked`
    is present -- Firefox via `scrollbar-color`, Chrome/Safari via the `::-webkit-scrollbar-*`
    pseudo-elements (only styling the thumb/track colors, not `::-webkit-scrollbar` itself, so
-   the scrollbar's actual size stays whatever the browser default already is). */
+   the scrollbar's actual size stays whatever the browser default already is). The `:hover`/
+   `:active` thumb variants need their OWN rule at the same color (Janna, 2026-09-04: "keep the
+   hovered variant ... light/disabled looking") -- Chrome's UA stylesheet darkens
+   `::-webkit-scrollbar-thumb` on hover/drag by default, and that default beats a plain
+   `-thumb` rule regardless of source order, since `:hover`/`:active` add specificity the plain
+   selector doesn't have. */
 .detail-scroll.view-locked { scrollbar-color: var(--color-border) transparent; }
-.detail-scroll.view-locked::-webkit-scrollbar-thumb { background: var(--color-border); }
+.detail-scroll.view-locked::-webkit-scrollbar-thumb,
+.detail-scroll.view-locked::-webkit-scrollbar-thumb:hover,
+.detail-scroll.view-locked::-webkit-scrollbar-thumb:active {
+  background: var(--color-border);
+}
 .detail-scroll.view-locked::-webkit-scrollbar-track { background: transparent; }
 .detail-oscillogram-wrap { position: relative; display: flex; }
 .detail-spectrogram-tile, .detail-oscillogram-tile { display: block; }
