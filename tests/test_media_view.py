@@ -590,3 +590,177 @@ def test_detail_oscillogram_404s_for_a_truncated_source_file(
         f"/recordings/{'e8' * 32}/detail-oscillogram/0.webp"
     )
     assert response.status_code == 404
+
+
+def test_het_preview_renders_at_the_requested_frequency(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    archive_root.mkdir()
+    _write_wav(archive_root / "a.wav", duration_s=0.05)
+
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="h1" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+    app = create_app(
+        engine,
+        tmp_path / "static",
+        tmp_path / "media",
+        archive_roots=(archive_root,),
+    )
+    response = app.test_client().get(
+        f"/recordings/{'h1' * 32}/het-preview.opus?freq_hz=40000",
+    )
+
+    assert response.status_code == 200
+    assert response.mimetype == "audio/ogg"
+    assert len(response.data) > 0
+
+
+def test_het_preview_400s_for_a_missing_freq_hz(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    archive_root.mkdir()
+    _write_wav(archive_root / "a.wav", duration_s=0.05)
+
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="h2" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+    app = create_app(
+        engine,
+        tmp_path / "static",
+        tmp_path / "media",
+        archive_roots=(archive_root,),
+    )
+    response = app.test_client().get(f"/recordings/{'h2' * 32}/het-preview.opus")
+
+    assert response.status_code == 400
+
+
+def test_het_preview_400s_for_a_non_numeric_freq_hz(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    archive_root.mkdir()
+    _write_wav(archive_root / "a.wav", duration_s=0.05)
+
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="h3" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+    app = create_app(
+        engine,
+        tmp_path / "static",
+        tmp_path / "media",
+        archive_roots=(archive_root,),
+    )
+    response = app.test_client().get(
+        f"/recordings/{'h3' * 32}/het-preview.opus?freq_hz=not-a-number",
+    )
+
+    assert response.status_code == 400
+
+
+def test_het_preview_404s_for_an_unknown_hash(engine: Engine, tmp_path: Path) -> None:
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(
+        f"/recordings/{'h4' * 32}/het-preview.opus?freq_hz=40000",
+    )
+
+    assert response.status_code == 404
+
+
+def test_het_preview_404s_when_the_source_file_is_missing_from_disk(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    archive_root.mkdir()
+
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="h5" * 32,
+                path="does-not-exist.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+    app = create_app(
+        engine,
+        tmp_path / "static",
+        tmp_path / "media",
+        archive_roots=(archive_root,),
+    )
+    response = app.test_client().get(
+        f"/recordings/{'h5' * 32}/het-preview.opus?freq_hz=40000",
+    )
+
+    assert response.status_code == 404
+
+
+def test_peak_frequency_returns_json_with_a_plausible_value(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    archive_root.mkdir()
+    _write_wav(archive_root / "a.wav", duration_s=0.05)
+
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="h6" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+    app = create_app(
+        engine,
+        tmp_path / "static",
+        tmp_path / "media",
+        archive_roots=(archive_root,),
+    )
+    response = app.test_client().get(f"/recordings/{'h6' * 32}/peak-frequency")
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert (
+        30_000.0 < body["peak_frequency_hz"] < 50_000.0
+    )  # near _write_wav's 45kHz tone
+
+
+def test_peak_frequency_404s_for_an_unknown_hash(
+    engine: Engine, tmp_path: Path
+) -> None:
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/recordings/{'h7' * 32}/peak-frequency")
+
+    assert response.status_code == 404

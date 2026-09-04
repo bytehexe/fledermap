@@ -25,6 +25,10 @@ from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import Session as OrmSession
 
+from fledermap.media.heterodyne import (
+    compute_peak_frequency_hz,
+    render_heterodyne_preview,
+)
 from fledermap.media.oscillogram import OscillogramParams, render_oscillogram
 from fledermap.media.paths import oscillogram_path, preview_path, spectrogram_path
 from fledermap.media.render_cache import SpectrogramImageCache
@@ -161,12 +165,17 @@ def _detail_tile_context(
     return wav_path, params.spectrogram, params.oscillogram, tile
 
 
-def _serve_temp_render(make: Callable[[Path], None]) -> ResponseReturnValue:
+def _serve_temp_render(
+    make: Callable[[Path], None],
+    *,
+    suffix: str,
+    mimetype: str,
+) -> ResponseReturnValue:
     """Renders to a throwaway temp file and streams the bytes back --
-    deliberately not `spectrogram_path`/`oscillogram_path` under the media
-    root: this route is not part of the cached-derived-media system (design
-    spec Non-goals), so nothing here is meant to persist."""
-    fd, tmp_name = tempfile.mkstemp(suffix=".webp")
+    deliberately not `spectrogram_path`/`oscillogram_path`/`preview_path`
+    under the media root: this route is not part of the cached-derived-media
+    system (design spec Non-goals), so nothing here is meant to persist."""
+    fd, tmp_name = tempfile.mkstemp(suffix=suffix)
     os.close(fd)
     tmp_path = Path(tmp_name)
     try:
@@ -174,7 +183,7 @@ def _serve_temp_render(make: Callable[[Path], None]) -> ResponseReturnValue:
         data = tmp_path.read_bytes()
     finally:
         tmp_path.unlink(missing_ok=True)
-    return flask.Response(data, mimetype="image/webp")
+    return flask.Response(data, mimetype=mimetype)
 
 
 @media_bp.get("/recordings/<audio_hash>/detail-spectrogram/<int:tile_index>.webp")
@@ -206,6 +215,8 @@ def detail_spectrogram(audio_hash: str, tile_index: int) -> ResponseReturnValue:
                 time_range_s=time_range_s,
                 full_image=full_image,
             ),
+            suffix=".webp",
+            mimetype="image/webp",
         )
     except UnreadableWavError as exc:
         logger.warning("unreadable source WAV for %s: %s", audio_hash, exc)
@@ -231,7 +242,66 @@ def detail_oscillogram(audio_hash: str, tile_index: int) -> ResponseReturnValue:
                 params=tile_params,
                 time_range_s=time_range_s,
             ),
+            suffix=".webp",
+            mimetype="image/webp",
         )
     except UnreadableWavError as exc:
         logger.warning("unreadable source WAV for %s: %s", audio_hash, exc)
         flask.abort(404)
+
+
+def _resolve_wav_path_or_404(audio_hash: str) -> Path:
+    """Shared by the two routes below -- resolves straight via
+    `resolve_recording`/`resolve_wav_path`, NOT `_detail_tile_context`: that
+    helper also requires `duration_s`/`samplerate_hz`, a real requirement
+    for computing tile boundaries that doesn't apply here (HET plays the
+    whole file, nothing is tiled). Requiring it anyway would incorrectly
+    block HET playback on metadata it doesn't actually need (design spec
+    section 2)."""
+    engine = flask.current_app.config["ENGINE"]
+    archive_roots = flask.current_app.config["ARCHIVE_ROOTS"]
+    with OrmSession(engine) as session:
+        try:
+            recording = resolve_recording(session, audio_hash)
+        except (NoResultFound, FileNotFoundError):
+            flask.abort(404)
+        try:
+            wav_path = resolve_wav_path(archive_roots, recording)
+        except FileNotFoundError:
+            flask.abort(404)
+    if not wav_path.exists():
+        flask.abort(404)
+    return wav_path
+
+
+@media_bp.get("/recordings/<audio_hash>/het-preview.opus")
+def het_preview(audio_hash: str) -> ResponseReturnValue:
+    freq_hz_raw = flask.request.args.get("freq_hz")
+    if freq_hz_raw is None:
+        flask.abort(400)
+    try:
+        freq_hz = float(freq_hz_raw)
+    except ValueError:
+        flask.abort(400)
+
+    wav_path = _resolve_wav_path_or_404(audio_hash)
+    try:
+        return _serve_temp_render(
+            lambda out: render_heterodyne_preview(wav_path, out, tune_freq_hz=freq_hz),
+            suffix=".opus",
+            mimetype="audio/ogg",
+        )
+    except UnreadableWavError as exc:
+        logger.warning("unreadable source WAV for %s: %s", audio_hash, exc)
+        flask.abort(404)
+
+
+@media_bp.get("/recordings/<audio_hash>/peak-frequency")
+def peak_frequency(audio_hash: str) -> ResponseReturnValue:
+    wav_path = _resolve_wav_path_or_404(audio_hash)
+    try:
+        peak_hz = compute_peak_frequency_hz(wav_path)
+    except UnreadableWavError as exc:
+        logger.warning("unreadable source WAV for %s: %s", audio_hash, exc)
+        flask.abort(404)
+    return flask.jsonify({"peak_frequency_hz": peak_hz})
