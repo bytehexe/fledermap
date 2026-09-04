@@ -11,12 +11,15 @@ from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.store.models import Taxon, TaxonCode
 
-_DATA = "taxa_eu.yaml"
+_DATA = ["taxa_eu.yaml", "taxa_na.yaml"]
 
 
 def _load() -> list[dict[str, Any]]:
-    raw = files("fledermap.store.data").joinpath(_DATA).read_text(encoding="utf-8")
-    return yaml.safe_load(raw)["taxa"]
+    entries: list[dict[str, Any]] = []
+    for name in _DATA:
+        raw = files("fledermap.store.data").joinpath(name).read_text(encoding="utf-8")
+        entries += yaml.safe_load(raw)["taxa"]
+    return entries
 
 
 def seed_taxonomy(session: OrmSession) -> int:

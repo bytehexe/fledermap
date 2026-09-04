@@ -308,8 +308,15 @@ An unmapped label is not a failure: it resolves to `None` and lands in the revie
 queue by design (spec section 5). A *wrong* mapping is far worse than a missing
 one, because it resolves confidently to something the detector never emits.
 
-`taxa_eu.yaml` covers 10 of the 31 European species — a deliberate deferral Janna
-owns and will pick up as its own task.
+`taxa_eu.yaml` covers all 31 European species and `taxa_na.yaml` all 38 North
+American (USA/Canada) species on the Wildlife Acoustics list (2026-09-04, in
+anticipation of both EU and US users at v1) — `seed.py`'s `_DATA` loads both
+files. Every scientific/English/German name was cross-checked against
+Wikipedia/IUCN/ASM, not hand-entered; see each file's header comment for the
+source and the per-entry taxonomic-revision notes (e.g. two European species
+now filed under *Cnephaeus* rather than *Eptesicus* by current taxonomy —
+`scientific_name` deliberately still matches the WA page's own naming, since
+that's the vocabulary the code source is keyed against).
 
 ## Ingest invariants
 

@@ -8,7 +8,7 @@
 # by design (spec section 5), which is a far better failure than a code that
 # resolves to something the detector never actually emits.
 #
-# This covers 10 of the 31 European species on that list; extend as needed.
+# This covers all 31 European species on that list.
 taxa:
   - scientific_name: Pipistrellus pipistrellus
     rank: species
@@ -25,6 +25,11 @@ taxa:
     common_name_de: Rauhautfledermaus
     common_name_en: Nathusius' pipistrelle
     codes: {emt: PIPNAT}
+  - scientific_name: Pipistrellus kuhlii
+    rank: species
+    common_name_de: Weißrandfledermaus
+    common_name_en: Kuhl's pipistrelle
+    codes: {emt: PIPKUH}
   - scientific_name: Nyctalus noctula
     rank: species
     common_name_de: Abendsegler
@@ -35,11 +40,26 @@ taxa:
     common_name_de: Kleinabendsegler
     common_name_en: Leisler's bat
     codes: {emt: NYCLEI}
+  - scientific_name: Nyctalus lasiopterus
+    rank: species
+    common_name_de: Riesenabendsegler
+    common_name_en: Greater noctule bat
+    codes: {emt: NYCLAS}
   - scientific_name: Eptesicus serotinus
     rank: species
     common_name_de: Breitflügelfledermaus
     common_name_en: Serotine
     codes: {emt: EPTSER}
+  - scientific_name: Eptesicus isabellinus
+    rank: species
+    common_name_de: Isabell-Breitflügelfledermaus
+    common_name_en: Meridional serotine
+    codes: {emt: EPTISA}
+  - scientific_name: Eptesicus nilssonii
+    rank: species
+    common_name_de: Nordfledermaus
+    common_name_en: Northern bat
+    codes: {emt: EPTNIL}
   - scientific_name: Myotis daubentonii
     rank: species
     common_name_de: Wasserfledermaus
@@ -50,6 +70,51 @@ taxa:
     common_name_de: Großes Mausohr
     common_name_en: Greater mouse-eared bat
     codes: {emt: MYOMYO}
+  - scientific_name: Myotis alcathoe
+    rank: species
+    common_name_de: Nymphenfledermaus
+    common_name_en: Alcathoe bat
+    codes: {emt: MYOALC}
+  - scientific_name: Myotis bechsteinii
+    rank: species
+    common_name_de: Bechsteinfledermaus
+    common_name_en: Bechstein's bat
+    codes: {emt: MYOBEC}
+  - scientific_name: Myotis brandtii
+    rank: species
+    common_name_de: Große Bartfledermaus
+    common_name_en: Brandt's bat
+    codes: {emt: MYOBRA}
+  - scientific_name: Myotis capaccinii
+    rank: species
+    common_name_de: Langfußfledermaus
+    common_name_en: Long-fingered bat
+    codes: {emt: MYOCAP}
+  - scientific_name: Myotis dasycneme
+    rank: species
+    common_name_de: Teichfledermaus
+    common_name_en: Pond bat
+    codes: {emt: MYODAS}
+  - scientific_name: Myotis emarginatus
+    rank: species
+    common_name_de: Wimperfledermaus
+    common_name_en: Geoffroy's bat
+    codes: {emt: MYOEMA}
+  - scientific_name: Myotis escalerai
+    rank: species
+    common_name_de: Iberische Fransenfledermaus
+    common_name_en: Escalera's bat
+    codes: {emt: MYOESC}
+  - scientific_name: Myotis mystacinus
+    rank: species
+    common_name_de: Kleine Bartfledermaus
+    common_name_en: Whiskered bat
+    codes: {emt: MYOMYS}
+  - scientific_name: Myotis nattereri
+    rank: species
+    common_name_de: Fransenfledermaus
+    common_name_en: Natterer's bat
+    codes: {emt: MYONAT}
   - scientific_name: Barbastella barbastellus
     rank: species
     common_name_de: Mopsfledermaus
@@ -60,6 +125,46 @@ taxa:
     common_name_de: Braunes Langohr
     common_name_en: Brown long-eared bat
     codes: {emt: PLEAUR}
+  - scientific_name: Plecotus austriacus
+    rank: species
+    common_name_de: Graues Langohr
+    common_name_en: Grey long-eared bat
+    codes: {emt: PLEAUS}
+  - scientific_name: Hypsugo savii
+    rank: species
+    common_name_de: Alpenfledermaus
+    common_name_en: Savi's pipistrelle
+    codes: {emt: HYPSAV}
+  - scientific_name: Miniopterus schreibersii
+    rank: species
+    common_name_de: Langflügelfledermaus
+    common_name_en: Common bent-wing bat
+    codes: {emt: MINSCH}
+  - scientific_name: Rhinolophus euryale
+    rank: species
+    common_name_de: Mittelmeer-Hufeisennase
+    common_name_en: Mediterranean horseshoe bat
+    codes: {emt: RHIEUR}
+  - scientific_name: Rhinolophus ferrumequinum
+    rank: species
+    common_name_de: Große Hufeisennase
+    common_name_en: Greater horseshoe bat
+    codes: {emt: RHIFER}
+  - scientific_name: Rhinolophus hipposideros
+    rank: species
+    common_name_de: Kleine Hufeisennase
+    common_name_en: Lesser horseshoe bat
+    codes: {emt: RHIHIP}
+  - scientific_name: Tadarida teniotis
+    rank: species
+    common_name_de: Europäische Bulldoggfledermaus
+    common_name_en: European free-tailed bat
+    codes: {emt: TADTEN}
+  - scientific_name: Vespertilio murinus
+    rank: species
+    common_name_de: Zweifarbfledermaus
+    common_name_en: Parti-coloured bat
+    codes: {emt: VESMUR}
   # Genus and group taxa carry NO code: the EMT emits species codes only.
   # They exist as targets for manual identifications (spec D10 — not every
   # identification is a species).

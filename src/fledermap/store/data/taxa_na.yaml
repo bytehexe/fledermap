@@ -1,0 +1,217 @@
+# North American (USA/Canada) bat taxa and the Wildlife Acoustics codes the
+# Echo Meter Touch emits.
+#
+# Codes are verified against the authoritative Wildlife Acoustics list:
+# https://answers.wildlifeacoustics.com/r/en-US/Bat-Auto-ID-Performance-and-Supported-Species/Bat-Auto-ID-Supported-Species-and-Abbreviated-Codes
+#
+# That list is SPECIES-LEVEL ONLY — it defines no genus or group codes. Do not
+# invent one. An unmapped label resolves to None and lands in the review queue
+# by design (spec section 5), which is a far better failure than a code that
+# resolves to something the detector never actually emits.
+#
+# This covers all 38 USA/Canada species on that list.
+#
+# scientific_name always matches the WA page's own naming, since that is the
+# vocabulary this project's code source is keyed against — even where current
+# taxonomy has moved on (noted per-entry below where that happened).
+# common_name_en favors the standard, most commonly used English name from
+# Wikipedia/IUCN/ASM Mammal Diversity Database, which is sometimes not
+# word-for-word what the WA page prints; deviations are noted below.
+# common_name_de is included only where German Wikipedia has a genuine,
+# dedicated article under a German common-name title (not a mere mention
+# inside a genus article, and not a redirect target) — most North American
+# species do not have an established German common name, unlike the European
+# ones, and the key is omitted for those rather than inventing a translation.
+taxa:
+  - scientific_name: Antrozous pallidus
+    rank: species
+    common_name_de: Wüstenfledermaus
+    common_name_en: Pallid bat
+    codes: {emt: ANTPAL}
+  - scientific_name: Corynorhinus townsendii
+    rank: species
+    common_name_de: Townsend-Langohr
+    common_name_en: Townsend's big-eared bat
+    codes: {emt: CORTOW}
+  - scientific_name: Eptesicus fuscus
+    rank: species
+    common_name_de: Große Braune Fledermaus
+    common_name_en: Big brown bat
+    codes: {emt: EPTFUS}
+  - scientific_name: Euderma maculatum
+    rank: species
+    common_name_de: Gefleckte Fledermaus
+    common_name_en: Spotted bat
+    codes: {emt: EUDMAC}
+  # Eumops (bonneted/mastiff bats)
+  - scientific_name: Eumops floridanus
+    rank: species
+    common_name_de: Florida-Bulldoggfledermaus
+    common_name_en: Florida bonneted bat
+    codes: {emt: EUMFLO}
+  - scientific_name: Eumops perotis
+    rank: species
+    common_name_de: Westliche Bulldoggfledermaus
+    common_name_en: Greater bonneted bat
+    codes: {emt: EUMPER}
+  - scientific_name: Eumops underwoodi
+    rank: species
+    common_name_de: Underwood-Bulldoggfledermaus
+    common_name_en: Underwood's bonneted bat
+    codes: {emt: EUMUND}
+  - scientific_name: Lasionycteris noctivagans
+    rank: species
+    common_name_de: Silberhaarfledermaus
+    common_name_en: Silver-haired bat
+    codes: {emt: LASNOC}
+  # Lasiurus (red/yellow/hoary bats)
+  - scientific_name: Lasiurus blossevillii
+    rank: species
+    common_name_de: Blosseville-Haarschwanzfledermaus
+    common_name_en: Southern red bat
+    codes: {emt: LASBLO}
+  - scientific_name: Lasiurus borealis
+    rank: species
+    common_name_de: Rote Fledermaus
+    common_name_en: Eastern red bat
+    codes: {emt: LASBOR}
+  - scientific_name: Lasiurus cinereus
+    rank: species
+    common_name_de: Eisgraue Fledermaus
+    common_name_en: Hoary bat
+    codes: {emt: LASCIN}
+  - scientific_name: Lasiurus ega
+    rank: species
+    common_name_de: Südliche Gelbfledermaus
+    common_name_en: Southern yellow bat
+    codes: {emt: LASEGA}
+  - scientific_name: Lasiurus intermedius
+    rank: species
+    common_name_de: Nördliche Haarschwanzfledermaus
+    common_name_en: Northern yellow bat
+    codes: {emt: LASINT}
+  - scientific_name: Lasiurus seminolus
+    rank: species
+    common_name_de: Südstaaten-Rotfledermaus
+    common_name_en: Seminole bat
+    codes: {emt: LASSEM}
+  - scientific_name: Lasiurus xanthinus
+    rank: species
+    common_name_de: Westliche Gelbfledermaus
+    common_name_en: Western yellow bat
+    codes: {emt: LASXAN}
+  - scientific_name: Macrotus californicus
+    rank: species
+    common_name_de: Kalifornische Großohrblattnase
+    common_name_en: California leaf-nosed bat
+    codes: {emt: MACCAL}
+  - scientific_name: Molossus molossus
+    rank: species
+    common_name_de: Große Samtfledermaus
+    common_name_en: Velvety free-tailed bat
+    codes: {emt: MOLMOL}
+  - scientific_name: Mormoops megalophylla
+    rank: species
+    common_name_de: Peters-Kinnblattfledermaus
+    common_name_en: Ghost-faced bat
+    codes: {emt: MORMEG}
+  # Myotis (mouse-eared bats)
+  - scientific_name: Myotis austroriparius
+    rank: species
+    common_name_de: Südöstliches Mausohr
+    common_name_en: Southeastern myotis
+    codes: {emt: MYOAUS}
+  - scientific_name: Myotis californicus
+    rank: species
+    common_name_de: Kalifornisches Mausohr
+    common_name_en: California myotis
+    codes: {emt: MYOCAL}
+  - scientific_name: Myotis ciliolabrum
+    rank: species
+    common_name_de: Westliches Kleinfuß-Mausohr
+    common_name_en: Western small-footed myotis
+    codes: {emt: MYOCIL}
+  - scientific_name: Myotis evotis
+    rank: species
+    common_name_de: Nördliches Langohr-Mausohr
+    common_name_en: Long-eared myotis
+    codes: {emt: MYOEVO}
+  - scientific_name: Myotis grisescens
+    rank: species
+    common_name_de: Graues Mausohr
+    common_name_en: Gray bat
+    codes: {emt: MYOGRI}
+  - scientific_name: Myotis leibii
+    rank: species
+    common_name_de: Östliches Kleinfuß-Mausohr
+    common_name_en: Eastern small-footed myotis
+    codes: {emt: MYOLEI}
+  - scientific_name: Myotis lucifugus
+    rank: species
+    common_name_de: Kleine Braune Fledermaus
+    common_name_en: Little brown myotis
+    codes: {emt: MYOLUC}
+  - scientific_name: Myotis occultus
+    rank: species
+    common_name_en: Arizona myotis
+    codes: {emt: MYOOCC}
+  - scientific_name: Myotis septentrionalis
+    rank: species
+    common_name_de: Nordamerikanisches Mausohr
+    common_name_en: Northern myotis
+    codes: {emt: MYOSEP}
+  - scientific_name: Myotis sodalis
+    rank: species
+    common_name_de: Indiana-Mausohr
+    common_name_en: Indiana bat
+    codes: {emt: MYOSOD}
+  - scientific_name: Myotis thysanodes
+    rank: species
+    common_name_de: Nordamerikanische Fransenfledermaus
+    common_name_en: Fringed myotis
+    codes: {emt: MYOTHY}
+  - scientific_name: Myotis velifer
+    rank: species
+    common_name_de: Höhlenmausohr
+    common_name_en: Cave myotis
+    codes: {emt: MYOVEL}
+  - scientific_name: Myotis volans
+    rank: species
+    common_name_de: Langbeiniges Mausohr
+    common_name_en: Long-legged myotis
+    codes: {emt: MYOVOL}
+  - scientific_name: Myotis yumanensis
+    rank: species
+    common_name_en: Yuma myotis
+    codes: {emt: MYOYUM}
+  - scientific_name: Nycticeius humeralis
+    rank: species
+    common_name_de: Schwarzschulter-Abendsegler
+    common_name_en: Evening bat
+    codes: {emt: NYCHUM}
+  # Nyctinomops (free-tailed bats)
+  - scientific_name: Nyctinomops femorosaccus
+    rank: species
+    common_name_de: Taschen-Freischwanzfledermaus
+    common_name_en: Pocketed free-tailed bat
+    codes: {emt: NYCFEM}
+  - scientific_name: Nyctinomops macrotis
+    rank: species
+    common_name_de: Große Freischwanzfledermaus
+    common_name_en: Big free-tailed bat
+    codes: {emt: NYCMAC}
+  - scientific_name: Parastrellus hesperus
+    rank: species
+    common_name_de: Westliche Amerikanische Zwergfledermaus
+    common_name_en: Canyon bat
+    codes: {emt: PARHES}
+  - scientific_name: Perimyotis subflavus
+    rank: species
+    common_name_de: Östliche Amerikanische Zwergfledermaus
+    common_name_en: Tricolored bat
+    codes: {emt: PERSUB}
+  - scientific_name: Tadarida brasiliensis
+    rank: species
+    common_name_de: Mexikanische Bulldoggfledermaus
+    common_name_en: Mexican free-tailed bat
+    codes: {emt: TADBRA}
