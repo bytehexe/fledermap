@@ -241,6 +241,48 @@ def test_recording_details_page_explains_missing_metadata(
     assert "detail-spectrogram/0.webp" not in html
 
 
+def test_recording_details_page_shows_a_placeholder_when_the_preview_is_not_yet_rendered(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """Regression test: `params` (duration_s/samplerate_hz present) used to be
+    the ONLY gate on the whole audio-controls block -- unlike the map
+    drawer's `_recording_panel.html`, which separately checks
+    `preview_path(...).exists()` (`preview_ready`, `web/views/map.py`). A
+    recording can have its metadata (available immediately from the WAV
+    header) well before its derived-media job actually renders
+    `preview.opus` -- ingested-but-not-yet-processed is a normal, if narrow,
+    timing window, and a PREVIEW_VERSION bump (2026-09-04, invalidating
+    every existing preview at once for a re-render) makes that window wide
+    and visible. Before this fix, the details page showed a fully working-
+    looking TE/HET/play toolbar during that window that 404'd the instant
+    you clicked play -- caught live, "Map page says audio preview is not
+    processed yet - details page shows all the buttons. Inconsistent."""
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="f7" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                duration_s=0.5,
+                samplerate_hz=256_000,
+            ),
+        )
+        session.commit()
+
+    # No preview.opus written under tmp_path / "media" -- not yet rendered.
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/recordings/{'f7' * 32}")
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert "audio preview not processed yet" in html.lower()
+    assert 'class="audio-controls"' not in html
+    # The spectrogram/oscillogram viewer doesn't depend on preview.opus at all
+    # (it's rendered on demand from the WAV itself) -- must still show.
+    assert f"/recordings/{'f7' * 32}/detail-spectrogram/0.webp" in html
+
+
 def test_recording_details_page_renders_the_tool_toolbar(
     engine: Engine,
     tmp_path: Path,

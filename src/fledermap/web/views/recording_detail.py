@@ -10,6 +10,7 @@ import flask
 from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
 
+from fledermap.media.paths import preview_path
 from fledermap.media.preview import TIME_EXPANSION_FACTOR
 from fledermap.services.current_best import current_best_identification
 from fledermap.services.recording_detail import (
@@ -69,6 +70,7 @@ def _resolve_back_link(return_to: str | None) -> tuple[str, str]:
 @recording_detail_bp.get("/recordings/<audio_hash>")
 def recording_details_page(audio_hash: str) -> flask.Response:
     engine = flask.current_app.config["ENGINE"]
+    media_root = flask.current_app.config["MEDIA_ROOT"]
     with OrmSession(engine) as session:
         recording = session.scalars(
             select(Recording).where(Recording.audio_hash == audio_hash),
@@ -100,6 +102,20 @@ def recording_details_page(audio_hash: str) -> flask.Response:
         if recording.duration_s is not None and recording.samplerate_hz is not None:
             params = detail_params(recording.duration_s, recording.samplerate_hz)
 
+        # Separate from `params` on purpose: `params` only needs `duration_s`/
+        # `samplerate_hz` (available immediately from the WAV header at ingest),
+        # while the audio preview is a derived-media job that can still be
+        # pending -- ingested-but-not-yet-processed is a normal, if narrow,
+        # timing window. The map drawer's `_recording_panel.html` already
+        # gates its own audio controls on this (`preview_ready`,
+        # `web/views/map.py`); this page didn't, so it could show a fully
+        # working-looking TE/HET/play toolbar that 404'd the instant you
+        # clicked play (Janna, 2026-09-04, live use, caught right after a
+        # PREVIEW_VERSION bump made the gap wide: "Map page says audio
+        # preview is not processed yet - details page shows all the
+        # buttons. Inconsistent").
+        preview_ready = preview_path(media_root, audio_hash).exists()
+
         back_label, back_url = _resolve_back_link(flask.request.args.get("return_to"))
 
         html = flask.render_template(
@@ -112,6 +128,7 @@ def recording_details_page(audio_hash: str) -> flask.Response:
             recording_session=recording_session,
             duration_s=recording.duration_s,
             params=params,
+            preview_ready=preview_ready,
             px_per_ms=DETAIL_PX_PER_MS,
             px_per_khz=DETAIL_PX_PER_KHZ,
             time_expansion_factor=TIME_EXPANSION_FACTOR,

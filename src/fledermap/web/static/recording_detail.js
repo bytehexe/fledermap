@@ -24,18 +24,29 @@ document.addEventListener("DOMContentLoaded", () => {
   const wrap = document.getElementById("detail-spectrogram-wrap");
   const cursor = document.getElementById("playback-cursor");
   const readout = document.getElementById("crosshair-readout");
-  const audio = document.getElementById("detail-audio");
   const audioControlsEl = document.getElementById("detail-audio-controls");
+  // `#detail-audio-controls` (and the real `<audio>` inside it) are only in the DOM when the
+  // preview has actually been rendered (`preview_ready`, recording_detail.py -- Janna,
+  // 2026-09-04: the page used to show a fully working-looking toolbar that 404'd on click
+  // during the window between a recording's metadata landing and its preview job finishing).
+  // A detached, never-appended `<audio>` element is a fully functional stand-in here -- `.play()`/
+  // `.pause()`/`.currentTime`/event listeners all work normally on it, just with no `src` and
+  // nothing ever visibly listening -- so the click-to-play/cursor code below (which the
+  // spectrogram/oscillogram viewer still needs regardless of preview readiness) never has to
+  // null-check `audio` itself, only skip wiring real playback controls to it.
+  const audio = document.getElementById("detail-audio") || document.createElement("audio");
   // `getSeekFloorS`/`getSeekCeilingS` are read lazily (only when a button is
   // actually clicked), so it's safe to reference `viewLocked`/`lockedStartS`
   // (a `let`) and `currentViewEndTimeS` (a hoisted function declaration)
   // here even though neither is declared until further down this same
   // function -- by the time a click can happen, DOMContentLoaded has
   // finished running and both are ready.
-  const audioControls = initAudioControls(audioControlsEl, audio, {
-    getSeekFloorS: () => (viewLocked && lockedStartS !== null ? lockedStartS : 0),
-    getSeekCeilingS: () => (viewLocked ? currentViewEndTimeS() : null),
-  });
+  const audioControls = audioControlsEl
+    ? initAudioControls(audioControlsEl, audio, {
+        getSeekFloorS: () => (viewLocked && lockedStartS !== null ? lockedStartS : 0),
+        getSeekCeilingS: () => (viewLocked ? currentViewEndTimeS() : null),
+      })
+    : { getTimeExpansionFactor: () => 1 };
   const scrollEl = document.getElementById("detail-scroll");
   const timeAxis = document.getElementById("detail-axis-time");
   const freqAxis = document.getElementById("detail-axis-freq");

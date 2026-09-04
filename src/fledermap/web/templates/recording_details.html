@@ -88,6 +88,7 @@
       </div>
     </div>
     <div class="audio-row">
+      {% if preview_ready %}
       <div
         class="audio-controls"
         id="detail-audio-controls"
@@ -106,6 +107,9 @@
         <button type="button" class="playback-toggle" aria-label="Play">▶</button>
         <audio hidden id="detail-audio"></audio>
       </div>
+      {% else %}
+      <p class="media-placeholder">Audio preview not processed yet.</p>
+      {% endif %}
     </div>
     {% else %}
     <p>Missing duration or sample-rate metadata for this recording — cannot render at a locked scale.</p>
