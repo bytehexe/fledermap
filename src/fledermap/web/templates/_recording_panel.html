@@ -4,7 +4,7 @@
 {% else %}
 <div class="panel-header">
   <h2>{{ taxon.scientific_name if taxon else (best.verdict.value if best else "unidentified") }}</h2>
-  <a class="details-link" href="/recordings/{{ recording.audio_hash }}">Details</a>
+  <a class="details-link" href="/recordings/{{ recording.audio_hash }}?return_to={{ ('/?' ~ filter_qs) | urlencode }}">Details</a>
   <button
     type="button"
     class="favourite-toggle"

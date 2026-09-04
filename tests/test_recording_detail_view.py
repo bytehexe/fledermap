@@ -167,6 +167,54 @@ def test_recording_details_page_renders_one_img_per_tile(
     assert "/detail-oscillogram/2.webp" in html
 
 
+def test_recording_details_page_defaults_the_back_link_to_the_map(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="f8" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                duration_s=0.5,
+                samplerate_hz=256_000,
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/recordings/{'f8' * 32}")
+
+    html = response.get_data(as_text=True)
+    assert '<a href="/">← Back to map</a>' in html
+
+
+def test_recording_details_page_honours_a_return_to_query_param(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="f9" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                duration_s=0.5,
+                samplerate_hz=256_000,
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(
+        f"/recordings/{'f9' * 32}?return_to=%2Fsessions%2F7",
+    )
+
+    html = response.get_data(as_text=True)
+    assert '<a href="/sessions/7">← Back to sessions</a>' in html
+
+
 def test_recording_details_page_explains_missing_metadata(
     engine: Engine,
     tmp_path: Path,

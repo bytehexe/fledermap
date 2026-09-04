@@ -27,6 +27,43 @@ recording_detail_bp = flask.Blueprint(
     template_folder="../templates",
 )
 
+_DEFAULT_BACK_LINK = ("Back to map", "/")
+
+# ASCII tab/CR/LF are stripped by the WHATWG URL parser before it looks at a
+# URL's structure, so a raw one of these -- indistinguishable from a normal
+# path character to a plain `str` check -- must be rejected before it can
+# hide a "//" (or a backslash, see below) from `_is_safe_relative_path`.
+_URL_STRIPPED_CHARS = str.maketrans({"\t": None, "\r": None, "\n": None})
+
+
+def _is_safe_relative_path(value: str) -> bool:
+    """A same-origin relative path is safe to redirect to; anything a
+    browser's URL parser could turn into a protocol-relative (or absolute)
+    URL is not. Browsers normalize backslashes to forward slashes and strip
+    tab/CR/LF while parsing an http(s) URL (WHATWG URL spec), so both must
+    be normalized here too -- a literal `startswith("//")` check alone is
+    bypassed by `/\\evil.example` or a tab hidden between two slashes, both
+    of which a browser still resolves to `//evil.example`."""
+    normalized = value.translate(_URL_STRIPPED_CHARS).replace("\\", "/")
+    return normalized.startswith("/") and not normalized.startswith("//")
+
+
+def _resolve_back_link(return_to: str | None) -> tuple[str, str]:
+    """Turn a caller-supplied `return_to` (a page's own path+query, e.g. the
+    map drawer's `/?{filter_qs}`) into a (label, url) pair for the details
+    page's back link -- backlog note "Back to map": different text per
+    origin, falling back to the map when the origin is missing or not one we
+    recognise. Anything not a safe same-origin relative path (see
+    `_is_safe_relative_path`) is rejected rather than sending the user
+    off-site."""
+    if return_to is None or not _is_safe_relative_path(return_to):
+        return _DEFAULT_BACK_LINK
+    if return_to == "/" or return_to.startswith("/?"):
+        return ("Back to map", return_to)
+    if return_to == "/sessions" or return_to.startswith("/sessions/"):
+        return ("Back to sessions", return_to)
+    return ("Back", return_to)
+
 
 @recording_detail_bp.get("/recordings/<audio_hash>")
 def recording_details_page(audio_hash: str) -> flask.Response:
@@ -56,6 +93,8 @@ def recording_details_page(audio_hash: str) -> flask.Response:
         if recording.duration_s is not None and recording.samplerate_hz is not None:
             params = detail_params(recording.duration_s, recording.samplerate_hz)
 
+        back_label, back_url = _resolve_back_link(flask.request.args.get("return_to"))
+
         html = flask.render_template(
             "recording_details.html",
             recording=recording,
@@ -68,5 +107,7 @@ def recording_details_page(audio_hash: str) -> flask.Response:
             px_per_ms=DETAIL_PX_PER_MS,
             px_per_khz=DETAIL_PX_PER_KHZ,
             time_expansion_factor=TIME_EXPANSION_FACTOR,
+            back_label=back_label,
+            back_url=back_url,
         )
     return flask.make_response(html)

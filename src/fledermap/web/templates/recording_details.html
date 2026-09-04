@@ -10,7 +10,7 @@
 <body>
   {% include "_nav.html" %}
   <main class="main-content" id="recording-detail">
-    <a href="/">← Back to map</a>
+    <a href="{{ back_url }}">← {{ back_label }}</a>
     <h1>{{ taxon.scientific_name if taxon else (best.verdict.value if best else "unidentified") }}</h1>
     <p class="detail-meta">
       {{ recording.recorded_at.isoformat() }} — {{ recording.make }} {{ recording.model }}
