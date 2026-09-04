@@ -531,7 +531,14 @@ button:disabled { cursor: default; opacity: 0.5; }
 .ruler-label {
   position: absolute;
   left: 0;
-  top: -2.6em;
+  top: 0;
+  /* `-100%` is relative to the label's own rendered height, so it always clears the box's
+     top edge exactly regardless of the label's actual content height -- a fixed `top: -Nem`
+     guess (the first version of this rule) undershot the real two-line-plus-padding height by
+     a few px, so the label's bottom edge overlapped into the very box it's meant to measure,
+     making it hard to see whether the box itself was positioned correctly. The extra 4px is
+     breathing room, not part of the correctness fix. */
+  transform: translateY(calc(-100% - 4px));
   white-space: pre;
   font-size: 0.7rem;
   line-height: 1.3;
