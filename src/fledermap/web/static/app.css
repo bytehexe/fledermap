@@ -570,15 +570,16 @@ button:disabled { cursor: default; opacity: 0.5; }
   color: var(--color-bg);
   border-color: var(--color-accent);
 }
-/* `overflow-x: hidden` (not just JS reverting a drifted scrollLeft) is the
-   actual prevention mechanism (Janna, 2026-09-04: "prevent where possible,
-   not just revert") -- it blocks wheel/scrollbar-drag/keyboard scrolling at
-   the browser level entirely, before any scroll ever happens, rather than
-   detecting and correcting one after the fact. `scrollLeft` can still be
-   set programmatically on an overflow:hidden element (recording_detail.js
-   relies on this to keep the locked view's left edge correctly positioned
-   across a window resize), only user-driven scroll input is blocked. */
-.detail-scroll.view-locked { overflow-x: hidden; }
+/* Locking no longer switches `overflow-x` to `hidden` (Janna, 2026-09-04: "disable the
+   scrollbar instead of removing it -- noisy UI") -- doing so made the scrollbar itself vanish
+   and reflow the layout by its height on every lock/unlock, which read as UI churn rather than
+   a state change. `overflow-x: auto` (the unlocked value, see `.detail-scroll` above) stays in
+   effect at all times now; the scrollbar track stays visibly present and the layout never
+   shifts. Prevention is entirely JS-driven while locked (recording_detail.js): a `wheel`
+   listener blocks the scroll before it happens, and a `scroll` listener snaps `scrollLeft`
+   back immediately for anything that still gets through (a scrollbar-track click/drag, a
+   keyboard scroll) -- the drag case in particular now reads as the scrollbar visibly "fighting
+   back" rather than not responding at all, which is the disabled look being asked for. */
 .detail-oscillogram-wrap { position: relative; display: flex; }
 .detail-spectrogram-tile, .detail-oscillogram-tile { display: block; }
 .detail-axis-tick {

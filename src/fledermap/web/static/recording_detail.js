@@ -281,8 +281,8 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // Re-derives `scrollEl.scrollLeft` from `lockedStartS` and the CURRENT `currentScale` --
-  // `scrollLeft` still works programmatically even though `.view-locked`'s `overflow-x: hidden`
-  // (app.css) blocks every USER-driven way of changing it (wheel, scrollbar drag, keyboard).
+  // `scrollLeft` still works programmatically even while every USER-driven way of changing it
+  // (wheel, scrollbar drag, keyboard) is being blocked below.
   function applyLockedScrollPosition() {
     if (!viewLocked || lockedStartS === null) return;
     scrollEl.scrollLeft = lockedStartS * 1000 * pxPerMs * currentScale;
@@ -412,11 +412,25 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Defense-in-depth (Janna, 2026-09-04: "prevent where possible, ... or do both") -- the real
-  // prevention is `.view-locked`'s `overflow-x: hidden` (app.css) blocking user-driven scroll
-  // input at the browser level before it ever happens; this is a reactive fallback that
-  // corrects any drift that mechanism doesn't catch (e.g. some future interaction path that
-  // changes `scrollLeft` directly rather than through native scroll input).
+  // Scroll prevention while locked, entirely JS-driven (Janna, 2026-09-04: keep the scrollbar
+  // itself visible rather than switching `overflow-x` to `hidden` -- "disable the scrollbar
+  // instead of removing it, noisy UI" -- so `.detail-scroll` stays `overflow-x: auto` at all
+  // times; app.css no longer has any lock-specific overflow rule). Two listeners share the job:
+  //
+  // - `wheel` catches the common case (a trackpad/mouse-wheel horizontal scroll) BEFORE it
+  //   happens, since `preventDefault()` on the event stops the scroll from ever occurring.
+  // - `scroll` is the reactive fallback for everything `wheel` can't intercept up front --
+  //   a scrollbar-track click, a drag of the scrollbar thumb, or keyboard scrolling. Snapping
+  //   `scrollLeft` back on every `scroll` event makes a thumb-drag visibly "fight back" to the
+  //   locked position instead of silently doing nothing, which is what a disabled (not
+  //   removed) scrollbar should look like.
+  scrollEl.addEventListener(
+    "wheel",
+    (event) => {
+      if (viewLocked) event.preventDefault();
+    },
+    { passive: false },
+  );
   scrollEl.addEventListener("scroll", () => {
     if (viewLocked) applyLockedScrollPosition();
   });
