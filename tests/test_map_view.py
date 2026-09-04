@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -307,7 +308,13 @@ def test_recording_panel_renders_media_when_already_processed(
     assert '<img class="spectrogram"' in html
     assert '<img class="oscillogram"' in html
     assert 'class="audio-controls"' in html
-    assert 'data-time-expansion-factor="10"' in html
+    audio_controls_match = re.search(
+        r'<div\s+class="audio-controls"[^>]*>',
+        html,
+        re.DOTALL,
+    )
+    assert audio_controls_match is not None
+    assert 'data-time-expansion-factor="10"' in audio_controls_match.group(0)
     assert '<div class="playback-cursor" hidden></div>' in html
     # Frequency axis: 128kHz default ceiling clamped to 256kHz/2 Nyquist.
     assert "128 kHz" in html

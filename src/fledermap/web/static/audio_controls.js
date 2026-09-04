@@ -28,16 +28,19 @@ function initAudioControls(container, audioEl) {
   let mode = "expanded";
   // Fetched lazily on the first HET switch, then kept for this instance's
   // lifetime (design spec section 2) -- never re-fetched on repeated toggles.
-  let peakFrequencyHz = null;
   let peakFrequencyPromise = null;
 
   function fetchPeakFrequency() {
     if (peakFrequencyPromise) return peakFrequencyPromise;
     peakFrequencyPromise = fetch(peakFrequencyUrl)
-      .then((response) => response.json())
-      .then((body) => {
-        peakFrequencyHz = body.peak_frequency_hz;
-        return peakFrequencyHz;
+      .then((response) => {
+        if (!response.ok) throw new Error(`peak-frequency request failed: ${response.status}`);
+        return response.json();
+      })
+      .then((body) => body.peak_frequency_hz)
+      .catch((err) => {
+        peakFrequencyPromise = null; // allow a retry on the next click, instead of permanently poisoning this instance
+        throw err;
       });
     return peakFrequencyPromise;
   }
@@ -47,8 +50,8 @@ function initAudioControls(container, audioEl) {
     audioEl.src = url;
   }
 
-  function hetUrlForFreq(freqHz) {
-    return hetPreviewUrlTemplate.replace("FREQ_HZ", String(freqHz));
+  function hetUrlForFreq(freqKhz) {
+    return hetPreviewUrlTemplate.replace("FREQ_HZ", String(freqKhz * 1000));
   }
 
   function switchToTe() {
@@ -66,7 +69,7 @@ function initAudioControls(container, audioEl) {
     freqControl.hidden = false;
     fetchPeakFrequency().then((freqHz) => {
       if (mode !== "het") return;
-      freqInput.value = Math.round(freqHz);
+      freqInput.value = Math.round(freqHz / 1000);
       setSource(hetUrlForFreq(freqInput.value));
     });
   }
@@ -91,7 +94,7 @@ function initAudioControls(container, audioEl) {
   freqReset.addEventListener("click", () => {
     fetchPeakFrequency().then((freqHz) => {
       if (mode !== "het") return;
-      freqInput.value = Math.round(freqHz);
+      freqInput.value = Math.round(freqHz / 1000);
       setSource(hetUrlForFreq(freqInput.value));
     });
   });
@@ -119,6 +122,8 @@ function initAudioControls(container, audioEl) {
       toggleButton.setAttribute("aria-label", "Play");
     });
   });
+
+  switchToTe();
 
   return {
     getTimeExpansionFactor: () => (mode === "expanded" ? timeExpansionFactor : 1),

@@ -12,7 +12,7 @@ import numpy as np
 from scipy import signal
 
 from fledermap.media.opus_pipeline import encode_pcm_as_opus
-from fledermap.media.wav_pcm import read_pcm
+from fledermap.media.wav_pcm import UnreadableWavError, read_pcm
 
 # Bounds the peak-frequency search window -- NOT a real bandpass filter (a
 # bigger, separate design question the already-planned `fledermap.noise`
@@ -42,6 +42,12 @@ def compute_peak_frequency_hz(wav_path: Path) -> float:
     in_window = (freqs >= _PEAK_SEARCH_MIN_HZ) & (freqs <= _PEAK_SEARCH_MAX_HZ)
     windowed_freqs = freqs[in_window]
     windowed_psd = psd[in_window]
+    if windowed_psd.size == 0:
+        raise UnreadableWavError(
+            f"cannot compute peak frequency for {wav_path}: no PSD data in the "
+            f"{_PEAK_SEARCH_MIN_HZ:.0f}-{_PEAK_SEARCH_MAX_HZ:.0f}Hz search window "
+            f"(samplerate too low)"
+        )
     return float(windowed_freqs[np.argmax(windowed_psd)])
 
 
@@ -64,6 +70,11 @@ def render_heterodyne_preview(
     """Mix `wav_path`'s audio down to audible range around `tune_freq_hz`
     (classic heterodyne technique) and render it to `out_path` as Opus."""
     samples, samplerate = read_pcm(wav_path)
+    if samplerate <= 2 * _LOWPASS_CUTOFF_HZ:
+        raise UnreadableWavError(
+            f"cannot render heterodyne preview for {wav_path}: samplerate "
+            f"{samplerate}Hz is too low for the {_LOWPASS_CUTOFF_HZ:.0f}Hz lowpass filter"
+        )
     t = np.arange(len(samples)) / samplerate
     local_oscillator = np.cos(2 * np.pi * tune_freq_hz * t)
     mixed = samples * local_oscillator

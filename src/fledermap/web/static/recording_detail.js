@@ -85,11 +85,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const maxFreqKhz = parseFloat(firstTile.dataset.maxFreqKhz);
   const pxPerMs = parseFloat(firstTile.dataset.pxPerMs);
   const pxPerKhz = parseFloat(firstTile.dataset.pxPerKhz);
-  // The <audio> element plays the x10 time-expanded preview (media/preview.py) -- its
-  // currentTime is on THAT clock, not the spectrogram/oscillogram's native-real-time locked
-  // scale. 1s of expanded playback is 1 / timeExpansionFactor real seconds: divide by this
-  // factor to go from audio.currentTime to spectrogram-time, multiply to go the other way.
-  const timeExpansionFactor = parseFloat(firstTile.dataset.timeExpansionFactor);
 
   // Shrink-to-fit (backlog "Eliminate vertical scrollbar"): `main.main-content` scrolls
   // vertically (app.css) whenever the locked-scale render is taller than the viewport minus

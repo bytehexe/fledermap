@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import math
 import os
 import tempfile
 from collections.abc import Callable
@@ -282,6 +283,8 @@ def het_preview(audio_hash: str) -> ResponseReturnValue:
     try:
         freq_hz = float(freq_hz_raw)
     except ValueError:
+        flask.abort(400)
+    if not math.isfinite(freq_hz):
         flask.abort(400)
 
     wav_path = _resolve_wav_path_or_404(audio_hash)

@@ -410,7 +410,6 @@ button:disabled { cursor: default; opacity: 0.5; }
 .media-placeholder-small { font-size: 0.75rem; }
 
 .audio-row { padding: 0.25rem 0; }
-.audio-row audio { width: 100%; }
 
 .panel-columns { display: flex; gap: 1rem; }
 .panel-columns .col {
@@ -616,4 +615,5 @@ button:disabled { cursor: default; opacity: 0.5; }
 }
 .audio-controls { display: flex; align-items: center; gap: 0.4rem; padding: 0.25rem 0; }
 .het-freq-control { display: flex; align-items: center; gap: 0.2rem; }
+.het-freq-control[hidden] { display: none; }
 .het-freq-input { width: 4.5em; }

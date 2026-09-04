@@ -7,11 +7,13 @@ import wave
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from fledermap.media.heterodyne import (
     compute_peak_frequency_hz,
     render_heterodyne_preview,
 )
+from fledermap.media.wav_pcm import UnreadableWavError
 from tests.fixtures import build_wav, fmt_payload
 
 
@@ -49,6 +51,18 @@ def test_compute_peak_frequency_hz_finds_a_known_single_tone(tmp_path: Path) -> 
 
     # Welch's PSD has finite frequency resolution -- close, not exact.
     assert 38_000.0 < peak < 42_000.0
+
+
+def test_compute_peak_frequency_hz_raises_for_a_samplerate_below_the_search_window(
+    tmp_path: Path,
+) -> None:
+    wav_path = tmp_path / "low_samplerate.wav"
+    # samplerate/2 (Nyquist) is well under _PEAK_SEARCH_MIN_HZ (10kHz), so the
+    # whole windowed PSD is empty.
+    _sine_wav(wav_path, freq_hz=1_000.0, samplerate=8_000)
+
+    with pytest.raises(UnreadableWavError):
+        compute_peak_frequency_hz(wav_path)
 
 
 def _two_tone_wav(
@@ -169,3 +183,15 @@ def test_render_heterodyne_preview_output_is_a_real_nonempty_opus_file(
 
     assert out_path.exists()
     assert out_path.stat().st_size > 0
+
+
+def test_render_heterodyne_preview_raises_for_a_samplerate_too_low_for_the_lowpass(
+    tmp_path: Path,
+) -> None:
+    wav_path = tmp_path / "low_samplerate.wav"
+    # 20kHz samplerate: Nyquist (10kHz) is below the 20kHz lowpass cutoff.
+    _sine_wav(wav_path, freq_hz=1_000.0, samplerate=20_000)
+    out_path = tmp_path / "het.opus"
+
+    with pytest.raises(UnreadableWavError):
+        render_heterodyne_preview(wav_path, out_path, tune_freq_hz=1_000.0)

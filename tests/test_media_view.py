@@ -685,6 +685,38 @@ def test_het_preview_400s_for_a_non_numeric_freq_hz(
     assert response.status_code == 400
 
 
+def test_het_preview_400s_for_a_non_finite_freq_hz(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    archive_root.mkdir()
+    _write_wav(archive_root / "a.wav", duration_s=0.05)
+
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="h4" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+    app = create_app(
+        engine,
+        tmp_path / "static",
+        tmp_path / "media",
+        archive_roots=(archive_root,),
+    )
+    client = app.test_client()
+    for value in ("nan", "inf", "-inf"):
+        response = client.get(
+            f"/recordings/{'h4' * 32}/het-preview.opus?freq_hz={value}",
+        )
+        assert response.status_code == 400, value
+
+
 def test_het_preview_404s_for_an_unknown_hash(engine: Engine, tmp_path: Path) -> None:
     app = create_app(engine, tmp_path / "static", tmp_path / "media")
     response = app.test_client().get(

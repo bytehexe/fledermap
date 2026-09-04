@@ -359,6 +359,15 @@ document.addEventListener("DOMContentLoaded", () => {
     link.href = `${url.pathname}${url.search}`;
   });
 
+  // Browsers don't reliably pause media on DOM removal -- without this, the
+  // outgoing recording's <audio> can keep playing audibly after an htmx swap
+  // replaces #drawer-body with the next recording's panel. Pause it just
+  // before the swap removes it from the DOM.
+  drawerBody.addEventListener("htmx:beforeSwap", () => {
+    const audioEl = drawerBody.querySelector(".audio-controls audio");
+    if (audioEl && !audioEl.paused) audioEl.pause();
+  });
+
   // HET/TE control bar + click-to-play + playback cursor for the drawer panel
   // (design spec 2026-09-04-fledermap-het-playback-design.md section 4) --
   // delegated / re-initialized on every htmx swap, same reasoning as the
