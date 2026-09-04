@@ -26,7 +26,18 @@ from fledermap.media.spectrogram import DEFAULT_SPECTROGRAM_PARAMS, SpectrogramP
 # x10 time-expansion ratio is fixed by spec and not exposed as a v1 setting
 # (design spec §5), so there are no parameters to hash. Bump it when the
 # preview's format or ratio changes, to invalidate existing renders.
-PREVIEW_VERSION = "v1"
+#
+# Bumped to v2 2026-09-04: `opus_pipeline.encode_pcm_as_opus`'s ffmpeg
+# invocation gained `-page_duration 20000` (was ffmpeg's own 1s default),
+# fixing audibly-repeated content right after a seek (Ogg seeking is
+# page-granular) -- a real encoding-parameter change with no dataclass of
+# its own to hash, exactly the case this file's version-bump convention
+# exists for. `v1` files already on disk are correct audio, just seek-imprecise;
+# nothing reads or deletes them automatically -- bumping this only changes
+# where FUTURE renders are written and makes `_has_media` (services/media.py)
+# see every recording as needing a new one, for `fledermap enqueue-media` to
+# pick up.
+PREVIEW_VERSION = "v2"
 
 
 def recording_media_dir(media_root: Path, audio_hash: str) -> Path:
