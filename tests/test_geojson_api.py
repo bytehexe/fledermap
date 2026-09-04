@@ -407,7 +407,7 @@ def test_recordings_geojson_taxon_exclude_omits_the_named_taxon(
     assert hashes == [kept_hash]
 
 
-def test_recordings_geojson_taxon_unregistered_matches_unmapped_species(
+def test_recordings_geojson_taxon_unmapped_matches_unmapped_species(
     engine: Engine,
     tmp_path: Path,
 ) -> None:
@@ -415,7 +415,7 @@ def test_recordings_geojson_taxon_unregistered_matches_unmapped_species(
         registered = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
         session.add(registered)
         session.flush()
-        unregistered = Recording(
+        unmapped = Recording(
             audio_hash="a" * 64,
             path="a.wav",
             recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
@@ -427,11 +427,11 @@ def test_recordings_geojson_taxon_unregistered_matches_unmapped_species(
             recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
             geom=WKTElement("POINT(11 51)", srid=4326),
         )
-        session.add_all([unregistered, known])
+        session.add_all([unmapped, known])
         session.flush()
         session.add(
             Identification(
-                recording_id=unregistered.id,
+                recording_id=unmapped.id,
                 source=IdSource.EMT_FILENAME,
                 verdict=Verdict.SPECIES,
                 taxon_id=None,
@@ -449,14 +449,14 @@ def test_recordings_geojson_taxon_unregistered_matches_unmapped_species(
             ),
         )
         session.commit()
-        unregistered_hash = unregistered.audio_hash
+        unmapped_hash = unmapped.audio_hash
 
     client = _app_client(engine, tmp_path)
-    response = client.get("/api/recordings.geojson?taxon=unregistered")
+    response = client.get("/api/recordings.geojson?taxon=unmapped")
 
     assert response.status_code == 200
     hashes = [f["properties"]["audio_hash"] for f in response.get_json()["features"]]
-    assert hashes == [unregistered_hash]
+    assert hashes == [unmapped_hash]
 
 
 def test_invalid_taxon_param_returns_400_not_500(

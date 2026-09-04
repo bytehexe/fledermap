@@ -12,7 +12,7 @@ from fledermap.domain.codes import IdSource, Verdict
 from fledermap.services.map_query import (
     filtered_recordings,
     filtered_sites,
-    has_unregistered_species,
+    has_unmapped_species,
     list_sessions,
     list_taxa,
     neighbor_recordings,
@@ -158,21 +158,21 @@ def test_taxon_filters_by_current_best_taxon(engine: Engine) -> None:
     assert [r.id for r in results] == [matching.id]
 
 
-def test_taxon_filter_unregistered_matches_a_species_verdict_with_no_taxon(
+def test_taxon_filter_unmapped_matches_a_species_verdict_with_no_taxon(
     engine: Engine,
 ) -> None:
     with OrmSession(engine) as session:
         registered = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
         session.add(registered)
         session.flush()
-        unregistered = _recording(session, audio_hash="a" * 64, taxon_id=None)
+        unmapped = _recording(session, audio_hash="a" * 64, taxon_id=None)
         _recording(session, audio_hash="b" * 64, taxon_id=registered.id)
         _recording(session, audio_hash="c" * 64, verdict=Verdict.NO_ID)
         session.commit()
 
-        results = filtered_recordings(session, taxon_id="unregistered", verdict="all")
+        results = filtered_recordings(session, taxon_id="unmapped", verdict="all")
 
-    assert [r.id for r in results] == [unregistered.id]
+    assert [r.id for r in results] == [unmapped.id]
 
 
 def test_taxon_exclude_keeps_everything_but_the_named_taxon(engine: Engine) -> None:
@@ -412,15 +412,15 @@ def test_list_taxa_excludes_a_taxon_whose_only_identification_is_superseded(
     assert results == []
 
 
-def test_has_unregistered_species_true_when_one_exists(engine: Engine) -> None:
+def test_has_unmapped_species_true_when_one_exists(engine: Engine) -> None:
     with OrmSession(engine) as session:
         _recording(session, audio_hash="a" * 64, taxon_id=None)
         session.commit()
 
-        assert has_unregistered_species(session) is True
+        assert has_unmapped_species(session) is True
 
 
-def test_has_unregistered_species_false_when_none_exist(engine: Engine) -> None:
+def test_has_unmapped_species_false_when_none_exist(engine: Engine) -> None:
     with OrmSession(engine) as session:
         taxon = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
         session.add(taxon)
@@ -429,10 +429,10 @@ def test_has_unregistered_species_false_when_none_exist(engine: Engine) -> None:
         _recording(session, audio_hash="b" * 64, verdict=Verdict.NO_ID)
         session.commit()
 
-        assert has_unregistered_species(session) is False
+        assert has_unmapped_species(session) is False
 
 
-def test_has_unregistered_species_ignores_a_superseded_claim(engine: Engine) -> None:
+def test_has_unmapped_species_ignores_a_superseded_claim(engine: Engine) -> None:
     with OrmSession(engine) as session:
         r = Recording(
             audio_hash="a" * 64,
@@ -453,7 +453,7 @@ def test_has_unregistered_species_ignores_a_superseded_claim(engine: Engine) -> 
         )
         session.commit()
 
-        assert has_unregistered_species(session) is False
+        assert has_unmapped_species(session) is False
 
 
 def test_list_sessions_orders_most_recent_first(engine: Engine) -> None:

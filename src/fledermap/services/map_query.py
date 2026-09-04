@@ -71,7 +71,7 @@ def filtered_recordings(
     bbox: BBox | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
-    taxon_id: int | Literal["unregistered"] | None = None,
+    taxon_id: int | Literal["unmapped"] | None = None,
     taxon_exclude: bool = False,
     verdict: Verdict | Literal["all"] | None = None,
     session_id: int | None = None,
@@ -114,11 +114,11 @@ def filtered_recordings(
             # identification, NoID, Noise, or an unmapped species) still
             # isn't taxon_id, so it's included under "not X" the same way
             # it's excluded under plain "X".
-            if taxon_id == "unregistered":
+            if taxon_id == "unmapped":
                 # A single bucket for every SPECIES verdict whose code never
                 # mapped to a Taxon (see recording_headline in
                 # services/current_best.py), rather than filtering by the
-                # specific raw code -- see map_query.py's has_unregistered_species
+                # specific raw code -- see map_query.py's has_unmapped_species
                 # docstring for why.
                 matches = (
                     best is not None
@@ -206,11 +206,11 @@ def list_taxa(session: OrmSession) -> Sequence[Taxon]:
     return list(session.scalars(stmt).all())
 
 
-def has_unregistered_species(session: OrmSession) -> bool:
-    """Whether the map's taxon filter dropdown needs its "Unregistered
+def has_unmapped_species(session: OrmSession) -> bool:
+    """Whether the map's taxon filter dropdown needs its "Unmapped
     species" option -- a single bucket for every SPECIES verdict whose raw
     code never mapped to a Taxon (`recording_headline` in
-    `services/current_best.py` shows these as "<CODE> (unregistered
+    `services/current_best.py` shows these as "<CODE> (unmapped
     species)"). One bucket, not a per-code filter: the actual use case is
     "show me everything the classifier saw that we don't recognise yet," not
     usually one specific unmapped code (2026-09-04 design discussion) --

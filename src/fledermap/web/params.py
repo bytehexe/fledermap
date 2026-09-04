@@ -65,16 +65,16 @@ def parse_int(raw: str | None) -> int | None:
     return int(raw) if raw else None
 
 
-def parse_taxon_filter(raw: str | None) -> int | Literal["unregistered"] | None:
+def parse_taxon_filter(raw: str | None) -> int | Literal["unmapped"] | None:
     """The `taxon` query param: either a numeric Taxon id, or the sentinel
-    "unregistered" (the map's "Unregistered species" dropdown option --
+    "unmapped" (the map's "Unmapped species" dropdown option --
     every SPECIES verdict whose raw code never mapped to a Taxon, design
     discussion 2026-09-04). Same absent/empty-is-None convention as
     `parse_int`."""
     if not raw:
         return None
-    if raw == "unregistered":
-        return "unregistered"
+    if raw == "unmapped":
+        return "unmapped"
     return int(raw)
 
 

@@ -124,14 +124,14 @@ def test_recording_headline_is_unidentified_with_no_best() -> None:
     assert recording_headline(None, None) == "unidentified"
 
 
-def test_recording_headline_shows_the_raw_code_for_an_unregistered_species() -> None:
+def test_recording_headline_shows_the_raw_code_for_an_unmapped_species() -> None:
     """Regression test: a real SPECIES verdict whose code never mapped to a Taxon used to
     fall through to the literal, useless string "species" (`best.verdict.value`) -- the
     actual detector code was sitting right there in `raw_label`, unused."""
     best = _ident(IdSource.EMT_FILENAME, taxon_id=None, verdict=Verdict.SPECIES)
     best.raw_label = "EPTNIL"
 
-    assert recording_headline(None, best) == "EPTNIL (unregistered species)"
+    assert recording_headline(None, best) == "EPTNIL (unmapped species)"
 
 
 def test_recording_headline_falls_back_to_the_verdict_value_with_no_raw_label() -> None:

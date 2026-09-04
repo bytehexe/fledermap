@@ -27,8 +27,8 @@ def test_parse_taxon_filter_numeric_is_an_int() -> None:
     assert parse_taxon_filter("42") == 42
 
 
-def test_parse_taxon_filter_unregistered_sentinel_passes_through() -> None:
-    assert parse_taxon_filter("unregistered") == "unregistered"
+def test_parse_taxon_filter_unmapped_sentinel_passes_through() -> None:
+    assert parse_taxon_filter("unmapped") == "unmapped"
 
 
 def test_detector_label_none_falls_back() -> None:

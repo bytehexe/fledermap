@@ -18,7 +18,7 @@ from fledermap.media.spectrogram import (
 from fledermap.services.current_best import current_best_identification
 from fledermap.services.map_query import (
     filtered_recordings,
-    has_unregistered_species,
+    has_unmapped_species,
     list_sessions,
     list_taxa,
     neighbor_recordings,
@@ -47,7 +47,7 @@ def map_page() -> str:
             "map.html",
             taxa=list_taxa(session),
             sessions=list_sessions(session),
-            has_unregistered_species=has_unregistered_species(session),
+            has_unmapped_species=has_unmapped_species(session),
         )
 
 

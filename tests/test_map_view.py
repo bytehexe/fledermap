@@ -95,7 +95,7 @@ def test_taxon_filter_is_a_dropdown_of_real_taxa(
     assert f'<option value="{taxon_id}">Pipistrellus pipistrellus</option>' in html
 
 
-def test_taxon_filter_shows_unregistered_species_option_when_one_exists(
+def test_taxon_filter_shows_unmapped_species_option_when_one_exists(
     engine: Engine,
     tmp_path: Path,
 ) -> None:
@@ -123,10 +123,10 @@ def test_taxon_filter_shows_unregistered_species_option_when_one_exists(
     client = app.test_client()
 
     html = client.get("/").get_data(as_text=True)
-    assert '<option value="unregistered">Unregistered species</option>' in html
+    assert '<option value="unmapped">Unmapped species</option>' in html
 
 
-def test_taxon_filter_omits_unregistered_species_option_when_none_exist(
+def test_taxon_filter_omits_unmapped_species_option_when_none_exist(
     engine: Engine,
     tmp_path: Path,
 ) -> None:
@@ -134,7 +134,7 @@ def test_taxon_filter_omits_unregistered_species_option_when_none_exist(
     client = app.test_client()
 
     html = client.get("/").get_data(as_text=True)
-    assert "Unregistered species" not in html
+    assert "Unmapped species" not in html
 
 
 def test_taxon_option_includes_common_name_when_present(

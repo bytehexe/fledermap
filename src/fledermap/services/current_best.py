@@ -53,11 +53,11 @@ def recording_headline(taxon: Taxon | None, best: Identification | None) -> str:
       unmapped label is not a failure, it resolves to `None` and lands in the review queue
       by design) previously fell through to the same `best.verdict.value` branch, showing
       the literal, useless string "species" -- the actual detector code was sitting right
-      there in `raw_label`, unused. Shown instead as "<code> (unregistered species)"."""
+      there in `raw_label`, unused. Shown instead as "<code> (unmapped species)"."""
     if taxon is not None:
         return taxon.scientific_name
     if best is None:
         return "unidentified"
     if best.verdict == Verdict.SPECIES and best.raw_label:
-        return f"{best.raw_label} (unregistered species)"
+        return f"{best.raw_label} (unmapped species)"
     return best.verdict.value
