@@ -496,6 +496,20 @@ button:disabled { cursor: default; opacity: 0.5; }
      explicit, since leaving overflow-y unset resolves to `auto` per the CSS
      Overflow spec whenever overflow-x isn't `visible`. */
   overflow-y: hidden;
+  /* `.detail-scroll` is a flex item of `main.main-content`'s column
+     (`.main-content{display:flex;flex-direction:column}`) -- and a flex
+     item with non-`visible` overflow gets an automatic minimum size of 0
+     instead of its content size (Flexbox spec section 4.5), so under space
+     pressure the flex algorithm crushes it toward zero height instead of
+     leaving it at its natural content height. `fitDetailHeight` depends on
+     `.detail-scroll` reporting its TRUE natural height (it reads
+     `main.main-content`'s scrollHeight/clientHeight to measure overflow) --
+     without this, that measurement is corrupted by the crush, computing a
+     wrong (and visibly broken) scale. `flex-shrink: 0` opts out of flex
+     shrinking entirely, so this box always sizes to its real content;
+     `fitDetailHeight`'s zoom is the only thing that ever actually shrinks
+     it now. */
+  flex-shrink: 0;
   border: 1px solid var(--color-border);
   border-radius: 4px;
   margin: 0.75rem 0;
