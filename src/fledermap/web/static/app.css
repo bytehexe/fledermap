@@ -6,6 +6,21 @@
   --color-bg-subtle: #f7f7f8;
   --color-accent: #2b6cb0;
   --color-warning: #b7791f;
+  /* Deliberately NOT redefined in the dark-mode blocks below, and NOT
+     `--color-accent` -- for the recording-detail page's spectrogram overlays
+     (playback cursor, ruler box) only. The spectrogram's own palette
+     (`media/spectrogram.py`'s `black_blue_rainbow_red`) runs dark-blue
+     through most of its low-power range, so `--color-accent` (itself blue in
+     both themes) reads as low-contrast blue-on-blue there regardless of site
+     theme -- a real bug report ("cursor is difficult to see in light blue
+     against dark blue"), not a dark-mode-only issue. Magenta, not orange:
+     the palette's hottest pixels interpolate yellow (255,230,0) -> red
+     (255,0,0), i.e. orange tones (high R, mid G, zero B) at exactly the
+     loudest/most-important part of a call -- an orange overlay would blend
+     in there. The palette never produces R and B both significant at once
+     (blue/cyan segments have R=0; yellow/red segments have B=0), so magenta
+     (high R AND B) sits outside its gamut at every power level. */
+  --color-overlay: #ff2fd6;
   --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color-scheme: light;
 }
@@ -268,12 +283,13 @@ button:disabled { cursor: default; opacity: 0.5; }
   gap: 0.5rem;
 }
 
-/* .panel-header is shared with _site_panel.html's own title+button row --
+/* .panel-header is shared with _site_panel.html's own title+button row, and now with
+   the standalone recording-detail page's own h1+favourite-button row (.detail-header) --
    wrap (rather than squeeze) is what keeps a long title from crowding its
    button into an ugly multi-line wrap (caught from a real screenshot with
    a long site name); the button itself never shrinks or wraps its own
    text, so it stays a normal-looking button on whichever line it lands. */
-.panel-header {
+.panel-header, .detail-header {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -281,8 +297,9 @@ button:disabled { cursor: default; opacity: 0.5; }
   gap: 0.5rem;
 }
 .panel-header h2 { margin: 0 0 0.25rem; font-size: 1.15rem; }
-.panel-header button { flex-shrink: 0; white-space: nowrap; }
-.panel-header a { flex-shrink: 0; white-space: nowrap; }
+.detail-header h1 { margin: 1rem 0 0.25rem; }
+.panel-header button, .detail-header button { flex-shrink: 0; white-space: nowrap; }
+.panel-header a, .detail-header a { flex-shrink: 0; white-space: nowrap; }
 .favourite-toggle {
   font-size: 1.1rem;
   line-height: 1;
@@ -474,6 +491,11 @@ button:disabled { cursor: default; opacity: 0.5; }
 /* Recording details page (design spec 2026-09-01, section 3/4). */
 .detail-scroll {
   overflow-x: auto;
+  /* Vertical overflow is handled by shrinking `.detail-body`'s own scale
+     (recording_detail.js's `fitDetailHeight`), never by a scrollbar here --
+     explicit, since leaving overflow-y unset resolves to `auto` per the CSS
+     Overflow spec whenever overflow-x isn't `visible`. */
+  overflow-y: hidden;
   border: 1px solid var(--color-border);
   border-radius: 4px;
   margin: 0.75rem 0;
@@ -486,7 +508,10 @@ button:disabled { cursor: default; opacity: 0.5; }
    `.detail-axis-freq`'s `position: sticky` below is bounded by ITS containing block --
    `.detail-body` -- so a too-narrow `.detail-body` caps how far the sticky column can travel
    before it hits that edge and un-sticks, well short of the actual scrollable range. */
-.detail-body { display: flex; width: max-content; }
+/* `transform-origin: top left` is the baseline for the shrink-to-fit scale JS applies below
+   (recording_detail.js's `fitDetailHeight`) -- harmless with no `transform` set (the common
+   case, page fits the viewport as-is). */
+.detail-body { display: flex; width: max-content; transform-origin: top left; }
 /* Sticky, not scrolled with the graphs -- pinned on the left the same way
    a DAW's own frequency ruler stays put while the timeline scrolls under
    it. Cheap: one CSS property, no JS. */
@@ -526,14 +551,14 @@ button:disabled { cursor: default; opacity: 0.5; }
   top: 0;
   bottom: 0;
   width: 1px;
-  background: var(--color-accent);
+  background: var(--color-overlay);
   pointer-events: none;
 }
 .playback-cursor[hidden] { display: none; }
 .ruler-box {
   position: absolute;
-  border: 1px dashed var(--color-accent);
-  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  border: 1px dashed var(--color-overlay);
+  background: color-mix(in srgb, var(--color-overlay) 12%, transparent);
   pointer-events: none;
 }
 .ruler-label {

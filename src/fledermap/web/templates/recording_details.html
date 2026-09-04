@@ -11,10 +11,15 @@
   {% include "_nav.html" %}
   <main class="main-content" id="recording-detail">
     <a href="{{ back_url }}">← {{ back_label }}</a>
-    <h1>{{ taxon.scientific_name if taxon else (best.verdict.value if best else "unidentified") }}</h1>
+    <div class="detail-header">
+      <h1>{{ taxon.scientific_name if taxon else (best.verdict.value if best else "unidentified") }}</h1>
+      {% include "_detail_favourite_button.html" %}
+    </div>
     <p class="detail-meta">
       {{ recording.recorded_at.isoformat() }} — {{ recording.make }} {{ recording.model }}
       {% if site %} — Site: <a href="/?site={{ site.id }}">{{ site_label }}</a>{% endif %}
+      — <a href="/?recording={{ recording.audio_hash }}">Show on map</a>
+      {% if recording_session %} — <a href="/sessions/{{ recording_session.id }}">Session</a>{% endif %}
     </p>
 
     {% if params %}
@@ -23,7 +28,7 @@
       <button type="button" class="tool-button" data-tool="ruler" aria-pressed="false">Ruler</button>
     </div>
     <div class="detail-scroll" id="detail-scroll">
-      <div class="detail-body">
+      <div class="detail-body" id="detail-body">
         <div class="detail-axis-freq" id="detail-axis-freq"></div>
         <div class="detail-graphs">
           <div class="detail-axis-time" id="detail-axis-time"></div>

@@ -28,6 +28,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const scrollEl = document.getElementById("detail-scroll");
   const timeAxis = document.getElementById("detail-axis-time");
   const freqAxis = document.getElementById("detail-axis-freq");
+  const detailBody = document.getElementById("detail-body");
+  const mainContent = document.querySelector("main.main-content");
 
   // Reveal-on-load (design spec section 3): every tile in a row must load before that row's
   // placeholder clears -- a partially-loaded row (some tiles rendered, others still pending)
@@ -159,6 +161,54 @@ document.addEventListener("DOMContentLoaded", () => {
   revealWhenAllLoaded(spectrogramTiles, spectrogramLoading);
   revealWhenAllLoaded(oscillogramTiles, oscillogramLoading);
 
+  // Shrink-to-fit (backlog "Eliminate vertical scrollbar"): `main.main-content` scrolls
+  // vertically (app.css) whenever the locked-scale render is taller than the viewport minus
+  // the page's other chrome (nav, header, toolbar, audio row) -- a real recording easily
+  // exceeds that on a small screen or window. Rather than let the page scroll vertically (ugly
+  // alongside `.detail-scroll`'s own horizontal scrollbar, and defeats seeing the whole call at
+  // once), uniformly scale `.detail-body` down just enough to remove that vertical overflow,
+  // stretching `.detail-scroll`'s own height down to match so no extra blank space is left
+  // where the transform visually shrank the content but its layout box didn't. Deliberately
+  // uniform (not a height-only squash): the render itself keeps its exact locked-scale pixel
+  // fidelity (design spec "the exact 1:1 point"), only the on-screen DISPLAY size changes,
+  // same as zooming out on an image viewer -- an independent x/y squash would distort that.
+  // Horizontal overflow is left alone; `.detail-scroll`'s existing horizontal scrollbar is the
+  // intended way to navigate a long recording, this only ever fixes the VERTICAL scrollbar.
+  let currentScale = 1;
+
+  function fitDetailHeight() {
+    // Measure natural (unscaled) height first -- clearing any previous scale before measuring,
+    // since a shrunk `.detail-scroll` height would otherwise make `mainContent` look like it
+    // has no overflow even though the true unscaled content still would.
+    detailBody.style.transform = "";
+    scrollEl.style.height = "";
+    const naturalHeight = detailBody.getBoundingClientRect().height;
+    const overflow = mainContent.scrollHeight - mainContent.clientHeight;
+    if (overflow <= 0 || naturalHeight <= 0) {
+      currentScale = 1;
+      return;
+    }
+    // How far `.detail-body` alone needs to shrink to remove exactly that much overflow --
+    // everything else on the page keeps its own natural height untouched.
+    const availableHeight = naturalHeight - overflow;
+    const scale = availableHeight / naturalHeight;
+    if (scale >= 1) {
+      currentScale = 1;
+      return;
+    }
+    // Never shrink below a point that makes the render unreadable/unusable.
+    currentScale = Math.max(0.2, scale);
+    detailBody.style.transform = `scale(${currentScale})`;
+    scrollEl.style.height = `${naturalHeight * currentScale}px`;
+  }
+
+  fitDetailHeight();
+  let resizeTimer = null;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(fitDetailHeight, 100);
+  });
+
   // Tool switching (design spec 2026-09-04-fledermap-recording-detail-tools-design.md):
   // `tools[activeTool]` implements onClick/onDrag/onDragEnd for whichever tool is selected.
   // Click-to-play, crosshair, and the playback cursor all still measure against `wrap`'s own
@@ -178,11 +228,19 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function updateRulerBox(dragStart, event) {
+    // `getBoundingClientRect()` returns `wrap`'s VISUAL (post-transform) box once
+    // `fitDetailHeight` has scaled `.detail-body` down -- dividing by `currentScale` converts
+    // back to `wrap`'s own local/untransformed coordinate space, which is what both the
+    // real-unit math below (pxPerMs/pxPerKhz are native, unscaled constants) AND positioning
+    // `rulerBox` itself need, since `rulerBox` is a DOM child inside that same transformed
+    // subtree -- its `left`/`top`/`width`/`height` are already visually re-scaled by the
+    // ancestor's `transform`, so they must be set in the SAME local space or they'd be scaled
+    // twice.
     const rect = wrap.getBoundingClientRect();
-    const startX = dragStart.x - rect.left;
-    const startY = dragStart.y - rect.top;
-    const curX = event.clientX - rect.left;
-    const curY = event.clientY - rect.top;
+    const startX = (dragStart.x - rect.left) / currentScale;
+    const startY = (dragStart.y - rect.top) / currentScale;
+    const curX = (event.clientX - rect.left) / currentScale;
+    const curY = (event.clientY - rect.top) / currentScale;
 
     const left = Math.min(startX, curX);
     const top = Math.min(startY, curY);
@@ -236,7 +294,7 @@ document.addEventListener("DOMContentLoaded", () => {
     default: {
       onClick(event) {
         const rect = wrap.getBoundingClientRect();
-        const xPx = event.clientX - rect.left;
+        const xPx = (event.clientX - rect.left) / currentScale;
         const spectrogramTimeS = xPx / pxPerMs / 1000;
         audio.currentTime = spectrogramTimeS * timeExpansionFactor;
         audio.play();
@@ -315,9 +373,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
   wrap.addEventListener("mousemove", (event) => {
     const rect = wrap.getBoundingClientRect();
-    const xPx = event.clientX - rect.left;
-    const yPx = event.clientY - rect.top;
-    if (xPx < 0 || yPx < 0 || xPx > rect.width || yPx > rect.height) {
+    const xPx = (event.clientX - rect.left) / currentScale;
+    const yPx = (event.clientY - rect.top) / currentScale;
+    // rect.width/height are also the VISUAL (post-transform) size -- divide by the same
+    // scale to compare against the local-space xPx/yPx above.
+    if (xPx < 0 || yPx < 0 || xPx > rect.width / currentScale || yPx > rect.height / currentScale) {
       readout.hidden = true;
       return;
     }
@@ -337,14 +397,20 @@ document.addEventListener("DOMContentLoaded", () => {
   // the cursor goes off-screen -- no continuous auto-follow by default.
   audio.addEventListener("timeupdate", () => {
     const spectrogramTimeS = audio.currentTime / timeExpansionFactor;
+    // `xPx` is in `wrap`'s local/untransformed coordinate space (pxPerMs is a native, unscaled
+    // constant) -- correct as-is for positioning `cursor` (a descendant of the transformed
+    // `.detail-body`, so its ancestor's `transform` re-scales it visually automatically).
     const xPx = spectrogramTimeS * 1000 * pxPerMs;
     cursor.style.left = `${xPx}px`;
     cursor.hidden = false;
 
+    // `scrollLeft`/`clientWidth` operate on `.detail-scroll`'s VISUAL (post-transform)
+    // scrollable area, so the comparison/target needs the cursor's visual position too.
+    const visualXPx = xPx * currentScale;
     const visibleLeft = scrollEl.scrollLeft;
     const visibleRight = visibleLeft + scrollEl.clientWidth;
-    if (xPx < visibleLeft || xPx > visibleRight) {
-      scrollEl.scrollLeft = Math.max(0, xPx - scrollEl.clientWidth / 2);
+    if (visualXPx < visibleLeft || visualXPx > visibleRight) {
+      scrollEl.scrollLeft = Math.max(0, visualXPx - scrollEl.clientWidth / 2);
     }
   });
 });

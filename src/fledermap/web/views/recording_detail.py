@@ -19,6 +19,7 @@ from fledermap.services.recording_detail import (
 )
 from fledermap.store.geo import decode_point
 from fledermap.store.models import Recording, Site, Taxon
+from fledermap.store.models import Session as AnnotationSession
 from fledermap.web.params import fallback_site_label
 
 recording_detail_bp = flask.Blueprint(
@@ -89,6 +90,12 @@ def recording_details_page(audio_hash: str) -> flask.Response:
                 else fallback_site_label(decode_point(site.centroid))
             )
 
+        recording_session = (
+            session.get(AnnotationSession, recording.session_id)
+            if recording.session_id
+            else None
+        )
+
         params = None
         if recording.duration_s is not None and recording.samplerate_hz is not None:
             params = detail_params(recording.duration_s, recording.samplerate_hz)
@@ -102,6 +109,7 @@ def recording_details_page(audio_hash: str) -> flask.Response:
             taxon=taxon,
             site=site,
             site_label=site_label,
+            recording_session=recording_session,
             duration_s=recording.duration_s,
             params=params,
             px_per_ms=DETAIL_PX_PER_MS,

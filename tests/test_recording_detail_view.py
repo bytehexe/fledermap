@@ -9,6 +9,7 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.store.models import Recording
+from fledermap.store.models import Session as AnnotationSession
 from fledermap.web.app import create_app
 
 pytestmark = pytest.mark.db
@@ -268,6 +269,167 @@ def test_recording_details_page_renders_the_tool_toolbar(
         '<button type="button" class="tool-button" data-tool="ruler" '
         'aria-pressed="false">Ruler</button>' in html
     )
+
+
+def test_recording_details_page_shows_a_link_to_the_map_centered_on_this_recording(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="fc" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                duration_s=0.5,
+                samplerate_hz=256_000,
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/recordings/{'fc' * 32}")
+
+    html = response.get_data(as_text=True)
+    assert f'href="/?recording={"fc" * 32}"' in html
+
+
+def test_recording_details_page_shows_a_link_to_its_session_when_it_has_one(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        annotation_session = AnnotationSession(
+            started_at=datetime(2026, 8, 25, 20, 0, tzinfo=UTC),
+            ended_at=datetime(2026, 8, 25, 22, 0, tzinfo=UTC),
+        )
+        session.add(annotation_session)
+        session.flush()
+        session.add(
+            Recording(
+                audio_hash="fd" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                duration_s=0.5,
+                samplerate_hz=256_000,
+                session_id=annotation_session.id,
+            ),
+        )
+        session.commit()
+        session_id = annotation_session.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/recordings/{'fd' * 32}")
+
+    html = response.get_data(as_text=True)
+    assert f'href="/sessions/{session_id}"' in html
+
+
+def test_recording_details_page_omits_the_session_link_when_it_has_no_session(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="fe" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                duration_s=0.5,
+                samplerate_hz=256_000,
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/recordings/{'fe' * 32}")
+
+    html = response.get_data(as_text=True)
+    assert "/sessions/" not in html
+
+
+def test_recording_details_page_shows_the_favourite_toggle_unstarred_by_default(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="ff" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                duration_s=0.5,
+                samplerate_hz=256_000,
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/recordings/{'ff' * 32}")
+
+    html = response.get_data(as_text=True)
+    assert 'id="detail-favourite"' in html
+    assert 'aria-pressed="false"' in html
+    assert "☆" in html
+
+
+def test_recording_details_page_shows_the_favourite_toggle_starred(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="a1" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                duration_s=0.5,
+                samplerate_hz=256_000,
+                favourite=True,
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/recordings/{'a1' * 32}")
+
+    html = response.get_data(as_text=True)
+    assert 'aria-pressed="true"' in html
+    assert "★" in html
+
+
+def test_toggle_favourite_with_panel_detail_returns_just_the_button_fragment(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="a2" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().post(
+        f"/recordings/{'a2' * 32}/favourite?panel=detail",
+    )
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert 'id="detail-favourite"' in html
+    assert 'aria-pressed="true"' in html
+    assert "★" in html
+    # Only the button, not the rest of the drawer panel fragment.
+    assert "panel-header" not in html
+    assert "waveform-grid" not in html
+
+    with OrmSession(engine) as session:
+        recording = session.get(Recording, 1)
+        assert recording is not None
+        assert recording.favourite is True
 
 
 def test_recording_details_page_tiles_are_not_natively_draggable(

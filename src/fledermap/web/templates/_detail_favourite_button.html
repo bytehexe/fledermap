@@ -1,0 +1,15 @@
+{# src/fledermap/web/templates/_detail_favourite_button.html
+   Standalone recording-detail page's favourite toggle -- deliberately its own small
+   fragment, not a re-render of `_recording_panel.html` (which is filter-qs-dependent and
+   carries prev/next), so `toggle_favourite`'s `?panel=detail` branch can swap just this
+   button via hx-target/hx-swap="outerHTML" instead of forking into a duplicate route. #}
+<button
+  type="button"
+  id="detail-favourite"
+  class="favourite-toggle"
+  hx-post="/recordings/{{ recording.audio_hash }}/favourite?panel=detail"
+  hx-target="#detail-favourite"
+  hx-swap="outerHTML"
+  aria-label="{{ 'Remove from favourites' if recording.favourite else 'Add to favourites' }}"
+  aria-pressed="{{ 'true' if recording.favourite else 'false' }}"
+>{{ "★" if recording.favourite else "☆" }}</button>

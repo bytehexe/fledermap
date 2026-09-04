@@ -176,6 +176,18 @@ def toggle_favourite(audio_hash: str) -> flask.Response:
         recording.favourite = not recording.favourite
         session.commit()
 
+        # The standalone recording-detail page's favourite button is its own small
+        # fragment (`_detail_favourite_button.html`), not the drawer's filter-qs/prev-next
+        # `_recording_panel.html` -- distinguished by this query param so the two callers
+        # (drawer panel, detail page) share one toggle endpoint instead of forking into a
+        # duplicate route.
+        if flask.request.args.get("panel") == "detail":
+            html = flask.render_template(
+                "_detail_favourite_button.html",
+                recording=recording,
+            )
+            return flask.make_response(html)
+
     response, _point = _render_recording_panel(audio_hash)
     return response
 
