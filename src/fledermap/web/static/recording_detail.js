@@ -25,6 +25,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const cursor = document.getElementById("playback-cursor");
   const readout = document.getElementById("crosshair-readout");
   const audio = document.getElementById("detail-audio");
+  const audioControlsEl = document.getElementById("detail-audio-controls");
+  const audioControls = initAudioControls(audioControlsEl, audio);
   const scrollEl = document.getElementById("detail-scroll");
   const timeAxis = document.getElementById("detail-axis-time");
   const freqAxis = document.getElementById("detail-axis-freq");
@@ -360,7 +362,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const rect = wrap.getBoundingClientRect();
         const xPx = (event.clientX - rect.left) / currentScale;
         const spectrogramTimeS = xPx / pxPerMs / 1000;
-        audio.currentTime = spectrogramTimeS * timeExpansionFactor;
+        audio.currentTime = spectrogramTimeS * audioControls.getTimeExpansionFactor();
         audio.play();
       },
       onDrag(event, dragStart) {
@@ -460,7 +462,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // <audio>'s currentTime, snaps the scroll container into view only when
   // the cursor goes off-screen -- no continuous auto-follow by default.
   audio.addEventListener("timeupdate", () => {
-    const spectrogramTimeS = audio.currentTime / timeExpansionFactor;
+    const spectrogramTimeS = audio.currentTime / audioControls.getTimeExpansionFactor();
     // `xPx` is in `wrap`'s local/unzoomed coordinate space (pxPerMs is a native, unscaled
     // constant) -- correct as-is for positioning `cursor` (a descendant of `wrap`, so `wrap`'s
     // own `zoom` re-scales it visually automatically).

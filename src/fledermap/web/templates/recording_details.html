@@ -87,7 +87,24 @@
       </div>
     </div>
     <div class="audio-row">
-      <audio controls id="detail-audio" src="{{ url_for('media.preview', audio_hash=recording.audio_hash) }}"></audio>
+      <div
+        class="audio-controls"
+        id="detail-audio-controls"
+        data-preview-url="{{ url_for('media.preview', audio_hash=recording.audio_hash) }}"
+        data-het-preview-url-template="{{ url_for('media.het_preview', audio_hash=recording.audio_hash) }}?freq_hz=FREQ_HZ"
+        data-peak-frequency-url="{{ url_for('media.peak_frequency', audio_hash=recording.audio_hash) }}"
+        data-time-expansion-factor="{{ time_expansion_factor }}"
+      >
+        <button class="tool-button" data-mode="expanded" aria-pressed="true" title="Time Expansion (×10)">TE</button>
+        <button class="tool-button" data-mode="het" aria-pressed="false">HET</button>
+        <span class="het-freq-control" hidden>
+          <input type="number" class="het-freq-input" step="1" inputmode="decimal"> kHz
+          <button type="button" class="het-freq-reset" title="Reset to peak frequency">⟲</button>
+        </span>
+        <button type="button" class="playback-rewind" aria-label="Rewind to start">⏮</button>
+        <button type="button" class="playback-toggle" aria-label="Play">▶</button>
+        <audio hidden id="detail-audio"></audio>
+      </div>
     </div>
     {% else %}
     <p>Missing duration or sample-rate metadata for this recording — cannot render at a locked scale.</p>
@@ -99,6 +116,7 @@
      when `fitDetailHeight` has shrunk the image itself to fit the viewport. #}
   <div id="ruler-readout" class="floating-readout ruler-readout" hidden></div>
   <script src="{{ url_for('vendor.static', filename='alpine.min.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='audio_controls.js') }}"></script>
   <script src="{{ url_for('static', filename='recording_detail.js') }}"></script>
 </body>
 </html>
