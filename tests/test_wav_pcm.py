@@ -71,6 +71,53 @@ def test_read_pcm_rejects_a_header_only_file_with_no_pcm_data(tmp_path: Path) ->
         read_pcm(path)
 
 
+def test_read_pcm_rejects_an_8_bit_file(tmp_path: Path) -> None:
+    wav_bytes = build_wav(
+        [
+            (b"fmt ", fmt_payload(256_000, bits=8)),
+            (b"data", bytes([128] * 5000)),
+        ],
+    )
+    path = tmp_path / "eight_bit.wav"
+    path.write_bytes(wav_bytes)
+
+    with pytest.raises(UnreadableWavError):
+        read_pcm(path)
+
+
+def test_read_pcm_rejects_a_24_bit_file(tmp_path: Path) -> None:
+    wav_bytes = build_wav(
+        [
+            (b"fmt ", fmt_payload(256_000, bits=24)),
+            (b"data", bytes([0, 0, 1] * 5000)),
+        ],
+    )
+    path = tmp_path / "twentyfour_bit.wav"
+    path.write_bytes(wav_bytes)
+
+    with pytest.raises(UnreadableWavError):
+        read_pcm(path)
+
+
+def test_read_pcm_rejects_a_file_truncated_by_a_whole_number_of_frames(
+    tmp_path: Path,
+) -> None:
+    """The "even-byte" truncation case: the file ends cleanly on a sample boundary (so
+    the mid-sample ValueError guard never fires), but the header's `data` chunk claims
+    more frames than are actually present."""
+    wav_bytes = build_wav(
+        [(b"fmt ", fmt_payload(256_000)), (b"data", _sine_pcm(n_samples=5000))],
+    )
+    path = tmp_path / "truncated_whole_frames.wav"
+    # Drop the last 100 samples (200 bytes) -- an exact multiple of the int16 frame
+    # size, so it decodes "successfully" with no exception, just fewer samples than
+    # the header's data-chunk length claims.
+    path.write_bytes(wav_bytes[:-200])
+
+    with pytest.raises(UnreadableWavError):
+        read_pcm(path)
+
+
 def test_read_pcm_returns_samples_and_samplerate_for_a_well_formed_file(
     tmp_path: Path,
 ) -> None:
