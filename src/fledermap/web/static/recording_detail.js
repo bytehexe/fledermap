@@ -166,22 +166,31 @@ document.addEventListener("DOMContentLoaded", () => {
   // the page's other chrome (nav, header, toolbar, audio row) -- a real recording easily
   // exceeds that on a small screen or window. Rather than let the page scroll vertically (ugly
   // alongside `.detail-scroll`'s own horizontal scrollbar, and defeats seeing the whole call at
-  // once), uniformly scale `.detail-body` down just enough to remove that vertical overflow,
-  // stretching `.detail-scroll`'s own height down to match so no extra blank space is left
-  // where the transform visually shrank the content but its layout box didn't. Deliberately
-  // uniform (not a height-only squash): the render itself keeps its exact locked-scale pixel
-  // fidelity (design spec "the exact 1:1 point"), only the on-screen DISPLAY size changes,
-  // same as zooming out on an image viewer -- an independent x/y squash would distort that.
-  // Horizontal overflow is left alone; `.detail-scroll`'s existing horizontal scrollbar is the
-  // intended way to navigate a long recording, this only ever fixes the VERTICAL scrollbar.
+  // once), uniformly scale `.detail-body` down just enough to remove that vertical overflow.
+  // Deliberately uniform (not a height-only squash): the render itself keeps its exact
+  // locked-scale pixel fidelity (design spec "the exact 1:1 point"), only the on-screen DISPLAY
+  // size changes, same as zooming out on an image viewer -- an independent x/y squash would
+  // distort that. Horizontal overflow is left alone; `.detail-scroll`'s existing horizontal
+  // scrollbar is the intended way to navigate a long recording, this only ever fixes the
+  // VERTICAL scrollbar.
+  //
+  // CSS `zoom`, not `transform: scale()` -- code review (2026-09-04) caught two real bugs with
+  // `transform`: it's paint-only, so `.detail-scroll`'s native scrollWidth/scrollHeight stay at
+  // `.detail-body`'s UNtransformed layout size, desyncing from the visually-shrunk content and
+  // allowing overscroll into blank space (needed the `scrollEl.style.height` hack this comment
+  // used to describe, and even that only patched the vertical half); and a transformed ancestor
+  // is documented to break `position: sticky` on a scrolling descendant in Chromium/Firefox
+  // (w3c/csswg-drafts#3186), which is exactly what `.detail-axis-freq` is. `zoom` actually
+  // rescales layout (not just paint), so `.detail-scroll`'s own box -- and its scrollable
+  // range -- shrinks along with the content with no manual compensation needed, and it isn't a
+  // `transform`, so sticky positioning inside it keeps working normally.
   let currentScale = 1;
 
   function fitDetailHeight() {
-    // Measure natural (unscaled) height first -- clearing any previous scale before measuring,
-    // since a shrunk `.detail-scroll` height would otherwise make `mainContent` look like it
-    // has no overflow even though the true unscaled content still would.
-    detailBody.style.transform = "";
-    scrollEl.style.height = "";
+    // Measure natural (unzoomed) height first -- clearing any previous zoom before measuring,
+    // since a shrunk `.detail-body` would otherwise make `mainContent` look like it has no
+    // overflow even though the true unscaled content still would.
+    detailBody.style.zoom = "";
     const naturalHeight = detailBody.getBoundingClientRect().height;
     const overflow = mainContent.scrollHeight - mainContent.clientHeight;
     if (overflow <= 0 || naturalHeight <= 0) {
@@ -198,8 +207,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     // Never shrink below a point that makes the render unreadable/unusable.
     currentScale = Math.max(0.2, scale);
-    detailBody.style.transform = `scale(${currentScale})`;
-    scrollEl.style.height = `${naturalHeight * currentScale}px`;
+    detailBody.style.zoom = String(currentScale);
   }
 
   fitDetailHeight();
@@ -228,13 +236,13 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function updateRulerBox(dragStart, event) {
-    // `getBoundingClientRect()` returns `wrap`'s VISUAL (post-transform) box once
-    // `fitDetailHeight` has scaled `.detail-body` down -- dividing by `currentScale` converts
-    // back to `wrap`'s own local/untransformed coordinate space, which is what both the
+    // `getBoundingClientRect()` returns `wrap`'s VISUAL (post-zoom) box once
+    // `fitDetailHeight` has zoomed `.detail-body` down -- dividing by `currentScale` converts
+    // back to `wrap`'s own local/unzoomed coordinate space, which is what both the
     // real-unit math below (pxPerMs/pxPerKhz are native, unscaled constants) AND positioning
-    // `rulerBox` itself need, since `rulerBox` is a DOM child inside that same transformed
+    // `rulerBox` itself need, since `rulerBox` is a DOM child inside that same zoomed
     // subtree -- its `left`/`top`/`width`/`height` are already visually re-scaled by the
-    // ancestor's `transform`, so they must be set in the SAME local space or they'd be scaled
+    // ancestor's `zoom`, so they must be set in the SAME local space or they'd be scaled
     // twice.
     const rect = wrap.getBoundingClientRect();
     const startX = (dragStart.x - rect.left) / currentScale;
@@ -375,7 +383,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const rect = wrap.getBoundingClientRect();
     const xPx = (event.clientX - rect.left) / currentScale;
     const yPx = (event.clientY - rect.top) / currentScale;
-    // rect.width/height are also the VISUAL (post-transform) size -- divide by the same
+    // rect.width/height are also the VISUAL (post-zoom) size -- divide by the same
     // scale to compare against the local-space xPx/yPx above.
     if (xPx < 0 || yPx < 0 || xPx > rect.width / currentScale || yPx > rect.height / currentScale) {
       readout.hidden = true;
@@ -397,14 +405,14 @@ document.addEventListener("DOMContentLoaded", () => {
   // the cursor goes off-screen -- no continuous auto-follow by default.
   audio.addEventListener("timeupdate", () => {
     const spectrogramTimeS = audio.currentTime / timeExpansionFactor;
-    // `xPx` is in `wrap`'s local/untransformed coordinate space (pxPerMs is a native, unscaled
-    // constant) -- correct as-is for positioning `cursor` (a descendant of the transformed
-    // `.detail-body`, so its ancestor's `transform` re-scales it visually automatically).
+    // `xPx` is in `wrap`'s local/unzoomed coordinate space (pxPerMs is a native, unscaled
+    // constant) -- correct as-is for positioning `cursor` (a descendant of the zoomed
+    // `.detail-body`, so its ancestor's `zoom` re-scales it visually automatically).
     const xPx = spectrogramTimeS * 1000 * pxPerMs;
     cursor.style.left = `${xPx}px`;
     cursor.hidden = false;
 
-    // `scrollLeft`/`clientWidth` operate on `.detail-scroll`'s VISUAL (post-transform)
+    // `scrollLeft`/`clientWidth` operate on `.detail-scroll`'s VISUAL (post-zoom)
     // scrollable area, so the comparison/target needs the cursor's visual position too.
     const visualXPx = xPx * currentScale;
     const visibleLeft = scrollEl.scrollLeft;
