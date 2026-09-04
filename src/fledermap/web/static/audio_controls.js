@@ -35,6 +35,16 @@ function initAudioControls(container, audioEl, options = {}) {
   // real-time (not TE-expanded) offset in seconds; the drawer panel has no
   // such concept, so it never passes this and rewind stays file-absolute.
   const getSeekFloorS = options.getSeekFloorS || (() => 0);
+  // Optional counterpart to `getSeekFloorS`: the locked view's END, in real
+  // time, or null when not applicable (unlocked, or no page-level lock
+  // concept at all). Without this, pressing ▶ while paused AT the locked
+  // view's edge (where the timeupdate boundary check below left it) resumes
+  // playback from there and lets it run to the NEXT timeupdate tick before
+  // that check catches it again -- each press "leaks" a little further past
+  // the locked edge instead of respecting it (Janna, 2026-09-04, live use).
+  // Checked at the moment ▶ is clicked, so a still-valid (not past the
+  // ceiling) resume position is left completely alone.
+  const getSeekCeilingS = options.getSeekCeilingS || (() => null);
   const previewUrl = container.dataset.previewUrl;
   const hetPreviewUrlTemplate = container.dataset.hetPreviewUrlTemplate;
   const peakFrequencyUrl = container.dataset.peakFrequencyUrl;
@@ -202,7 +212,32 @@ function initAudioControls(container, audioEl, options = {}) {
       // `getSeekFloorS` already defines for rewind -- clears `ended`
       // before `play()` ever sees it, so this situation never reaches
       // that reset.
-      if (audioEl.ended) audioEl.currentTime = getSeekFloorS() * effectiveFactor();
+      if (audioEl.ended) {
+        audioEl.currentTime = getSeekFloorS() * effectiveFactor();
+      } else {
+        // Same idea as the `ended` case above, for a locked view instead of
+        // the file's own end: resuming from at-or-past the ceiling would
+        // otherwise "leak" a little further past the locked edge on every
+        // press before the timeupdate boundary check catches up (see
+        // `getSeekCeilingS` above) -- and resuming from BEFORE the floor is
+        // just as broken the other way: the locked *view* and the current
+        // *playback position* are independent (locking only freezes the
+        // scroll, it never touches `currentTime`), so a still-unplayed
+        // recording, or one last played somewhere entirely outside the
+        // locked window (e.g. a TE/HET switch made while parked before the
+        // floor), resumes from there -- rendering the cursor at a position
+        // scrolled completely off the locked, frozen view. From the user's
+        // side that reads as "the cursor doesn't show up anywhere" (Janna,
+        // 2026-09-04, live use) since nothing here ever errors. Either way
+        // out of range restarts at the floor, matching rewind.
+        const ceilingS = getSeekCeilingS();
+        if (ceilingS !== null) {
+          const posS = currentRealTimeS();
+          if (posS < getSeekFloorS() || posS >= ceilingS) {
+            audioEl.currentTime = getSeekFloorS() * effectiveFactor();
+          }
+        }
+      }
       audioEl.play();
     } else {
       audioEl.pause();

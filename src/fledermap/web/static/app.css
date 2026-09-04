@@ -579,7 +579,18 @@ button:disabled { cursor: default; opacity: 0.5; }
    listener blocks the scroll before it happens, and a `scroll` listener snaps `scrollLeft`
    back immediately for anything that still gets through (a scrollbar-track click/drag, a
    keyboard scroll) -- the drag case in particular now reads as the scrollbar visibly "fighting
-   back" rather than not responding at all, which is the disabled look being asked for. */
+   back" rather than not responding at all, which is the disabled look being asked for.
+
+   The scrollbar itself also needs to visually READ as disabled, not just behave that way --
+   Janna, 2026-09-04, after the JS-only fix above: "does not look greyed out or something".
+   Native scrollbars have no standard disabled state to opt into, so this recolors it by hand
+   with the muted/border tokens (never the default track/thumb colors) whenever `.view-locked`
+   is present -- Firefox via `scrollbar-color`, Chrome/Safari via the `::-webkit-scrollbar-*`
+   pseudo-elements (only styling the thumb/track colors, not `::-webkit-scrollbar` itself, so
+   the scrollbar's actual size stays whatever the browser default already is). */
+.detail-scroll.view-locked { scrollbar-color: var(--color-border) transparent; }
+.detail-scroll.view-locked::-webkit-scrollbar-thumb { background: var(--color-border); }
+.detail-scroll.view-locked::-webkit-scrollbar-track { background: transparent; }
 .detail-oscillogram-wrap { position: relative; display: flex; }
 .detail-spectrogram-tile, .detail-oscillogram-tile { display: block; }
 .detail-axis-tick {

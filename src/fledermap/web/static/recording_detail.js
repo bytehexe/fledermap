@@ -26,13 +26,15 @@ document.addEventListener("DOMContentLoaded", () => {
   const readout = document.getElementById("crosshair-readout");
   const audio = document.getElementById("detail-audio");
   const audioControlsEl = document.getElementById("detail-audio-controls");
-  // `getSeekFloorS` is read lazily (only when the button is actually
-  // clicked), so it's safe to reference `lockedStartS` here even though
-  // that `let` isn't declared until further down this same function --
-  // by the time a click can happen, DOMContentLoaded has finished running
-  // and `lockedStartS` is initialized.
+  // `getSeekFloorS`/`getSeekCeilingS` are read lazily (only when a button is
+  // actually clicked), so it's safe to reference `viewLocked`/`lockedStartS`
+  // (a `let`) and `currentViewEndTimeS` (a hoisted function declaration)
+  // here even though neither is declared until further down this same
+  // function -- by the time a click can happen, DOMContentLoaded has
+  // finished running and both are ready.
   const audioControls = initAudioControls(audioControlsEl, audio, {
     getSeekFloorS: () => (viewLocked && lockedStartS !== null ? lockedStartS : 0),
+    getSeekCeilingS: () => (viewLocked ? currentViewEndTimeS() : null),
   });
   const scrollEl = document.getElementById("detail-scroll");
   const timeAxis = document.getElementById("detail-axis-time");
@@ -557,20 +559,35 @@ document.addEventListener("DOMContentLoaded", () => {
   audio.addEventListener("timeupdate", () => {
     const spectrogramTimeS = audio.currentTime / audioControls.getTimeExpansionFactor();
 
-    // Checked before the auto-follow scroll below, using whatever the view currently shows
-    // (see the view-lock section above for why this is live rather than a stored value) --
-    // stops playback the instant it plays past the locked view's right edge.
-    if (viewLocked && spectrogramTimeS >= currentViewEndTimeS()) {
-      audio.pause();
-      return;
-    }
+    // Checked before the cursor is drawn, using whatever the view currently shows (see the
+    // view-lock section above for why this is live rather than a stored value) -- stops
+    // playback the instant it plays past the locked view's right edge.
+    //
+    // `displayTimeS` clamps the DRAWN position to that edge on this exact tick, rather than
+    // drawing the raw (past-the-edge) `spectrogramTimeS` or skipping the draw outright. Skipping
+    // it (an earlier version of this code did, via an early `return` here before ever reaching
+    // the cursor-drawing lines below) left the cursor visually frozen at wherever the PREVIOUS
+    // tick had drawn it -- up to one `timeupdate` interval's worth of playback short of the true
+    // edge, which on a narrow locked view can be a large fraction of what's even on screen
+    // (Janna, 2026-09-04, live use: "playback ... visually seems to stop waaay before the end of
+    // the current view"). Clamping instead means the very last frame drawn is always the edge
+    // itself, matching where playback actually stopped.
+    const locked = viewLocked;
+    const viewEndS = locked ? currentViewEndTimeS() : null;
+    const pastEdge = locked && viewEndS !== null && spectrogramTimeS >= viewEndS;
+    const displayTimeS = pastEdge ? viewEndS : spectrogramTimeS;
 
     // `xPx` is in `wrap`'s local/unzoomed coordinate space (pxPerMs is a native, unscaled
     // constant) -- correct as-is for positioning `cursor` (a descendant of `wrap`, so `wrap`'s
     // own `zoom` re-scales it visually automatically).
-    const xPx = spectrogramTimeS * 1000 * pxPerMs;
+    const xPx = displayTimeS * 1000 * pxPerMs;
     cursor.style.left = `${xPx}px`;
     cursor.hidden = false;
+
+    if (pastEdge) {
+      audio.pause();
+      return;
+    }
 
     // `scrollLeft`/`clientWidth` operate on `.detail-scroll`'s VISUAL (post-zoom)
     // scrollable area, so the comparison/target needs the cursor's visual position too.
