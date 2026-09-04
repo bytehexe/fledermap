@@ -37,6 +37,7 @@ from fledermap.services.ingest import (
     IncompleteScanError,
     MassDisappearanceError,
     commit_scan,
+    reresolve_unmapped_identifications,
     scan_all_roots,
     sweep_missing,
 )
@@ -243,6 +244,7 @@ def run_ingest_cycle(context: procrastinate.JobContext, timestamp: int) -> None:
 
     with OrmSession(engine) as session:
         seed_taxonomy(session)
+        reconnected = reresolve_unmapped_identifications(session)
         session.commit()
 
         scanned, seen, skipped, incomplete_skips = scan_all_roots(
@@ -260,7 +262,7 @@ def run_ingest_cycle(context: procrastinate.JobContext, timestamp: int) -> None:
             f"replaced {report.replaced} duplicates {report.duplicates} "
             f"skipped {skipped} identifications added "
             f"{report.identifications_added} superseded "
-            f"{report.identifications_superseded}"
+            f"{report.identifications_superseded} reconnected {reconnected}"
         )
 
         # A refused sweep (spec §10 decision 2) must NOT skip derive: it's

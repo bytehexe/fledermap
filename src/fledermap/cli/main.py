@@ -35,6 +35,7 @@ from fledermap.services.ingest import (
     IncompleteScanError,
     MassDisappearanceError,
     commit_scan,
+    reresolve_unmapped_identifications,
     scan_all_roots,
     sweep_missing,
 )
@@ -200,6 +201,7 @@ def ingest(ctx: click.Context, sweep: bool) -> None:
 
     with OrmSession(engine) as session:
         seed_taxonomy(session)
+        reresolve_unmapped_identifications(session)
         session.commit()
 
         scanned, seen, skipped, incomplete_skips = scan_all_roots(

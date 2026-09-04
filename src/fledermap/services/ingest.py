@@ -233,6 +233,42 @@ def _apply_identifications(
     return changed
 
 
+def reresolve_unmapped_identifications(session: OrmSession) -> int:
+    """Re-resolve identifications still unmapped against the current taxon
+    code table.
+
+    `_apply_identifications` above only ever resolves a claim's `taxon_id`
+    once, at the moment its `Identification` row is first created --
+    `if key in existing: continue` skips every claim already on file, taxon
+    resolution included. So a species code added to the bundled taxa YAML
+    (taxa_eu.yaml/taxa_na.yaml) *after* a recording was already ingested does
+    not retroactively reconnect it; the row keeps `taxon_id=None` forever
+    unless something goes back and re-tries the lookup. This is that: call it
+    after `seed_taxonomy` on every ingest cycle. Idempotent and cheap --
+    it's only ever a handful of rows in the steady state (an unmapped label
+    is the rare case, spec section 5), and a row that still doesn't resolve
+    is left untouched.
+
+    Returns the number of identifications reconnected.
+    """
+    unmapped = session.scalars(
+        select(Identification).where(
+            Identification.taxon_id.is_(None),
+            Identification.raw_label.is_not(None),
+            Identification.superseded_at.is_(None),
+        ),
+    ).all()
+    reconnected = 0
+    for ident in unmapped:
+        if ident.raw_label is None:
+            continue
+        taxon = resolve_code(session, _code_source(ident.source), ident.raw_label)
+        if taxon is not None:
+            ident.taxon_id = taxon.id
+            reconnected += 1
+    return reconnected
+
+
 def _position_changed(recording: Recording, m: RecordingMetadata) -> bool:
     # Keep-last-known-position rule: an incoming `None` position (metadata that
     # failed to parse, or a source that never carries one) is reported as

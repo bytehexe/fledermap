@@ -19,8 +19,13 @@ from fledermap.domain.metadata import (
 )
 from fledermap.ingest.merge import merge_metadata
 from fledermap.ingest.wamd import parse_wamd
-from fledermap.services.ingest import _EMT_SOURCES, commit_scan, scan_all_roots
-from fledermap.store.models import Identification, Recording
+from fledermap.services.ingest import (
+    _EMT_SOURCES,
+    commit_scan,
+    reresolve_unmapped_identifications,
+    scan_all_roots,
+)
+from fledermap.store.models import Identification, Recording, Taxon, TaxonCode
 from fledermap.store.seed import seed_taxonomy
 from tests.fixtures import build_wav, fmt_payload, wamd_payload
 
@@ -424,6 +429,47 @@ def test_unmapped_label_is_stored_and_reported(engine: Engine) -> None:
         assert ident.taxon_id is None
         assert ident.raw_label == "ZZZZZZ"
         assert "ZZZZZZ" in report.unmapped_labels
+
+
+def test_reresolve_reconnects_a_previously_unmapped_label(engine: Engine) -> None:
+    """A species code added to the bundled taxa YAML after a recording was
+    already ingested must retroactively reconnect it -- `_apply_identifications`
+    only ever resolves `taxon_id` once, at row creation, so without this an
+    unmapped identification stays unmapped forever even once its code is
+    mapped (2026-09-04 discussion, prompted by the taxa_eu.yaml/taxa_na.yaml
+    coverage expansion)."""
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        commit_scan(session, [(_scanned(label="ZZZZZZ"), 0)], archive_roots=(ROOT,))
+        session.commit()
+
+        ident = session.scalars(select(Identification)).one()
+        assert ident.taxon_id is None
+
+        # Simulate "ZZZZZZ" being added to the taxonomy later.
+        taxon = Taxon(rank="species", scientific_name="Testus zzzensis")
+        session.add(taxon)
+        session.flush()
+        session.add(TaxonCode(source="emt", code="ZZZZZZ", taxon_id=taxon.id))
+        session.commit()
+
+        reconnected = reresolve_unmapped_identifications(session)
+        session.commit()
+
+        assert reconnected == 1
+        session.refresh(ident)
+        assert ident.taxon_id == taxon.id
+
+
+def test_reresolve_leaves_a_still_unmapped_label_untouched(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        commit_scan(session, [(_scanned(label="ZZZZZZ"), 0)], archive_roots=(ROOT,))
+        session.commit()
+
+        assert reresolve_unmapped_identifications(session) == 0
+        ident = session.scalars(select(Identification)).one()
+        assert ident.taxon_id is None
 
 
 def test_geometry_is_written_when_position_present(engine: Engine) -> None:
