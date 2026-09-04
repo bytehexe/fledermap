@@ -537,6 +537,15 @@ button:disabled { cursor: default; opacity: 0.5; }
   flex-shrink: 0;
   background: var(--color-bg);
   z-index: 1;
+  /* Purely a label column -- no click/drag handler of its own -- but being sticky at the
+     LEFT edge means it sits directly on top of the spectrogram/oscillogram there whenever the
+     view is scrolled near time 0 (always true on load, and again whenever a user scrolls back
+     toward the start after playback reaches the end). Left unset, that ~56px-wide strip
+     silently swallowed every click intended for the content underneath -- confirmed live
+     2026-09-04: the Default tool's click-to-play just did nothing there, which is what read as
+     "click to play stops working" once someone naturally ended up back near the start. `wrap`'s
+     own mousedown/mousemove listeners still receive the event once it passes through. */
+  pointer-events: none;
 }
 .detail-graphs { display: flex; flex-direction: column; }
 .detail-axis-time { position: relative; height: 1.2rem; }
@@ -551,6 +560,25 @@ button:disabled { cursor: default; opacity: 0.5; }
   color: var(--color-bg);
   border-color: var(--color-accent);
 }
+/* Same active-state look as `.tool-button[aria-pressed="true"]` -- not the
+   same class, since Lock is an independent toggle (design decision
+   2026-09-04), not a member of the Default/Ruler exclusive-tool group, and
+   sharing the selector would make it visually indistinguishable from a
+   selected tool. */
+#view-lock-toggle[aria-pressed="true"] {
+  background: var(--color-accent);
+  color: var(--color-bg);
+  border-color: var(--color-accent);
+}
+/* `overflow-x: hidden` (not just JS reverting a drifted scrollLeft) is the
+   actual prevention mechanism (Janna, 2026-09-04: "prevent where possible,
+   not just revert") -- it blocks wheel/scrollbar-drag/keyboard scrolling at
+   the browser level entirely, before any scroll ever happens, rather than
+   detecting and correcting one after the fact. `scrollLeft` can still be
+   set programmatically on an overflow:hidden element (recording_detail.js
+   relies on this to keep the locked view's left edge correctly positioned
+   across a window resize), only user-driven scroll input is blocked. */
+.detail-scroll.view-locked { overflow-x: hidden; }
 .detail-oscillogram-wrap { position: relative; display: flex; }
 .detail-spectrogram-tile, .detail-oscillogram-tile { display: block; }
 .detail-axis-tick {

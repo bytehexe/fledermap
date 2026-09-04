@@ -26,7 +26,14 @@ document.addEventListener("DOMContentLoaded", () => {
   const readout = document.getElementById("crosshair-readout");
   const audio = document.getElementById("detail-audio");
   const audioControlsEl = document.getElementById("detail-audio-controls");
-  const audioControls = initAudioControls(audioControlsEl, audio);
+  // `getSeekFloorS` is read lazily (only when the button is actually
+  // clicked), so it's safe to reference `lockedStartS` here even though
+  // that `let` isn't declared until further down this same function --
+  // by the time a click can happen, DOMContentLoaded has finished running
+  // and `lockedStartS` is initialized.
+  const audioControls = initAudioControls(audioControlsEl, audio, {
+    getSeekFloorS: () => (viewLocked && lockedStartS !== null ? lockedStartS : 0),
+  });
   const scrollEl = document.getElementById("detail-scroll");
   const timeAxis = document.getElementById("detail-axis-time");
   const freqAxis = document.getElementById("detail-axis-freq");
@@ -246,10 +253,51 @@ document.addEventListener("DOMContentLoaded", () => {
   const canBuildTimeAxis = timeAxis && !Number.isNaN(durationS) && !Number.isNaN(pxPerMs);
   const canBuildFreqAxis = freqAxis && !Number.isNaN(maxFreqKhz) && !Number.isNaN(pxPerKhz);
 
+  // View lock (Janna, 2026-09-04: "a tool that locks the current field of view: no scrolling
+  // any more; also limits playback to that field of view -- stops playing at the end of the
+  // view"). An independent toggle, not a third exclusive tool alongside Default/Ruler -- both
+  // stay usable while locked (design decision 2026-09-04), only scrolling and the playback
+  // boundary are affected.
+  //
+  // The locked LEFT edge is stored as an absolute spectrogram TIME (`lockedStartS`), not a raw
+  // scrollLeft pixel value -- `currentScale` (the vertical shrink-to-fit zoom `fitDetailHeight`
+  // computes) can change on a window resize, and scrollLeft is in that VISUAL, post-zoom pixel
+  // space, so a fixed pixel value would silently point at a different TIME after a resize
+  // changes the zoom. Storing the time and re-deriving scrollLeft from it (via whatever
+  // `currentScale` currently is) after every `relayout()` keeps the locked left edge pinned to
+  // the same real moment in the recording regardless of resize.
+  //
+  // The RIGHT edge deliberately has no stored counterpart -- "stops playing at the end of the
+  // view" is checked live, against whatever `scrollLeft + clientWidth` currently shows (see the
+  // `timeupdate` handler below), not a snapshot taken when the lock was engaged. A resize can
+  // change how much time fits in the viewport at a given zoom; recomputing live means the
+  // playback boundary always matches what's actually on screen at that instant, never a stale
+  // line from before the resize.
+  let viewLocked = false;
+  let lockedStartS = null;
+
+  function nativeXPxToTimeS(nativeXPx) {
+    return nativeXPx / pxPerMs / 1000;
+  }
+
+  // Re-derives `scrollEl.scrollLeft` from `lockedStartS` and the CURRENT `currentScale` --
+  // `scrollLeft` still works programmatically even though `.view-locked`'s `overflow-x: hidden`
+  // (app.css) blocks every USER-driven way of changing it (wheel, scrollbar drag, keyboard).
+  function applyLockedScrollPosition() {
+    if (!viewLocked || lockedStartS === null) return;
+    scrollEl.scrollLeft = lockedStartS * 1000 * pxPerMs * currentScale;
+  }
+
+  function currentViewEndTimeS() {
+    const visibleRightNativePx = (scrollEl.scrollLeft + scrollEl.clientWidth) / currentScale;
+    return nativeXPxToTimeS(visibleRightNativePx);
+  }
+
   function relayout() {
     fitDetailHeight();
     if (canBuildTimeAxis) buildTimeAxis();
     if (canBuildFreqAxis) buildFreqAxis();
+    applyLockedScrollPosition();
   }
 
   relayout();
@@ -351,16 +399,52 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   setActiveTool("default");
 
+  const viewLockToggle = document.getElementById("view-lock-toggle");
+  viewLockToggle.addEventListener("click", () => {
+    viewLocked = !viewLocked;
+    viewLockToggle.setAttribute("aria-pressed", viewLocked ? "true" : "false");
+    viewLockToggle.textContent = viewLocked ? "🔒 Lock view" : "🔓 Lock view";
+    scrollEl.classList.toggle("view-locked", viewLocked);
+    if (viewLocked) {
+      lockedStartS = nativeXPxToTimeS(scrollEl.scrollLeft / currentScale);
+    } else {
+      lockedStartS = null;
+    }
+  });
+
+  // Defense-in-depth (Janna, 2026-09-04: "prevent where possible, ... or do both") -- the real
+  // prevention is `.view-locked`'s `overflow-x: hidden` (app.css) blocking user-driven scroll
+  // input at the browser level before it ever happens; this is a reactive fallback that
+  // corrects any drift that mechanism doesn't catch (e.g. some future interaction path that
+  // changes `scrollLeft` directly rather than through native scroll input).
+  scrollEl.addEventListener("scroll", () => {
+    if (viewLocked) applyLockedScrollPosition();
+  });
+
   const tools = {
     default: {
       onClick(event) {
         const rect = wrap.getBoundingClientRect();
         const xPx = (event.clientX - rect.left) / currentScale;
         const spectrogramTimeS = xPx / pxPerMs / 1000;
-        audio.currentTime = spectrogramTimeS * audioControls.getTimeExpansionFactor();
+        let targetTimeS = spectrogramTimeS * audioControls.getTimeExpansionFactor();
+        // Clamp below `audio.duration`, not just non-negative: a click at or past the
+        // spectrogram's own right edge -- including the cursor's OWN resting position once
+        // playback has run to the end, since the cursor sits within a couple of native px of
+        // that edge (Janna, 2026-09-04, live use) -- resolves to a `currentTime` at or beyond
+        // `duration`. Assigning that lands `play()` on the "ended playback" condition, and
+        // per the HTMLMediaElement spec that's a NO-OP (stays paused, currentTime unchanged)
+        // rather than an error, so nothing here would otherwise reveal the click did nothing.
+        if (!Number.isNaN(audio.duration) && targetTimeS >= audio.duration) {
+          targetTimeS = Math.max(0, audio.duration - 0.01);
+        }
+        audio.currentTime = targetTimeS;
         audio.play();
       },
       onDrag(event, dragStart) {
+        // `overflow-x: hidden` (app.css) only blocks NATIVE scroll input -- this sets
+        // `scrollLeft` directly via JS, so it needs its own guard while the view is locked.
+        if (viewLocked) return;
         scrollEl.scrollLeft = dragStart.scrollLeft - (event.clientX - dragStart.x);
       },
       onDragEnd() {},
@@ -458,6 +542,15 @@ document.addEventListener("DOMContentLoaded", () => {
   // the cursor goes off-screen -- no continuous auto-follow by default.
   audio.addEventListener("timeupdate", () => {
     const spectrogramTimeS = audio.currentTime / audioControls.getTimeExpansionFactor();
+
+    // Checked before the auto-follow scroll below, using whatever the view currently shows
+    // (see the view-lock section above for why this is live rather than a stored value) --
+    // stops playback the instant it plays past the locked view's right edge.
+    if (viewLocked && spectrogramTimeS >= currentViewEndTimeS()) {
+      audio.pause();
+      return;
+    }
+
     // `xPx` is in `wrap`'s local/unzoomed coordinate space (pxPerMs is a native, unscaled
     // constant) -- correct as-is for positioning `cursor` (a descendant of `wrap`, so `wrap`'s
     // own `zoom` re-scales it visually automatically).
@@ -470,7 +563,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const visualXPx = xPx * currentScale;
     const visibleLeft = scrollEl.scrollLeft;
     const visibleRight = visibleLeft + scrollEl.clientWidth;
-    if (visualXPx < visibleLeft || visualXPx > visibleRight) {
+    // Locked: never auto-scroll to follow the cursor -- that would defeat "no scrolling any
+    // more". The playback-stop check above already prevents the cursor from ever needing to
+    // scroll into view in the first place (it can't play past the visible right edge).
+    if (!viewLocked && (visualXPx < visibleLeft || visualXPx > visibleRight)) {
       scrollEl.scrollLeft = Math.max(0, visualXPx - scrollEl.clientWidth / 2);
     }
   });

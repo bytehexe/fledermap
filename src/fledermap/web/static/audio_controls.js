@@ -26,7 +26,15 @@ const MODE_STORAGE_KEY = "fledermap-audio-mode";
 // instead of mixing straight to a silent near-zero beat at the peak itself.
 const AUTO_TUNE_OFFSET_HZ = 2000;
 
-function initAudioControls(container, audioEl) {
+function initAudioControls(container, audioEl, options = {}) {
+  // Optional hook so a page with its own View Lock concept (the recording
+  // detail page's `recording_detail.js`) can make rewind seek to the
+  // locked view's start instead of the file's absolute start (Janna,
+  // 2026-09-04: "in this mode the rewind/back-to-start button sets the
+  // cursor to the beginning of the view, not the file"). Returns a
+  // real-time (not TE-expanded) offset in seconds; the drawer panel has no
+  // such concept, so it never passes this and rewind stays file-absolute.
+  const getSeekFloorS = options.getSeekFloorS || (() => 0);
   const previewUrl = container.dataset.previewUrl;
   const hetPreviewUrlTemplate = container.dataset.hetPreviewUrlTemplate;
   const peakFrequencyUrl = container.dataset.peakFrequencyUrl;
@@ -79,10 +87,38 @@ function initAudioControls(container, audioEl) {
     }
   }
 
-  function setSource(url) {
+  function effectiveFactor() {
+    return mode === "expanded" ? timeExpansionFactor : 1;
+  }
+
+  // Real-time (not TE-expanded) position, on whichever clock `mode`
+  // currently uses -- call this BEFORE changing `mode`, since mode governs
+  // which factor undoes the expansion on the CURRENT `audioEl.currentTime`.
+  function currentRealTimeS() {
+    return audioEl.currentTime / effectiveFactor();
+  }
+
+  // `restoreRealTimeS`, when given, re-applies that real-time position (in
+  // the NEW mode's clock, since `mode` has already been updated by the
+  // caller) once the new source has metadata to seek against -- switching
+  // source/frequency previously always reset to 0, silently dragging the
+  // page's cursor and scrolled-into-view position back to the start on
+  // every mode or frequency change (Janna, 2026-09-04: "must keep the
+  // cursor and ... the current view"). Undefined on initial page load,
+  // where `audioEl.currentTime` is already 0 and there's nothing to restore.
+  function setSource(url, restoreRealTimeS) {
     audioEl.pause();
     audioEl.src = url;
     syncToggleIcon();
+    if (restoreRealTimeS !== undefined) {
+      audioEl.addEventListener(
+        "loadedmetadata",
+        () => {
+          audioEl.currentTime = restoreRealTimeS * effectiveFactor();
+        },
+        { once: true },
+      );
+    }
   }
 
   function hetUrlForFreq(freqKhz) {
@@ -90,15 +126,17 @@ function initAudioControls(container, audioEl) {
   }
 
   function switchToTe() {
+    const restoreRealTimeS = currentRealTimeS();
     mode = "expanded";
     localStorage.setItem(MODE_STORAGE_KEY, mode);
     teButton.setAttribute("aria-pressed", "true");
     hetButton.setAttribute("aria-pressed", "false");
     freqControl.hidden = true;
-    setSource(previewUrl);
+    setSource(previewUrl, restoreRealTimeS);
   }
 
   function switchToHet() {
+    const restoreRealTimeS = currentRealTimeS();
     mode = "het";
     localStorage.setItem(MODE_STORAGE_KEY, mode);
     teButton.setAttribute("aria-pressed", "false");
@@ -107,7 +145,7 @@ function initAudioControls(container, audioEl) {
     fetchPeakFrequency().then((freqHz) => {
       if (mode !== "het") return;
       freqInput.value = Math.round((freqHz + AUTO_TUNE_OFFSET_HZ) / 1000);
-      setSource(hetUrlForFreq(freqInput.value));
+      setSource(hetUrlForFreq(freqInput.value), restoreRealTimeS);
     });
   }
 
@@ -124,30 +162,51 @@ function initAudioControls(container, audioEl) {
     clearTimeout(freqDebounceTimer);
     freqDebounceTimer = setTimeout(() => {
       if (mode !== "het") return;
-      setSource(hetUrlForFreq(freqInput.value));
+      setSource(hetUrlForFreq(freqInput.value), currentRealTimeS());
     }, FREQ_DEBOUNCE_MS);
   });
 
   freqReset.addEventListener("click", () => {
+    const restoreRealTimeS = currentRealTimeS();
     fetchPeakFrequency().then((freqHz) => {
       if (mode !== "het") return;
       freqInput.value = Math.round((freqHz + AUTO_TUNE_OFFSET_HZ) / 1000);
-      setSource(hetUrlForFreq(freqInput.value));
+      setSource(hetUrlForFreq(freqInput.value), restoreRealTimeS);
     });
   });
 
   rewindButton.addEventListener("click", () => {
-    // Doesn't change play/pause state -- restarts from 0 mid-playback if
-    // already playing, stays paused at 0 otherwise. Clicking exactly the
+    // Doesn't change play/pause state -- restarts from the floor mid-playback if
+    // already playing, stays paused there otherwise. Clicking exactly the
     // spectrogram's leftmost pixel to seek to the very start is a fiddly,
     // thin target (design spec section 3), worse on the drawer's smaller,
     // compressed scale than the detail page's.
-    audioEl.currentTime = 0;
+    //
+    // The floor is normally 0 (file start); a locked view (see
+    // `getSeekFloorS` above) moves it to the view's own start instead. It's
+    // real-time seconds, so it needs the same TE-expansion conversion the
+    // spectrogram-click seek in recording_detail.js already applies.
+    audioEl.currentTime = getSeekFloorS() * effectiveFactor();
   });
 
   toggleButton.addEventListener("click", () => {
-    if (audioEl.paused) audioEl.play();
-    else audioEl.pause();
+    if (audioEl.paused) {
+      // The HTMLMediaElement spec resets `currentTime` to 0 as part of
+      // `play()` itself whenever `ended` is true (Janna, 2026-09-04: "once
+      // the cursor reaches the end of the file, click to play ... always
+      // plays from the start") -- observed live: playing a recording to
+      // its natural end, then clicking ▶ again, silently jumped to 0
+      // instead of resuming (there's nothing to resume TO once truly
+      // ended, but jumping to absolute 0 ignores a locked view's floor).
+      // Seeking off the exact end position first -- to the same floor
+      // `getSeekFloorS` already defines for rewind -- clears `ended`
+      // before `play()` ever sees it, so this situation never reaches
+      // that reset.
+      if (audioEl.ended) audioEl.currentTime = getSeekFloorS() * effectiveFactor();
+      audioEl.play();
+    } else {
+      audioEl.pause();
+    }
   });
   ["play", "pause", "ended"].forEach((eventName) => {
     audioEl.addEventListener(eventName, syncToggleIcon);
@@ -160,6 +219,6 @@ function initAudioControls(container, audioEl) {
   }
 
   return {
-    getTimeExpansionFactor: () => (mode === "expanded" ? timeExpansionFactor : 1),
+    getTimeExpansionFactor: effectiveFactor,
   };
 }
