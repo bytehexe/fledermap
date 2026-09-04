@@ -172,19 +172,43 @@ def _serve_temp_render(
     suffix: str,
     mimetype: str,
 ) -> ResponseReturnValue:
-    """Renders to a throwaway temp file and streams the bytes back --
+    """Renders to a throwaway temp file and serves it via `send_file` --
     deliberately not `spectrogram_path`/`oscillogram_path`/`preview_path`
     under the media root: this route is not part of the cached-derived-media
-    system (design spec Non-goals), so nothing here is meant to persist."""
+    system (design spec Non-goals), so nothing here is meant to persist.
+
+    `send_file` (not a raw `flask.Response(data, ...)`, the previous approach
+    here) matters for more than convenience: it's what gives `_serve_derived`
+    above `Accept-Ranges`/`Range`-request support (`conditional=True`, Flask's
+    own default) for free. Without it, HET playback -- the only caller that
+    streams audio through this path -- broke real seeking: a raw `Response`
+    body always returns the full 200 content regardless of an incoming
+    `Range` header, and Chrome's `<audio>` element responds to a backward
+    seek issued mid-playback against a resource that never signals range
+    support by silently resetting `currentTime` to 0 instead of actually
+    seeking there (Janna, 2026-09-04, live use -- confirmed live: the TE
+    preview, served via `send_file` all along through `_serve_derived`, never
+    showed this with the exact same click sequence, and HET, the only
+    `_serve_temp_render` audio caller, always did). The temp file has to
+    still exist when `send_file` actually reads it to build a `Range`
+    response, so cleanup is deferred to `after_this_request` rather than the
+    `finally` block this replaced, which deleted the file before the
+    response was ever sent."""
     fd, tmp_name = tempfile.mkstemp(suffix=suffix)
     os.close(fd)
     tmp_path = Path(tmp_name)
     try:
         make(tmp_path)
-        data = tmp_path.read_bytes()
-    finally:
+    except Exception:
         tmp_path.unlink(missing_ok=True)
-    return flask.Response(data, mimetype=mimetype)
+        raise
+
+    @flask.after_this_request
+    def _cleanup(response: flask.Response) -> flask.Response:
+        tmp_path.unlink(missing_ok=True)
+        return response
+
+    return flask.send_file(tmp_path, mimetype=mimetype, conditional=True)
 
 
 @media_bp.get("/recordings/<audio_hash>/detail-spectrogram/<int:tile_index>.webp")

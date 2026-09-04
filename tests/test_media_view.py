@@ -625,6 +625,74 @@ def test_het_preview_renders_at_the_requested_frequency(
     assert len(response.data) > 0
 
 
+def test_het_preview_supports_range_requests(
+    engine: Engine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression test for the 2026-09-04 seek-resets-to-0 bug: a raw
+    `flask.Response(data, ...)` body (the previous implementation of
+    `_serve_temp_render`) always returns the full 200 content regardless of
+    an incoming `Range` header, which is why HET playback -- the only
+    `_serve_temp_render` audio caller -- couldn't seek backward mid-playback
+    in a real browser (confirmed live: the TE preview, served via
+    `send_file` all along, never showed this). `send_file`'s default
+    `conditional=True` is what fixes it -- assert the actual HTTP contract
+    that depends on, not just "some bytes came back" (which the un-fixed
+    raw-`Response` code also satisfied).
+
+    `render_heterodyne_preview` is faked out to write fixed bytes instead of
+    really invoking ffmpeg: the real Opus/Ogg encoder picks a random stream
+    serial number per encode (observed live -- two renders of the identical
+    input differ byte-for-byte in their container header), which would make
+    a byte-level Range/slice assertion flaky against real output for reasons
+    that have nothing to do with the Range-handling this test targets."""
+    import fledermap.web.views.media as media_view
+
+    fixed_bytes = b"OggS" + bytes(range(60))
+    monkeypatch.setattr(
+        media_view,
+        "render_heterodyne_preview",
+        lambda wav_path, out_path, *, tune_freq_hz: out_path.write_bytes(fixed_bytes),
+    )
+
+    archive_root = tmp_path / "archive"
+    archive_root.mkdir()
+    _write_wav(archive_root / "a.wav", duration_s=0.05)
+
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="h1" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+    app = create_app(
+        engine,
+        tmp_path / "static",
+        tmp_path / "media",
+        archive_roots=(archive_root,),
+    )
+    client = app.test_client()
+    full = client.get(f"/recordings/{'h1' * 32}/het-preview.opus?freq_hz=40000")
+    assert full.headers.get("Accept-Ranges") == "bytes"
+    assert full.data == fixed_bytes
+
+    ranged = client.get(
+        f"/recordings/{'h1' * 32}/het-preview.opus?freq_hz=40000",
+        headers={"Range": "bytes=2-"},
+    )
+    assert ranged.status_code == 206
+    assert (
+        ranged.headers.get("Content-Range")
+        == f"bytes 2-{len(fixed_bytes) - 1}/{len(fixed_bytes)}"
+    )
+    assert ranged.data == fixed_bytes[2:]
+
+
 def test_het_preview_400s_for_a_missing_freq_hz(
     engine: Engine,
     tmp_path: Path,
