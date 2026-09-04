@@ -19,12 +19,12 @@
         <label for="taxon-select">Taxon</label>
         <select name="taxon" id="taxon-select" x-model="taxon">
           <option value="">Any</option>
-          {% if has_unmapped_species %}
-          <option value="unmapped">Unmapped species</option>
-          {% endif %}
           {% for taxon in taxa %}
           <option value="{{ taxon.id }}">{{ taxon.scientific_name }}{% if taxon.common_name_en %} — {{ taxon.common_name_en }}{% endif %}</option>
           {% endfor %}
+          {% if has_unmapped_species %}
+          <option value="unmapped">Unmapped species</option>
+          {% endif %}
         </select>
         <label for="taxon-exclude" title="Show everything except the selected taxon">
           <input type="checkbox" id="taxon-exclude" name="taxon_exclude" value="1" x-model="taxon_exclude" :disabled="!taxon">
