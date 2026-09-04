@@ -3,8 +3,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from fledermap.domain.codes import IdSource, Verdict
-from fledermap.services.current_best import current_best_identification
-from fledermap.store.models import Identification, Recording
+from fledermap.services.current_best import (
+    current_best_identification,
+    recording_headline,
+)
+from fledermap.store.models import Identification, Recording, Taxon
 
 
 def _recording(*identifications: Identification) -> Recording:
@@ -108,3 +111,41 @@ def test_two_non_superseded_claims_from_the_same_source_break_on_recency() -> No
 
     assert best is not None
     assert best.taxon_id == 2
+
+
+def test_recording_headline_prefers_the_resolved_taxon() -> None:
+    taxon = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
+    best = _ident(IdSource.EMT_GUANO, taxon_id=1)
+
+    assert recording_headline(taxon, best) == "Pipistrellus pipistrellus"
+
+
+def test_recording_headline_is_unidentified_with_no_best() -> None:
+    assert recording_headline(None, None) == "unidentified"
+
+
+def test_recording_headline_shows_the_raw_code_for_an_unregistered_species() -> None:
+    """Regression test: a real SPECIES verdict whose code never mapped to a Taxon used to
+    fall through to the literal, useless string "species" (`best.verdict.value`) -- the
+    actual detector code was sitting right there in `raw_label`, unused."""
+    best = _ident(IdSource.EMT_FILENAME, taxon_id=None, verdict=Verdict.SPECIES)
+    best.raw_label = "EPTNIL"
+
+    assert recording_headline(None, best) == "EPTNIL (unregistered species)"
+
+
+def test_recording_headline_falls_back_to_the_verdict_value_with_no_raw_label() -> None:
+    """Defensive fallback: a SPECIES verdict with neither a taxon nor a raw_label shouldn't
+    happen in practice (every SPECIES claim carries the code it was resolved -- or failed
+    to resolve -- from), but must not crash or show an empty/None-ish string if it did."""
+    best = _ident(IdSource.EMT_FILENAME, taxon_id=None, verdict=Verdict.SPECIES)
+
+    assert recording_headline(None, best) == "species"
+
+
+def test_recording_headline_shows_no_id_and_noise_verdicts_directly() -> None:
+    no_id = _ident(IdSource.EMT_FILENAME, taxon_id=None, verdict=Verdict.NO_ID)
+    noise = _ident(IdSource.EMT_FILENAME, taxon_id=None, verdict=Verdict.NOISE)
+
+    assert recording_headline(None, no_id) == "no_id"
+    assert recording_headline(None, noise) == "noise"

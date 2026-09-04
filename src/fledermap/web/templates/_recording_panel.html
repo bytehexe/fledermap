@@ -3,7 +3,7 @@
 <p>Recording not found — it may have been removed, or no longer matches the active filters.</p>
 {% else %}
 <div class="panel-header">
-  <h2>{{ taxon.scientific_name if taxon else (best.verdict.value if best else "unidentified") }}</h2>
+  <h2>{{ recording_headline(taxon, best) }}</h2>
   <a class="details-link" href="/recordings/{{ recording.audio_hash }}">Details</a>
   <button
     type="button"

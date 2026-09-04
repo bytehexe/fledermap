@@ -70,7 +70,7 @@
       {% for recording, best, taxon in recordings_with_id %}
       <li>
         {{ recording.recorded_at.strftime('%Y-%m-%d %H:%M') }} —
-        {{ taxon.scientific_name if taxon else (best.verdict.value if best else "unidentified") }}
+        {{ recording_headline(taxon, best) }}
       </li>
       {% endfor %}
     </ul>

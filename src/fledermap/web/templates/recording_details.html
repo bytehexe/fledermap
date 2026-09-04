@@ -12,7 +12,7 @@
   <main class="main-content" id="recording-detail">
     <a href="{{ back_url }}">← {{ back_label }}</a>
     <div class="detail-header">
-      <h1>{{ taxon.scientific_name if taxon else (best.verdict.value if best else "unidentified") }}</h1>
+      <h1>{{ recording_headline(taxon, best) }}</h1>
       {% include "_detail_favourite_button.html" %}
     </div>
     <p class="detail-meta">

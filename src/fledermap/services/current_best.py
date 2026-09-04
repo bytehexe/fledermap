@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from fledermap.domain.codes import IdSource
-from fledermap.store.models import Identification, Recording
+from fledermap.domain.codes import IdSource, Verdict
+from fledermap.store.models import Identification, Recording, Taxon
 
 # The configured order (design spec P4-2). BATDETECT2/BATTYBIRDNET/KALEIDOSCOPE
 # are deliberately absent: no source in this codebase produces them yet (v2),
@@ -38,3 +38,26 @@ def current_best_identification(recording: Recording) -> Identification | None:
         if matches:
             return max(matches, key=lambda i: i.first_seen_at or _EPOCH)
     return None
+
+
+def recording_headline(taxon: Taxon | None, best: Identification | None) -> str:
+    """The species/verdict label every recording headline renders (recording_details.html,
+    _recording_panel.html, session_detail.html each had their own copy of the same ternary
+    -- centralized here so the fix below only has to happen once).
+
+    - A resolved `taxon` always wins: its scientific name.
+    - No identification at all: "unidentified".
+    - `NO_ID`/`NOISE` verdicts show their own value (`best.verdict.value`) -- already a
+      meaningful label on its own, unaffected by the fix below.
+    - A real `SPECIES` verdict whose code never mapped to a `Taxon` (spec section 5: an
+      unmapped label is not a failure, it resolves to `None` and lands in the review queue
+      by design) previously fell through to the same `best.verdict.value` branch, showing
+      the literal, useless string "species" -- the actual detector code was sitting right
+      there in `raw_label`, unused. Shown instead as "<code> (unregistered species)"."""
+    if taxon is not None:
+        return taxon.scientific_name
+    if best is None:
+        return "unidentified"
+    if best.verdict == Verdict.SPECIES and best.raw_label:
+        return f"{best.raw_label} (unregistered species)"
+    return best.verdict.value
