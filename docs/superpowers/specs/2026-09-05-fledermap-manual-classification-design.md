@@ -463,13 +463,27 @@ prior state itself (§5) — it just POSTs the tag box's current contents every 
 service's supersede-then-insert is the safe way to apply that under concurrent access (matching
 `_apply_identifications`'s own key-based approach).
 
-`uq_identification_source_claim` (`recording_id, source, source_version, raw_label`) already
-permits this: multiple `MANUAL` rows per recording differ in `taxon_id`, which isn't part of that
-constraint, and `source_version`/`raw_label` are both `NULL` for every manual row (already true
-today) — `postgresql_nulls_not_distinct=True` was written for exactly this "manual annotations
-report no version" case, so it does *not* block multiple concurrent manual rows differing only in
-`taxon_id`. Confirmed by inspection; add a regression test asserting two manual `SPECIES` rows
-for the same recording insert cleanly (§6).
+**Correction, 2026-09-05 (found during Task 2 implementation, not by inspection as this section
+originally claimed):** the reasoning above is backwards. `uq_identification_source_claim`
+(`recording_id, source, source_version, raw_label`) does NOT already permit two `MANUAL` `SPECIES`
+rows on one recording differing only in `taxon_id` — `taxon_id` being absent from the constraint's
+column list is exactly why it does not help: uniqueness is enforced over the four listed columns
+only, and `source_version`/`raw_label` are both `NULL` for every manual row, and
+`postgresql_nulls_not_distinct=True` makes those NULLs count as *equal* rather than distinct. Two
+such rows therefore collide on `(recording_id, source, source_version, raw_label)` regardless of
+`taxon_id`, verified against a real `UniqueViolation`. The fix is a migration adding `taxon_id` to
+the constraint's column list (kept under the same `postgresql_nulls_not_distinct=True`, so two
+`MANUAL` `NO_ID`/`NOISE` claims — both `taxon_id IS NULL` — still collide as a singleton, preserving
+MC-3). Applied as part of Task 2 rather than deferred to this task's write path, since Task 2's own
+mandated multi-species tests already needed real `MANUAL` rows differing only by `taxon_id` to
+insert cleanly. Ratified: a single widened constraint across all sources, not per-source partial
+indexes — every automatic source's `_apply_identifications` always maps one `raw_label` to one
+`taxon_id` deterministically, so the widened constraint is provably inert for every source but
+`MANUAL`, and partial indexes would only add complexity with no caller ever reaching the case they'd
+otherwise still prevent. See `f3a1c9d2e4b7_add_taxon_id_to_identification_unique.py`. A regression
+test asserting two manual `SPECIES` rows for the same recording insert cleanly, and a second
+asserting two manual `NO_ID` rows still collide (MC-3), both belong next to this constraint change
+(§6).
 
 ### 5. UI: the classifier box
 
