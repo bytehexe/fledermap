@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from datetime import UTC, datetime
 from pathlib import Path
@@ -526,7 +527,125 @@ def test_manual_classification_route_sets_a_species_claim(
     )
 
     assert response.status_code == 200
-    assert b"Pipistrellus pipistrellus" in response.data
+    html = response.get_data(as_text=True)
+    # `taxon.scientific_name` alone is not a real assertion -- it also
+    # appears in every response's inlined taxon_search_index regardless of
+    # what's actually classified. Assert on the chip itself, which only
+    # exists in the #classifier-tags block when the taxon is selected.
+    assert f'data-taxon-id="{taxon_id}"' in html
+    assert "classifier-tags" in html
+
+
+def test_manual_classification_route_sets_no_id_with_no_chips_and_pressed_button(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        recording = Recording(
+            audio_hash="l" * 64,
+            path="l.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add(recording)
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().post(
+        f"/recordings/{'l' * 64}/manual-classification",
+        data={"verdict": "no_id"},
+    )
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert re.search(
+        r'data-verdict="no_id"[^>]*aria-pressed="true"',
+        html,
+        re.DOTALL,
+    )
+    tags_block = html.split('id="classifier-tags"')[1].split("</div>")[0]
+    assert "data-taxon-id" not in tags_block
+
+
+def test_manual_classification_route_reflects_only_manual_state_not_the_automatic_winner(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """Task 5 review finding: the classifier box must edit ONLY the
+    recording's own MANUAL claims, never an automatic classifier's winning
+    result -- an automatic SPECIES claim must not render as an editable
+    manual chip, and an automatic NOISE claim must not disable the search
+    input (there would be no way to enter a correction)."""
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Eptesicus serotinus")
+        session.add(taxon)
+        session.flush()
+        recording = Recording(
+            audio_hash="m" * 64,
+            path="m.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        recording.identifications = [
+            Identification(
+                source=IdSource.EMT_WAMD,
+                verdict=Verdict.SPECIES,
+                taxon_id=taxon.id,
+            ),
+        ]
+        session.add(recording)
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/recordings/{'m' * 64}")
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    # The automatic claim must not show up as a manual chip, and the search
+    # input must not be disabled (no manual NO_ID/NOISE is standing).
+    tags_block = html.split('id="classifier-tags"')[1].split("</div>")[0]
+    assert "Eptesicus serotinus" not in tags_block
+    search_tag = html.split('id="classifier-search"')[1].split(">")[0]
+    assert "disabled" not in search_tag
+
+
+def test_taxon_search_index_attribute_is_valid_json(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """Regression for a real bug: Jinja's `tojson` filter escapes `<`, `>`,
+    `&`, `'` for safe HTML embedding but NOT `"` -- inlining it into a
+    double-quoted HTML attribute lets the JSON's own `"` characters
+    terminate the attribute early, corrupting it. The attribute must be
+    single-quoted so `tojson`'s own `'` escaping keeps it intact; this test
+    parses the attribute back out of a real rendered page and confirms it
+    round-trips through `json.loads` with the taxon this test seeded."""
+    with OrmSession(engine) as session:
+        taxon = Taxon(
+            rank="species",
+            scientific_name="Nyctalus noctula",
+            common_name_en="Common Noctule",
+        )
+        session.add(taxon)
+        session.flush()
+        recording = Recording(
+            audio_hash="n" * 64,
+            path="n.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add(recording)
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/recordings/{'n' * 64}")
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    match = re.search(r"data-taxon-search-index='([^']*)'", html)
+    assert match is not None, (
+        "expected a single-quoted data-taxon-search-index attribute"
+    )
+
+    index = json.loads(match.group(1))
+    assert any(entry["scientific_name"] == "Nyctalus noctula" for entry in index)
 
 
 def test_manual_classification_route_rejects_inconsistent_input(

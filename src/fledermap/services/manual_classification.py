@@ -66,3 +66,35 @@ def set_manual_classification(
     # verdict is None: "clear" -- existing MANUAL rows already superseded
     # above, nothing new inserted.
     session.commit()
+
+
+def current_manual_state(recording: Recording) -> tuple[Verdict | None, frozenset[int]]:
+    """The classifier box's own displayed/edited state -- deliberately
+    independent of `current_best_identification`'s cross-source precedence
+    walk (Task 5 review finding, 2026-09-05). The box must reflect and edit
+    ONLY the recording's own non-superseded MANUAL claims:
+
+    - If it read `best` instead, an automatic classifier's winning SPECIES
+      claim would render as editable manual chips -- adding one more chip
+      would then resubmit the full chip set as new MANUAL claims, silently
+      converting an automatic identification into a manual one the user
+      never asked to make, and "Clear" would look broken (the chips just
+      come back from the still-there automatic claim).
+    - It would also let an always-active AUTOMATIC NOISE/NO_ID claim
+      disable the search input with no way to enter a correction --
+      defeating the core use case of overriding a wrong automatic call.
+
+    Returns `(None, frozenset())` when there is no standing manual claim at
+    all -- the same "no manual opinion" state `set_manual_classification`
+    produces for `verdict=None`.
+    """
+    manual_claims = [
+        i
+        for i in recording.identifications
+        if i.source == IdSource.MANUAL and i.superseded_at is None
+    ]
+    manual_verdict = manual_claims[0].verdict if manual_claims else None
+    manual_taxon_ids = frozenset(
+        i.taxon_id for i in manual_claims if i.taxon_id is not None
+    )
+    return manual_verdict, manual_taxon_ids

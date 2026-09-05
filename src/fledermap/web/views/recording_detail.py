@@ -16,6 +16,7 @@ from fledermap.services.current_best import (
     current_best_identification,
     identification_status,
 )
+from fledermap.services.manual_classification import current_manual_state
 from fledermap.services.recording_detail import (
     DETAIL_PX_PER_KHZ,
     DETAIL_PX_PER_MS,
@@ -108,20 +109,24 @@ def recording_details_page(audio_hash: str) -> flask.Response:
         taxon = None
         if best is not None and not best.is_multi and best.primary.taxon_id is not None:
             taxon = session.get(Taxon, best.primary.taxon_id)
-        current_taxa: list[Taxon] = []
-        if best is not None and best.taxon_ids:
-            current_taxa = list(
-                session.scalars(
-                    select(Taxon)
-                    .where(Taxon.id.in_(best.taxon_ids))
-                    .order_by(Taxon.scientific_name),
-                ).all(),
-            )
         identifications_with_status = [
             (ident, identification_status(ident, best))
             for ident in recording.identifications
         ]
         taxon_search_index = _taxon_search_index(session)
+
+        # The classifier box's own state -- deliberately NOT derived from
+        # `best` (see current_manual_state's docstring).
+        manual_verdict, manual_taxon_ids = current_manual_state(recording)
+        current_taxa: list[Taxon] = []
+        if manual_taxon_ids:
+            current_taxa = list(
+                session.scalars(
+                    select(Taxon)
+                    .where(Taxon.id.in_(manual_taxon_ids))
+                    .order_by(Taxon.scientific_name),
+                ).all(),
+            )
 
         site = session.get(Site, recording.site_id) if recording.site_id else None
         site_label = None
@@ -164,6 +169,7 @@ def recording_details_page(audio_hash: str) -> flask.Response:
             best=best,
             taxon=taxon,
             current_taxa=current_taxa,
+            manual_verdict=manual_verdict,
             taxon_search_index=taxon_search_index,
             identifications_with_status=identifications_with_status,
             site=site,

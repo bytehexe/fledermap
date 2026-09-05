@@ -16,7 +16,10 @@ from fledermap.media.spectrogram import (
     effective_max_freq_hz,
 )
 from fledermap.services.current_best import current_best_identification
-from fledermap.services.manual_classification import set_manual_classification
+from fledermap.services.manual_classification import (
+    current_manual_state,
+    set_manual_classification,
+)
 from fledermap.services.map_query import (
     filtered_recordings,
     has_unmapped_species,
@@ -209,11 +212,10 @@ def post_manual_classification(audio_hash: str) -> flask.Response:
         if recording is None:
             return flask.make_response(("Recording not found.", 404))
 
-        verdict_raw = flask.request.form.get("verdict")
-        verdict = Verdict(verdict_raw) if verdict_raw else None
-        taxon_ids = [int(v) for v in flask.request.form.getlist("taxon_ids") if v]
-
         try:
+            verdict_raw = flask.request.form.get("verdict")
+            verdict = Verdict(verdict_raw) if verdict_raw else None
+            taxon_ids = [int(v) for v in flask.request.form.getlist("taxon_ids") if v]
             set_manual_classification(
                 session,
                 recording,
@@ -223,13 +225,16 @@ def post_manual_classification(audio_hash: str) -> flask.Response:
         except ValueError as exc:
             return flask.make_response((str(exc), 400))
 
-        best = current_best_identification(recording)
+        # The classifier box's own state -- deliberately NOT `best`
+        # (current_best_identification's cross-source precedence result);
+        # see current_manual_state's docstring for why.
+        manual_verdict, manual_taxon_ids = current_manual_state(recording)
         current_taxa = []
-        if best is not None and best.taxon_ids:
+        if manual_taxon_ids:
             current_taxa = list(
                 session.scalars(
                     select(Taxon)
-                    .where(Taxon.id.in_(best.taxon_ids))
+                    .where(Taxon.id.in_(manual_taxon_ids))
                     .order_by(Taxon.scientific_name),
                 ).all(),
             )
@@ -237,7 +242,7 @@ def post_manual_classification(audio_hash: str) -> flask.Response:
         html = flask.render_template(
             "_classifier_box.html",
             recording=recording,
-            best=best,
+            manual_verdict=manual_verdict,
             current_taxa=current_taxa,
             taxon_search_index=_taxon_search_index(session),
         )

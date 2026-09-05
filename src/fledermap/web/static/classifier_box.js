@@ -113,15 +113,48 @@ function initClassifierBox(box) {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: body.toString(),
     })
-      .then((response) => response.text())
+      .then((response) => {
+        // A 400/404 response is plain text, not the classifier-box HTML
+        // fragment -- must not be swapped in as if it were (that would
+        // replace the whole box with the literal error text and then throw
+        // on the next initClassifierBox(null)). Surface it instead and
+        // leave the box exactly as it was before this save.
+        if (!response.ok) {
+          return response.text().then((text) => {
+            throw new Error(text || `Request failed (${response.status})`);
+          });
+        }
+        return response.text();
+      })
       .then((html) => {
         const wrapper = document.createElement("div");
         wrapper.innerHTML = html;
         const newBox = wrapper.firstElementChild;
         box.replaceWith(newBox);
         initClassifierBox(newBox);
+      })
+      .catch((error) => {
+        // Keep it simple -- this project has no toast/notification system
+        // (CLAUDE.md/app.css survey confirms none exists yet), and a failed
+        // save is rare enough that a blocking alert is an acceptable, if
+        // blunt, way to make sure it isn't missed silently.
+        alert("Could not save classification: " + error.message);
       });
   }
+
+  // Server-rendered chips (present at page load, or surviving a save's
+  // re-rendered box) have no listener of their own yet -- addChip only wires
+  // up the ephemeral chip IT creates client-side, which is destroyed the
+  // instant a save swaps in the server's fragment. Without this, removing
+  // any chip that wasn't added in the current in-memory session (i.e. every
+  // chip on first load, and every chip after the very first save) silently
+  // does nothing.
+  box.querySelectorAll(".classifier-chip-remove").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      btn.closest(".classifier-chip").remove();
+      save();
+    });
+  });
 
   searchEl.addEventListener("input", () => renderSuggestions(searchEl.value));
 

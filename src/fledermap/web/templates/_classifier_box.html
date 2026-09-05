@@ -7,12 +7,19 @@
    controls, mutually exclusive with the tag chips per the design's within-MANUAL
    exclusivity rule -- enforced here for immediate UI feedback, but the real guarantee is
    server-side in services/manual_classification.py's set_manual_classification, which
-   raises on an inconsistent combination rather than silently coercing it. #}
+   raises on an inconsistent combination rather than silently coercing it.
+
+   `current_taxa`/`manual_verdict` are the box's OWN state -- built from
+   services/manual_classification.py's current_manual_state, NOT from `best`
+   (current_best_identification's cross-source precedence result). See that
+   function's docstring for why: the box must only ever reflect and edit this
+   recording's own manual claims, independent of what an automatic classifier
+   says (Task 5 review finding, 2026-09-05). #}
 <div
   id="classifier-box"
   class="classifier-box"
   data-audio-hash="{{ recording.audio_hash }}"
-  data-taxon-search-index="{{ taxon_search_index | tojson }}"
+  data-taxon-search-index='{{ taxon_search_index | tojson }}'
 >
   <h3>Classify</h3>
   <div class="classifier-tags" id="classifier-tags">
@@ -29,7 +36,7 @@
     class="classifier-search"
     placeholder="Add a species or group…"
     autocomplete="off"
-    {% if best and best.verdict != none and best.verdict.value in ("no_id", "noise") %}disabled{% endif %}
+    {% if manual_verdict is not none and manual_verdict.value in ("no_id", "noise") %}disabled{% endif %}
   >
   <ul id="classifier-suggestions" class="classifier-suggestions" hidden></ul>
   <div class="classifier-actions">
@@ -37,13 +44,13 @@
       type="button"
       class="tool-button classifier-verdict-button"
       data-verdict="no_id"
-      aria-pressed="{{ 'true' if best and not best.is_multi and best.verdict.value == 'no_id' and best.primary.source.value == 'manual' else 'false' }}"
+      aria-pressed="{{ 'true' if manual_verdict is not none and manual_verdict.value == 'no_id' else 'false' }}"
     >No ID</button>
     <button
       type="button"
       class="tool-button classifier-verdict-button"
       data-verdict="noise"
-      aria-pressed="{{ 'true' if best and not best.is_multi and best.verdict.value == 'noise' and best.primary.source.value == 'manual' else 'false' }}"
+      aria-pressed="{{ 'true' if manual_verdict is not none and manual_verdict.value == 'noise' else 'false' }}"
     >Noise</button>
     <button type="button" class="tool-button" id="classifier-clear">Clear</button>
   </div>

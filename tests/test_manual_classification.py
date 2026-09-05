@@ -7,7 +7,10 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import IdSource, Verdict
-from fledermap.services.manual_classification import set_manual_classification
+from fledermap.services.manual_classification import (
+    current_manual_state,
+    set_manual_classification,
+)
 from fledermap.store.models import Identification, Recording, Taxon
 
 pytestmark = pytest.mark.db
@@ -192,3 +195,49 @@ def test_two_manual_species_rows_insert_cleanly_under_the_unique_constraint(
         session.commit()  # would raise IntegrityError if the constraint collided
 
         assert len(_manual_claims(session, recording.id)) == 2
+
+
+def test_current_manual_state_ignores_an_automatic_winner(engine: Engine) -> None:
+    """Task 5 review finding: the classifier box's state must never be
+    derived from an automatic classifier's claim, only from standing MANUAL
+    rows -- an automatic SPECIES claim must not surface here at all."""
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Eptesicus serotinus")
+        session.add(taxon)
+        session.flush()
+        recording = _recording(session, "j" * 64)
+        recording.identifications.append(
+            Identification(
+                source=IdSource.EMT_WAMD,
+                verdict=Verdict.SPECIES,
+                taxon_id=taxon.id,
+            ),
+        )
+        session.commit()
+
+        manual_verdict, manual_taxon_ids = current_manual_state(recording)
+
+        assert manual_verdict is None
+        assert manual_taxon_ids == frozenset()
+
+
+def test_current_manual_state_reflects_a_standing_manual_species_claim(
+    engine: Engine,
+) -> None:
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
+        session.add(taxon)
+        session.flush()
+        recording = _recording(session, "k" * 64)
+
+        set_manual_classification(
+            session,
+            recording,
+            verdict=Verdict.SPECIES,
+            taxon_ids=[taxon.id],
+        )
+
+        manual_verdict, manual_taxon_ids = current_manual_state(recording)
+
+        assert manual_verdict == Verdict.SPECIES
+        assert manual_taxon_ids == frozenset({taxon.id})
