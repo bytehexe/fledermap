@@ -27,17 +27,6 @@ function initClassifierBox(box) {
     );
   }
 
-  function matchesQuery(taxon, query) {
-    const q = query.toLowerCase();
-    const fields = [
-      taxon.scientific_name,
-      taxon.common_name_en,
-      taxon.common_name_de,
-      ...(taxon.codes || []),
-    ];
-    return fields.some((f) => f && f.toLowerCase().includes(q));
-  }
-
   function renderSuggestions(query) {
     suggestionsEl.innerHTML = "";
     if (!query) {
@@ -95,18 +84,18 @@ function initClassifierBox(box) {
   }
 
   function save() {
-    const body = new URLSearchParams();
     const activeVerdictButton = box.querySelector(
       ".classifier-verdict-button[aria-pressed='true']",
     );
-    if (activeVerdictButton) {
-      body.append("verdict", activeVerdictButton.dataset.verdict);
-    } else if (currentTaxonIds().length > 0) {
-      body.append("verdict", "species");
-      for (const id of currentTaxonIds()) body.append("taxon_ids", id);
+    const payload = buildSaveBody({
+      activeVerdict: activeVerdictButton ? activeVerdictButton.dataset.verdict : null,
+      taxonIds: currentTaxonIds(),
+    });
+    const body = new URLSearchParams();
+    if (payload.verdict) body.append("verdict", payload.verdict);
+    if (payload.taxonIds) {
+      for (const id of payload.taxonIds) body.append("taxon_ids", id);
     }
-    // Neither branch: "clear" -- verdict omitted entirely, matching
-    // set_manual_classification's verdict=None contract.
 
     fetch(`/recordings/${audioHash}/manual-classification`, {
       method: "POST",

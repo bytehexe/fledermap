@@ -147,6 +147,42 @@ under "Environment gotchas" before assuming CLI-adjacent code belongs there.
   module-scoped filters match where a warning is *raised*, not where the deprecated module is
   imported, so it suppressed nothing and would only have masked future deprecations.
 
+## JavaScript tooling
+
+No frontend build step, no `package.json`, no npm dependency — vanilla JS loaded as plain
+`<script>` tags sharing global scope (see "Architecture" above on `web/`). Tests use **Node's
+built-in test runner** (`node:test`/`node:assert`, stable since Node 18) for exactly this reason:
+it needs nothing installed beyond `node` itself, which this project already assumes is available
+(same tier as `ffmpeg`/`pg_dump` in "Environment gotchas").
+
+- `node --test tests/js/` — runs every JS test. No watch mode, no config file needed.
+- **Only pure, DOM-independent logic is unit-tested this way.** `node:test` has no DOM
+  implementation (no jsdom, deliberately — see the "Prefer local checks... reimplementation is
+  genuinely small" rule; a real DOM is exactly the "uncommon or huge" case that rule reserves for
+  a well-tested library, not a hand-rolled one). Any logic that touches `document`/`window`/
+  Leaflet is instead covered by this project's headless-Chrome (`puppeteer-core`) live-verification
+  technique — **mandatory for any task that adds or changes JS, not a skippable nice-to-have**:
+  skipping it twice during the manual-classification feature's Task 5 let two Critical bugs
+  (a Jinja `tojson`-in-double-quotes escaping bug, and an entirely unwired button) ship with 774
+  passing Python tests and a clean mypy run.
+- **A file with a top-level `document.addEventListener(...)` (or any other DOM/window access
+  outside a function body) cannot be `require()`-d directly in Node** — it crashes immediately with
+  `ReferenceError: document is not defined`, before any of its functions could even be imported.
+  The fix is a real file split, not a shim: move the pure, testable logic into its own file with
+  no top-level DOM access, guarded with a CommonJS export block:
+  ```javascript
+  if (typeof module !== "undefined" && module.exports) {
+    module.exports = { theFunction, anotherOne };
+  }
+  ```
+  and load it via its own `<script>` tag, before the file that uses it, in whichever template(s)
+  reference the consuming file. `marker_colors.js` (extracted from `app.js`) and
+  `classifier_logic.js` (extracted from `classifier_box.js`) are the two examples of this pattern
+  today — follow it for the next one rather than inventing a different shape.
+- Pre-commit's `js-tests` hook (`types: [javascript]`) runs `node --test tests/js/` only when a
+  staged file is JS — it does not run on every commit, matching `ruff-check`/`mypy`'s existing
+  `types:`-filtered pattern for Python-only files.
+
 ## Database
 
 - **Back up `bats_db` before any schema change (migration), or any other operation that risks

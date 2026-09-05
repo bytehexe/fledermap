@@ -39,6 +39,15 @@ repos:
         entry: hatch test -m "not db"
         language: system
         pass_filenames: false
+      - id: js-tests
+        name: JS tests (node:test)
+        # Only the classifier-box/marker-color pure-logic modules have tests today -- see
+        # CLAUDE.md's "JavaScript tooling" section. `types: [javascript]` means this only
+        # runs when a staged file is JS, not on every commit.
+        entry: node --test tests/js/
+        language: system
+        types: [javascript]
+        pass_filenames: false
       - id: commit-msg-conventional
         name: commit message follows Conventional Commits
         entry: hatch run python scripts/check_commit_msg.py
