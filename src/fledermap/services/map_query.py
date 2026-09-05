@@ -54,18 +54,20 @@ def _within_bbox(point: tuple[float, float] | None, bbox: BBox) -> bool:
 
 def _passes_verdict_filter(
     best: CurrentIdentification | None,
-    verdict: Verdict | Literal["all"] | None,
+    verdict: Verdict | Literal["all", "unidentified"] | None,
 ) -> bool:
-    """A recording with no non-superseded identification at all (`best is
-    None`) is treated as equivalent to `Verdict.NO_ID` for this purpose --
-    both mean "we don't know what this is," which is exactly what "hide noise
-    by default" is protecting the map from (decision P4-9)."""
+    """`unidentified` matches `best is None` exactly -- a distinct state from
+    `Verdict.NO_ID`, which can now only come from a genuine MANUAL claim
+    (amends decision P4-9, see parse_verdict's docstring). The default view
+    (verdict=None, SPECIES-only) is unaffected either way: both `None` and
+    an explicit NO_ID/NOISE result are excluded from it, exactly as before."""
     if verdict == "all":
         return True
-    effective = best.verdict if best is not None else Verdict.NO_ID
+    if verdict == "unidentified":
+        return best is None
     if verdict is None:
-        return effective == Verdict.SPECIES
-    return effective == verdict
+        return best is not None and best.verdict == Verdict.SPECIES
+    return best is not None and best.verdict == verdict
 
 
 def filtered_recordings(
@@ -76,7 +78,7 @@ def filtered_recordings(
     date_to: datetime | None = None,
     taxon_id: int | Literal["unmapped"] | None = None,
     taxon_exclude: bool = False,
-    verdict: Verdict | Literal["all"] | None = None,
+    verdict: Verdict | Literal["all", "unidentified"] | None = None,
     session_id: int | None = None,
     site_id: int | None = None,
     source: IdSource | None = None,

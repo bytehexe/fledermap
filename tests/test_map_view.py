@@ -936,3 +936,33 @@ def test_taxon_filter_finds_either_of_two_manual_species_claims(
 
     assert len(found_a) == 1
     assert len(found_b) == 1
+
+
+def test_unidentified_filter_matches_only_no_best(
+    engine: Engine, tmp_path: Path
+) -> None:
+    with OrmSession(engine) as session:
+        no_best = Recording(
+            audio_hash="f" * 64,
+            path="f.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            geom=WKTElement("POINT(10 50)", srid=4326),
+        )
+        manual_no_id = Recording(
+            audio_hash="g" * 64,
+            path="g.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            geom=WKTElement("POINT(10 50)", srid=4326),
+        )
+        manual_no_id.identifications = [
+            Identification(source=IdSource.MANUAL, verdict=Verdict.NO_ID),
+        ]
+        session.add_all([no_best, manual_no_id])
+        session.commit()
+
+    with OrmSession(engine) as session:
+        unidentified = filtered_recordings(session, verdict="unidentified")
+        no_id = filtered_recordings(session, verdict=Verdict.NO_ID)
+
+    assert {r.audio_hash for r in unidentified} == {"f" * 64}
+    assert {r.audio_hash for r in no_id} == {"g" * 64}

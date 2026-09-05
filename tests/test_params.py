@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from fledermap.web.params import detector_label, parse_bool, parse_taxon_filter
+from fledermap.web.params import (
+    detector_label,
+    parse_bool,
+    parse_taxon_filter,
+    parse_verdict,
+)
 
 
 def test_parse_bool_absent_is_false() -> None:
@@ -62,3 +67,7 @@ def test_detector_label_strips_separator_when_serial_present() -> None:
 
 def test_detector_label_joins_both_fields_with_a_space() -> None:
     assert detector_label("EMT\x1f1") == "EMT 1"
+
+
+def test_parse_verdict_accepts_unidentified() -> None:
+    assert parse_verdict("unidentified") == "unidentified"
