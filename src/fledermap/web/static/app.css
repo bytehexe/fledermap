@@ -187,7 +187,8 @@ main.main-content h1 { margin-top: 1rem; }
 .filter-bar select,
 .filter-bar input:not([type="checkbox"]),
 .stacked-form select,
-.stacked-form textarea {
+.stacked-form textarea,
+.classifier-search {
   font: inherit;
   font-size: 0.9rem;
   padding: 0.3rem 0.5rem;
@@ -217,17 +218,24 @@ button {
 button:hover { background: var(--color-bg-subtle); border-color: var(--color-accent); }
 button:disabled { cursor: default; opacity: 0.5; }
 
+/* Style guide: promoted on second use -- .classifier-chip below shares the pill
+   shape (background/border/border-radius/font-size) but not this chip's own
+   flex layout or its asymmetric padding (room for a leading label before the
+   remove button), so only the genuinely shared properties are combined. */
+#site-filter-chip,
+.classifier-chip {
+  background: var(--color-bg-subtle);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  font-size: 0.85rem;
+}
 #site-filter-chip {
   align-self: flex-start;
   margin: 0.4rem 1rem;
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  font-size: 0.85rem;
   color: var(--color-muted);
-  background: var(--color-bg-subtle);
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
   padding: 0.15rem 0.4rem 0.15rem 0.75rem;
 }
 #site-filter-chip button {
@@ -429,13 +437,14 @@ button:disabled { cursor: default; opacity: 0.5; }
 }
 .panel-columns ul { margin: 0; padding-left: 1.1rem; }
 .panel-columns p { margin: 0 0 0.4rem; font-size: 0.9rem; }
-.superseded { text-decoration: line-through; opacity: 0.6; }
 .identification-current { font-weight: 600; }
 .identification-passive, .identification-shadowed {
   color: var(--color-muted);
   font-style: italic;
 }
-.identification-superseded { text-decoration: line-through; opacity: 0.6; }
+/* Style guide: promoted on second use (was two byte-identical rules,
+   .superseded and .identification-superseded, a few lines apart). */
+.superseded, .identification-superseded { text-decoration: line-through; opacity: 0.6; }
 
 .session-detail-columns { display: flex; gap: 1rem; margin: 1rem 0; flex-wrap: wrap; }
 .session-detail-columns .col { flex: 1 1 260px; }
@@ -674,6 +683,10 @@ button:disabled { cursor: default; opacity: 0.5; }
 .het-freq-input { width: 4.5em; }
 
 .classifier-box {
+  /* position: relative -- establishes the containing block for
+     .classifier-suggestions' position: absolute below, so the dropdown
+     overlays the box instead of pushing .classifier-actions down. */
+  position: relative;
   border: 1px solid var(--color-border);
   border-radius: 6px;
   padding: 0.6rem 0.75rem;
@@ -688,11 +701,7 @@ button:disabled { cursor: default; opacity: 0.5; }
 }
 .classifier-tags { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.4rem; }
 .classifier-chip {
-  background: var(--color-bg-subtle);
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
   padding: 0.15rem 0.6rem;
-  font-size: 0.85rem;
 }
 .classifier-chip-remove {
   background: none;
@@ -702,13 +711,27 @@ button:disabled { cursor: default; opacity: 0.5; }
   font-size: 0.9rem;
   padding: 0 0.15rem;
 }
+/* border/border-radius/padding/background/color/font come from the shared
+   form-control rule above (style guide: promote on second use) -- width is
+   the only thing genuinely unique to this input. */
 .classifier-search {
   width: 100%;
-  padding: 0.3rem 0.5rem;
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
 }
 .classifier-suggestions {
+  /* Was missing a background and any positioning, so it rendered in normal
+     document flow -- an opaque-looking but actually see-through box that
+     pushed .classifier-actions down instead of overlaying the box, the
+     usual look for a search-result dropdown. `left`/`right` line up with
+     .classifier-box's own 0.75rem horizontal padding so the dropdown's
+     edges match .classifier-search's edges above it; `top` is left
+     unset so the browser computes it from the element's own static
+     (in-flow) position -- i.e. immediately below the search input, same
+     place it rendered before, just now taken out of flow. */
+  position: absolute;
+  left: 0.75rem;
+  right: 0.75rem;
+  z-index: 10;
+  background: var(--color-bg);
   list-style: none;
   margin: 0.2rem 0 0;
   padding: 0;

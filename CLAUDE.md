@@ -51,7 +51,10 @@ Roughly a pipeline, each stage its own top-level package under `src/fledermap/`:
   `derive.py` drive the pipeline stages above end-to-end, `map_query.py` is the single definition
   of what the map's active filters mean (shared by every GeoJSON/panel route — see its own
   module docstring), `media.py` enqueues/checks derived-media jobs, `site_naming.py` wraps the
-  poiidx integration, `current_best.py` picks a recording's current-best identification.
+  poiidx integration, `current_best.py` picks a recording's current-best identification,
+  `manual_classification.py` is the only place that writes `IdSource.MANUAL` identification
+  rows, via a supersede-then-insert function (`set_manual_classification`) matching
+  `services/ingest.py`'s own key-based approach.
 - **`jobs/`** — the Procrastinate async task queue: `app.py` bootstraps its schema (see the
   "Procrastinate's schema has no upgrade path here" bullet below), `tasks.py` defines the jobs
   (media rendering, site naming), `watch.py` is the filesystem watcher `fledermap worker` runs.
@@ -86,6 +89,10 @@ under "Environment gotchas" before assuming CLI-adjacent code belongs there.
 - **`pg_dump` and `pg_restore` must be installed and on `PATH`** (`postgresql-client`, same
   package family as the server) for `scripts/db-backup.sh`/`scripts/db-restore.sh` — see "Backing
   up the database before risky changes" below.
+- **`node` must be installed and on `PATH`.** `node --test tests/js/` (see "JavaScript tooling"
+  below) is required, same tier as `ffmpeg`/`pg_dump` above — missing it fails as a plain shell
+  "command not found" rather than anything that looks like a sandbox or test problem. Pre-commit's
+  `js-tests` hook hard-fails the same way if Node isn't present.
 - **`FLEDERMAP_MEDIA_ROOT` is optional as of 2026-08-26**, and is a *separate* directory from
   the archive root. The archive is read-only (D16); derived media is written only under the
   media root. It falls back to a `platformdirs` *data* directory (not a cache directory — see
@@ -228,6 +235,16 @@ it needs nothing installed beyond `node` itself, which this project already assu
   fire at all. `uq_identification_source_claim` needs `postgresql_nulls_not_distinct=True`
   precisely because `source_version` is NULL for the sources that most need it — filename IDs
   and manual annotations.
+- **`uq_identification_source_claim` is a partial unique `Index`, not a `UniqueConstraint`** —
+  and that's load-bearing, not a style choice. A plain constraint has no notion of "superseded,
+  no longer live": `set_manual_classification`'s (and `services/ingest.py`'s
+  `_apply_identifications`') supersede-then-insert pattern re-adds a `taxon_id` that a row this
+  same call just superseded, and that collides with the now-superseded row's still-enforced key
+  tuple under a plain constraint — a real `UniqueViolation` crashed the classifier box's own
+  primary multi-species workflow live, 2026-09-05. Postgres has no partial unique CONSTRAINT
+  syntax, so a partial unique INDEX scoped to `WHERE superseded_at IS NULL` is the fix — only
+  currently-live claims participate in the uniqueness check, so a superseded row's key tuple
+  becomes free to reuse the moment it's superseded. See migration `300b54c8829a`.
 - **A NUL byte is not a NULL value, and Postgres rejects it outright.** psycopg2 raises
   `ValueError: A string literal cannot contain NUL (0x00) characters.` client-side, before the
   query ever reaches the server, for any `text` value containing `\x00`. That is why
@@ -290,6 +307,16 @@ literal list for a while, undetected — a real instance of the drift this secti
 by a whole-branch review rather than any single task's. `test_migration_idsource_literal_matches_the_model`
 closes it with a static `ast`-based check of the migration's literal list against `IdSource`, needing
 no database.
+
+**A partial (filtered) unique index's `WHERE`/predicate clause is also invisible to
+`compare_metadata`.** `uq_identification_source_claim` (Task 7's fix for the constraint/partial-
+index collision above) is a unique `Index` scoped to `WHERE superseded_at IS NULL` — mutation-
+tested 2026-09-05 by temporarily stripping the migration's `postgresql_where` clause (making it a
+plain, non-partial unique index) and re-running `hatch test tests/test_migrations.py`, which still
+PASSED. Same fix pattern as the other blind spots here: a dedicated test asserting against
+Postgres's own catalog directly. `test_migrated_partial_index_where_clause_is_enforced` does this
+by string-matching the predicate's text representation in `pg_indexes.indexdef` — **not**
+`pg_indexes.indpred`, which doesn't exist; `indpred` lives on `pg_index`, a different catalog view.
 
 **The general rule:** a schema-drift test's blind spots are exactly the parts of the schema
 `compare_metadata` cannot see (non-native enums without a CHECK, anything else erased to a

@@ -91,6 +91,13 @@ class Recording(Base):
         back_populates="recording",
         cascade="all, delete-orphan",
         lazy="selectin",
+        # Deterministic order, not just insertion-order-by-luck: `id` is the only
+        # column guaranteed to break ties, since `set_manual_classification`
+        # stamps every row of one save with the same `first_seen_at`, and without
+        # this `CurrentIdentification.primary`'s documented first-added tie-break
+        # (and the Identifications box's on-page row order) would depend on
+        # whatever order Postgres happens to return rows in.
+        order_by="Identification.id",
     )
 
 

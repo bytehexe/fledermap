@@ -43,6 +43,12 @@ the URL: several of these overlap in subject and disagree in detail.
 > `(source, code)`, not `(source, taxon_id)` — so `EPFU` and `EPTFUS` can both
 > point at *Eptesicus fuscus*. Pinned by
 > `test_one_taxon_may_carry_several_codes_from_one_source`.
+>
+> **A third, suffix-less `nabat` source exists too** (`taxa_groups.yaml`'s
+> `MYSP`/`HiF`/`LoF`/`Hilo`/`NOTBAT`) — distinct from `nabat4`/`nabat6` above.
+> Those codes are NABat's non-species group/genus/frequency-class codes, not
+> per-species four- or six-letter codes, so neither species-code source fits;
+> `nabat` (no suffix) is where they belong instead.
 
 ## File formats
 

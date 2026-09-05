@@ -148,8 +148,10 @@ def test_migrated_verdict_check_accepts_every_verdict(migrated_engine: Engine) -
         )
         for verdict in Verdict:
             # raw_label must differ per row: uq_identification_source_claim is
-            # (recording_id, source, source_version, raw_label) with
-            # nulls_not_distinct, and `verdict` is not part of it.
+            # a partial unique index (not a constraint) on (recording_id,
+            # source, source_version, raw_label, taxon_id) scoped to
+            # WHERE superseded_at IS NULL, with nulls_not_distinct, and
+            # `verdict` is not part of it.
             conn.execute(
                 text(
                     "INSERT INTO identification"

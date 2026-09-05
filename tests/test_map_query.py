@@ -611,6 +611,72 @@ def test_site_detail_breaks_down_species_and_lists_sessions(engine: Engine) -> N
         assert [s.id for s in detail.sessions] == [session_id]
 
 
+def test_site_detail_tally_increments_every_taxon_of_a_multi_species_recording(
+    engine: Engine,
+) -> None:
+    """Design spec §6: "site_detail's species tally: a multi-species recording
+    increments every one of its taxa, not just one." A single recording carrying
+    two non-superseded MANUAL SPECIES claims (a genuine multi-species result,
+    per current_best.py's CurrentIdentification) must show up under BOTH taxa
+    in the tally, not just the first/last one -- pinning site_detail's own
+    `for taxon_id in best.taxon_ids` loop (already correct; this only adds the
+    missing coverage)."""
+    with OrmSession(engine) as session:
+        site = Site(
+            centroid=WKTElement("POINT(10 50)", srid=4326),
+            radius_m=50.0,
+            recording_count=1,
+            first_at=datetime(2026, 8, 25, tzinfo=UTC),
+            last_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        taxon_a = Taxon(rank="species", scientific_name="Eptesicus serotinus")
+        taxon_b = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
+        session.add_all([site, taxon_a, taxon_b])
+        session.flush()
+
+        recording = Recording(
+            audio_hash="a" * 64,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            geom=WKTElement("POINT(10 50)", srid=4326),
+            site_id=site.id,
+        )
+        session.add(recording)
+        session.flush()
+        session.add_all(
+            [
+                Identification(
+                    recording_id=recording.id,
+                    source=IdSource.MANUAL,
+                    verdict=Verdict.SPECIES,
+                    taxon_id=taxon_a.id,
+                    first_seen_at=datetime(2026, 8, 25, tzinfo=UTC),
+                ),
+                Identification(
+                    recording_id=recording.id,
+                    source=IdSource.MANUAL,
+                    verdict=Verdict.SPECIES,
+                    taxon_id=taxon_b.id,
+                    first_seen_at=datetime(2026, 8, 25, tzinfo=UTC),
+                ),
+            ],
+        )
+        session.commit()
+        site_id, taxon_a_id, taxon_b_id = site.id, taxon_a.id, taxon_b.id
+
+        detail = site_detail(session, site_id)
+
+        assert detail is not None
+        counts = dict(detail.species_counts)
+        stored_a = session.get(Taxon, taxon_a_id)
+        stored_b = session.get(Taxon, taxon_b_id)
+        assert stored_a is not None
+        assert stored_b is not None
+        assert counts[stored_a] == 1
+        assert counts[stored_b] == 1
+        assert len(detail.species_counts) == 2
+
+
 def test_site_detail_returns_none_for_unknown_site(engine: Engine) -> None:
     with OrmSession(engine) as session:
         assert site_detail(session, 999999) is None

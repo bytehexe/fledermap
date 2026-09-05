@@ -27,9 +27,11 @@ stripping this migration's `postgresql_where` (making it a plain,
 non-partial unique index) and re-running `hatch test tests/test_migrations.py`,
 which still PASSED. `test_migrated_partial_index_where_clause_is_enforced`
 in tests/test_migrations.py closes this gap by asserting the index's
-actual predicate via Postgres's own `pg_indexes.indpred` catalog view,
-the same way this project's existing CHECK-constraint precedent covers
-`_comparable`'s analogous blind spot (see CLAUDE.md's Migrations
+actual predicate via Postgres's own `pg_indexes.indexdef` catalog column
+(string-matching the predicate's text representation -- there is no
+`pg_indexes.indpred`; `indpred` lives on `pg_index`, a different catalog
+view), the same way this project's existing CHECK-constraint precedent
+covers `_comparable`'s analogous blind spot (see CLAUDE.md's Migrations
 section).
 """
 

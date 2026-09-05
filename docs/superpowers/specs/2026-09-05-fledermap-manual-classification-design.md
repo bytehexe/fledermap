@@ -1,8 +1,8 @@
 # Fledermap Manual Classification — Design
 
-**Status:** draft — sections approved individually in chat during brainstorming; awaiting the
-user's review of this written spec (see brainstorming skill's user-review gate) before writing an
-implementation plan.
+**Status:** implemented, 2026-09-05 — all 7 tasks complete, each individually reviewed clean, and
+the whole-branch final review found no Critical issues (777 tests passing, full spec-decision
+re-walk confirmed correct).
 **Date:** 2026-09-05
 
 ## Problem
@@ -484,6 +484,24 @@ otherwise still prevent. See `f3a1c9d2e4b7_add_taxon_id_to_identification_unique
 test asserting two manual `SPECIES` rows for the same recording insert cleanly, and a second
 asserting two manual `NO_ID` rows still collide (MC-3), both belong next to this constraint change
 (§6).
+
+**Further correction, 2026-09-05 (found during Task 7 implementation):** the "single widened
+constraint" framing just above was correct as far as it went, but incomplete — it is no longer the
+actual, final shape of the constraint. Task 7 found that even after Task 2's widening to include
+`taxon_id`, the constraint still collided with an *already-superseded* row sharing the same key
+tuple, because `superseded_at` was never part of it: `set_manual_classification`'s (and
+`services/ingest.py`'s `_apply_identifications`') supersede-then-insert pattern re-adds a
+`taxon_id` that a row this same call just superseded, and a plain constraint has no notion of
+"superseded, no longer live" — it enforces uniqueness over its column list regardless. This
+surfaced as a real `UniqueViolation` when the classifier box's own primary multi-species workflow
+(adding a second species chip) crashed live. The actual fix is a partial unique **INDEX** scoped
+to `WHERE superseded_at IS NULL`, not a wider constraint — Postgres has no partial-unique-
+CONSTRAINT syntax, so a plain `UniqueConstraint`, however many columns it lists, can never exclude
+superseded rows from the check. Only currently-live claims now participate in the uniqueness
+check, so a superseded row's key tuple becomes free to reuse the moment it's superseded. Implemented
+in migration `300b54c8829a`; see also `test_migrated_partial_index_where_clause_is_enforced` in
+`tests/test_migrations.py` and CLAUDE.md's Migrations section for the schema-drift-test blind spot
+this change introduced.
 
 ### 5. UI: the classifier box
 

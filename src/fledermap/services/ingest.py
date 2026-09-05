@@ -187,13 +187,20 @@ def _apply_identifications(
 ) -> bool:
     """Add new claims and supersede ones this source no longer makes.
 
-    `incoming` is keyed by the same `(source, source_version, raw_label)` tuple
-    the database's unique constraint uses, and built as a dict (not the
-    original set-plus-list combination) so that two identical claims in
-    `parsed` — GUANO and wamd both reporting the same `manual_id`, the normal
-    case since the EMT writes both — collapse into one candidate instead of
-    both being inserted and hitting `uq_identification_source_claim` (task-11
-    amendments, defect 2).
+    `incoming` is keyed by `(source, source_version, raw_label)` -- narrower
+    than `uq_identification_source_claim`'s own five-column key (which also
+    includes `taxon_id`, and is now a partial unique INDEX scoped to
+    `WHERE superseded_at IS NULL`, not a plain constraint; see
+    store/models.py). That narrower key is still correct here: every
+    automatic source maps one `raw_label` to one `taxon_id` deterministically,
+    so `source_version`/`raw_label` alone already identify a claim for these
+    sources -- only `MANUAL` (handled separately, by
+    services/manual_classification.py) ever puts more than one `taxon_id`
+    under an otherwise-identical key. Built as a dict (not the original
+    set-plus-list combination) so that two identical claims in `parsed` --
+    GUANO and wamd both reporting the same `manual_id`, the normal case since
+    the EMT writes both -- collapse into one candidate instead of both being
+    inserted and hitting the index (task-11 amendments, defect 2).
     """
     changed = False
     incoming = {(p.source, p.source_version, p.raw_label): p for p in parsed}

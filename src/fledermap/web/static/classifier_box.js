@@ -106,8 +106,12 @@ function initClassifierBox(box) {
         // A 400/404 response is plain text, not the classifier-box HTML
         // fragment -- must not be swapped in as if it were (that would
         // replace the whole box with the literal error text and then throw
-        // on the next initClassifierBox(null)). Surface it instead and
-        // leave the box exactly as it was before this save.
+        // on the next initClassifierBox(null)). Surface it instead. NOTE:
+        // this does NOT leave the box as it was before this save -- the
+        // optimistic DOM mutation (chip removed, aria-pressed toggled,
+        // etc.) already happened before fetch() was called and is never
+        // reverted here, so a failed save leaves the user looking at a
+        // state the server rejected until they reload the page.
         if (!response.ok) {
           return response.text().then((text) => {
             throw new Error(text || `Request failed (${response.status})`);
