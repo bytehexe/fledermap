@@ -66,7 +66,7 @@ const GPS_TRACK_COLOR = "#00bcd4";
 // one claim -- a real multi-species file, or several manual group/species
 // tags on one recording) get their own fixed, non-hash-derived color so they
 // can never collide with a real taxon's generated hue.
-const MULTI_SPECIES_COLOR = "#ff9800";
+const MULTI_SPECIES_COLOR = "#9c27b0";
 
 // Where the golden-angle sequence starts. A hash can't guarantee NO hue ever
 // lands near a reserved one -- the sequence sweeps the whole circle given

@@ -164,3 +164,41 @@ def test_duplicate_claim_with_null_source_version_rejected(engine: Engine) -> No
         )
         with pytest.raises(IntegrityError):
             session.commit()
+
+
+def test_duplicate_manual_no_id_claims_are_rejected(engine: Engine) -> None:
+    """`uq_identification_source_claim` was widened to include `taxon_id`
+    (fledermap-manual-classification, 2026-09-05) so that two MANUAL SPECIES
+    rows differing only in taxon_id can coexist (a genuine multi-species
+    file) -- see test_map_view.py's
+    test_taxon_filter_finds_either_of_two_manual_species_claims and
+    test_geojson_api.py's test_recordings_geojson_marks_multi_species_recordings
+    for that positive case. MC-3 (design spec) still requires NO_ID/NOISE to
+    stay a singleton within MANUAL: two MANUAL NO_ID rows both have
+    taxon_id=None, so they still collide on the constraint exactly as before
+    the widening."""
+    with OrmSession(engine) as session:
+        rec = _recording()
+        session.add(rec)
+        session.commit()
+        recording_id = rec.id
+
+    with OrmSession(engine) as session:
+        session.add(
+            Identification(
+                recording_id=recording_id,
+                source=IdSource.MANUAL,
+                verdict=Verdict.NO_ID,
+                taxon_id=None,
+            ),
+        )
+        session.add(
+            Identification(
+                recording_id=recording_id,
+                source=IdSource.MANUAL,
+                verdict=Verdict.NO_ID,
+                taxon_id=None,
+            ),
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
