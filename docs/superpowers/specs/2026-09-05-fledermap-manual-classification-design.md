@@ -31,8 +31,9 @@ result of that brainstorming round.
 ## Goals
 
 - A human can classify a recording from the recording-details page: pick one or more species (or
-  a genus-level group like *Myotis*), mark it `No ID` or `Noise`, or clear back to "no manual
-  opinion" (deferring to whatever the automatic sources say).
+  a group-level tag — a genus like *Myotis*, a frequency class like `HiF`/`LoF`/`HiLo`, or
+  "non-bat sound present"), mark it `No ID` or `Noise`, or clear back to "no manual opinion"
+  (deferring to whatever the automatic sources say).
 - A `NO_ID` claim at a high-precedence **automatic** source no longer shadows a real `SPECIES`
   answer at a lower-precedence automatic source (`^a549ce`).
 - A manual `NO_ID`/`NOISE` claim, by contrast, is authoritative — a human looked and found
@@ -41,15 +42,16 @@ result of that brainstorming round.
 - A multi-species file can be represented (several manual species/group claims on one recording),
   and — this is the part that must not regress — **every one of those claims is findable by the
   taxon filter**, not just one arbitrarily-picked "winner."
-- A hard-to-identify genus-level call can be recorded as such (e.g. *Myotis*) without inventing a
-  fake species code, and it participates in filtering/display exactly like a real species.
+- A hard-to-identify genus-level call, an unresolvable-but-real frequency class, or "there's also
+  a non-bat sound in here" can all be recorded without inventing a fake species code, and each
+  participates in filtering/display exactly like a real species.
 
 ## Non-goals
 
 - **No new `Verdict` member.** Genus/group-level identifications reuse the existing `SPECIES`
-  verdict + `taxon_id`, via a `Taxon` row with `rank="genus"` — see Design §1. `Taxon.rank`
-  already exists in the schema (`"A species, genus, or phonic group"`) and is currently written
-  but never read; this design is its first consumer, not a new concept.
+  verdict + `taxon_id`, via `Taxon` rows with `rank="genus"` or `rank="phonic_group"` — see Design
+  §1. `Taxon.rank` already exists in the schema (`"A species, genus, or phonic group"`) and is
+  currently written but never read; this design is its first consumer, not a new concept.
 - **No region-restricted taxon list for the manual classifier.** Deferred in favor of a better
   future idea raised during brainstorming: auto-derive from the recording's own known location
   (EU/NA) rather than a manual config knob. Tracked as its own follow-up.
@@ -59,11 +61,12 @@ result of that brainstorming round.
   mechanics* around `NO_ID` (`^a549ce`), not what `NO_ID` fundamentally means.
 - **No "classifiers disagree" filter.** A different feature, not required for manual
   classification to ship.
-- **No attempt at NABat's full "Couplets and Groupings" vocabulary.** Seeded with `MYSP` only, to
-  be extended later as real, sourced needs arise — never invented (`CLAUDE.md`: `MYOSPP` was
-  fabricated by an earlier plan and had to be removed; `MYSP` must be verified against
+- **No attempt at NABat's full "Couplets and Groupings" vocabulary** (paired-species-combination
+  codes for very-similar-sounding species pairs). Seeded with only `MYSP`, `HiF`, `LoF`, `HiLo`,
+  and `NOTBAT` (Design §1) — never invented (`CLAUDE.md`: `MYOSPP` was fabricated by an earlier
+  plan and had to be removed; every one of these must be verified against
   `docs/references.md`/NABat's real published list before being seeded, same bar as any other
-  code in this project).
+  code in this project — see Open items for `NOTBAT`'s spelling specifically).
 - **No changes to how automatic sources other than the `NO_ID`-precedence fix behave.** EMT
   ingestion, `resolve_code`, `commit_scan`'s supersession logic for `_EMT_SOURCES` are unchanged.
 
@@ -72,31 +75,60 @@ result of that brainstorming round.
 ### 1. Genus/group taxa reuse the existing `SPECIES` pathway
 
 `Taxon.rank` (`String(16)`) is currently always `"species"` and read nowhere in the codebase —
-confirmed by grep before writing this section. Add one genus-rank row:
+confirmed by grep before writing this section. Its docstring already names two other cases this
+design is the first to actually use: `"A species, genus, or phonic group."` Add:
 
 ```yaml
 - scientific_name: Myotis
   rank: genus
   common_name_en: Mouse-eared bats  # or similar; final wording TBD at seed time
   common_name_de: Mausohren
+
+- scientific_name: HiF
+  rank: phonic_group
+  common_name_en: High-frequency bat (unidentified)
+- scientific_name: LoF
+  rank: phonic_group
+  common_name_en: Low-frequency bat (unidentified)
+- scientific_name: HiLo
+  rank: phonic_group
+  common_name_en: Mixed high/low-frequency bat activity (unidentified)
+- scientific_name: NOTBAT
+  rank: phonic_group
+  common_name_en: Non-bat sound present
 ```
 
-plus a `TaxonCode(source="nabat", code="MYSP", taxon_id=<that row>)`, once `MYSP` is verified
-against an authoritative NABat source and recorded in `docs/references.md` (same bar as every
-other code in this project — see the Non-goals note above).
+(`common_name_de`/exact English wording TBD at seed time, same as `Myotis` above.) `Myotis` gets
+`rank: genus` because it genuinely is one; NABat's frequency-split classes and "non-bat sound
+present" aren't a genus at all, hence the separate `phonic_group` rank — both ranks flow through
+the identical mechanism below, so this split is purely about correctness/display, not behavior.
 
-No other code changes are needed for this to work correctly:
+Each gets a `TaxonCode(source="nabat", code=..., taxon_id=<that row>)`, once every code is
+verified against an authoritative NABat source and recorded in `docs/references.md` (same bar as
+every other code in this project — see Non-goals; `NOTBAT`'s exact spelling in particular needs
+confirming, see Open items).
+
+**`NOTBAT` is deliberately additive, not exclusive like `NOISE`.** `Verdict.NOISE` is a claim
+about the *whole recording* ("this file is noise, nothing else to find"); `NOTBAT`-as-a-tag is a
+claim about *additional* content — "there's also a clearly non-bat sound in this file," alongside
+whatever species/group chips are already there. Confirmed during brainstorming: for these
+recordings there's always more that could be noted, so nothing here tries to represent
+"review complete" — the absence of further chips just means nothing further was noted, not an
+assertion that nothing else exists.
+
+No other code changes are needed for any of this to work correctly:
 
 - `recording_headline()` already just returns `taxon.scientific_name` for a resolved taxon —
-  `"Myotis"` reads correctly as a genus name with no special-casing.
-- `list_taxa()` and the taxon filter already operate on `taxon_id` generically — a `MYSP`-tagged
-  recording becomes findable by selecting "Myotis" in the dropdown exactly like any species.
+  `"Myotis"`/`"HiF"`/`"NOTBAT"` all read correctly with no special-casing.
+- `list_taxa()` and the taxon filter already operate on `taxon_id` generically — a `MYSP`- or
+  `HiF`-tagged recording becomes findable by selecting it in the dropdown exactly like any
+  species.
 - `resolve_code`/`current_best_identification` never branch on rank today and don't need to.
 
-This means genus-level identification is *not* a new axis in the precedence model below — it's
-just another `SPECIES`-verdict claim with a `taxon_id`, and "multiple current species/group
-claims" (§3) covers it automatically. A manual tag box holding both `Myotis` and `Pipistrellus
-pipistrellus` is two ordinary additive `SPECIES` rows.
+This means none of these are a new axis in the precedence model below — each is just another
+`SPECIES`-verdict claim with a `taxon_id`, and "multiple current species/group claims" (§3) covers
+all of them automatically. A manual tag box holding `Pipistrellus pipistrellus` + `HiF` + `NOTBAT`
+is three ordinary additive `SPECIES` rows.
 
 ### 2. `current_best_identification` rewrite: active vs. passive `NO_ID`
 
@@ -326,9 +358,10 @@ Follows this project's existing fragment-plus-htmx-POST pattern
   clear, clear → species), the concurrent-multi-`SPECIES`-insert regression from §4, and the two
   new `ValueError` cases (`SPECIES` with empty `taxon_ids`; non-`SPECIES` with non-empty
   `taxon_ids`) plus the route's 400 response for each.
-- `tests/test_seed.py` (or equivalent): the new `Myotis` genus-rank taxon round-trips correctly;
-  `rank="genus"` doesn't break anything that currently assumes `rank="species"` (grep for any
-  such assumption before implementing — none found during this design's own research, but the
+- `tests/test_seed.py` (or equivalent): the new `Myotis`/`HiF`/`LoF`/`HiLo`/`NOTBAT` taxa
+  round-trip correctly; neither `rank="genus"` nor `rank="phonic_group"` breaks anything that
+  currently assumes `rank="species"` (grep for any such assumption before implementing — none
+  found during this design's own research, but the
   plan should re-confirm).
 - `hatch run types:check` and the JS-side manual test coverage gap: this is another JS-only UI
   feature (per `CLAUDE.md`'s "no test infrastructure exists" note) — verify live per this
@@ -338,9 +371,9 @@ Follows this project's existing fragment-plus-htmx-POST pattern
 
 | # | Decision |
 |---|---|
-| MC-1 | Genus/group-level identifications (e.g. `MYSP`) reuse the existing `SPECIES` verdict + `taxon_id` via a `rank="genus"` `Taxon` row — no new `Verdict` member, no migration for a new CHECK value. |
+| MC-1 | Genus/group-level identifications (`MYSP`, `HiF`/`LoF`/`HiLo`, `NOTBAT`) reuse the existing `SPECIES` verdict + `taxon_id` via `rank="genus"`/`rank="phonic_group"` `Taxon` rows — no new `Verdict` member, no migration for a new CHECK value. |
 | MC-2 | `NOISE` is always active (any source); `NO_ID` is passive only for automatic sources; `MANUAL` (any verdict, including `NO_ID`) is always active. |
-| MC-3 | Manual `SPECIES`/group claims are additive with each other (multi-species files); `NO_ID`/`NOISE` are singleton and mutually exclusive with them within `MANUAL`. |
+| MC-3 | Manual `SPECIES`/group claims are additive with each other (multi-species files, plus `HiF`/`LoF`/`HiLo`/`NOTBAT` as additional additive tags); `NO_ID`/`NOISE` remain singleton and mutually exclusive with them within `MANUAL` — `NOTBAT` is deliberately NOT folded into `NOISE`'s exclusivity, since it's a claim about additional content, not the whole recording. |
 | MC-4 | "No manual opinion" is represented as zero non-superseded `MANUAL` rows, not a stored value — identical in kind to how every other source's absence already works. |
 | MC-5 | `current_best_identification` returns a `CurrentIdentification` wrapper (one or more claims) instead of a single `Identification \| None` — `.primary`/`.verdict` cover every caller that only cared about one claim; the taxon filter is the one caller that must check the full `.taxon_ids` set. |
 | MC-6 | The manual-classification UI always submits the tag box's full current state; the server always supersedes-then-inserts rather than diffing client-side — same safety property `_apply_identifications` already relies on. |
@@ -348,10 +381,12 @@ Follows this project's existing fragment-plus-htmx-POST pattern
 
 ## Open items
 
-- Exact wording for `Myotis`'s `common_name_en`/`common_name_de` — cosmetic, resolve at seed
-  time.
-- Confirm `MYSP`'s exact source/spelling against NABat's real published list (and add it to
-  `docs/references.md`) before seeding — not yet done as of this spec.
+- Exact wording for every new taxon's `common_name_en`/`common_name_de` — cosmetic, resolve at
+  seed time.
+- Confirm `MYSP`, `HiF`, `LoF`, `HiLo`, and `NOTBAT`'s exact source/spelling against NABat's real
+  published list (and add each to `docs/references.md`) before seeding — not yet done as of this
+  spec. `NOTBAT` in particular needs its spelling settled (this spec used the spelling from an
+  earlier backlog note verbatim, unverified — could plausibly be `NOBAT` instead).
 - Exact file(s) holding the existing `current_best_identification` tests (referenced in §6 by
   best guess) — confirm during planning.
 - `map_query.site_detail`'s species tally changes from "one taxon per recording" to "one or more
