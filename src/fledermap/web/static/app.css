@@ -430,6 +430,11 @@ button:disabled { cursor: default; opacity: 0.5; }
 .panel-columns ul { margin: 0; padding-left: 1.1rem; }
 .panel-columns p { margin: 0 0 0.4rem; font-size: 0.9rem; }
 .superseded { text-decoration: line-through; opacity: 0.6; }
+.identification-current { font-weight: 600; }
+.identification-passive, .identification-shadowed {
+  color: var(--color-muted);
+  font-style: italic;
+}
 
 .session-detail-columns { display: flex; gap: 1rem; margin: 1rem 0; flex-wrap: wrap; }
 .session-detail-columns .col { flex: 1 1 260px; }

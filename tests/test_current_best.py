@@ -6,6 +6,7 @@ from fledermap.domain.codes import IdSource, Verdict
 from fledermap.services.current_best import (
     CurrentIdentification,
     current_best_identification,
+    identification_status,
     recording_headline,
 )
 from fledermap.store.models import Identification, Recording, Taxon
@@ -260,3 +261,61 @@ def test_recording_headline_shows_multiple_species_for_a_multi_claim_result() ->
     )
 
     assert recording_headline(None, best) == "Multiple Species"
+
+
+def test_identification_status_current_for_the_winning_claim() -> None:
+    ident = _ident(IdSource.EMT_GUANO, taxon_id=1)
+    r = _recording(ident)
+    best = current_best_identification(r)
+
+    assert identification_status(ident, best) == "current"
+
+
+def test_identification_status_passive_for_skipped_automatic_no_id() -> None:
+    passive = _ident(IdSource.EMT_GUANO, verdict=Verdict.NO_ID, taxon_id=None)
+    winner = _ident(IdSource.EMT_WAMD, taxon_id=1)
+    r = _recording(passive, winner)
+    best = current_best_identification(r)
+
+    assert identification_status(passive, best) == "passive"
+    assert identification_status(winner, best) == "current"
+
+
+def test_identification_status_passive_even_when_nothing_else_wins() -> None:
+    """A passive automatic NO_ID is "passive" regardless of the overall
+    outcome -- describes the row's own status, not the final result."""
+    only = _ident(IdSource.EMT_GUANO, verdict=Verdict.NO_ID, taxon_id=None)
+    r = _recording(only)
+    best = current_best_identification(r)  # None
+
+    assert identification_status(only, best) == "passive"
+
+
+def test_identification_status_shadowed_for_a_lower_precedence_real_claim() -> None:
+    winner = _ident(IdSource.MANUAL, taxon_id=1)
+    loser = _ident(IdSource.EMT_GUANO, taxon_id=2)
+    r = _recording(winner, loser)
+    best = current_best_identification(r)
+
+    assert identification_status(loser, best) == "shadowed"
+
+
+def test_identification_status_superseded_regardless_of_precedence() -> None:
+    superseded = _ident(IdSource.MANUAL, taxon_id=1, superseded=True)
+    winner = _ident(IdSource.EMT_GUANO, taxon_id=2)
+    r = _recording(superseded, winner)
+    best = current_best_identification(r)
+
+    assert identification_status(superseded, best) == "superseded"
+
+
+def test_identification_status_every_claim_of_a_multi_species_winner_is_current() -> (
+    None
+):
+    a = _ident(IdSource.MANUAL, taxon_id=1)
+    b = _ident(IdSource.MANUAL, taxon_id=2)
+    r = _recording(a, b)
+    best = current_best_identification(r)
+
+    assert identification_status(a, best) == "current"
+    assert identification_status(b, best) == "current"

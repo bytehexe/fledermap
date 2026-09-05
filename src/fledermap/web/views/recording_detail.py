@@ -12,7 +12,10 @@ from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.media.paths import preview_path
 from fledermap.media.preview import TIME_EXPANSION_FACTOR
-from fledermap.services.current_best import current_best_identification
+from fledermap.services.current_best import (
+    current_best_identification,
+    identification_status,
+)
 from fledermap.services.recording_detail import (
     DETAIL_PX_PER_KHZ,
     DETAIL_PX_PER_MS,
@@ -89,6 +92,10 @@ def recording_details_page(audio_hash: str) -> flask.Response:
                     select(Taxon).where(Taxon.id.in_(best.taxon_ids)),
                 ).all(),
             )
+        identifications_with_status = [
+            (ident, identification_status(ident, best))
+            for ident in recording.identifications
+        ]
 
         site = session.get(Site, recording.site_id) if recording.site_id else None
         site_label = None
@@ -131,6 +138,7 @@ def recording_details_page(audio_hash: str) -> flask.Response:
             best=best,
             taxon=taxon,
             current_taxa=current_taxa,
+            identifications_with_status=identifications_with_status,
             site=site,
             site_label=site_label,
             recording_session=recording_session,

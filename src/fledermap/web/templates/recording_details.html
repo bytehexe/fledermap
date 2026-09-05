@@ -22,6 +22,7 @@
       — <a href="/?recording={{ recording.audio_hash }}">Show on map</a>
       {% if recording_session %} — <a href="/sessions/{{ recording_session.id }}">Session</a>{% endif %}
     </p>
+    {% include "_identifications_box.html" %}
 
     {% if params %}
     <div class="detail-toolbar" id="detail-toolbar">

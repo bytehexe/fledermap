@@ -8,7 +8,8 @@ import pytest
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session as OrmSession
 
-from fledermap.store.models import Recording
+from fledermap.domain.codes import IdSource, Verdict
+from fledermap.store.models import Identification, Recording, Taxon
 from fledermap.store.models import Session as AnnotationSession
 from fledermap.web.app import create_app
 
@@ -499,6 +500,43 @@ def test_toggle_favourite_with_panel_detail_returns_just_the_button_fragment(
         recording = session.get(Recording, 1)
         assert recording is not None
         assert recording.favourite is True
+
+
+def test_identifications_box_renders_on_the_details_page(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
+        session.add(taxon)
+        session.flush()
+        recording = Recording(
+            audio_hash="h" * 64,
+            path="h.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        recording.identifications = [
+            Identification(
+                source=IdSource.EMT_GUANO,
+                verdict=Verdict.NO_ID,
+            ),
+            Identification(
+                source=IdSource.EMT_WAMD,
+                verdict=Verdict.SPECIES,
+                taxon_id=taxon.id,
+            ),
+        ]
+        session.add(recording)
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/recordings/{'h' * 64}")
+    html = response.get_data(as_text=True)
+
+    assert "Identifications" in html
+    assert "identification-passive" in html
+    assert "identification-current" in html
+    assert "passive, ignored" in html
 
 
 def test_recording_details_page_tiles_are_not_natively_draggable(

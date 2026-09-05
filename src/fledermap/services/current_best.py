@@ -20,6 +20,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Literal
 
 from fledermap.domain.codes import IdSource, Verdict
 from fledermap.store.models import Identification, Recording, Taxon
@@ -122,3 +123,43 @@ def recording_headline(taxon: Taxon | None, best: CurrentIdentification | None) 
     if best.verdict == Verdict.SPECIES and best.primary.raw_label:
         return f"{best.primary.raw_label} (unmapped species)"
     return best.verdict.value
+
+
+IdentificationStatus = Literal["current", "passive", "shadowed", "superseded"]
+
+
+def identification_status(
+    ident: Identification,
+    best: CurrentIdentification | None,
+) -> IdentificationStatus:
+    """Where one raw Identification row stands relative to the resolved
+    precedence result -- for the "Identifications" breakdown box (spec §5a),
+    so a human making a manual call can see *why* the page shows what it
+    shows, not just the final headline in isolation.
+
+    A row is in exactly one of these four states:
+    - "superseded": a past claim from the same source, replaced by a newer
+      one -- orthogonal to the other three, since current_best_identification
+      never even considers superseded rows.
+    - "current": one of `best.claims` -- actually driving the shown result.
+    - "passive": an automatic-source NO_ID claim skipped per the precedence
+      walk (services/current_best.py's `current_best_identification`) --
+      true regardless of what ultimately won, since this describes the
+      row's own status, not the overall outcome.
+    - "shadowed": a real claim that lost only because a higher-precedence
+      source's claim won outright. Includes the edge case of a second,
+      non-surviving claim from the SAME winning non-MANUAL source (that
+      source's claims are deduped to one before wrapping in
+      `current_best_identification` -- see that function's docstring) --
+      still genuinely not part of `best.claims` and not an automatic NO_ID,
+      so "shadowed" is the correct bucket even though nothing of higher
+      precedence is actually responsible; callers rendering this state
+      should not blindly attribute it to `best.primary.source`.
+    """
+    if ident.superseded_at is not None:
+        return "superseded"
+    if best is not None and ident in best.claims:
+        return "current"
+    if ident.source != IdSource.MANUAL and ident.verdict == Verdict.NO_ID:
+        return "passive"
+    return "shadowed"
