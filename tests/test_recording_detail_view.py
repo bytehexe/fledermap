@@ -502,6 +502,68 @@ def test_toggle_favourite_with_panel_detail_returns_just_the_button_fragment(
         assert recording.favourite is True
 
 
+def test_manual_classification_route_sets_a_species_claim(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
+        session.add(taxon)
+        session.flush()
+        recording = Recording(
+            audio_hash="j" * 64,
+            path="j.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add(recording)
+        session.commit()
+        taxon_id = taxon.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().post(
+        f"/recordings/{'j' * 64}/manual-classification",
+        data={"verdict": "species", "taxon_ids": [str(taxon_id)]},
+    )
+
+    assert response.status_code == 200
+    assert b"Pipistrellus pipistrellus" in response.data
+
+
+def test_manual_classification_route_rejects_inconsistent_input(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        recording = Recording(
+            audio_hash="k" * 64,
+            path="k.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add(recording)
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().post(
+        f"/recordings/{'k' * 64}/manual-classification",
+        data={"verdict": "no_id", "taxon_ids": ["1"]},
+    )
+
+    assert response.status_code == 400
+
+
+def test_manual_classification_route_404s_for_unknown_recording(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().post(
+        f"/recordings/{'z' * 64}/manual-classification",
+        data={"verdict": "no_id"},
+    )
+
+    assert response.status_code == 404
+
+
 def test_identifications_box_renders_on_the_details_page(
     engine: Engine,
     tmp_path: Path,

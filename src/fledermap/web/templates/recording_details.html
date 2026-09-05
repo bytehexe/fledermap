@@ -23,6 +23,7 @@
       {% if recording_session %} — <a href="/sessions/{{ recording_session.id }}">Session</a>{% endif %}
     </p>
     {% include "_identifications_box.html" %}
+    {% include "_classifier_box.html" %}
 
     {% if params %}
     <div class="detail-toolbar" id="detail-toolbar">
@@ -126,5 +127,6 @@
   <script src="{{ url_for('vendor.static', filename='alpine.min.js') }}" defer></script>
   <script src="{{ url_for('static', filename='audio_controls.js') }}"></script>
   <script src="{{ url_for('static', filename='recording_detail.js') }}"></script>
+  <script src="{{ url_for('static', filename='classifier_box.js') }}"></script>
 </body>
 </html>

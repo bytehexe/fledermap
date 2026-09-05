@@ -22,7 +22,7 @@ from fledermap.services.recording_detail import (
     detail_params,
 )
 from fledermap.store.geo import decode_point
-from fledermap.store.models import Recording, Site, Taxon
+from fledermap.store.models import Recording, Site, Taxon, TaxonCode
 from fledermap.store.models import Session as AnnotationSession
 from fledermap.web.params import fallback_site_label
 
@@ -31,6 +31,29 @@ recording_detail_bp = flask.Blueprint(
     __name__,
     template_folder="../templates",
 )
+
+
+def _taxon_search_index(session: OrmSession) -> list[dict[str, object]]:
+    """One entry per Taxon, searched client-side against scientific_name,
+    both common names, and every mapped TaxonCode.code -- small enough
+    (~70 taxa) to inline as JSON rather than a per-keystroke endpoint,
+    matching this project's existing "no frontend build step" scale
+    assumption (design spec §5)."""
+    taxa = session.scalars(select(Taxon)).all()
+    codes_by_taxon: dict[int, list[str]] = {}
+    for code in session.scalars(select(TaxonCode)).all():
+        codes_by_taxon.setdefault(code.taxon_id, []).append(code.code)
+    return [
+        {
+            "id": t.id,
+            "scientific_name": t.scientific_name,
+            "common_name_en": t.common_name_en,
+            "common_name_de": t.common_name_de,
+            "codes": codes_by_taxon.get(t.id, []),
+        }
+        for t in taxa
+    ]
+
 
 _DEFAULT_BACK_LINK = ("Back to map", "/")
 
@@ -89,13 +112,16 @@ def recording_details_page(audio_hash: str) -> flask.Response:
         if best is not None and best.taxon_ids:
             current_taxa = list(
                 session.scalars(
-                    select(Taxon).where(Taxon.id.in_(best.taxon_ids)),
+                    select(Taxon)
+                    .where(Taxon.id.in_(best.taxon_ids))
+                    .order_by(Taxon.scientific_name),
                 ).all(),
             )
         identifications_with_status = [
             (ident, identification_status(ident, best))
             for ident in recording.identifications
         ]
+        taxon_search_index = _taxon_search_index(session)
 
         site = session.get(Site, recording.site_id) if recording.site_id else None
         site_label = None
@@ -138,6 +164,7 @@ def recording_details_page(audio_hash: str) -> flask.Response:
             best=best,
             taxon=taxon,
             current_taxa=current_taxa,
+            taxon_search_index=taxon_search_index,
             identifications_with_status=identifications_with_status,
             site=site,
             site_label=site_label,

@@ -8,7 +8,7 @@ import flask
 from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
 
-from fledermap.domain.codes import IdSource
+from fledermap.domain.codes import IdSource, Verdict
 from fledermap.media.paths import oscillogram_path, preview_path, spectrogram_path
 from fledermap.media.preview import TIME_EXPANSION_FACTOR
 from fledermap.media.spectrogram import (
@@ -16,6 +16,7 @@ from fledermap.media.spectrogram import (
     effective_max_freq_hz,
 )
 from fledermap.services.current_best import current_best_identification
+from fledermap.services.manual_classification import set_manual_classification
 from fledermap.services.map_query import (
     filtered_recordings,
     has_unmapped_species,
@@ -35,6 +36,7 @@ from fledermap.web.params import (
     parse_taxon_filter,
     parse_verdict,
 )
+from fledermap.web.views.recording_detail import _taxon_search_index
 
 views_bp = flask.Blueprint("views", __name__, template_folder="../templates")
 
@@ -194,6 +196,53 @@ def toggle_favourite(audio_hash: str) -> flask.Response:
             return flask.make_response(html)
 
     response, _point = _render_recording_panel(audio_hash)
+    return response
+
+
+@views_bp.post("/recordings/<audio_hash>/manual-classification")
+def post_manual_classification(audio_hash: str) -> flask.Response:
+    engine = flask.current_app.config["ENGINE"]
+    with OrmSession(engine) as session:
+        recording = session.scalars(
+            select(Recording).where(Recording.audio_hash == audio_hash),
+        ).one_or_none()
+        if recording is None:
+            return flask.make_response(("Recording not found.", 404))
+
+        verdict_raw = flask.request.form.get("verdict")
+        verdict = Verdict(verdict_raw) if verdict_raw else None
+        taxon_ids = [int(v) for v in flask.request.form.getlist("taxon_ids") if v]
+
+        try:
+            set_manual_classification(
+                session,
+                recording,
+                verdict=verdict,
+                taxon_ids=taxon_ids,
+            )
+        except ValueError as exc:
+            return flask.make_response((str(exc), 400))
+
+        best = current_best_identification(recording)
+        current_taxa = []
+        if best is not None and best.taxon_ids:
+            current_taxa = list(
+                session.scalars(
+                    select(Taxon)
+                    .where(Taxon.id.in_(best.taxon_ids))
+                    .order_by(Taxon.scientific_name),
+                ).all(),
+            )
+
+        html = flask.render_template(
+            "_classifier_box.html",
+            recording=recording,
+            best=best,
+            current_taxa=current_taxa,
+            taxon_search_index=_taxon_search_index(session),
+        )
+        response = flask.make_response(html)
+
     return response
 
 
