@@ -11,6 +11,14 @@ from fledermap.store.seed import resolve_code, seed_taxonomy
 pytestmark = pytest.mark.db
 
 
+def test_taxa_groups_yaml_is_in_the_seed_data_list() -> None:
+    """A future edit to _DATA that forgets this file would otherwise fail
+    silently -- seed_taxonomy would just seed fewer taxa, no error raised."""
+    from fledermap.store.seed import _DATA
+
+    assert "taxa_groups.yaml" in _DATA
+
+
 def test_seeding_creates_taxa_and_codes(engine: Engine) -> None:
     with OrmSession(engine) as session:
         created = seed_taxonomy(session)
@@ -104,6 +112,69 @@ def test_group_and_genus_ranks_are_representable(engine: Engine) -> None:
             select(Taxon).where(Taxon.scientific_name == "Nyctaloid"),
         ).one()
         assert group.rank == "group"
+
+
+def test_new_group_and_genus_taxa_are_seeded(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        session.commit()
+
+        plecotus = session.scalars(
+            select(Taxon).where(Taxon.scientific_name == "Plecotus"),
+        ).one()
+        assert plecotus.rank == "genus"
+
+        for name in ("HiF", "LoF", "Hilo", "NOTBAT"):
+            taxon = session.scalars(
+                select(Taxon).where(Taxon.scientific_name == name),
+            ).one()
+            assert taxon.rank == "group"
+
+
+def test_myotis_now_resolves_mysp(engine: Engine) -> None:
+    """Myotis existed with codes: {} before this plan; MYSP is its first code."""
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        session.commit()
+
+        taxon = resolve_code(session, "nabat", "MYSP")
+
+        assert taxon is not None
+        assert taxon.scientific_name == "Myotis"
+
+
+def test_plecotus_has_no_taxon_code(engine: Engine) -> None:
+    """No authoritative European-equivalent code exists (checked directly against
+    NABat's own page, 2026-09-05, docs/references.md) -- must not be invented."""
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        session.commit()
+
+        plecotus = session.scalars(
+            select(Taxon).where(Taxon.scientific_name == "Plecotus"),
+        ).one()
+        code_count = session.scalar(
+            select(func.count())
+            .select_from(TaxonCode)
+            .where(TaxonCode.taxon_id == plecotus.id),
+        )
+        assert code_count == 0
+
+
+def test_group_codes_resolve_to_the_right_taxon(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        session.commit()
+
+        for code, name in (
+            ("HiF", "HiF"),
+            ("LoF", "LoF"),
+            ("Hilo", "Hilo"),
+            ("NOTBAT", "NOTBAT"),
+        ):
+            taxon = resolve_code(session, "nabat", code)
+            assert taxon is not None
+            assert taxon.scientific_name == name
 
 
 def test_unknown_code_resolves_to_none(engine: Engine) -> None:

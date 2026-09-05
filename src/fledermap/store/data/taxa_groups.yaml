@@ -1,0 +1,48 @@
+# src/fledermap/store/data/taxa_groups.yaml
+#
+# Genus- and group-rank taxa: never a species, and (per the parent design spec's
+# decision D10) deliberately region-neutral -- shared across taxa_eu.yaml/
+# taxa_na.yaml rather than filed under either, because a genus can span both
+# (Myotis, Eptesicus) and a group built from such genera (Nyctaloid) inherits the
+# same problem. Filing them under one region's file was an earlier, pre-this-file
+# mistake (Myotis/Nyctaloid originally lived in taxa_eu.yaml) that caused no live
+# bug only because nothing reads file-of-origin as a region signal yet -- fixed
+# here before any group/genus taxa in this project.
+#
+# `codes: {}` means genuinely no code exists for that taxon -- check
+# docs/references.md before assuming one does and hand-entering it. MYOSPP was
+# invented once already (against the Wildlife Acoustics species list) and had to
+# be removed; every code below is instead verified against NABat's own published
+# species-codes page (docs/references.md, 2026-09-05).
+taxa:
+  - scientific_name: Myotis
+    rank: genus
+    common_name_de: Mausohren
+    common_name_en: Mouse-eared bats
+    codes: {nabat: MYSP}
+  - scientific_name: Nyctaloid
+    rank: group
+    common_name_de: Nyctaloid
+    common_name_en: Nyctaloid
+    codes: {}
+  - scientific_name: Plecotus
+    rank: genus
+    common_name_de: Langohren
+    common_name_en: Long-eared bats
+    codes: {}
+  - scientific_name: HiF
+    rank: group
+    common_name_en: Various species with pulses having a minimum frequency higher than ~30 kHz
+    codes: {nabat: HiF}
+  - scientific_name: LoF
+    rank: group
+    common_name_en: Various species with pulses having a minimum frequency lower than ~30 kHz
+    codes: {nabat: LoF}
+  - scientific_name: Hilo
+    rank: group
+    common_name_en: Two or more bats from distinct frequency classes vocalizing simultaneously within a recording
+    codes: {nabat: Hilo}
+  - scientific_name: NOTBAT
+    rank: group
+    common_name_en: Not a bat
+    codes: {nabat: NOTBAT}

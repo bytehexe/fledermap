@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.store.models import Taxon, TaxonCode
 
-_DATA = ["taxa_eu.yaml", "taxa_na.yaml"]
+_DATA = ["taxa_eu.yaml", "taxa_na.yaml", "taxa_groups.yaml"]
 
 
 def _load() -> list[dict[str, Any]]:
