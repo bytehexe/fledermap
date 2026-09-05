@@ -45,6 +45,9 @@ result of that brainstorming round.
 - "No ID" (someone explicitly reviewed this and found nothing) and "Unidentified" (nobody, human
   or automatic, has found anything yet) become distinct, separately filterable states — a direct
   consequence of `NO_ID` becoming meaningful only via a genuine `MANUAL` claim.
+- A human making a manual call can see *why* the page shows what it shows — which raw per-source
+  claim is currently driving the result, which was shadowed by a higher-precedence source, and
+  which automatic `NO_ID` was ignored as passive — not just the resolved headline in isolation.
 - A hard-to-identify genus-level call, an unresolvable-but-real frequency class, or "there's also
   a non-bat sound in here" can all be recorded without inventing a fake species code, and each
   participates in filtering/display exactly like a real species.
@@ -406,6 +409,37 @@ Follows this project's existing fragment-plus-htmx-POST pattern
   for "clear") to a new route, `POST /recordings/<audio_hash>/manual-classification`, handled the
   same way `toggle_favourite` is: re-render the affected fragment(s) via htmx.
 
+### 5a. The "Identifications" box: bring it to the details page, annotate precedence status
+
+Raised during brainstorming: a human making a manual call needs to see what each automatic
+source actually claimed, and *why* one is driving the shown result while another isn't — active
+vs. passive `NO_ID` (§2) being the concrete trigger, but the same need applies to any shadowed
+claim.
+
+This box (the raw per-source list, `{{ ident.source.value }}: {{ ident.raw_label or
+ident.verdict.value }}`) exists today only in the drawer panel (`_recording_panel.html`) — **not**
+on the recording-details page at all, found while placing the classifier box. Bring it to
+`recording_details.html` too (near the classifier box, §5), and annotate each row with its
+precedence status, computed from `best.claims` (§3) and the walk in §2:
+
+- **Current** (bold): the row is one of `best.claims` — i.e. it's actually contributing to the
+  shown headline/marker/filter result.
+- **Passive** (muted, "— passive, ignored"): an automatic-source row whose own claim is `NO_ID`
+  and was skipped per §2's rule — shown regardless of what ultimately won, since this describes
+  the row's own status, not the overall outcome.
+- **Shadowed by `<source>`** (muted): a real (non-`NO_ID`, or any `MANUAL`) claim that lost only
+  because a higher-precedence source's claim won outright — `<source>` names whichever source is
+  `best.primary.source`.
+- **Superseded**: unchanged, existing strikethrough styling (`app.css`'s `.superseded`) — a past
+  claim replaced by a newer one from the same source, an orthogonal concept to the three above
+  (a superseded row is never current/passive/shadowed, since `current_best_identification` only
+  ever considers non-superseded rows in the first place).
+
+A row is in at most one of the four states; computing which one is a small pure function next to
+`current_best_identification` (e.g. `identification_status(ident, best) -> Literal["current",
+"passive", "shadowed", "superseded"]`), not template logic — keeps the precedence reasoning in one
+tested place rather than duplicated as Jinja conditionals.
+
 ### 6. Test impact
 
 - `tests/test_current_best.py` (or wherever the existing precedence tests live — confirm exact
@@ -429,6 +463,11 @@ Follows this project's existing fragment-plus-htmx-POST pattern
   clear, clear → species), the concurrent-multi-`SPECIES`-insert regression from §4, and the two
   new `ValueError` cases (`SPECIES` with empty `taxon_ids`; non-`SPECIES` with non-empty
   `taxon_ids`) plus the route's 400 response for each.
+- New tests for `identification_status` (§5a): each of the four states, including the two easy
+  ones to get backwards — a passive automatic `NO_ID` when NOTHING else wins either (still
+  "passive," not "current" by elimination) and a real claim from the *winning* source when
+  `best.is_multi` (every one of `best.claims` is "current", not just `best.primary`). Plus a
+  recording-details-page test asserting the "Identifications" box now renders there at all.
 - `tests/test_seed.py` (or equivalent): the new `Myotis`/`Plecotus`/`HiF`/`LoF`/`HiLo`/`NOTBAT`
   taxa round-trip correctly, including `Plecotus` having no `TaxonCode` row at all; neither
   `rank="genus"` nor `rank="phonic_group"` breaks anything that
@@ -451,6 +490,7 @@ Follows this project's existing fragment-plus-htmx-POST pattern
 | MC-6 | The manual-classification UI always submits the tag box's full current state; the server always supersedes-then-inserts rather than diffing client-side — same safety property `_apply_identifications` already relies on. |
 | MC-7 | Region-restricted taxon lists, `^7eb251`'s broader NoID semantics, the classifier-disagreement filter, and NABat's fuller group-code vocabulary are explicitly out of scope (see Non-goals). |
 | MC-8 | The verdict filter gains a distinct "Unidentified" option (`best is None`) alongside "No ID" (now `MANUAL`-only in practice) — amends decision P4-9 (`2026-08-25-fledermap-phase4-map-design.md`), which folded them together when there was no way to distinguish them. The default (SPECIES-only) view is unaffected. |
+| MC-9 | The "Identifications" per-source breakdown box moves from drawer-panel-only to also appearing on the recording-details page, with each row annotated as current/passive/shadowed/superseded via a new pure `identification_status` helper — not template-side conditionals. |
 
 ## Open items
 
