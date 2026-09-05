@@ -162,8 +162,15 @@ document.addEventListener("DOMContentLoaded", () => {
       currentScale = 1;
       return;
     }
-    // Never shrink below a point that makes the render unreadable/unusable.
-    currentScale = Math.max(0.2, scale);
+    // No readability floor here (Janna, 2026-09-05): an earlier `Math.max(0.2, scale)` clamp
+    // meant any window small enough to need more than a 5x shrink stopped shrinking and fell
+    // back to `main.main-content` scrolling vertically -- reintroducing exactly the scrollbar
+    // this function exists to eliminate. `0.001` is not a readability floor, just the minimum
+    // needed to keep `zoom` a valid positive CSS value; it's only reachable in the degenerate
+    // case where `overflow` alone (from the OTHER, unzoomed chrome: nav, header, toolbar, both
+    // axes, audio row) already exceeds `shrinkableHeight`, at which point shrinking the images
+    // to nothing still wouldn't remove all overflow and a scrollbar is genuinely unavoidable.
+    currentScale = Math.max(0.001, scale);
     const zoomValue = String(currentScale);
     oscillogramWrap.style.zoom = zoomValue;
     wrap.style.zoom = zoomValue;
