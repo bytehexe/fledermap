@@ -2210,10 +2210,497 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 
 ---
 
-## Final verification (after all five tasks)
+## Task 6 (added mid-execution, user-approved 2026-09-05): Node built-in test runner for JS
+
+Triggered directly by Task 5's review finding two Critical bugs (`_classifier_box.html`'s
+`tojson` double-quote escaping, and `classifier_box.js`'s missing chip-removal listeners) that
+774 passing Python tests never caught, because none of them execute the app's own JavaScript.
+User decision: adopt Node's built-in test runner (`node:test`/`node:assert`, stable since Node 18,
+confirmed present here — v18.19.1) rather than a full framework (jest/vitest/jsdom) — no new npm
+dependency, no `package.json`, no build step, matching this project's existing "no frontend build
+step" convention. Scope: pure, DOM-independent logic only (`node:test` has no DOM) — anything that
+touches `document`/`window`/Leaflet stays covered by the project's existing live-verification
+technique (headless Chrome via puppeteer-core), which is now a mandatory step for any task
+touching JS, not a skippable nice-to-have (this incident is exactly why it was skipped twice and
+both skips hid a real bug).
+
+**Files:**
+- Create: `src/fledermap/web/static/marker_colors.js` (extracted from `app.js`)
+- Modify: `src/fledermap/web/static/app.js` (remove the extracted code, call the global functions
+  as before — no behavior change, pure file split)
+- Modify: `src/fledermap/web/templates/map.html` (add a `<script src=".../marker_colors.js">` tag
+  BEFORE the existing `app.js` tag — plain global-scope script loading, no module system)
+- Create: `src/fledermap/web/static/classifier_logic.js` (extracted from `classifier_box.js`)
+- Modify: `src/fledermap/web/static/classifier_box.js` (remove the extracted code, call the global
+  functions as before)
+- Modify: `src/fledermap/web/templates/recording_details.html` (add a
+  `<script src=".../classifier_logic.js">` tag BEFORE the existing `classifier_box.js` tag)
+- Create: `tests/js/marker_colors.test.js`
+- Create: `tests/js/classifier_logic.test.js`
+- Modify: `.pre-commit-config.yaml` (new `javascript`-typed hook)
+- Modify: `CLAUDE.md` (new "JavaScript tooling" section)
+
+**Interfaces:**
+- Consumes: nothing from earlier tasks except the final, fixed `classifier_box.js` from Task 5's
+  fix round (commit `c461b0c`) — do not run this task against the pre-fix version.
+- Produces: `marker_colors.js` exposes `colorForTaxon(taxonId)`, `colorForFeature(props)`,
+  `TAXON_PALETTE`, `MULTI_SPECIES_COLOR`, `HASH_HUE_START`, `GOLDEN_ANGLE` as globals in the
+  browser and as a CommonJS export for Node. `classifier_logic.js` exposes `matchesQuery(taxon,
+  query)` and a new `buildSaveBody({ activeVerdict, taxonIds })` the same way. Nothing later
+  depends on these beyond this task (it's the plan's last task).
+
+**Why the extraction, not testing the existing files as-is:** both `app.js` and `classifier_box.js`
+have a top-level `document.addEventListener("DOMContentLoaded", ...)` as executable code outside
+any function — `require()`-ing either file directly in plain Node crashes immediately with
+`ReferenceError: document is not defined`, before any test can even import the pure functions
+inside. The fix is a real split, not a Node-side shim: pure, DOM-free logic moves to its own file
+that only defines functions and never touches `document`/`window`, loaded via an additional
+`<script>` tag before the file that uses it (this project's existing convention — see how
+`audio_controls.js`/`recording_detail.js`/`app.js`/`session_map.js`/`classifier_box.js` already
+coexist as separate global-scope script tags with no bundler). `buildSaveBody` is a NEW function,
+not a pure extraction — it factors `classifier_box.js`'s `save()` three-way branch (active verdict
+button → `{verdict}`; else non-empty taxon ids → `{verdict: "species", taxon_ids}`; else → `{}`,
+matching `set_manual_classification`'s `verdict=None`-clears contract) out of `save()`'s
+DOM-reading code into a pure function of already-extracted values, so the branching logic itself —
+exactly the kind of thing that silently sends the wrong verdict — gets a real unit test instead of
+living only inside `save()`'s untestable DOM-reading body.
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `tests/js/marker_colors.test.js`:
+
+```javascript
+const { test } = require("node:test");
+const assert = require("node:assert/strict");
+const {
+  colorForTaxon,
+  colorForFeature,
+  TAXON_PALETTE,
+  MULTI_SPECIES_COLOR,
+} = require("../../src/fledermap/web/static/marker_colors.js");
+
+test("colorForTaxon uses the fixed palette for ids within its range", () => {
+  assert.equal(colorForTaxon(1), TAXON_PALETTE[1 % TAXON_PALETTE.length]);
+  assert.equal(colorForTaxon(10), TAXON_PALETTE[10 % TAXON_PALETTE.length]);
+});
+
+test("colorForTaxon hashes ids past the fixed palette to a distinct hue", () => {
+  const a = colorForTaxon(11);
+  const b = colorForTaxon(12);
+  assert.notEqual(a, b);
+  assert.match(a, /^hsl\(\d+(\.\d+)?, 70%, 45%\)$/);
+});
+
+test("colorForTaxon never collides for two ids 1 and 100 apart within the hashed range", () => {
+  // Regression for the original bug this hashing scheme replaced: two taxon
+  // ids sharing a residue class mod TAXON_PALETTE.length must not render
+  // identically once past the fixed palette.
+  assert.notEqual(colorForTaxon(11), colorForTaxon(21));
+});
+
+test("colorForFeature returns the reserved multi-species color when multi_species is true", () => {
+  assert.equal(
+    colorForFeature({ multi_species: true, verdict: "species", taxon_id: 5 }),
+    MULTI_SPECIES_COLOR,
+  );
+});
+
+test("colorForFeature returns gray for noise", () => {
+  assert.equal(colorForFeature({ verdict: "noise", taxon_id: null }), "gray");
+});
+
+test("colorForFeature returns orange for no_id", () => {
+  assert.equal(colorForFeature({ verdict: "no_id", taxon_id: null }), "orange");
+});
+
+test("colorForFeature colors by taxon when a taxon_id is present", () => {
+  assert.equal(
+    colorForFeature({ verdict: "species", taxon_id: 1 }),
+    colorForTaxon(1),
+  );
+});
+
+test("colorForFeature returns the unmapped-species color when taxon_id is null", () => {
+  assert.equal(colorForFeature({ verdict: "species", taxon_id: null }), "#333333");
+});
+
+test("colorForFeature returns the unmapped-species color when taxon_id is undefined", () => {
+  assert.equal(colorForFeature({ verdict: "species" }), "#333333");
+});
+
+test("multi_species takes precedence over verdict and taxon_id", () => {
+  assert.equal(
+    colorForFeature({ multi_species: true, verdict: "noise", taxon_id: 1 }),
+    MULTI_SPECIES_COLOR,
+  );
+});
+```
+
+Create `tests/js/classifier_logic.test.js`:
+
+```javascript
+const { test } = require("node:test");
+const assert = require("node:assert/strict");
+const {
+  matchesQuery,
+  buildSaveBody,
+} = require("../../src/fledermap/web/static/classifier_logic.js");
+
+const pipistrelle = {
+  id: 1,
+  scientific_name: "Pipistrellus pipistrellus",
+  common_name_en: "Common pipistrelle",
+  common_name_de: "Zwergfledermaus",
+  codes: ["PIPPIP", "PIPI"],
+};
+
+test("matchesQuery matches on scientific name, case-insensitively", () => {
+  assert.ok(matchesQuery(pipistrelle, "pipistrellus"));
+  assert.ok(matchesQuery(pipistrelle, "PIPISTRELLUS"));
+});
+
+test("matchesQuery matches on English and German common names", () => {
+  assert.ok(matchesQuery(pipistrelle, "common pipistrelle"));
+  assert.ok(matchesQuery(pipistrelle, "zwergfledermaus"));
+});
+
+test("matchesQuery matches on any code", () => {
+  assert.ok(matchesQuery(pipistrelle, "pippip"));
+  assert.ok(matchesQuery(pipistrelle, "pipi"));
+});
+
+test("matchesQuery does not match an unrelated query", () => {
+  assert.equal(matchesQuery(pipistrelle, "myotis"), false);
+});
+
+test("matchesQuery does not throw when common names are null (genus/group taxa)", () => {
+  const genus = {
+    id: 2,
+    scientific_name: "Myotis",
+    common_name_en: null,
+    common_name_de: null,
+    codes: ["MYSP"],
+  };
+  assert.ok(matchesQuery(genus, "myotis"));
+  assert.equal(matchesQuery(genus, "nonexistent"), false);
+});
+
+test("matchesQuery does not throw when codes is missing entirely", () => {
+  const noCodes = {
+    id: 3,
+    scientific_name: "Plecotus",
+    common_name_en: "Long-eared bats",
+    common_name_de: null,
+  };
+  assert.equal(matchesQuery(noCodes, "plecotus"), true);
+  assert.equal(matchesQuery(noCodes, "xyz"), false);
+});
+
+test("buildSaveBody with an active verdict button sends only that verdict", () => {
+  assert.deepEqual(
+    buildSaveBody({ activeVerdict: "no_id", taxonIds: [] }),
+    { verdict: "no_id" },
+  );
+});
+
+test("buildSaveBody with taxon ids and no active verdict sends verdict=species", () => {
+  assert.deepEqual(
+    buildSaveBody({ activeVerdict: null, taxonIds: ["1", "2"] }),
+    { verdict: "species", taxonIds: ["1", "2"] },
+  );
+});
+
+test("buildSaveBody with neither sends an empty clear payload", () => {
+  assert.deepEqual(
+    buildSaveBody({ activeVerdict: null, taxonIds: [] }),
+    {},
+  );
+});
+
+test("buildSaveBody prefers the active verdict button over any taxon ids", () => {
+  // Mirrors the mutual-exclusion the UI already enforces (selecting a
+  // verdict button clears the tag box) -- this pins the fallback order if
+  // that invariant is ever violated upstream.
+  assert.deepEqual(
+    buildSaveBody({ activeVerdict: "noise", taxonIds: ["1"] }),
+    { verdict: "noise" },
+  );
+});
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `node --test tests/js/`
+Expected: FAIL — `Cannot find module '../../src/fledermap/web/static/marker_colors.js'` and similarly for `classifier_logic.js` (neither file exists yet).
+
+- [ ] **Step 3: Extract `marker_colors.js` from `app.js`**
+
+Read `app.js`'s current content first (Tasks 2 and the color-fix round already touched it — the
+exact line numbers below are illustrative, not to be trusted verbatim; locate the block by its
+content, from the `TAXON_PALETTE` comment down through the end of `colorForFeature`). Move this
+entire block — `TAXON_PALETTE`, the reserved-colors comment, `GPS_TRACK_COLOR`,
+`MULTI_SPECIES_COLOR`, `HASH_HUE_START`, `GOLDEN_ANGLE`, `colorForTaxon`, `colorForFeature` — out of
+`app.js` into a new file:
+
+```javascript
+// src/fledermap/web/static/marker_colors.js -- pure map-marker color logic, split out of
+// app.js (2026-09-05) so it can be unit-tested with Node's built-in test runner without
+// pulling in a DOM: app.js as a whole executes `document.addEventListener(...)` at its top
+// level, which crashes under plain `node --test` before any of its functions could be
+// imported. This file defines only pure functions and constants -- never touches
+// `document`/`window` -- so `require()`-ing it directly in Node is safe. Loaded via its own
+// <script> tag in map.html, BEFORE app.js, which still calls colorForFeature/colorForTaxon
+// as ordinary globals -- no module system, matching every other script in this project.
+
+<paste the exact TAXON_PALETTE/reserved-colors-comment/GPS_TRACK_COLOR/MULTI_SPECIES_COLOR/
+HASH_HUE_START/GOLDEN_ANGLE/colorForTaxon/colorForFeature block from the current app.js,
+byte-for-byte -- do not retype it by hand, use your editor's move/cut-paste so nothing drifts>
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    colorForTaxon,
+    colorForFeature,
+    TAXON_PALETTE,
+    MULTI_SPECIES_COLOR,
+    GPS_TRACK_COLOR,
+    HASH_HUE_START,
+    GOLDEN_ANGLE,
+  };
+}
+```
+
+Leave `app.js` calling `colorForFeature(feature.properties)` exactly as it does today (the one
+call site, in the GeoJSON layer's `pointToLayer`/style callback) — it becomes a call to a global
+function now defined in a separately-loaded script, no different from how it already calls
+`filterForm()`, `query()`, and every other same-file function today. Grep `app.js` after the move
+to confirm no reference to the moved names remains except call sites (not definitions).
+
+- [ ] **Step 4: Add the new script tag to `map.html`**
+
+Find the existing `<script src="{{ url_for('static', filename='app.js') }}"></script>` (or
+equivalent Jinja `url_for` line) in `map.html` and add a new tag immediately BEFORE it:
+
+```html
+<script src="{{ url_for('static', filename='marker_colors.js') }}"></script>
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+```
+
+Order matters — `app.js` calls `colorForFeature` at load time inside its GeoJSON setup, so
+`marker_colors.js` must already have defined it as a global by then.
+
+- [ ] **Step 5: Run the marker_colors tests**
+
+Run: `node --test tests/js/marker_colors.test.js`
+Expected: all PASS.
+
+- [ ] **Step 6: Extract `classifier_logic.js` from `classifier_box.js`**
+
+In `classifier_box.js`, `matchesQuery` is currently nested inside `initClassifierBox` (it doesn't
+close over anything from that scope — it only uses its own parameters). Move it to the new file
+unchanged. Then factor `save()`'s three-way body-building branch into a new `buildSaveBody`
+function in the same file, and change `save()` to call it:
+
+```javascript
+// src/fledermap/web/static/classifier_logic.js -- pure classifier-box logic (taxon search
+// matching, save-payload construction), split out of classifier_box.js (2026-09-05) for the
+// same reason as marker_colors.js/app.js: classifier_box.js executes
+// `document.addEventListener(...)` at its top level, which crashes under plain `node --test`.
+// This file never touches `document`/`window`. Loaded via its own <script> tag in
+// recording_details.html, BEFORE classifier_box.js, which calls these as ordinary globals.
+
+function matchesQuery(taxon, query) {
+  const q = query.toLowerCase();
+  const fields = [
+    taxon.scientific_name,
+    taxon.common_name_en,
+    taxon.common_name_de,
+    ...(taxon.codes || []),
+  ];
+  return fields.some((f) => f && f.toLowerCase().includes(q));
+}
+
+// The three-way branch save() used to build inline, now a pure function of
+// already-DOM-read values so it can be unit-tested directly: an active
+// verdict button always wins (mirrors the UI's own mutual exclusion between
+// the tag box and the verdict buttons); otherwise a non-empty taxonIds list
+// means a species classification; otherwise the payload is empty, which
+// save() must translate into omitting `verdict` entirely -- matching
+// set_manual_classification's verdict=None ("clear") contract.
+function buildSaveBody({ activeVerdict, taxonIds }) {
+  if (activeVerdict) {
+    return { verdict: activeVerdict };
+  }
+  if (taxonIds.length > 0) {
+    return { verdict: "species", taxonIds };
+  }
+  return {};
+}
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { matchesQuery, buildSaveBody };
+}
+```
+
+In `classifier_box.js`, remove the now-duplicated `matchesQuery` function from inside
+`initClassifierBox` (it keeps working as a global, same as before), and change `save()` to:
+
+```javascript
+  function save() {
+    const activeVerdictButton = box.querySelector(
+      ".classifier-verdict-button[aria-pressed='true']",
+    );
+    const payload = buildSaveBody({
+      activeVerdict: activeVerdictButton ? activeVerdictButton.dataset.verdict : null,
+      taxonIds: currentTaxonIds(),
+    });
+    const body = new URLSearchParams();
+    if (payload.verdict) body.append("verdict", payload.verdict);
+    if (payload.taxonIds) {
+      for (const id of payload.taxonIds) body.append("taxon_ids", id);
+    }
+
+    fetch(`/recordings/${audioHash}/manual-classification`, {
+```
+
+(Leave everything from the `fetch(...)` call onward exactly as Task 5's fix round left it —
+this step only touches the body-construction lines above the `fetch` call.)
+
+- [ ] **Step 7: Add the new script tag to `recording_details.html`**
+
+Find the existing `<script src="{{ url_for('static', filename='classifier_box.js') }}">` tag and
+add a new one immediately before it:
+
+```html
+<script src="{{ url_for('static', filename='classifier_logic.js') }}"></script>
+<script src="{{ url_for('static', filename='classifier_box.js') }}"></script>
+```
+
+- [ ] **Step 8: Run the classifier_logic tests**
+
+Run: `node --test tests/js/classifier_logic.test.js`
+Expected: all PASS.
+
+- [ ] **Step 9: Run both test files together, and confirm the Python suite is unaffected**
+
+Run: `node --test tests/js/`
+Expected: all PASS (marker_colors + classifier_logic tests).
+
+Run: `hatch test -m "not db"` and full `hatch test` (`dangerouslyDisableSandbox: true`).
+Expected: same pass counts as before this task (this is a pure JS split; no Python file changes
+except none are expected — if any Python test fails, something about the template script-tag
+edits broke a rendering test, investigate before proceeding).
+
+Run: `hatch run types:check` — expected clean (unaffected, no Python changes).
+
+- [ ] **Step 10: Live-verify both pages still work**
+
+Via the project's established `puppeteer-core` headless-Chrome technique (now mandatory, not
+optional, for any task touching JS): load the map page, confirm markers still render with correct
+colors (spot-check a multi-species recording and a no_id recording); load a recording-details
+page, confirm the classifier box still initializes, search still filters suggestions, and a chip
+add/remove round-trip still works end to end. This is the exact check that would have caught
+Task 5's original two Critical bugs — do not skip it this time.
+
+- [ ] **Step 11: Add the pre-commit hook**
+
+In `.pre-commit-config.yaml`, add a new hook after the existing `tests` hook:
+
+```yaml
+      - id: js-tests
+        name: JS tests (node:test)
+        # Only the classifier-box/marker-color pure-logic modules have tests today -- see
+        # CLAUDE.md's "JavaScript tooling" section. `types: [javascript]` means this only
+        # runs when a staged file is JS, not on every commit.
+        entry: node --test tests/js/
+        language: system
+        types: [javascript]
+        pass_filenames: false
+```
+
+- [ ] **Step 12: Verify the hook only fires on JS changes**
+
+Run: `git commit --allow-empty -m "chore: test js-tests hook trigger"` after staging only a `.py`
+file change (e.g. a comment tweak) — confirm `js-tests` does NOT run (pre-commit prints it as
+skipped due to no matching files, same as `ruff-check`/`mypy` do for non-Python commits already).
+Then stage a change to any `.js` file and confirm `js-tests` DOES run. Revert the empty test
+commit(s) used to verify this (`git reset --soft HEAD~1` or similar) — this step is verification
+only, not meant to leave a throwaway commit in the branch.
+
+- [ ] **Step 13: Document in CLAUDE.md**
+
+Add a new section to `CLAUDE.md`, after the "Tooling" section:
+
+```markdown
+## JavaScript tooling
+
+No frontend build step, no `package.json`, no npm dependency — vanilla JS loaded as plain
+`<script>` tags sharing global scope (see "Architecture" above on `web/`). Tests use **Node's
+built-in test runner** (`node:test`/`node:assert`, stable since Node 18) for exactly this reason:
+it needs nothing installed beyond `node` itself, which this project already assumes is available
+(same tier as `ffmpeg`/`pg_dump` in "Environment gotchas").
+
+- `node --test tests/js/` — runs every JS test. No watch mode, no config file needed.
+- **Only pure, DOM-independent logic is unit-tested this way.** `node:test` has no DOM
+  implementation (no jsdom, deliberately — see the "Prefer local checks... reimplementation is
+  genuinely small" rule; a real DOM is exactly the "uncommon or huge" case that rule reserves for
+  a well-tested library, not a hand-rolled one). Any logic that touches `document`/`window`/
+  Leaflet is instead covered by this project's headless-Chrome (`puppeteer-core`) live-verification
+  technique — **mandatory for any task that adds or changes JS, not a skippable nice-to-have**:
+  skipping it twice during the manual-classification feature's Task 5 let two Critical bugs
+  (a Jinja `tojson`-in-double-quotes escaping bug, and an entirely unwired button) ship with 774
+  passing Python tests and a clean mypy run.
+- **A file with a top-level `document.addEventListener(...)` (or any other DOM/window access
+  outside a function body) cannot be `require()`-d directly in Node** — it crashes immediately with
+  `ReferenceError: document is not defined`, before any of its functions could even be imported.
+  The fix is a real file split, not a shim: move the pure, testable logic into its own file with
+  no top-level DOM access, guarded with a CommonJS export block:
+  ```javascript
+  if (typeof module !== "undefined" && module.exports) {
+    module.exports = { theFunction, anotherOne };
+  }
+  ```
+  and load it via its own `<script>` tag, before the file that uses it, in whichever template(s)
+  reference the consuming file. `marker_colors.js` (extracted from `app.js`) and
+  `classifier_logic.js` (extracted from `classifier_box.js`) are the two examples of this pattern
+  today — follow it for the next one rather than inventing a different shape.
+- Pre-commit's `js-tests` hook (`types: [javascript]`) runs `node --test tests/js/` only when a
+  staged file is JS — it does not run on every commit, matching `ruff-check`/`mypy`'s existing
+  `types:`-filtered pattern for Python-only files.
+```
+
+- [ ] **Step 14: Commit**
+
+```bash
+git add src/fledermap/web/static/marker_colors.js src/fledermap/web/static/app.js \
+  src/fledermap/web/static/classifier_logic.js src/fledermap/web/static/classifier_box.js \
+  src/fledermap/web/templates/map.html src/fledermap/web/templates/recording_details.html \
+  tests/js/marker_colors.test.js tests/js/classifier_logic.test.js \
+  .pre-commit-config.yaml CLAUDE.md
+git commit -m "test: Node built-in test runner for pure JS logic
+
+Task 5's review found two Critical bugs (a Jinja tojson-escaping bug
+and an entirely unwired chip-removal button) that 774 passing Python
+tests never caught, because none of them execute this app's own
+JavaScript. Adds node:test coverage for the pure, DOM-independent
+logic in app.js/classifier_box.js (extracted into marker_colors.js/
+classifier_logic.js, since neither original file can be require()'d
+directly in Node -- both have a top-level document.addEventListener
+call that crashes outside a browser). No new npm dependency, no
+package.json, no build step -- node:test is stable since Node 18 and
+needs nothing installed beyond node itself. DOM/browser-level behavior
+stays covered by this project's existing headless-Chrome
+live-verification technique, now mandatory for any JS-touching task
+rather than a skippable nice-to-have.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FgqEf89xFgRsPq8wQrH1Eh"
+```
+
+## Final verification (after all six tasks)
 
 - [ ] Run `hatch fmt` and confirm no changes are made (or apply and re-verify tests still pass if it reformats anything).
 - [ ] Run `hatch test` (full suite, `dangerouslyDisableSandbox: true`) — expect PASS.
 - [ ] Run `hatch run types:check` — expect `Success: no issues found`.
-- [ ] Run `hatch build -t wheel` and `python3 -m zipfile -l dist/*.whl` — confirm `taxa_groups.yaml`, `classifier_box.js`, `_classifier_box.html`, and `_identifications_box.html` all appear in the built wheel (this project has been bitten before by a file that worked in a dev checkout but silently didn't ship).
-- [ ] Re-read the full spec (`docs/superpowers/specs/2026-09-05-fledermap-manual-classification-design.md`) against the five tasks above and confirm every Decision (MC-1 through MC-9, MC-1a) has a corresponding implemented task — if any is missing, that's a plan gap to fix before calling this done, not something to implement ad hoc.
+- [ ] Run `node --test tests/js/` — expect PASS.
+- [ ] Run `hatch build -t wheel` and `python3 -m zipfile -l dist/*.whl` — confirm `taxa_groups.yaml`, `classifier_box.js`, `classifier_logic.js`, `marker_colors.js`, `_classifier_box.html`, and `_identifications_box.html` all appear in the built wheel (this project has been bitten before by a file that worked in a dev checkout but silently didn't ship). `tests/js/` must NOT appear in the wheel (it's dev-only, same as `tests/`).
+- [ ] Re-read the full spec (`docs/superpowers/specs/2026-09-05-fledermap-manual-classification-design.md`) against the six tasks above and confirm every Decision (MC-1 through MC-9, MC-1a) has a corresponding implemented task — if any is missing, that's a plan gap to fix before calling this done, not something to implement ad hoc.
