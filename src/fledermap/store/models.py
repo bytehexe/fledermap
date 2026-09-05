@@ -10,10 +10,12 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import JSONB
@@ -97,25 +99,29 @@ class Identification(Base):
 
     __tablename__ = "identification"
     __table_args__ = (
-        UniqueConstraint(
+        # A plain UniqueConstraint here would block set_manual_classification's own
+        # supersede-then-insert pattern (and services/ingest.py's _apply_identifications,
+        # which uses the same pattern): re-adding a taxon_id (or the shared-NULL tuple for
+        # NO_ID/NOISE) that a row this same call just superseded collides with that
+        # now-superseded row's still-enforced key tuple, because a plain constraint has no
+        # notion of "superseded, no longer live". Postgres has no partial unique
+        # CONSTRAINT syntax; a partial unique INDEX (scoped to only-live rows) is the
+        # standard way to express "unique among live rows only" -- found live, 2026-09-05,
+        # when the classifier box's own primary multi-species workflow crashed with a real
+        # UniqueViolation (docs/superpowers/plans/2026-09-05-fledermap-manual-classification.md,
+        # Task 7).
+        Index(
+            "uq_identification_source_claim",
             "recording_id",
             "source",
             "source_version",
             "raw_label",
             "taxon_id",
-            name="uq_identification_source_claim",
+            unique=True,
+            postgresql_where=text("superseded_at IS NULL"),
             # Postgres treats NULLs as distinct by default, so without this a
             # source that reports no version (filename IDs, manual annotations)
-            # could insert unlimited duplicates of the same claim.
-            #
-            # `taxon_id` was added 2026-09-05 (fledermap-manual-classification):
-            # a genuine multi-species MANUAL result needs several rows sharing
-            # the same (recording_id, source, source_version, raw_label) --
-            # source_version and raw_label are both NULL for every manual row
-            # -- differing only in taxon_id. Without taxon_id in the
-            # constraint, postgresql_nulls_not_distinct=True made the second
-            # manual SPECIES claim on a recording collide with the first
-            # regardless of which taxon it named.
+            # could insert unlimited duplicate LIVE claims of the same claim.
             postgresql_nulls_not_distinct=True,
         ),
     )

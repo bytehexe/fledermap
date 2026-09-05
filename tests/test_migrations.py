@@ -358,3 +358,24 @@ def test_archive_root_index_defaults_to_zero_server_side(
             text("SELECT archive_root_index FROM recording WHERE audio_hash = 'x'"),
         ).scalar()
     assert value == 0
+
+
+def test_migrated_partial_index_where_clause_is_enforced(
+    migrated_engine: Engine,
+) -> None:
+    """`compare_metadata` cannot see a partial index's WHERE clause at all --
+    mutation-tested 2026-09-05 by temporarily stripping the migration's
+    `postgresql_where` (making `uq_identification_source_claim` a plain,
+    non-partial unique index): `test_migration_matches_the_models` still
+    PASSED. Postgres's own `pg_indexes` catalog view is the only thing that
+    can see the predicate, so assert against it directly, the same way the
+    CHECK-constraint tests above assert enforcement directly rather than
+    relying on drift comparison."""
+    with migrated_engine.connect() as conn:
+        indexdef = conn.execute(
+            text(
+                "SELECT indexdef FROM pg_indexes"
+                " WHERE indexname = 'uq_identification_source_claim'",
+            ),
+        ).scalar_one()
+    assert "WHERE (superseded_at IS NULL)" in indexdef
