@@ -31,7 +31,7 @@ result of that brainstorming round.
 ## Goals
 
 - A human can classify a recording from the recording-details page: pick one or more species (or
-  a group-level tag — a genus like *Myotis*, a frequency class like `HiF`/`LoF`/`HiLo`, or
+  a group-level tag — a genus like *Myotis*, a frequency class like `HiF`/`LoF`/`Hilo`, or
   "non-bat sound present"), mark it `No ID` or `Noise`, or clear back to "no manual opinion"
   (deferring to whatever the automatic sources say).
 - A `NO_ID` claim at a high-precedence **automatic** source no longer shadows a real `SPECIES`
@@ -68,13 +68,14 @@ result of that brainstorming round.
 - **No "classifiers disagree" filter.** A different feature, not required for manual
   classification to ship.
 - **No attempt at NABat's full "Couplets and Groupings" vocabulary** (paired-species-combination
-  codes for very-similar-sounding species pairs). Seeded with only `Myotis`/`MYSP`,
-  `Plecotus` (single-genus groupings, not couplets), `HiF`, `LoF`, `HiLo`, and `NOTBAT` (Design
-  §1) — codes never invented (`CLAUDE.md`: `MYOSPP` was fabricated by an earlier plan and had to
-  be removed; every code above must be verified against `docs/references.md`/NABat's real
-  published list before being seeded, same bar as any other code in this project — see Open items
-  for `NOTBAT`'s spelling specifically). `Plecotus` gets no code at all for now, lacking any known
-  European equivalent to NABat's vocabulary — see Design §1.
+  codes for very-similar-sounding species pairs, e.g. `EPFUMYLU`). Seeded with only
+  `Myotis`/`MYSP`, `Plecotus` (single-genus groupings, not couplets), `HiF`, `LoF`, `Hilo`, and
+  `NOTBAT` (Design §1) — codes never invented (`CLAUDE.md`: `MYOSPP` was fabricated by an earlier
+  plan and had to be removed; every code above is verified against NABat's own published page and
+  recorded in `docs/references.md`, same bar as any other code in this project). `Plecotus` gets
+  no code at all, confirmed absent from NABat's own list (checked directly, not just this
+  design's own automated fetch) — expected, since NABat covers North America only and *Plecotus*
+  doesn't occur there.
 - **No changes to how automatic sources other than the `NO_ID`-precedence fix behave.** EMT
   ingestion, `resolve_code`, `commit_scan`'s supersession logic for `_EMT_SOURCES` are unchanged.
 
@@ -89,28 +90,39 @@ design is the first to actually use: `"A species, genus, or phonic group."` Add:
 ```yaml
 - scientific_name: Myotis
   rank: genus
-  common_name_en: Mouse-eared bats  # or similar; final wording TBD at seed time
+  common_name_en: Mouse-eared bats  # descriptive; NABat's own text for MYSP is "Unknown species in the Myotis genus" (see TaxonCode note below)
   common_name_de: Mausohren
 - scientific_name: Plecotus
   rank: genus
-  common_name_en: Long-eared bats  # or similar; final wording TBD at seed time
+  common_name_en: Long-eared bats  # or similar; final wording TBD at seed time -- no NABat text exists for this one (see below)
   common_name_de: Langohren
 
 - scientific_name: HiF
   rank: phonic_group
-  common_name_en: High-frequency bat (unidentified)
+  common_name_en: Various species with pulses having a minimum frequency higher than ~30 kHz  # NABat's own text (HighF/HiF)
 - scientific_name: LoF
   rank: phonic_group
-  common_name_en: Low-frequency bat (unidentified)
-- scientific_name: HiLo
+  common_name_en: Various species with pulses having a minimum frequency lower than ~30 kHz  # NABat's own text (LowF/LoF)
+- scientific_name: Hilo
   rank: phonic_group
-  common_name_en: Mixed high/low-frequency bat activity (unidentified)
+  common_name_en: Two or more bats from distinct frequency classes vocalizing simultaneously within a recording  # NABat's own text
 - scientific_name: NOTBAT
   rank: phonic_group
-  common_name_en: Non-bat sound present
+  common_name_en: Not a bat  # NABat's own text
 ```
 
-(`common_name_de`/exact English wording TBD at seed time, same as `Myotis`/`Plecotus` above.)
+**Verified 2026-09-05 against [NABat's own species-codes page](https://www.nabatmonitoring.org/species-codes)**
+(`docs/references.md` updated) — `MYSP`, `HiF`/`LoF`, `Hilo`, and `NOTBAT` are all genuine,
+correctly-spelled NABat codes (the page's own text is quoted directly above as
+`common_name_en` for the four non-genus ones, since there's no separate "real name" to give
+them beyond NABat's own description — see the `TaxonCode` note below). One correction from
+an earlier draft of this spec: NABat's actual capitalization is **`Hilo`**, not `HiLo`. No
+equivalent code exists for `Plecotus` on that page — checked directly by Janna, not just this
+design's own automated fetch (which twice under-extracted the page's table and can't be
+trusted as a negative result on its own) — expected, since NABat covers North America only and
+*Plecotus* doesn't occur there. `common_name_de`/`Plecotus`'s English wording are still TBD at
+seed time (cosmetic; NABat itself is English-only and has nothing for `Plecotus` to translate).
+
 `Myotis` and `Plecotus` get `rank: genus` because they genuinely are ones — both are standard
 "can't get past genus level acoustically" cases in European/North American call-ID practice
 (*Plecotus auritus*/*P. austriacus* in particular are notoriously close acoustically, same shape
@@ -132,16 +144,16 @@ a `TaxonCode` row exists only where a real, sourced device/standard code actuall
   classifier emits one), so the manual tag editor's autocomplete — which searches
   `scientific_name` directly — finds "Plecotus" by name with no code needed. A real, sourced
   European code can be added as a `TaxonCode` later with no structural change.
-- `HiF`/`LoF`/`HiLo`/`NOTBAT` are not organisms, so they have no separate "real name" apart from
+- `HiF`/`LoF`/`Hilo`/`NOTBAT` are not organisms, so they have no separate "real name" apart from
   their own short label — `scientific_name` is that label itself (e.g. `"HiF"`). Each still gets
   a matching `TaxonCode(source="nabat", code="HiF")` (etc.) for consistency with every other row
   and so a future automatic classifier could resolve one the same way, rather than leaving that
   implicit.
 
-Every code above (`MYSP`, `HiF`, `LoF`, `HiLo`, `NOTBAT`) must still be verified against an
-authoritative NABat source and recorded in `docs/references.md` before being seeded (same bar as
-every other code in this project — see Non-goals; `NOTBAT`'s exact spelling in particular needs
-confirming, see Open items).
+Every code above (`MYSP`, `HiF`, `LoF`, `Hilo`, `NOTBAT`) is now verified against NABat's own
+published page and recorded in `docs/references.md` (2026-09-05) — the "must be verified before
+seeding" bar every other code in this project already meets (see Non-goals) is satisfied; nothing
+here is blocked on further sourcing.
 
 **`NOTBAT` is deliberately additive, not exclusive like `NOISE`.** `Verdict.NOISE` is a claim
 about the *whole recording* ("this file is noise, nothing else to find"); `NOTBAT`-as-a-tag is a
@@ -468,7 +480,7 @@ tested place rather than duplicated as Jinja conditionals.
   "passive," not "current" by elimination) and a real claim from the *winning* source when
   `best.is_multi` (every one of `best.claims` is "current", not just `best.primary`). Plus a
   recording-details-page test asserting the "Identifications" box now renders there at all.
-- `tests/test_seed.py` (or equivalent): the new `Myotis`/`Plecotus`/`HiF`/`LoF`/`HiLo`/`NOTBAT`
+- `tests/test_seed.py` (or equivalent): the new `Myotis`/`Plecotus`/`HiF`/`LoF`/`Hilo`/`NOTBAT`
   taxa round-trip correctly, including `Plecotus` having no `TaxonCode` row at all; neither
   `rank="genus"` nor `rank="phonic_group"` breaks anything that
   currently assumes `rank="species"` (grep for any such assumption before implementing — none
@@ -482,9 +494,9 @@ tested place rather than duplicated as Jinja conditionals.
 
 | # | Decision |
 |---|---|
-| MC-1 | Genus/group-level identifications (`Myotis`/`MYSP`, `Plecotus`, `HiF`/`LoF`/`HiLo`, `NOTBAT`) reuse the existing `SPECIES` verdict + `taxon_id` via `rank="genus"`/`rank="phonic_group"` `Taxon` rows — no new `Verdict` member, no migration for a new CHECK value. `scientific_name` always holds the real/canonical name; a `TaxonCode` only exists where a real, sourced code does (`Plecotus` gets none). |
+| MC-1 | Genus/group-level identifications (`Myotis`/`MYSP`, `Plecotus`, `HiF`/`LoF`/`Hilo`, `NOTBAT`) reuse the existing `SPECIES` verdict + `taxon_id` via `rank="genus"`/`rank="phonic_group"` `Taxon` rows — no new `Verdict` member, no migration for a new CHECK value. `scientific_name` always holds the real/canonical name; a `TaxonCode` only exists where a real, sourced code does (`Plecotus` gets none). |
 | MC-2 | `NOISE` is always active (any source); `NO_ID` is passive only for automatic sources; `MANUAL` (any verdict, including `NO_ID`) is always active. |
-| MC-3 | Manual `SPECIES`/group claims are additive with each other (multi-species files, plus `HiF`/`LoF`/`HiLo`/`NOTBAT` as additional additive tags); `NO_ID`/`NOISE` remain singleton and mutually exclusive with them within `MANUAL` — `NOTBAT` is deliberately NOT folded into `NOISE`'s exclusivity, since it's a claim about additional content, not the whole recording. |
+| MC-3 | Manual `SPECIES`/group claims are additive with each other (multi-species files, plus `HiF`/`LoF`/`Hilo`/`NOTBAT` as additional additive tags); `NO_ID`/`NOISE` remain singleton and mutually exclusive with them within `MANUAL` — `NOTBAT` is deliberately NOT folded into `NOISE`'s exclusivity, since it's a claim about additional content, not the whole recording. |
 | MC-4 | "No manual opinion" is represented as zero non-superseded `MANUAL` rows, not a stored value — identical in kind to how every other source's absence already works. |
 | MC-5 | `current_best_identification` returns a `CurrentIdentification` wrapper (one or more claims) instead of a single `Identification \| None` — `.primary`/`.verdict` cover every caller that only cared about one claim; the taxon filter is the one caller that must check the full `.taxon_ids` set. |
 | MC-6 | The manual-classification UI always submits the tag box's full current state; the server always supersedes-then-inserts rather than diffing client-side — same safety property `_apply_identifications` already relies on. |
@@ -494,16 +506,11 @@ tested place rather than duplicated as Jinja conditionals.
 
 ## Open items
 
-- Exact wording for every new taxon's `common_name_en`/`common_name_de` — cosmetic, resolve at
-  seed time.
-- Confirm `MYSP`, `HiF`, `LoF`, `HiLo`, and `NOTBAT`'s exact source/spelling against NABat's real
-  published list (and add each to `docs/references.md`) before seeding — not yet done as of this
-  spec. `NOTBAT` in particular needs its spelling settled (this spec used the spelling from an
-  earlier backlog note verbatim, unverified — could plausibly be `NOBAT` instead).
-- Whether a real, sourced European-equivalent code for `Plecotus` exists (raised during
-  brainstorming, no confident answer found) — if one turns up later, it's a pure
-  `TaxonCode` addition with no structural change; until then `Plecotus` is seeded with no code at
-  all, findable only by name.
+- `Plecotus`/`Myotis`'s `common_name_de` and `Plecotus`'s `common_name_en` — cosmetic wording,
+  resolve at seed time (the four `phonic_group` rows now use NABat's own English text directly,
+  see Design §1, so nothing further to resolve there).
+- If a real, sourced European-equivalent code for `Plecotus` ever turns up, it's a pure
+  `TaxonCode` addition with no structural change — not expected, but not ruled out either.
 - Exact file(s) holding the existing `current_best_identification` tests (referenced in §6 by
   best guess) — confirm during planning.
 - `map_query.site_detail`'s species tally changes from "one taxon per recording" to "one or more
