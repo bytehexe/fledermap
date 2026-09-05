@@ -2696,7 +2696,338 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01FgqEf89xFgRsPq8wQrH1Eh"
 ```
 
-## Final verification (after all six tasks)
+## Task 7 (added mid-execution, controller-ruled): fix the superseded-row unique-constraint collision
+
+**Critical, load-bearing bug found during Task 6's mandatory live verification** (exactly the
+class of thing that mandate exists to catch): `uq_identification_source_claim`
+(`recording_id, source, source_version, raw_label, taxon_id`, `postgresql_nulls_not_distinct=True`)
+does not exclude already-superseded rows. `set_manual_classification` supersedes every standing
+`MANUAL` row (sets `superseded_at`, never deletes) then inserts fresh rows for the new state. When
+the new state re-uses a `taxon_id` (or the shared-`NULL` tuple for `NO_ID`/`NOISE`) that a row it
+just superseded also used, the `INSERT` collides with that now-superseded row's still-live key
+tuple, because `superseded_at` was never part of the constraint. Confirmed live with a real
+traceback: `UniqueViolation ... Key (recording_id, source, source_version, raw_label,
+taxon_id)=(152, manual, null, null, 1) already exists.`
+
+This is not an edge case — it is the classifier box's own primary workflow: add one species chip
+(works, first-ever claim), add a second (crashes, because `addChip`/`save()` resends the FULL
+current chip set including the first taxon, which the second `save()` must supersede-and-reinsert).
+The identical shape breaks re-selecting any single verdict button after clearing it. **The
+classifier box currently cannot create a genuine multi-species manual classification** — MC-3's
+design intent exists in the code but cannot work end-to-end for the case the whole feature is
+named after. **Ruling: fix now, not deferred** — this is squarely in this plan's own scope (its
+core feature's primary use case), not a backlog item, per the standing "a found problem needs
+addressing, regardless of whether you caused it" rule. Cost of NOT fixing it now: shipping a
+"manual classification" feature whose one distinguishing capability (multiple species per
+recording) doesn't work.
+
+**Files:**
+- Modify: `src/fledermap/store/models.py` (`Identification.__table_args__`)
+- Create: `src/fledermap/alembic/versions/<new_revision>_partial_unique_live_claims_only.py`
+- Test: `tests/test_models.py` (the regression this bug needed from the start)
+
+**Interfaces:**
+- Consumes: `Identification`/`IdSource`/`Verdict` from `domain/codes.py` and `store/models.py`
+  (unchanged), the existing `uq_identification_source_claim` name (replaced by a differently-typed
+  but same-purpose object below).
+- Produces: nothing new for later tasks — this is the plan's last task. `set_manual_classification`
+  itself needs NO code change; the fix is entirely in what the database enforces.
+
+**The fix:** Postgres has no "partial unique CONSTRAINT" syntax — a constraint that only applies
+to a subset of rows is expressed as a partial *unique index* (`CREATE UNIQUE INDEX ... WHERE
+<condition>`), which SQLAlchemy models as an `Index(..., unique=True, postgresql_where=...)`
+rather than a `UniqueConstraint`. Scoping the index to `WHERE superseded_at IS NULL` means only
+currently-live claims participate in the uniqueness check — a superseded row's key tuple becomes
+free to reuse the moment it's superseded, which is exactly the supersede-then-insert pattern
+`set_manual_classification` (and `services/ingest.py`'s `_apply_identifications`) already both use.
+
+- [ ] **Step 1: Write the failing test**
+
+Before this fix, this test must reproduce the exact live bug — inserting a claim, superseding it,
+then inserting a new live claim with the identical key tuple:
+
+```python
+# tests/test_models.py -- add near the existing uq_identification_source_claim tests
+def test_reinserting_a_superseded_claims_exact_key_tuple_succeeds(engine: Engine) -> None:
+    """Regression for the 2026-09-05 live-verification bug: set_manual_classification's
+    supersede-then-insert pattern re-uses the same (source, source_version, raw_label,
+    taxon_id) tuple the row it just superseded used -- e.g. re-adding a taxon that was
+    part of a previous manual classification, or toggling a verdict button off and back
+    on. A superseded row must not block a live row from claiming its old key tuple."""
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
+        session.add(taxon)
+        session.flush()
+        recording = Recording(
+            audio_hash="m" * 64,
+            path="m.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add(recording)
+        session.flush()
+
+        first = Identification(
+            recording_id=recording.id,
+            source=IdSource.MANUAL,
+            verdict=Verdict.SPECIES,
+            taxon_id=taxon.id,
+        )
+        session.add(first)
+        session.commit()
+
+        first.superseded_at = datetime.now(UTC)
+        session.add(first)
+        session.flush()
+
+        second = Identification(
+            recording_id=recording.id,
+            source=IdSource.MANUAL,
+            verdict=Verdict.SPECIES,
+            taxon_id=taxon.id,
+        )
+        session.add(second)
+        session.commit()  # must NOT raise IntegrityError
+
+        live = session.scalars(
+            select(Identification).where(
+                Identification.recording_id == recording.id,
+                Identification.superseded_at.is_(None),
+            ),
+        ).all()
+        assert len(live) == 1
+        assert live[0].id == second.id
+
+
+def test_two_live_claims_with_the_same_key_tuple_still_collide(engine: Engine) -> None:
+    """The scoping must not become a no-op: two NON-superseded rows sharing the exact
+    same key tuple must still be rejected -- this is what MC-3's NO_ID/NOISE singleton
+    rule (and the general anti-duplicate-claim purpose of the constraint) depends on."""
+    with OrmSession(engine) as session:
+        recording = Recording(
+            audio_hash="n" * 64,
+            path="n.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add(recording)
+        session.flush()
+
+        session.add(
+            Identification(
+                recording_id=recording.id,
+                source=IdSource.MANUAL,
+                verdict=Verdict.NO_ID,
+            ),
+        )
+        session.commit()
+
+        session.add(
+            Identification(
+                recording_id=recording.id,
+                source=IdSource.MANUAL,
+                verdict=Verdict.NO_ID,
+            ),
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
+```
+
+- [ ] **Step 2: Run the tests to verify the first one fails**
+
+Run: `hatch test tests/test_models.py -k "reinserting_a_superseded or two_live_claims" -v`
+(`dangerouslyDisableSandbox: true`, real PostGIS testcontainer)
+Expected: `test_reinserting_a_superseded_claims_exact_key_tuple_succeeds` FAILS with
+`sqlalchemy.exc.IntegrityError` / `psycopg2.errors.UniqueViolation` on `session.commit()` for
+`second`. `test_two_live_claims_with_the_same_key_tuple_still_collide` PASSES already (the
+existing plain constraint already rejects two live duplicates) — that's expected, it's the
+"doesn't regress" half of this fix, not the bug itself.
+
+- [ ] **Step 3: Replace the `UniqueConstraint` with a partial unique `Index`**
+
+Before writing this, use context7 (`resolve-library-id` then `query-docs` for SQLAlchemy) to
+confirm `postgresql_where` and `postgresql_nulls_not_distinct` are both valid `Index` construction
+kwargs in the SQLAlchemy version this project pins (`pyproject.toml`) — do not assume from memory.
+
+In `src/fledermap/store/models.py`, change:
+
+```python
+    __table_args__ = (
+        UniqueConstraint(
+            "recording_id",
+            "source",
+            "source_version",
+            "raw_label",
+            "taxon_id",
+            name="uq_identification_source_claim",
+            # Postgres treats NULLs as distinct by default, so without this a
+            # source that reports no version (filename IDs, manual annotations)
+            # could insert unlimited duplicates of the same claim.
+            #
+            # `taxon_id` was added 2026-09-05 (fledermap-manual-classification):
+            # a genuine multi-species MANUAL result needs several rows sharing
+            # the same (recording_id, source, source_version, raw_label) --
+            # source_version and raw_label are both NULL for every manual row
+            # -- differing only in taxon_id. Without taxon_id in the
+            # constraint, postgresql_nulls_not_distinct=True made the second
+            # manual SPECIES claim on a recording collide with the first
+            # regardless of which taxon it named.
+            postgresql_nulls_not_distinct=True,
+        ),
+    )
+```
+
+to:
+
+```python
+    __table_args__ = (
+        # A plain UniqueConstraint here would block set_manual_classification's own
+        # supersede-then-insert pattern (and services/ingest.py's _apply_identifications,
+        # which uses the same pattern): re-adding a taxon_id (or the shared-NULL tuple for
+        # NO_ID/NOISE) that a row this same call just superseded collides with that
+        # now-superseded row's still-enforced key tuple, because a plain constraint has no
+        # notion of "superseded, no longer live". Postgres has no partial unique
+        # CONSTRAINT syntax; a partial unique INDEX (scoped to only-live rows) is the
+        # standard way to express "unique among live rows only" -- found live, 2026-09-05,
+        # when the classifier box's own primary multi-species workflow crashed with a real
+        # UniqueViolation (docs/superpowers/plans/2026-09-05-fledermap-manual-classification.md,
+        # Task 7).
+        Index(
+            "uq_identification_source_claim",
+            "recording_id",
+            "source",
+            "source_version",
+            "raw_label",
+            "taxon_id",
+            unique=True,
+            postgresql_where=text("superseded_at IS NULL"),
+            # Postgres treats NULLs as distinct by default, so without this a
+            # source that reports no version (filename IDs, manual annotations)
+            # could insert unlimited duplicate LIVE claims of the same claim.
+            postgresql_nulls_not_distinct=True,
+        ),
+    )
+```
+
+Add `Index` and `text` to the file's existing SQLAlchemy imports if not already present (check the
+top of `models.py` first — `text` in particular is easy to already have imported for an unrelated
+column default elsewhere in the file; don't duplicate the import).
+
+- [ ] **Step 4: Run the model tests**
+
+Run: `hatch test tests/test_models.py -v` (`dangerouslyDisableSandbox: true`)
+Expected: both new tests PASS, and every pre-existing test in that file (including Task 2's
+`test_duplicate_manual_no_id_claims_are_rejected`) still PASSES — the partial-index scoping must
+not weaken the "two LIVE duplicates collide" guarantee that test already covers.
+
+- [ ] **Step 5: Write the migration**
+
+Find the current alembic head first (`ls -t src/fledermap/alembic/versions/*.py | head -1`, or
+grep for the revision with no other migration naming it as `down_revision` — the brief's guess of
+`f3a1c9d2e4b7` may not be current head anymore by the time this task runs; verify, don't assume).
+
+```python
+"""Replace uq_identification_source_claim with a partial unique index (live rows only)
+
+Revision ID: <alembic-generated>
+Revises: <actual current head, verified in Step 5 above>
+Create Date: <alembic-generated, real timestamp -- use `alembic revision` to generate this
+  file's skeleton rather than hand-writing the ID/timestamp, then fill in upgrade/downgrade
+  by hand, since autogenerate cannot diff a partial index reliably (same blind spot as the
+  existing CHECK-constraint precedent in CLAUDE.md's Migrations section)>
+
+"""
+from __future__ import annotations
+
+from alembic import op
+import sqlalchemy as sa
+
+# revision identifiers, used by Alembic.
+revision = "<alembic-generated>"
+down_revision = "<actual current head>"
+branch_labels = None
+depends_on = None
+
+
+def upgrade() -> None:
+    op.drop_constraint("uq_identification_source_claim", "identification", type_="unique")
+    op.create_index(
+        "uq_identification_source_claim",
+        "identification",
+        ["recording_id", "source", "source_version", "raw_label", "taxon_id"],
+        unique=True,
+        postgresql_where=sa.text("superseded_at IS NULL"),
+        postgresql_nulls_not_distinct=True,
+    )
+
+
+def downgrade() -> None:
+    op.drop_index("uq_identification_source_claim", table_name="identification")
+    op.create_unique_constraint(
+        "uq_identification_source_claim",
+        "identification",
+        ["recording_id", "source", "source_version", "raw_label", "taxon_id"],
+        postgresql_nulls_not_distinct=True,
+    )
+```
+
+Generate the file via `alembic revision -m "replace uq_identification_source_claim with a partial
+unique index"` (real command, real timestamp/ID) rather than hand-typing the revision header, then
+fill in `upgrade`/`downgrade` with the bodies above. Confirm `down_revision` in the generated file
+matches the actual current head found in this step.
+
+- [ ] **Step 6: Run `tests/test_migrations.py` and mutation-test it**
+
+Run: `hatch test tests/test_migrations.py -v` (`dangerouslyDisableSandbox: true`)
+Expected: PASS. `compare_metadata` must see no drift between the new `Index` in `models.py` and
+this migration.
+
+**Mutation-test this immediately** — per CLAUDE.md's Migrations section, a drift test that cannot
+fail is worse than no test. Temporarily revert the migration's `postgresql_where` clause (comment
+it out, making it a plain non-partial unique index) and re-run
+`hatch test tests/test_migrations.py -v`. If it still PASSES, `compare_metadata` cannot see partial
+index scoping at all — a real blind spot that needs its own explicit note in this file's own
+comment (matching the existing CHECK-constraint precedent) and likely its own dedicated
+`test_migrated_index_is_actually_partial` test asserting against `pg_indexes.indpred` (Postgres's
+own catalog view for a partial index's WHERE clause) directly, since `compare_metadata` won't
+catch it. Restore the real migration before proceeding either way.
+
+- [ ] **Step 7: Run the full suites**
+
+Run: `hatch test -m "not db"` — expect PASS, same count as Task 6 (361, since two new `db`-marked
+tests don't count toward this).
+Run: `hatch test` (full, `dangerouslyDisableSandbox: true`) — expect PASS, `776` (774 + 2 new tests).
+Run: `hatch run types:check` — expect `Success: no issues found`.
+
+- [ ] **Step 8: Live-verify the actual bug is fixed**
+
+Via the project's `puppeteer-core` technique (reuse Task 6's throwaway Postgres+ingest setup if
+still available, or recreate it): load a recording-details page, add a first species chip (works,
+confirm), add a SECOND species chip (this is the exact call that crashed before) — confirm it now
+succeeds, the recording shows "Multiple Species", and both taxa appear as chips. Also verify
+toggling a verdict button (e.g. No ID) off and back on no longer crashes.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add src/fledermap/store/models.py src/fledermap/alembic/versions/*.py tests/test_models.py
+git commit -m "fix: uq_identification_source_claim must exclude superseded rows
+
+set_manual_classification's supersede-then-insert pattern crashed with
+a real UniqueViolation the moment a new state reused a taxon_id (or
+the shared-NULL NO_ID/NOISE tuple) that a row it just superseded also
+used -- exactly the classifier box's own primary multi-species
+workflow (add a second chip) and its verdict-button toggle-off/on.
+Found live during Task 6's mandatory browser verification. Fixed by
+replacing the plain UniqueConstraint with a partial unique index
+scoped to WHERE superseded_at IS NULL -- Postgres has no partial
+unique CONSTRAINT syntax, this is the standard equivalent. Regression
+test proves both halves: a superseded row's key tuple is now reusable,
+and two live rows sharing it still collide.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FgqEf89xFgRsPq8wQrH1Eh"
+```
+
+## Final verification (after all seven tasks)
 
 - [ ] Run `hatch fmt` and confirm no changes are made (or apply and re-verify tests still pass if it reformats anything).
 - [ ] Run `hatch test` (full suite, `dangerouslyDisableSandbox: true`) — expect PASS.
