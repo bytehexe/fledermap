@@ -1,0 +1,13 @@
+{# src/fledermap/web/templates/_favicon.html -- shared browser-tab icon, included in every
+   page's <head> (same convention as `_theme_init.html`). `favicon.png` is a bat-in-a-map-pin
+   mark (bat = subject, pin = map -- the app's own name) cropped tight from a 2026-09-05
+   AI-generated design: background keyed out to transparent by saturation (the original's
+   near-gray background and rounded-square border both fall below the threshold; the glyph's
+   saturated green/cyan don't), then the glyph itself cropped to its own bounding box and
+   centered on a square canvas so it fills top-to-bottom -- no baked-in background square, so
+   it reads against the browser's own tab-bar colour, light or dark, rather than fighting it.
+   The bat's original cyan was recoloured to a dark navy -- cyan-on-green measured a WCAG
+   contrast ratio of ~1.26:1 (near-identical lightness despite the different hue, so the two
+   shapes blurred together, worst at small sizes), navy-on-green measures ~10.7:1. Ships as a
+   real static asset (not a data URI) since it's a raster image, not a glyph reference. #}
+<link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}">
