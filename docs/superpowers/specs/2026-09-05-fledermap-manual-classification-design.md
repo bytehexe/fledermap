@@ -55,9 +55,13 @@ result of that brainstorming round.
 ## Non-goals
 
 - **No new `Verdict` member.** Genus/group-level identifications reuse the existing `SPECIES`
-  verdict + `taxon_id`, via `Taxon` rows with `rank="genus"` or `rank="phonic_group"` — see Design
-  §1. `Taxon.rank` already exists in the schema (`"A species, genus, or phonic group"`) and is
-  currently written but never read; this design is its first consumer, not a new concept.
+  verdict + `taxon_id`, via `Taxon` rows with `rank="genus"` or `rank="group"` — see Design §1.
+  This isn't even a new pattern: the parent design spec's decision D10 and two already-seeded
+  rows (`Myotis`/genus, `Nyctaloid`/group, both in `taxa_eu.yaml`, `codes: {}`) established it
+  from day one specifically as "targets for manual identifications." This design is the first
+  thing to actually *use* that groundwork (no route/service writes `IdSource.MANUAL` today) and
+  extends it with more rows and, for the first time, real `TaxonCode` mappings for some of them —
+  not a new concept.
 - **No region-restricted taxon list for the manual classifier.** Deferred in favor of a better
   future idea raised during brainstorming: auto-derive from the recording's own known location
   (EU/NA) rather than a manual config knob. Tracked as its own follow-up.
@@ -81,76 +85,157 @@ result of that brainstorming round.
 
 ## Design
 
-### 1. Genus/group taxa reuse the existing `SPECIES` pathway
+### 1. Genus/group taxa reuse the existing `SPECIES` pathway — extending an already-established pattern
 
-`Taxon.rank` (`String(16)`) is currently always `"species"` and read nowhere in the codebase —
-confirmed by grep before writing this section. Its docstring already names two other cases this
-design is the first to actually use: `"A species, genus, or phonic group."` Add:
+**Corrected during planning, 2026-09-05: this is not new ground.** An earlier draft of this spec
+claimed `Taxon.rank` was "currently always `species`" and this design was its "first consumer" —
+wrong, caught only by reading `taxa_eu.yaml` in full rather than a truncated grep. Two rows
+already exist there:
 
 ```yaml
-- scientific_name: Myotis
-  rank: genus
-  common_name_en: Mouse-eared bats  # descriptive; NABat's own text for MYSP is "Unknown species in the Myotis genus" (see TaxonCode note below)
-  common_name_de: Mausohren
-- scientific_name: Plecotus
-  rank: genus
-  common_name_en: Long-eared bats  # or similar; final wording TBD at seed time -- no NABat text exists for this one (see below)
-  common_name_de: Langohren
-
-- scientific_name: HiF
-  rank: phonic_group
-  common_name_en: Various species with pulses having a minimum frequency higher than ~30 kHz  # NABat's own text (HighF/HiF)
-- scientific_name: LoF
-  rank: phonic_group
-  common_name_en: Various species with pulses having a minimum frequency lower than ~30 kHz  # NABat's own text (LowF/LoF)
-- scientific_name: Hilo
-  rank: phonic_group
-  common_name_en: Two or more bats from distinct frequency classes vocalizing simultaneously within a recording  # NABat's own text
-- scientific_name: NOTBAT
-  rank: phonic_group
-  common_name_en: Not a bat  # NABat's own text
+  # Genus and group taxa carry NO code: the EMT emits species codes only.
+  # They exist as targets for manual identifications (spec D10 — not every
+  # identification is a species).
+  - scientific_name: Myotis
+    rank: genus
+    common_name_de: Mausohren
+    common_name_en: Mouse-eared bats
+    codes: {}
+  - scientific_name: Nyctaloid
+    rank: group
+    common_name_de: Nyctaloid
+    common_name_en: Nyctaloid
+    codes: {}
 ```
+
+— established from the parent design spec's very first draft (decision D10: *"groups (`Myotis
+sp.`, `Nyctaloid`) are not species"*). `rank: group` (not `phonic_group`, an earlier draft's
+invented value) is the existing convention; `codes: {}` (an empty mapping, not an omitted key) is
+how "no code" is already spelled in this file. `resolve_code`/`current_best_identification`
+confirmed (by grep) to never branch on `.rank` anywhere — that part of the original claim holds.
+**What's genuinely new here**: nothing writes `IdSource.MANUAL` yet, so these two rows have sat
+unused as pure schema since D10; this design is the first thing to actually *target* them from a
+real UI, and the first to give any group/genus row a real `TaxonCode`.
+
+**A second, deeper pre-existing defect, caught by Janna during planning — genuinely fixed here,
+not just noted:** `Myotis` and `Nyctaloid` are filed under `taxa_eu.yaml`, a file whose own header
+says "European bat taxa." Both are wrong to file that way — `Myotis` has species on both
+continents (`taxa_na.yaml` already seeds 15 of them), and `Nyctaloid` (Nyctalus/Eptesicus/
+Vespertilio-type low-frequency calls) is exactly as cross-region, since `Eptesicus` does too
+(`Eptesicus fuscus` in `taxa_na.yaml`, `Eptesicus serotinus`/`isabellinus`/`nilssonii` in
+`taxa_eu.yaml` — checked directly, not assumed). Nothing reads "which file is this row in" as a
+region signal *today*, so this causes no live bug — but the already-deferred "auto-derive taxon
+list by recording region" idea (Non-goals) would silently misclassify both rows the moment
+someone builds it, exactly the kind of thing that "goes unnoticed" until it's confusing a real
+user. Compounding it by filing five *more* genus/group rows into the same regionally-named file
+would make it worse, not better.
+
+**Fix: a third, region-neutral seed file**, `taxa_groups.yaml`, holding every genus/group-rank
+taxon regardless of how many regions it actually spans — a simple, exception-free rule ("regional
+files are species-only and region-scoped; every group/genus taxon lives in the neutral file"), so
+a future region feature never has to reason about which group taxa are secretly cross-region.
+Move `Myotis` and `Nyctaloid` there from `taxa_eu.yaml` (removing them from that file entirely,
+not just adding new rows elsewhere), and add the new taxa there too:
+
+```yaml
+# Genus- and group-rank taxa: never a species, and (per the parent design spec's decision D10)
+# deliberately region-neutral -- shared across `taxa_eu.yaml`/`taxa_na.yaml` rather than filed
+# under either, because a genus can span both (Myotis, Eptesicus) and a group built from such
+# genera (Nyctaloid) inherits the same problem. Filing them under one region's file was an
+# earlier, pre-this-design mistake (Myotis/Nyctaloid originally lived in taxa_eu.yaml) that
+# caused no live bug only because nothing reads file-of-origin as a region signal yet -- fixed
+# here before any group/genus taxa in this project.
+#
+# `codes: {}` means genuinely no code exists for that taxon (see docs/references.md before
+# assuming one does and hand-entering it -- MYOSPP was invented once already and had to be
+# removed).
+taxa:
+  - scientific_name: Myotis
+    rank: genus
+    common_name_de: Mausohren
+    common_name_en: Mouse-eared bats
+    codes: {nabat: MYSP}
+  - scientific_name: Nyctaloid
+    rank: group
+    common_name_de: Nyctaloid
+    common_name_en: Nyctaloid
+    codes: {}
+  - scientific_name: Plecotus
+    rank: genus
+    common_name_de: Langohren
+    common_name_en: Long-eared bats
+    codes: {}
+  - scientific_name: HiF
+    rank: group
+    common_name_en: Various species with pulses having a minimum frequency higher than ~30 kHz  # NABat's own text (HighF/HiF)
+    codes: {nabat: HiF}
+  - scientific_name: LoF
+    rank: group
+    common_name_en: Various species with pulses having a minimum frequency lower than ~30 kHz  # NABat's own text (LowF/LoF)
+    codes: {nabat: LoF}
+  - scientific_name: Hilo
+    rank: group
+    common_name_en: Two or more bats from distinct frequency classes vocalizing simultaneously within a recording  # NABat's own text
+    codes: {nabat: Hilo}
+  - scientific_name: NOTBAT
+    rank: group
+    common_name_en: Not a bat  # NABat's own text
+    codes: {nabat: NOTBAT}
+```
+
+`services/seed.py`'s `_DATA` list gains this third filename. `taxa_eu.yaml` loses its `Myotis`/
+`Nyctaloid` rows and the now-obsolete "Genus and group taxa carry NO code" header comment (that
+claim was already about to become false the moment `Myotis` got a real code, on top of being the
+wrong file for the rows it described) — its own "31 European species" header claim is unaffected
+either way, since it only ever counted `rank: species` rows. `CLAUDE.md`'s "Species codes"
+section, which currently says *"`seed.py`'s `_DATA` loads both files"*, needs updating to "all
+three files" as part of the same change that adds `taxa_groups.yaml` — a stale doc claim like this
+is exactly what this project's own rules say to fix on sight, not leave for later.
+
+`Myotis`'s move is also where it gets its first real code — `codes: {}` becomes `codes: {nabat:
+MYSP}` on the same (relocated) row, not a second, duplicate `Myotis` entry.
 
 **Verified 2026-09-05 against [NABat's own species-codes page](https://www.nabatmonitoring.org/species-codes)**
 (`docs/references.md` updated) — `MYSP`, `HiF`/`LoF`, `Hilo`, and `NOTBAT` are all genuine,
-correctly-spelled NABat codes (the page's own text is quoted directly above as
-`common_name_en` for the four non-genus ones, since there's no separate "real name" to give
-them beyond NABat's own description — see the `TaxonCode` note below). One correction from
-an earlier draft of this spec: NABat's actual capitalization is **`Hilo`**, not `HiLo`. No
-equivalent code exists for `Plecotus` on that page — checked directly by Janna, not just this
-design's own automated fetch (which twice under-extracted the page's table and can't be
-trusted as a negative result on its own) — expected, since NABat covers North America only and
-*Plecotus* doesn't occur there. `common_name_de`/`Plecotus`'s English wording are still TBD at
-seed time (cosmetic; NABat itself is English-only and has nothing for `Plecotus` to translate).
+correctly-spelled NABat codes (the page's own text is quoted directly above as `common_name_en`
+for the four group rows, since there's no separate "real name" to give them beyond NABat's own
+description). One correction from an earlier draft of this spec: NABat's actual capitalization is
+**`Hilo`**, not `HiLo`. No equivalent code exists for `Plecotus` on that page — checked directly
+by Janna, not just this design's own automated fetch (which twice under-extracted the page's
+table and can't be trusted as a negative result on its own) — expected, since NABat covers North
+America only and *Plecotus* doesn't occur there. `Plecotus`'s German/English wording above is
+final (matches the file's existing `Myotis`/`Nyctaloid` style directly); no further TBD remains.
 
 `Myotis` and `Plecotus` get `rank: genus` because they genuinely are ones — both are standard
 "can't get past genus level acoustically" cases in European/North American call-ID practice
 (*Plecotus auritus*/*P. austriacus* in particular are notoriously close acoustically, same shape
 of problem as `Myotis`, raised during brainstorming and deliberately NOT a couplet — a
-single-genus grouping, unlike the paired-species "Couplets" category this spec already excludes).
-NABat's frequency-split classes and "non-bat sound present" aren't a genus at all, hence the
-separate `phonic_group` rank — both ranks flow through the identical mechanism below, so this
-split is purely about correctness/display, not behavior.
+single-genus grouping, unlike the paired-species "Couplets" category this spec already excludes,
+and a different concept again from `Nyctaloid`, an existing multi-genus grouping this design
+relocates but doesn't otherwise change). NABat's frequency-split classes and "non-bat sound
+present" aren't a genus at all, hence `rank: group` — both ranks flow through the identical
+mechanism below, so this split is purely about correctness/display, not behavior.
 
-**One consistent rule for `scientific_name` vs. `TaxonCode`, applied to every row above, same as
-every existing species**: `scientific_name` always holds the taxon's real/canonical name;
-a `TaxonCode` row exists only where a real, sourced device/standard code actually does.
+**One consistent rule for `scientific_name` vs. `TaxonCode`, matching how every existing species
+row already works**: `scientific_name` always holds the taxon's real/canonical name; a
+`TaxonCode` entry (inside that row's `codes:` mapping) exists only where a real, sourced
+device/standard code actually does.
 
-- `Myotis` gets `TaxonCode(source="nabat", code="MYSP")` — a genuine, published NABat code.
-- `Plecotus` gets **no code for now**. `MYSP` is specifically a NABat (North-American) vocabulary
-  entry; Europe has no equivalent single continent-wide acoustic-ID standard to draw an
-  equivalent code from, and this design does not invent one (`CLAUDE.md`'s `MYOSPP` lesson,
-  again). This isn't a functional gap: nothing here needs to *auto-resolve* a code for it (no
-  classifier emits one), so the manual tag editor's autocomplete — which searches
-  `scientific_name` directly — finds "Plecotus" by name with no code needed. A real, sourced
-  European code can be added as a `TaxonCode` later with no structural change.
+- `Myotis` gets `codes: {nabat: MYSP}` — a genuine, published NABat code, added to the existing
+  row rather than a new one.
+- `Plecotus` gets **`codes: {}`, no code for now** — same as `Nyctaloid` already has. `MYSP` is
+  specifically a NABat (North-American) vocabulary entry; Europe has no equivalent single
+  continent-wide acoustic-ID standard to draw an equivalent code from, and this design does not
+  invent one (`CLAUDE.md`'s `MYOSPP` lesson, again). Not a functional gap: nothing here needs to
+  *auto-resolve* a code for it (no classifier emits one), so the manual tag editor's autocomplete
+  — which searches `scientific_name` directly — finds "Plecotus" by name with no code needed. A
+  real, sourced European code can be added to `codes:` later with no structural change.
 - `HiF`/`LoF`/`Hilo`/`NOTBAT` are not organisms, so they have no separate "real name" apart from
   their own short label — `scientific_name` is that label itself (e.g. `"HiF"`). Each still gets
-  a matching `TaxonCode(source="nabat", code="HiF")` (etc.) for consistency with every other row
-  and so a future automatic classifier could resolve one the same way, rather than leaving that
-  implicit.
+  a matching `codes: {nabat: HiF}` (etc.) for consistency with every other row and so a future
+  automatic classifier could resolve one the same way, rather than leaving that implicit.
 
-Every code above (`MYSP`, `HiF`, `LoF`, `Hilo`, `NOTBAT`) is now verified against NABat's own
+Every code above (`MYSP`, `HiF`, `LoF`, `Hilo`, `NOTBAT`) is verified against NABat's own
 published page and recorded in `docs/references.md` (2026-09-05) — the "must be verified before
 seeding" bar every other code in this project already meets (see Non-goals) is satisfied; nothing
 here is blocked on further sourcing.
@@ -480,12 +565,12 @@ tested place rather than duplicated as Jinja conditionals.
   "passive," not "current" by elimination) and a real claim from the *winning* source when
   `best.is_multi` (every one of `best.claims` is "current", not just `best.primary`). Plus a
   recording-details-page test asserting the "Identifications" box now renders there at all.
-- `tests/test_seed.py` (or equivalent): the new `Myotis`/`Plecotus`/`HiF`/`LoF`/`Hilo`/`NOTBAT`
-  taxa round-trip correctly, including `Plecotus` having no `TaxonCode` row at all; neither
-  `rank="genus"` nor `rank="phonic_group"` breaks anything that
-  currently assumes `rank="species"` (grep for any such assumption before implementing — none
-  found during this design's own research, but the
-  plan should re-confirm).
+- `tests/test_seed.py` already has `test_group_and_genus_ranks_are_representable` (asserts
+  `Myotis`/genus and `Nyctaloid`/group exist) — unaffected by the file move since it queries by
+  `scientific_name` via the DB, not by source file; extend it (or add new tests alongside it) for
+  `Plecotus`/`HiF`/`LoF`/`Hilo`/`NOTBAT`, `Myotis` now resolving `nabat`/`MYSP` via `resolve_code`,
+  and `Plecotus` having no `TaxonCode` row at all. New: a test asserting `taxa_groups.yaml` is
+  actually in `seed.py`'s `_DATA` list (a list a future edit could silently forget to extend).
 - `hatch run types:check` and the JS-side manual test coverage gap: this is another JS-only UI
   feature (per `CLAUDE.md`'s "no test infrastructure exists" note) — verify live per this
   project's established puppeteer-core technique, not skipped silently.
@@ -494,7 +579,8 @@ tested place rather than duplicated as Jinja conditionals.
 
 | # | Decision |
 |---|---|
-| MC-1 | Genus/group-level identifications (`Myotis`/`MYSP`, `Plecotus`, `HiF`/`LoF`/`Hilo`, `NOTBAT`) reuse the existing `SPECIES` verdict + `taxon_id` via `rank="genus"`/`rank="phonic_group"` `Taxon` rows — no new `Verdict` member, no migration for a new CHECK value. `scientific_name` always holds the real/canonical name; a `TaxonCode` only exists where a real, sourced code does (`Plecotus` gets none). |
+| MC-1 | Genus/group-level identifications (`Myotis`/`MYSP`, `Plecotus`, `HiF`/`LoF`/`Hilo`, `NOTBAT`) reuse the existing `SPECIES` verdict + `taxon_id` via `rank="genus"`/`rank="group"` `Taxon` rows — extends the pre-existing D10 pattern (`Myotis`/`Nyctaloid`), no new `Verdict` member, no migration for a new CHECK value. `scientific_name` always holds the real/canonical name; a `TaxonCode` only exists where a real, sourced code does (`Plecotus` gets none). |
+| MC-1a | All genus/group-rank taxa move to a new, region-neutral `taxa_groups.yaml` (a third file in `seed.py`'s `_DATA`) rather than living inside a regional species file — fixes a real pre-existing defect (`Myotis`/`Nyctaloid` were filed under `taxa_eu.yaml` despite both spanning EU and NA genera), caught during planning, not introduced by this design but not left as-is either. |
 | MC-2 | `NOISE` is always active (any source); `NO_ID` is passive only for automatic sources; `MANUAL` (any verdict, including `NO_ID`) is always active. |
 | MC-3 | Manual `SPECIES`/group claims are additive with each other (multi-species files, plus `HiF`/`LoF`/`Hilo`/`NOTBAT` as additional additive tags); `NO_ID`/`NOISE` remain singleton and mutually exclusive with them within `MANUAL` — `NOTBAT` is deliberately NOT folded into `NOISE`'s exclusivity, since it's a claim about additional content, not the whole recording. |
 | MC-4 | "No manual opinion" is represented as zero non-superseded `MANUAL` rows, not a stored value — identical in kind to how every other source's absence already works. |
@@ -506,14 +592,10 @@ tested place rather than duplicated as Jinja conditionals.
 
 ## Open items
 
-- `Plecotus`/`Myotis`'s `common_name_de` and `Plecotus`'s `common_name_en` — cosmetic wording,
-  resolve at seed time (the four `phonic_group` rows now use NABat's own English text directly,
-  see Design §1, so nothing further to resolve there).
 - If a real, sourced European-equivalent code for `Plecotus` ever turns up, it's a pure
   `TaxonCode` addition with no structural change — not expected, but not ruled out either.
-- Exact file(s) holding the existing `current_best_identification` tests (referenced in §6 by
-  best guess) — confirm during planning.
-- `map_query.site_detail`'s species tally changes from "one taxon per recording" to "one or more
-  taxa per recording" (§3) — checked, not just flagged: `_site_panel.html` renders
-  `species_counts` and `site.recording_count` as two independent lines, nothing asserts they sum
-  to each other, so this is safe as designed. No follow-up needed.
+
+Everything else this section previously tracked was resolved during planning: `Myotis`/`Plecotus`
+wording is final (Design §1), `current_best_identification`'s tests are confirmed to live in
+`tests/test_current_best.py` (read directly), and `site_detail`'s species-tally change was
+checked against `_site_panel.html` and found safe (§3).
