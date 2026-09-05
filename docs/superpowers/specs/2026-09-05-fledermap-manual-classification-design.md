@@ -42,6 +42,9 @@ result of that brainstorming round.
 - A multi-species file can be represented (several manual species/group claims on one recording),
   and — this is the part that must not regress — **every one of those claims is findable by the
   taxon filter**, not just one arbitrarily-picked "winner."
+- "No ID" (someone explicitly reviewed this and found nothing) and "Unidentified" (nobody, human
+  or automatic, has found anything yet) become distinct, separately filterable states — a direct
+  consequence of `NO_ID` becoming meaningful only via a genuine `MANUAL` claim.
 - A hard-to-identify genus-level call, an unresolvable-but-real frequency class, or "there's also
   a non-bat sound in here" can all be recorded without inventing a fake species code, and each
   participates in filtering/display exactly like a real species.
@@ -238,8 +241,9 @@ Full caller sweep (grepped, not guessed — every `current_best_identification` 
 direct `.verdict`/`.taxon_id` read in `src/fledermap/`):
 
 Callers that only ever cared about a single verdict/taxon — the drawer panel (`web/views/map.py`),
-session lists (`web/views/sessions.py`), `_passes_verdict_filter` — use `.primary`/`.verdict`
-unchanged, no behavior change for the common single-claim case. Four callers need real updates:
+session lists (`web/views/sessions.py`) — use `.primary`/`.verdict` unchanged, no behavior change
+for the common single-claim case. `_passes_verdict_filter` also uses `.verdict` unchanged, but its
+surrounding logic changes for an unrelated reason — see §3a. Four other callers need real updates:
 
 - **`recording_headline`**: `"Multiple Species"` when `best.is_multi`, a dedicated fixed marker
   color (not hash-derived — a new constant alongside the existing taxon palette in
@@ -268,6 +272,39 @@ a mechanical `.primary` swap: today it fetches one `Taxon` via `best.taxon_id` p
 headline. It now also needs every `Taxon` in `best.taxon_ids` to pre-populate the classifier box's
 tag editor with the recording's current manual claims (§5) — the headline lookup and the editor's
 initial state are two different needs that happen to have shared one field before.
+
+### 3a. The verdict filter gains a real "Unidentified" option, distinct from "No ID"
+
+A consequence of §2 surfaced during brainstorming, not originally planned: since an automatic-only
+`NO_ID` claim is now always skipped (passive) rather than ever becoming "current,"
+`current_best_identification` can only return an actual `Verdict.NO_ID` result via a `MANUAL`
+claim. Automatic-only `NO_ID` and "no identification at all" both now collapse to the same
+`best is None` result.
+
+This makes "No ID" and "no identification survives" meaningfully different things for the first
+time: "No ID" becomes "a human explicitly reviewed this and found nothing identifiable," while
+`best is None` covers both "literally nothing has ever run" and "every automatic classifier drew
+a blank" — i.e. "nobody, human or otherwise, has found anything here." That's exactly a review
+queue's "still needs a look" bucket, distinct from "already reviewed, confirmed empty."
+
+Today, `_passes_verdict_filter` (`services/map_query.py`) already treats `best is None` as
+equivalent to `Verdict.NO_ID` for filtering (decision P4-9, `2026-08-25-fledermap-phase4-map-
+design.md`) — written when there was no way to distinguish them. This design amends P4-9: add a
+dated deviation note there pointing at this spec, matching this project's established practice for
+cross-spec revisions (e.g. `FLEDERMAP_MEDIA_ROOT`'s note in `CLAUDE.md`).
+
+- **`web/params.py`'s `parse_verdict`**: return type widens from `Verdict | Literal["all"] | None`
+  to `Verdict | Literal["all", "unidentified"] | None`, parsing a new `verdict=unidentified` query
+  value — the same sentinel-string shape `parse_taxon_filter`'s existing `"unmapped"` already
+  uses, not a new mechanism.
+- **`_passes_verdict_filter`**: `"unidentified"` matches `best is None` exactly.
+  `Verdict.NO_ID` now matches only `best is not None and best.verdict == Verdict.NO_ID` — no
+  longer folding `None` into it. The **default view is unaffected**: with `verdict` omitted, only
+  `Verdict.SPECIES` is shown either way, so P4-9's actual purpose ("hide noise/unidentified by
+  default") is preserved unchanged — this only changes what an explicit "No ID" selection matches
+  versus a new, separate "Unidentified" selection.
+- **`map.html`'s verdict `<select>`**: one new `<option value="unidentified">Unidentified</option>`
+  alongside the existing "Species only (default)"/"Noise"/"No ID"/"All".
 
 ### 4. Manual classification storage
 
@@ -382,6 +419,11 @@ Follows this project's existing fragment-plus-htmx-POST pattern
 - GeoJSON API test coverage: a multi-species recording's feature carries `multi_species: true`;
   `app.js`'s marker-color function picks the dedicated color for it (live-verified per this
   project's puppeteer-core technique, same as any other JS-only change).
+- `tests/test_params.py`'s `parse_verdict` tests: new `"unidentified"` case. `tests/test_map_view.py`
+  (or wherever `_passes_verdict_filter` is tested): a recording with only automatic `NO_ID` claims
+  matches `verdict=unidentified` but not `verdict=no_id`; a recording with a `MANUAL` `NO_ID`
+  claim matches `verdict=no_id` but not `verdict=unidentified`; the default (verdict omitted) view
+  excludes both, unchanged from today.
 - New `tests/test_manual_classification.py`: `set_manual_classification`'s supersede-then-insert
   behavior for every transition (species → species, species → NO_ID, NO_ID → species, species →
   clear, clear → species), the concurrent-multi-`SPECIES`-insert regression from §4, and the two
@@ -408,6 +450,7 @@ Follows this project's existing fragment-plus-htmx-POST pattern
 | MC-5 | `current_best_identification` returns a `CurrentIdentification` wrapper (one or more claims) instead of a single `Identification \| None` — `.primary`/`.verdict` cover every caller that only cared about one claim; the taxon filter is the one caller that must check the full `.taxon_ids` set. |
 | MC-6 | The manual-classification UI always submits the tag box's full current state; the server always supersedes-then-inserts rather than diffing client-side — same safety property `_apply_identifications` already relies on. |
 | MC-7 | Region-restricted taxon lists, `^7eb251`'s broader NoID semantics, the classifier-disagreement filter, and NABat's fuller group-code vocabulary are explicitly out of scope (see Non-goals). |
+| MC-8 | The verdict filter gains a distinct "Unidentified" option (`best is None`) alongside "No ID" (now `MANUAL`-only in practice) — amends decision P4-9 (`2026-08-25-fledermap-phase4-map-design.md`), which folded them together when there was no way to distinguish them. The default (SPECIES-only) view is unaffected. |
 
 ## Open items
 
