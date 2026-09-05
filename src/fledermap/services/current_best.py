@@ -2,19 +2,28 @@
 spec's (section 5) explicit but never-implemented rule: "manual wins, else
 highest-priority non-superseded source by configured order." Not a stored
 column -- recomputed on every call, so the order below can change without a
-migration."""
+migration.
+
+Rewritten 2026-09-05 (docs/superpowers/specs/2026-09-05-fledermap-manual-
+classification-design.md) to fix a real precedence bug and support
+multi-species files: a source's claims are only skipped (treated as absent)
+when they are PURELY automatic NO_ID -- an automatic classifier's admission
+of uncertainty must not shadow a real answer further down the precedence
+order. NOISE is always active, and MANUAL is always active including its own
+NO_ID, since a human's judgment is deliberate rather than an admission of
+uncertainty. A winning MANUAL source may carry more than one non-superseded
+SPECIES/group claim (a genuine multi-species file); CurrentIdentification
+represents that instead of forcing a single winner."""
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from fledermap.domain.codes import IdSource, Verdict
 from fledermap.store.models import Identification, Recording, Taxon
 
-# The configured order (design spec P4-2). BATDETECT2/BATTYBIRDNET/KALEIDOSCOPE
-# are deliberately absent: no source in this codebase produces them yet (v2),
-# so their eventual position is unobserved and revisable without migration --
-# they simply never match any candidate today.
 _PRECEDENCE: tuple[IdSource, ...] = (
     IdSource.MANUAL,
     IdSource.EMT_MANUAL,
@@ -26,38 +35,90 @@ _PRECEDENCE: tuple[IdSource, ...] = (
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 
-def current_best_identification(recording: Recording) -> Identification | None:
-    """Manual wins, else the highest-priority non-superseded source. Ties
-    within one source (two non-superseded claims differing only in
-    `source_version`/`raw_label` -- possible but rare, since a rescan normally
-    supersedes a source's prior claim before adding a new one) break on the
-    most recently first-seen claim, not on dict/list iteration order."""
+@dataclass(frozen=True)
+class CurrentIdentification:
+    """One or more non-superseded claims from the single winning source
+    (§2/§3 of the design spec). `claims` has more than one entry only when
+    the winning source is MANUAL with multiple SPECIES/group claims -- every
+    other source is resolved to exactly one claim, same as before this
+    rewrite."""
+
+    claims: tuple[Identification, ...]
+
+    @property
+    def is_multi(self) -> bool:
+        return len(self.claims) > 1
+
+    @property
+    def primary(self) -> Identification:
+        """The single representative claim for headline/marker-color
+        purposes -- first-added (lowest first_seen_at), matching how ties
+        within one source already broke before this rewrite."""
+        return min(self.claims, key=lambda i: i.first_seen_at or _EPOCH)
+
+    @property
+    def verdict(self) -> Verdict:
+        return self.primary.verdict
+
+    @property
+    def taxon_ids(self) -> frozenset[int]:
+        return frozenset(c.taxon_id for c in self.claims if c.taxon_id is not None)
+
+    @classmethod
+    def from_matches(cls, matches: Sequence[Identification]) -> CurrentIdentification:
+        return cls(claims=tuple(matches))
+
+
+def current_best_identification(recording: Recording) -> CurrentIdentification | None:
+    """Walk sources in precedence order. A source's claims are skipped
+    (fall through to the next source) only when they are ALL automatic
+    NO_ID -- any SPECIES, NOISE, or MANUAL claim of any verdict wins
+    outright and stops the walk.
+
+    Only MANUAL may surface more than one claim (a genuine multi-species
+    file). Every other source is deduped to its single most-recently
+    first-seen claim before wrapping, same tie-break as before this
+    rewrite -- a non-MANUAL source having two non-superseded claims at once
+    is rare (normally a rescan supersedes the prior claim first) and never
+    represents a real multi-species result."""
     candidates = [i for i in recording.identifications if i.superseded_at is None]
     for source in _PRECEDENCE:
         matches = [i for i in candidates if i.source == source]
-        if matches:
-            return max(matches, key=lambda i: i.first_seen_at or _EPOCH)
+        if not matches:
+            continue
+        if source != IdSource.MANUAL and all(
+            m.verdict == Verdict.NO_ID for m in matches
+        ):
+            continue
+        if source != IdSource.MANUAL:
+            matches = [max(matches, key=lambda i: i.first_seen_at or _EPOCH)]
+        return CurrentIdentification.from_matches(matches)
     return None
 
 
-def recording_headline(taxon: Taxon | None, best: Identification | None) -> str:
-    """The species/verdict label every recording headline renders (recording_details.html,
-    _recording_panel.html, session_detail.html each had their own copy of the same ternary
-    -- centralized here so the fix below only has to happen once).
+def recording_headline(taxon: Taxon | None, best: CurrentIdentification | None) -> str:
+    """The species/verdict label every recording headline renders
+    (recording_details.html, _recording_panel.html, session_detail.html each
+    had their own copy of the same ternary -- centralized here so a fix only
+    has to happen once).
 
-    - A resolved `taxon` always wins: its scientific name.
+    - A resolved `taxon` always wins: its scientific name (the single-claim,
+      single-taxon case -- callers resolve `taxon` from `best.primary.taxon_id`
+      today, unaffected by multi-species results since a multi-species
+      caller passes `taxon=None` and lets the branch below handle it).
+    - `best.is_multi`: "Multiple Species" -- individual claims are only
+      enumerated in the classifier box (spec §5), not the headline.
     - No identification at all: "unidentified".
-    - `NO_ID`/`NOISE` verdicts show their own value (`best.verdict.value`) -- already a
-      meaningful label on its own, unaffected by the fix below.
-    - A real `SPECIES` verdict whose code never mapped to a `Taxon` (spec section 5: an
-      unmapped label is not a failure, it resolves to `None` and lands in the review queue
-      by design) previously fell through to the same `best.verdict.value` branch, showing
-      the literal, useless string "species" -- the actual detector code was sitting right
-      there in `raw_label`, unused. Shown instead as "<code> (unmapped species)"."""
+    - `NO_ID`/`NOISE` verdicts show their own value (`best.verdict.value`).
+    - A real `SPECIES` verdict whose code never mapped to a `Taxon`: shown as
+      "<code> (unmapped species)" using `best.primary.raw_label`.
+    """
     if taxon is not None:
         return taxon.scientific_name
     if best is None:
         return "unidentified"
-    if best.verdict == Verdict.SPECIES and best.raw_label:
-        return f"{best.raw_label} (unmapped species)"
+    if best.is_multi:
+        return "Multiple Species"
+    if best.verdict == Verdict.SPECIES and best.primary.raw_label:
+        return f"{best.primary.raw_label} (unmapped species)"
     return best.verdict.value

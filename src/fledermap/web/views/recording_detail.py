@@ -80,8 +80,15 @@ def recording_details_page(audio_hash: str) -> flask.Response:
 
         best = current_best_identification(recording)
         taxon = None
-        if best is not None and best.taxon_id is not None:
-            taxon = session.get(Taxon, best.taxon_id)
+        if best is not None and not best.is_multi and best.primary.taxon_id is not None:
+            taxon = session.get(Taxon, best.primary.taxon_id)
+        current_taxa: list[Taxon] = []
+        if best is not None and best.taxon_ids:
+            current_taxa = list(
+                session.scalars(
+                    select(Taxon).where(Taxon.id.in_(best.taxon_ids)),
+                ).all(),
+            )
 
         site = session.get(Site, recording.site_id) if recording.site_id else None
         site_label = None
@@ -123,6 +130,7 @@ def recording_details_page(audio_hash: str) -> flask.Response:
             recording=recording,
             best=best,
             taxon=taxon,
+            current_taxa=current_taxa,
             site=site,
             site_label=site_label,
             recording_session=recording_session,

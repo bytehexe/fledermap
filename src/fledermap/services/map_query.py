@@ -26,7 +26,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import IdSource, Verdict
-from fledermap.services.current_best import current_best_identification
+from fledermap.services.current_best import (
+    CurrentIdentification,
+    current_best_identification,
+)
 from fledermap.store.geo import decode_point
 from fledermap.store.models import Identification, Recording, Site, Taxon
 from fledermap.store.models import Session as AnnotationSession
@@ -50,7 +53,7 @@ def _within_bbox(point: tuple[float, float] | None, bbox: BBox) -> bool:
 
 
 def _passes_verdict_filter(
-    best: Identification | None,
+    best: CurrentIdentification | None,
     verdict: Verdict | Literal["all"] | None,
 ) -> bool:
     """A recording with no non-superseded identification at all (`best is
@@ -122,11 +125,11 @@ def filtered_recordings(
                 # docstring for why.
                 matches = (
                     best is not None
-                    and best.taxon_id is None
+                    and not best.taxon_ids
                     and best.verdict == Verdict.SPECIES
                 )
             else:
-                matches = best is not None and best.taxon_id == taxon_id
+                matches = best is not None and taxon_id in best.taxon_ids
             if matches == taxon_exclude:
                 continue
         results.append(r)
@@ -263,8 +266,9 @@ def site_detail(session: OrmSession, site_id: int) -> SiteDetail | None:
     counts: dict[int, int] = {}
     for recording in recordings:
         best = current_best_identification(recording)
-        if best is not None and best.taxon_id is not None:
-            counts[best.taxon_id] = counts.get(best.taxon_id, 0) + 1
+        if best is not None:
+            for taxon_id in best.taxon_ids:
+                counts[taxon_id] = counts.get(taxon_id, 0) + 1
 
     taxa_by_id = {}
     if counts:

@@ -546,3 +546,71 @@ def test_recordings_geojson_filters_by_site(engine: Engine, tmp_path: Path) -> N
 
     hashes = {f["properties"]["audio_hash"] for f in response.get_json()["features"]}
     assert hashes == {"a" * 64}
+
+
+def test_recordings_geojson_marks_multi_species_recordings(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        taxon_a = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
+        taxon_b = Taxon(rank="genus", scientific_name="Myotis")
+        session.add_all([taxon_a, taxon_b])
+        session.flush()
+        recording = Recording(
+            audio_hash="c" * 64,
+            path="c.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            geom=WKTElement("POINT(10 50)", srid=4326),
+        )
+        recording.identifications = [
+            Identification(
+                source=IdSource.MANUAL,
+                verdict=Verdict.SPECIES,
+                taxon_id=taxon_a.id,
+            ),
+            Identification(
+                source=IdSource.MANUAL,
+                verdict=Verdict.SPECIES,
+                taxon_id=taxon_b.id,
+            ),
+        ]
+        session.add(recording)
+        session.commit()
+
+    client = _app_client(engine, tmp_path)
+    response = client.get("/api/recordings.geojson?verdict=all")
+
+    feature = response.get_json()["features"][0]
+    assert feature["properties"]["multi_species"] is True
+
+
+def test_recordings_geojson_single_species_is_not_multi(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
+        session.add(taxon)
+        session.flush()
+        recording = Recording(
+            audio_hash="d" * 64,
+            path="d.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            geom=WKTElement("POINT(10 50)", srid=4326),
+        )
+        recording.identifications = [
+            Identification(
+                source=IdSource.EMT_GUANO,
+                verdict=Verdict.SPECIES,
+                taxon_id=taxon.id,
+            ),
+        ]
+        session.add(recording)
+        session.commit()
+
+    client = _app_client(engine, tmp_path)
+    response = client.get("/api/recordings.geojson?verdict=all")
+
+    feature = response.get_json()["features"][0]
+    assert feature["properties"]["multi_species"] is False

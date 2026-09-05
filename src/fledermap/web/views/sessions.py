@@ -81,8 +81,12 @@ def session_detail_page(session_id: int) -> flask.Response:
         for recording in detail.recordings:
             best = current_best_identification(recording)
             taxon = None
-            if best is not None and best.taxon_id is not None:
-                taxon = session.get(Taxon, best.taxon_id)
+            if (
+                best is not None
+                and not best.is_multi
+                and best.primary.taxon_id is not None
+            ):
+                taxon = session.get(Taxon, best.primary.taxon_id)
             recordings_with_id.append((recording, best, taxon))
 
         html = flask.render_template(

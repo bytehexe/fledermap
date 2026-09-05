@@ -102,10 +102,20 @@ class Identification(Base):
             "source",
             "source_version",
             "raw_label",
+            "taxon_id",
             name="uq_identification_source_claim",
             # Postgres treats NULLs as distinct by default, so without this a
             # source that reports no version (filename IDs, manual annotations)
             # could insert unlimited duplicates of the same claim.
+            #
+            # `taxon_id` was added 2026-09-05 (fledermap-manual-classification):
+            # a genuine multi-species MANUAL result needs several rows sharing
+            # the same (recording_id, source, source_version, raw_label) --
+            # source_version and raw_label are both NULL for every manual row
+            # -- differing only in taxon_id. Without taxon_id in the
+            # constraint, postgresql_nulls_not_distinct=True made the second
+            # manual SPECIES claim on a recording collide with the first
+            # regardless of which taxon it named.
             postgresql_nulls_not_distinct=True,
         ),
     )

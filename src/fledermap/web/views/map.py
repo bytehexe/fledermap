@@ -102,8 +102,8 @@ def _render_recording_panel(
         recording = next(r for r in recordings if r.audio_hash == audio_hash)
         best = current_best_identification(recording)
         taxon = None
-        if best is not None and best.taxon_id is not None:
-            taxon = session.get(Taxon, best.taxon_id)
+        if best is not None and not best.is_multi and best.primary.taxon_id is not None:
+            taxon = session.get(Taxon, best.primary.taxon_id)
         point = decode_point(recording.geom)
 
         recording_session = (

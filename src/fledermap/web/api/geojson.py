@@ -32,8 +32,8 @@ def _recording_feature(recording: Recording, session: OrmSession) -> dict[str, o
     point = decode_point(recording.geom)
     best = current_best_identification(recording)
     taxon_name = None
-    if best is not None and best.taxon_id is not None:
-        taxon = session.get(Taxon, best.taxon_id)
+    if best is not None and best.primary.taxon_id is not None:
+        taxon = session.get(Taxon, best.primary.taxon_id)
         if taxon is not None:
             taxon_name = taxon.scientific_name
     return {
@@ -46,10 +46,11 @@ def _recording_feature(recording: Recording, session: OrmSession) -> dict[str, o
         "properties": {
             "audio_hash": recording.audio_hash,
             "recorded_at": recording.recorded_at.isoformat(),
-            "taxon_id": best.taxon_id if best is not None else None,
+            "taxon_id": best.primary.taxon_id if best is not None else None,
             "taxon_name": taxon_name,
             "verdict": best.verdict.value if best is not None else None,
-            "source": best.source.value if best is not None else None,
+            "source": best.primary.source.value if best is not None else None,
+            "multi_species": best.is_multi if best is not None else False,
         },
     }
 

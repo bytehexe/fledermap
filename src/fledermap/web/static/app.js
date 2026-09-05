@@ -59,7 +59,14 @@ const TAXON_PALETTE = [
 //   #333333         -- species verdict with no taxon (unmapped species)
 //   blue            -- site-radius circles (the L.circle call below)
 //   GPS_TRACK_COLOR -- reserved for a future GPS-track overlay, unused today
+//   MULTI_SPECIES_COLOR -- multi_species: true (see below)
 const GPS_TRACK_COLOR = "#00bcd4";
+
+// Multi-species recordings (current_best_identification returning more than
+// one claim -- a real multi-species file, or several manual group/species
+// tags on one recording) get their own fixed, non-hash-derived color so they
+// can never collide with a real taxon's generated hue.
+const MULTI_SPECIES_COLOR = "#ff9800";
 
 // Where the golden-angle sequence starts. A hash can't guarantee NO hue ever
 // lands near a reserved one -- the sequence sweeps the whole circle given
@@ -83,6 +90,7 @@ function colorForTaxon(taxonId) {
 // docs/references.md on unmapped labels) gets a distinct neutral color
 // rather than crashing on colorForTaxon(undefined).
 function colorForFeature(props) {
+  if (props.multi_species) return MULTI_SPECIES_COLOR;
   if (props.verdict === "noise") return "gray";
   if (props.verdict === "no_id") return "orange";
   if (props.taxon_id !== null && props.taxon_id !== undefined) {

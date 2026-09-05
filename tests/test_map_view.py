@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import IdSource, Verdict
 from fledermap.media.paths import oscillogram_path, preview_path, spectrogram_path
+from fledermap.services.map_query import filtered_recordings
 from fledermap.store.models import Identification, Recording, Site, Taxon
 from fledermap.store.models import Session as AnnotationSession
 from fledermap.web.app import create_app
@@ -897,3 +898,41 @@ def test_recording_panel_links_to_the_details_page(
 
     html = response.get_data(as_text=True)
     assert f'href="/recordings/{"g1" * 32}"' in html
+
+
+def test_taxon_filter_finds_either_of_two_manual_species_claims(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """The actual bug fix: before this plan, only ONE arbitrarily-picked claim
+    was checked against the taxon filter, so a genuine multi-species file was
+    findable by only one of its two species."""
+    with OrmSession(engine) as session:
+        taxon_a = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
+        taxon_b = Taxon(rank="genus", scientific_name="Myotis")
+        session.add_all([taxon_a, taxon_b])
+        session.flush()
+        recording = Recording(
+            audio_hash="e" * 64,
+            path="e.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            geom=WKTElement("POINT(10 50)", srid=4326),
+        )
+        recording.identifications = [
+            Identification(
+                source=IdSource.MANUAL, verdict=Verdict.SPECIES, taxon_id=taxon_a.id
+            ),
+            Identification(
+                source=IdSource.MANUAL, verdict=Verdict.SPECIES, taxon_id=taxon_b.id
+            ),
+        ]
+        session.add(recording)
+        session.commit()
+        taxon_a_id, taxon_b_id = taxon_a.id, taxon_b.id
+
+    with OrmSession(engine) as session:
+        found_a = filtered_recordings(session, taxon_id=taxon_a_id, verdict="all")
+        found_b = filtered_recordings(session, taxon_id=taxon_b_id, verdict="all")
+
+    assert len(found_a) == 1
+    assert len(found_b) == 1
