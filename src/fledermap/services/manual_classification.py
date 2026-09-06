@@ -12,7 +12,8 @@ from datetime import UTC, datetime
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import IdSource, Verdict
-from fledermap.store.models import Identification, Recording
+from fledermap.services.identifications import ClaimInput, replace_claims
+from fledermap.store.models import Recording
 
 
 def set_manual_classification(
@@ -22,11 +23,11 @@ def set_manual_classification(
     verdict: Verdict | None,
     taxon_ids: Sequence[int] = (),
 ) -> None:
-    """Always supersedes every standing MANUAL claim first, then inserts
-    exactly what the new state calls for -- the classifier box always
-    submits its full current state rather than a diff, and this function is
-    the safe way to apply that (matching services/ingest.py's
-    _apply_identifications' own key-based supersede-then-insert shape).
+    """Replaces every standing MANUAL claim with exactly what the new state
+    calls for -- the classifier box always submits its full current state
+    rather than a diff, and replace_claims (services/identifications.py) is
+    the safe way to apply that: no history kept, so an edited-many-times
+    claim never accumulates dead rows.
 
     `verdict=None` means "clear to no manual opinion" -- a real, explicit
     input, not an implicit consequence of SPECIES with an empty taxon_ids
@@ -41,30 +42,18 @@ def set_manual_classification(
         raise ValueError(msg)
 
     now = datetime.now(UTC)
-    existing = [
-        i
-        for i in recording.identifications
-        if i.source == IdSource.MANUAL and i.superseded_at is None
-    ]
-    for ident in existing:
-        ident.superseded_at = now
-
+    desired: list[ClaimInput] = []
     if verdict in (Verdict.NO_ID, Verdict.NOISE):
-        recording.identifications.append(
-            Identification(source=IdSource.MANUAL, verdict=verdict, first_seen_at=now),
-        )
+        desired.append(ClaimInput(taxon_id=None, verdict=verdict))
     elif verdict == Verdict.SPECIES:
-        for taxon_id in taxon_ids:
-            recording.identifications.append(
-                Identification(
-                    source=IdSource.MANUAL,
-                    verdict=Verdict.SPECIES,
-                    taxon_id=taxon_id,
-                    first_seen_at=now,
-                ),
-            )
-    # verdict is None: "clear" -- existing MANUAL rows already superseded
-    # above, nothing new inserted.
+        desired.extend(
+            ClaimInput(taxon_id=taxon_id, verdict=Verdict.SPECIES)
+            for taxon_id in taxon_ids
+        )
+    # verdict is None: "clear" -- desired stays empty, replace_claims removes
+    # every standing MANUAL row outright.
+
+    replace_claims(session, recording, IdSource.MANUAL, desired, now)
     session.commit()
 
 
@@ -72,7 +61,7 @@ def current_manual_state(recording: Recording) -> tuple[Verdict | None, frozense
     """The classifier box's own displayed/edited state -- deliberately
     independent of `current_best_identification`'s cross-source precedence
     walk (Task 5 review finding, 2026-09-05). The box must reflect and edit
-    ONLY the recording's own non-superseded MANUAL claims:
+    ONLY the recording's own standing MANUAL claims:
 
     - If it read `best` instead, an automatic classifier's winning SPECIES
       claim would render as editable manual chips -- adding one more chip
@@ -89,9 +78,7 @@ def current_manual_state(recording: Recording) -> tuple[Verdict | None, frozense
     produces for `verdict=None`.
     """
     manual_claims = [
-        i
-        for i in recording.identifications
-        if i.source == IdSource.MANUAL and i.superseded_at is None
+        i for i in recording.identifications if i.source == IdSource.MANUAL
     ]
     manual_verdict = manual_claims[0].verdict if manual_claims else None
     manual_taxon_ids = frozenset(

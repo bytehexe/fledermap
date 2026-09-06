@@ -33,7 +33,6 @@ def _manual_claims(session: OrmSession, recording_id: int) -> list[Identificatio
             select(Identification).where(
                 Identification.recording_id == recording_id,
                 Identification.source == IdSource.MANUAL,
-                Identification.superseded_at.is_(None),
             ),
         ).all(),
     )
@@ -103,7 +102,7 @@ def test_setting_multiple_species_claims_inserts_one_row_each(engine: Engine) ->
         assert {c.taxon_id for c in claims} == {taxon_a.id, taxon_b.id}
 
 
-def test_setting_no_id_supersedes_a_prior_species_claim(engine: Engine) -> None:
+def test_setting_no_id_replaces_a_prior_species_claim(engine: Engine) -> None:
     with OrmSession(engine) as session:
         taxon = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
         session.add(taxon)
@@ -123,7 +122,7 @@ def test_setting_no_id_supersedes_a_prior_species_claim(engine: Engine) -> None:
         assert claims[0].verdict == Verdict.NO_ID
 
 
-def test_setting_a_species_claim_supersedes_a_prior_no_id(engine: Engine) -> None:
+def test_setting_a_species_claim_replaces_a_prior_no_id(engine: Engine) -> None:
     with OrmSession(engine) as session:
         taxon = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
         session.add(taxon)
@@ -143,7 +142,7 @@ def test_setting_a_species_claim_supersedes_a_prior_no_id(engine: Engine) -> Non
         assert claims[0].verdict == Verdict.SPECIES
 
 
-def test_clearing_supersedes_every_standing_manual_claim(engine: Engine) -> None:
+def test_clearing_removes_every_standing_manual_claim(engine: Engine) -> None:
     with OrmSession(engine) as session:
         taxon = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
         session.add(taxon)
@@ -173,12 +172,9 @@ def test_clearing_when_nothing_is_set_is_a_safe_no_op(engine: Engine) -> None:
 def test_two_manual_species_rows_insert_cleanly_under_the_unique_constraint(
     engine: Engine,
 ) -> None:
-    """Regression: uq_identification_source_claim is (recording_id, source,
-    source_version, raw_label, taxon_id) as of Task 2's migration
-    f3a1c9d2e4b7 -- taxon_id IS part of it, which is exactly why two manual
-    SPECIES rows differing only in taxon_id don't collide even though
-    source_version/raw_label are both NULL for every manual row and the
-    constraint uses postgresql_nulls_not_distinct=True."""
+    """Two MANUAL SPECIES rows differing only in taxon_id must coexist (a
+    genuine multi-species file) -- taxon_id is part of
+    uq_identification_source_claim precisely so this doesn't collide."""
     with OrmSession(engine) as session:
         taxon_a = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
         taxon_b = Taxon(rank="genus", scientific_name="Myotis")
