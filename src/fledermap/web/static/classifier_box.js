@@ -38,7 +38,14 @@ function initClassifierBox(box) {
       .filter((t) => !already.has(String(t.id)) && matchesQuery(t, query))
       .slice(0, 10);
     if (matches.length === 0) {
-      suggestionsEl.hidden = true;
+      // Nothing matched -- rather than just hiding the dropdown and leaving
+      // the user stuck, point at the frequency-class fallbacks (HiF/LoF/
+      // Hilo, always present in searchIndex) they may not know exist.
+      const hint = document.createElement("li");
+      hint.className = "classifier-suggestion-hint";
+      hint.textContent = 'No match. Try "HiF", "LoF", or "Hilo" for a frequency-class group.';
+      suggestionsEl.appendChild(hint);
+      suggestionsEl.hidden = false;
       return;
     }
     for (const taxon of matches) {

@@ -39,6 +39,10 @@
     {% if manual_verdict is not none and manual_verdict.value in ("no_id", "noise") %}disabled{% endif %}
   >
   <ul id="classifier-suggestions" class="classifier-suggestions" hidden></ul>
+  <p class="classifier-hint">
+    Can't pin the exact species? Search "HiF", "LoF", or "Hilo" for a frequency-class group
+    before falling back to No ID.
+  </p>
   <div class="classifier-actions">
     <button
       type="button"

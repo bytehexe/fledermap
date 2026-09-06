@@ -742,4 +742,15 @@ button:disabled { cursor: default; opacity: 0.5; }
 }
 .classifier-suggestions li { padding: 0.3rem 0.5rem; cursor: pointer; }
 .classifier-suggestions li:hover { background: var(--color-bg-subtle); }
+.classifier-suggestions li.classifier-suggestion-hint {
+  cursor: default;
+  color: var(--color-muted);
+  font-size: 0.8rem;
+}
+.classifier-suggestions li.classifier-suggestion-hint:hover { background: none; }
+.classifier-hint {
+  margin: 0.4rem 0 0;
+  font-size: 0.8rem;
+  color: var(--color-muted);
+}
 .classifier-actions { display: flex; gap: 0.4rem; margin-top: 0.5rem; }
