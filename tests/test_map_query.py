@@ -309,7 +309,7 @@ def test_session_id_filters_recordings(engine: Engine) -> None:
     assert [r.id for r in results] == [matching.id]
 
 
-def test_source_filters_by_a_non_superseded_identification_from_that_source(
+def test_source_filters_recordings_by_that_source_identification(
     engine: Engine,
 ) -> None:
     with OrmSession(engine) as session:
@@ -381,37 +381,6 @@ def test_list_taxa_excludes_taxa_with_no_identification(engine: Engine) -> None:
     assert [t.scientific_name for t in results] == ["Eptesicus serotinus"]
 
 
-def test_list_taxa_excludes_a_taxon_whose_only_identification_is_superseded(
-    engine: Engine,
-) -> None:
-    with OrmSession(engine) as session:
-        taxon = Taxon(rank="species", scientific_name="Eptesicus serotinus")
-        session.add(taxon)
-        session.flush()
-        r = Recording(
-            audio_hash="a" * 64,
-            path="a.wav",
-            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
-        )
-        session.add(r)
-        session.flush()
-        session.add(
-            Identification(
-                recording_id=r.id,
-                source=IdSource.EMT_GUANO,
-                verdict=Verdict.SPECIES,
-                taxon_id=taxon.id,
-                first_seen_at=datetime(2026, 8, 25, tzinfo=UTC),
-                superseded_at=datetime(2026, 8, 26, tzinfo=UTC),
-            ),
-        )
-        session.commit()
-
-        results = list_taxa(session)
-
-    assert results == []
-
-
 def test_has_unmapped_species_true_when_one_exists(engine: Engine) -> None:
     with OrmSession(engine) as session:
         _recording(session, audio_hash="a" * 64, taxon_id=None)
@@ -427,30 +396,6 @@ def test_has_unmapped_species_false_when_none_exist(engine: Engine) -> None:
         session.flush()
         _recording(session, audio_hash="a" * 64, taxon_id=taxon.id)
         _recording(session, audio_hash="b" * 64, verdict=Verdict.NO_ID)
-        session.commit()
-
-        assert has_unmapped_species(session) is False
-
-
-def test_has_unmapped_species_ignores_a_superseded_claim(engine: Engine) -> None:
-    with OrmSession(engine) as session:
-        r = Recording(
-            audio_hash="a" * 64,
-            path="a.wav",
-            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
-        )
-        session.add(r)
-        session.flush()
-        session.add(
-            Identification(
-                recording_id=r.id,
-                source=IdSource.EMT_GUANO,
-                verdict=Verdict.SPECIES,
-                taxon_id=None,
-                first_seen_at=datetime(2026, 8, 25, tzinfo=UTC),
-                superseded_at=datetime(2026, 8, 26, tzinfo=UTC),
-            ),
-        )
         session.commit()
 
         assert has_unmapped_species(session) is False

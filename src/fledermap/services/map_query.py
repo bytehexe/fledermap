@@ -97,10 +97,7 @@ def filtered_recordings(
         stmt = stmt.where(Recording.favourite.is_(True))
     if source is not None:
         stmt = stmt.where(
-            Recording.identifications.any(
-                (Identification.source == source)
-                & (Identification.superseded_at.is_(None)),
-            ),
+            Recording.identifications.any(Identification.source == source),
         )
 
     recordings = list(session.scalars(stmt).all())
@@ -189,7 +186,7 @@ def list_taxa(session: OrmSession) -> Sequence[Taxon]:
     """Taxa actually found in this archive, for the map's taxon filter dropdown
     (a numeric ID input is not something a person can use -- feedback on the
     first UI pass). Restricted to taxa referenced by at least one
-    non-superseded Identification -- taxa_eu.yaml/the species list carry many
+    Identification -- taxa_eu.yaml/the species list carry many
     entries with no matching detection yet (CLAUDE.md's "Species codes"
     section), and an option that can never match anything just clutters the
     dropdown. Ordered by scientific_name so the dropdown reads alphabetically
@@ -202,7 +199,6 @@ def list_taxa(session: OrmSession) -> Sequence[Taxon]:
             Taxon.id.in_(
                 select(Identification.taxon_id).where(
                     Identification.taxon_id.is_not(None),
-                    Identification.superseded_at.is_(None),
                 ),
             ),
         )
@@ -223,7 +219,6 @@ def has_unmapped_species(session: OrmSession) -> bool:
     stmt = select(Identification.id).where(
         Identification.taxon_id.is_(None),
         Identification.verdict == Verdict.SPECIES,
-        Identification.superseded_at.is_(None),
     )
     return session.scalars(stmt.limit(1)).first() is not None
 
