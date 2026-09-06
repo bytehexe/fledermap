@@ -21,6 +21,7 @@ Defined in `app.css`'s `:root`:
 | `--color-bg-subtle` | `#f7f7f8` | `#242628` | Panel/toolbar background, one step off the page background |
 | `--color-accent` | `#2b6cb0` | `#5b9bd5` | Links and interactive accents |
 | `--color-warning` | `#b7791f` | `#d99a3f` | `.merge-badge`'s warning color |
+| `--color-overlay` | `#ff2fd6` | `#ff2fd6` | Playback cursor and Ruler-tool measurement box — deliberately theme-invariant for visibility against both light and dark spectrograms |
 
 Never hardcode a hex color in a new rule — use the token. If a new color is genuinely needed,
 add it to `:root` and document it here in the same change.
