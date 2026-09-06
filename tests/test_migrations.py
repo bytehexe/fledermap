@@ -146,19 +146,31 @@ def test_migrated_verdict_check_accepts_every_verdict(migrated_engine: Engine) -
                 " VALUES ('v' || repeat('0', 63), 'x.wav', now(), '{}'::jsonb)"
             )
         )
-        for verdict in Verdict:
-            # raw_label must differ per row: uq_identification_source_claim is
-            # a partial unique index (not a constraint) on (recording_id,
-            # source, source_version, raw_label, taxon_id) scoped to
-            # WHERE superseded_at IS NULL, with nulls_not_distinct, and
-            # `verdict` is not part of it.
+        for i, verdict in enumerate(Verdict):
+            # taxon_id must differ per row now: uq_identification_source_claim
+            # is (recording_id, source, taxon_id) with nulls_not_distinct, and
+            # `source`/`verdict` alone no longer distinguish these rows the way
+            # the old (source, source_version, raw_label, taxon_id) key did.
+            conn.execute(
+                text(
+                    "INSERT INTO taxon (rank, scientific_name)"
+                    " VALUES ('species', :name)"
+                ),
+                {"name": f"Test taxon {i}"},
+            )
             conn.execute(
                 text(
                     "INSERT INTO identification"
-                    " (recording_id, source, verdict, raw_label)"
-                    " SELECT id, 'manual', :verdict, :label FROM recording"
+                    " (recording_id, source, verdict, raw_label, taxon_id)"
+                    " SELECT r.id, 'manual', :verdict, :label,"
+                    " (SELECT id FROM taxon WHERE scientific_name = :name)"
+                    " FROM recording r"
                 ),
-                {"verdict": verdict.value, "label": verdict.value},
+                {
+                    "verdict": verdict.value,
+                    "label": verdict.value,
+                    "name": f"Test taxon {i}",
+                },
             )
         stored = conn.scalar(text("SELECT count(*) FROM identification"))
 
@@ -362,22 +374,32 @@ def test_archive_root_index_defaults_to_zero_server_side(
     assert value == 0
 
 
-def test_migrated_partial_index_where_clause_is_enforced(
+def test_migrated_unique_constraint_rejects_a_duplicate_claim(
     migrated_engine: Engine,
 ) -> None:
-    """`compare_metadata` cannot see a partial index's WHERE clause at all --
-    mutation-tested 2026-09-05 by temporarily stripping the migration's
-    `postgresql_where` (making `uq_identification_source_claim` a plain,
-    non-partial unique index): `test_migration_matches_the_models` still
-    PASSED. Postgres's own `pg_indexes` catalog view is the only thing that
-    can see the predicate, so assert against it directly, the same way the
-    CHECK-constraint tests above assert enforcement directly rather than
-    relying on drift comparison."""
-    with migrated_engine.connect() as conn:
-        indexdef = conn.execute(
+    """The new plain uq_identification_source_claim (recording_id, source,
+    taxon_id) must actually be enforced by the migrated schema, not just by
+    the model under Base.metadata.create_all (test_models.py's job) --
+    proves the migration's op.create_unique_constraint call actually landed."""
+    with migrated_engine.begin() as conn:
+        conn.execute(
             text(
-                "SELECT indexdef FROM pg_indexes"
-                " WHERE indexname = 'uq_identification_source_claim'",
-            ),
-        ).scalar_one()
-    assert "WHERE (superseded_at IS NULL)" in indexdef
+                "INSERT INTO recording (audio_hash, path, recorded_at, guano_raw)"
+                " VALUES ('u' || repeat('0', 63), 'u.wav', now(), '{}'::jsonb)"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO identification (recording_id, source, verdict)"
+                " SELECT id, 'manual', 'no_id' FROM recording"
+                " WHERE audio_hash = 'u' || repeat('0', 63)"
+            )
+        )
+    with pytest.raises(IntegrityError), migrated_engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO identification (recording_id, source, verdict)"
+                " SELECT id, 'manual', 'no_id' FROM recording"
+                " WHERE audio_hash = 'u' || repeat('0', 63)"
+            )
+        )

@@ -263,7 +263,6 @@ def reresolve_unmapped_identifications(session: OrmSession) -> int:
         select(Identification).where(
             Identification.taxon_id.is_(None),
             Identification.raw_label.is_not(None),
-            Identification.superseded_at.is_(None),
         ),
     ).all()
     reconnected = 0

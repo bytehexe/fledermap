@@ -10,12 +10,10 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
-    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
-    text,
 )
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import JSONB
@@ -102,33 +100,28 @@ class Recording(Base):
 
 
 class Identification(Base):
-    """One source's claim. Sources coexist; `superseded_at` records changes of mind."""
+    """One source's claim. Sources coexist; a claim a source no longer makes
+    is deleted, not kept around (services/identifications.py's
+    replace_claims)."""
 
     __tablename__ = "identification"
     __table_args__ = (
-        # A plain UniqueConstraint here would block set_manual_classification's own
-        # supersede-then-insert pattern (and services/ingest.py's _apply_identifications,
-        # which uses the same pattern): re-adding a taxon_id (or the shared-NULL tuple for
-        # NO_ID/NOISE) that a row this same call just superseded collides with that
-        # now-superseded row's still-enforced key tuple, because a plain constraint has no
-        # notion of "superseded, no longer live". Postgres has no partial unique
-        # CONSTRAINT syntax; a partial unique INDEX (scoped to only-live rows) is the
-        # standard way to express "unique among live rows only" -- found live, 2026-09-05,
-        # when the classifier box's own primary multi-species workflow crashed with a real
-        # UniqueViolation (docs/superpowers/plans/2026-09-05-fledermap-manual-classification.md,
-        # Task 7).
-        Index(
-            "uq_identification_source_claim",
+        # Plain constraint, not a partial index: with replace_claims
+        # (services/identifications.py) never soft-deleting, there is no
+        # "superseded, still occupying the key" row left to collide with --
+        # the collision this constraint's predecessor (a partial unique
+        # INDEX scoped to WHERE superseded_at IS NULL, see migration
+        # 300b54c8829a) existed to work around cannot happen any more. See
+        # docs/superpowers/specs/2026-09-06-fledermap-drop-identification-
+        # supersede-design.md.
+        UniqueConstraint(
             "recording_id",
             "source",
-            "source_version",
-            "raw_label",
             "taxon_id",
-            unique=True,
-            postgresql_where=text("superseded_at IS NULL"),
-            # Postgres treats NULLs as distinct by default, so without this a
-            # source that reports no version (filename IDs, manual annotations)
-            # could insert unlimited duplicate LIVE claims of the same claim.
+            name="uq_identification_source_claim",
+            # Postgres treats NULLs as distinct by default -- without this,
+            # the NO_ID/NOISE sentinel claim (taxon_id IS NULL) could have
+            # unlimited duplicate live rows per (recording, source).
             postgresql_nulls_not_distinct=True,
         ),
     )
@@ -178,7 +171,6 @@ class Identification(Base):
     raw_label: Mapped[str | None] = mapped_column(String(128))
     confidence: Mapped[float | None] = mapped_column(Float)
     first_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    superseded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     recording: Mapped[Recording] = relationship(back_populates="identifications")
 

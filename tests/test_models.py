@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import IdSource, Verdict
-from fledermap.store.models import Identification, Recording, Taxon
+from fledermap.store.models import Identification, Recording
 
 pytestmark = pytest.mark.db
 
@@ -202,58 +202,6 @@ def test_duplicate_manual_no_id_claims_are_rejected(engine: Engine) -> None:
         )
         with pytest.raises(IntegrityError):
             session.commit()
-
-
-def test_reinserting_a_superseded_claims_exact_key_tuple_succeeds(
-    engine: Engine,
-) -> None:
-    """Regression for the 2026-09-05 live-verification bug: set_manual_classification's
-    supersede-then-insert pattern re-uses the same (source, source_version, raw_label,
-    taxon_id) tuple the row it just superseded used -- e.g. re-adding a taxon that was
-    part of a previous manual classification, or toggling a verdict button off and back
-    on. A superseded row must not block a live row from claiming its old key tuple."""
-    with OrmSession(engine) as session:
-        taxon = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
-        session.add(taxon)
-        session.flush()
-        recording = Recording(
-            audio_hash="m" * 64,
-            path="m.wav",
-            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
-        )
-        session.add(recording)
-        session.flush()
-
-        first = Identification(
-            recording_id=recording.id,
-            source=IdSource.MANUAL,
-            verdict=Verdict.SPECIES,
-            taxon_id=taxon.id,
-        )
-        session.add(first)
-        session.commit()
-
-        first.superseded_at = datetime.now(UTC)
-        session.add(first)
-        session.flush()
-
-        second = Identification(
-            recording_id=recording.id,
-            source=IdSource.MANUAL,
-            verdict=Verdict.SPECIES,
-            taxon_id=taxon.id,
-        )
-        session.add(second)
-        session.commit()  # must NOT raise IntegrityError
-
-        live = session.scalars(
-            select(Identification).where(
-                Identification.recording_id == recording.id,
-                Identification.superseded_at.is_(None),
-            ),
-        ).all()
-        assert len(live) == 1
-        assert live[0].id == second.id
 
 
 def test_two_live_claims_with_the_same_key_tuple_still_collide(engine: Engine) -> None:
