@@ -154,8 +154,13 @@ IS NULL` already) and single-claim-per-automatic-source is already the documente
 - `_recording_panel.html`: the `{% if ident.superseded_at %} class="superseded"{% endif %}`
   conditional is deleted (always false, going forward). `.superseded`/`.identification-superseded`
   CSS rules in `app.css` are removed along with it.
-- `IngestReport.identifications_superseded` is renamed `identifications_updated`, tracking
-  in-place field changes instead of a concept that no longer exists.
+- `IngestReport.identifications_superseded` is replaced by two counters,
+  `identifications_updated` (an existing row's fields changed in place) and
+  `identifications_removed` (a row deleted because its source no longer claims that `taxon_id`)
+  — a single rename to `identifications_updated` isn't accurate on its own: the re-ID case that
+  changes which `taxon_id` a source claims (e.g. `NoID` → a resolved species) is a delete-plus-add
+  under `replace_claims`, not an in-place update, so it needs to show up as `removed`, not
+  `updated`. `identifications_added` is unchanged.
 
 ### 4. Migration
 
