@@ -53,8 +53,9 @@ Roughly a pipeline, each stage its own top-level package under `src/fledermap/`:
   module docstring), `media.py` enqueues/checks derived-media jobs, `site_naming.py` wraps the
   poiidx integration, `current_best.py` picks a recording's current-best identification,
   `manual_classification.py` is the only place that writes `IdSource.MANUAL` identification
-  rows, via a supersede-then-insert function (`set_manual_classification`) matching
-  `services/ingest.py`'s own key-based approach.
+  rows, via `set_manual_classification`, which (like `services/ingest.py`'s own
+  `_apply_identifications`) delegates to `services/identifications.py`'s `replace_claims` —
+  the one shared delete/update-in-place algorithm both use.
 - **`jobs/`** — the Procrastinate async task queue: `app.py` bootstraps its schema (see the
   "Procrastinate's schema has no upgrade path here" bullet below), `tasks.py` defines the jobs
   (media rendering, site naming), `watch.py` is the filesystem watcher `fledermap worker` runs.
@@ -231,20 +232,20 @@ it needs nothing installed beyond `node` itself, which this project already assu
   `tests/test_db_backup_restore.py::test_backup_then_restore_succeeds_when_role_does_not_own_postgis`.
 - **`bats_db` is never poiidx's database.** poiidx DROPS AND RECREATES all its tables on any
   schema/filter-config mismatch. Full warning in `src/fledermap/store/db.py`.
+- **`Identification` has no soft-delete.** `services/identifications.py`'s `replace_claims` is
+  the only writer of `Identification` rows from either `services/ingest.py` or
+  `services/manual_classification.py`: a claim a source no longer makes is deleted outright, a
+  claim whose details changed is updated in place. This replaced an earlier `superseded_at`
+  soft-delete column and the partial unique index it required (migration `300b54c8829a`,
+  2026-09-05) — see `docs/superpowers/specs/2026-09-06-fledermap-drop-identification-supersede-
+  design.md` for why the partial index turned out to be unnecessary complexity rather than
+  load-bearing: nothing ever read a superseded row for anything beyond a struck-through display
+  with no version/timestamp shown, and no config for a hypothetical future retention need existed
+  either.
 - **Postgres treats NULLs as distinct**, so a `UniqueConstraint` over a nullable column does not
   fire at all. `uq_identification_source_claim` needs `postgresql_nulls_not_distinct=True`
-  precisely because `source_version` is NULL for the sources that most need it — filename IDs
-  and manual annotations.
-- **`uq_identification_source_claim` is a partial unique `Index`, not a `UniqueConstraint`** —
-  and that's load-bearing, not a style choice. A plain constraint has no notion of "superseded,
-  no longer live": `set_manual_classification`'s (and `services/ingest.py`'s
-  `_apply_identifications`') supersede-then-insert pattern re-adds a `taxon_id` that a row this
-  same call just superseded, and that collides with the now-superseded row's still-enforced key
-  tuple under a plain constraint — a real `UniqueViolation` crashed the classifier box's own
-  primary multi-species workflow live, 2026-09-05. Postgres has no partial unique CONSTRAINT
-  syntax, so a partial unique INDEX scoped to `WHERE superseded_at IS NULL` is the fix — only
-  currently-live claims participate in the uniqueness check, so a superseded row's key tuple
-  becomes free to reuse the moment it's superseded. See migration `300b54c8829a`.
+  because the NO_ID/NOISE sentinel claim has `taxon_id IS NULL` — without it, a source could
+  insert unlimited duplicate sentinel rows.
 - **A NUL byte is not a NULL value, and Postgres rejects it outright.** psycopg2 raises
   `ValueError: A string literal cannot contain NUL (0x00) characters.` client-side, before the
   query ever reaches the server, for any `text` value containing `\x00`. That is why
@@ -308,15 +309,7 @@ by a whole-branch review rather than any single task's. `test_migration_idsource
 closes it with a static `ast`-based check of the migration's literal list against `IdSource`, needing
 no database.
 
-**A partial (filtered) unique index's `WHERE`/predicate clause is also invisible to
-`compare_metadata`.** `uq_identification_source_claim` (Task 7's fix for the constraint/partial-
-index collision above) is a unique `Index` scoped to `WHERE superseded_at IS NULL` — mutation-
-tested 2026-09-05 by temporarily stripping the migration's `postgresql_where` clause (making it a
-plain, non-partial unique index) and re-running `hatch test tests/test_migrations.py`, which still
-PASSED. Same fix pattern as the other blind spots here: a dedicated test asserting against
-Postgres's own catalog directly. `test_migrated_partial_index_where_clause_is_enforced` does this
-by string-matching the predicate's text representation in `pg_indexes.indexdef` — **not**
-`pg_indexes.indpred`, which doesn't exist; `indpred` lives on `pg_index`, a different catalog view.
+**`postgresql_nulls_not_distinct` on a plain `UniqueConstraint` IS visible to `compare_metadata`** — mutation-tested 2026-09-06 when `uq_identification_source_claim` went back to being a plain constraint (dropping `Identification.superseded_at` and the partial index it required — see `docs/superpowers/specs/2026-09-06-fledermap-drop-identification-supersede-design.md`): temporarily removing the flag from the migration made `test_migration_matches_the_models` fail, proving the drift comparison does see it. Unlike the old partial index's `WHERE` clause (this section's other blind-spot example), this property needed no dedicated catalog-assertion test — the standard drift comparison already catches its removal.
 
 **The general rule:** a schema-drift test's blind spots are exactly the parts of the schema
 `compare_metadata` cannot see (non-native enums without a CHECK, anything else erased to a
