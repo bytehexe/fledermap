@@ -233,9 +233,13 @@ it needs nothing installed beyond `node` itself, which this project already assu
 - **`bats_db` is never poiidx's database.** poiidx DROPS AND RECREATES all its tables on any
   schema/filter-config mismatch. Full warning in `src/fledermap/store/db.py`.
 - **`Identification` has no soft-delete.** `services/identifications.py`'s `replace_claims` is
-  the only writer of `Identification` rows from either `services/ingest.py` or
-  `services/manual_classification.py`: a claim a source no longer makes is deleted outright, a
-  claim whose details changed is updated in place. This replaced an earlier `superseded_at`
+  the only writer of a source's claim SET from either `services/ingest.py` or
+  `services/manual_classification.py` -- which rows exist for that source, and their
+  verdict/taxon_id/raw_label/source_version as a set: a claim a source no longer makes is deleted
+  outright, a claim whose details changed is updated in place. (`services/ingest.py`'s
+  `reresolve_unmapped_identifications` writes `ident.taxon_id` directly outside `replace_claims`,
+  but only to backfill a taxon_id on an existing row once a previously-unmapped code gets a
+  mapping -- it never changes which rows exist.) This replaced an earlier `superseded_at`
   soft-delete column and the partial unique index it required (migration `300b54c8829a`,
   2026-09-05) — see `docs/superpowers/specs/2026-09-06-fledermap-drop-identification-supersede-
   design.md` for why the partial index turned out to be unnecessary complexity rather than

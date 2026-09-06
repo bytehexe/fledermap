@@ -403,3 +403,77 @@ def test_migrated_unique_constraint_rejects_a_duplicate_claim(
                 " WHERE audio_hash = 'u' || repeat('0', 63)"
             )
         )
+
+
+def test_migration_deduplicates_rows_that_collide_under_the_narrowed_constraint(
+    postgis_url: str,
+) -> None:
+    """ef85421bf57d narrows uq_identification_source_claim from the old
+    5-column key (recording_id, source, source_version, raw_label, taxon_id)
+    down to (recording_id, source, taxon_id). Two rows that were legally
+    distinct under the old key (a real pre-Task-11 defect shape: two
+    IdSource.MANUAL claims both resolving to taxon_id IS NULL with different
+    raw_labels) collide under the new one -- without a dedup step,
+    op.create_unique_constraint in upgrade() would abort with a
+    UniqueViolation on any database carrying such a pair.
+
+    Upgrades only as far as 300b54c8829a (the revision right before this
+    migration, per its own down_revision), inserts a colliding pair that is
+    legal at that point in the chain, then upgrades the rest of the way and
+    asserts exactly one row survives -- the higher-id one -- and that
+    create_unique_constraint did not raise.
+    """
+    eng = make_engine(postgis_url)
+    with eng.begin() as conn:
+        conn.execute(text("DROP SCHEMA public CASCADE"))
+        conn.execute(text("CREATE SCHEMA public"))
+
+    cfg = Config()
+    cfg.set_main_option("script_location", str(_alembic_script_location()))
+    cfg.set_main_option("sqlalchemy.url", postgis_url)
+    command.upgrade(cfg, "300b54c8829a")
+
+    with eng.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO recording (audio_hash, path, recorded_at, guano_raw)"
+                " VALUES ('d' || repeat('0', 63), 'd.wav', now(), '{}'::jsonb)"
+            )
+        )
+        first_id = conn.execute(
+            text(
+                "INSERT INTO identification"
+                " (recording_id, source, verdict, raw_label, source_version)"
+                " SELECT id, 'manual', 'no_id', 'No ID', '1.0' FROM recording"
+                " WHERE audio_hash = 'd' || repeat('0', 63)"
+                " RETURNING id"
+            )
+        ).scalar_one()
+        second_id = conn.execute(
+            text(
+                "INSERT INTO identification"
+                " (recording_id, source, verdict, raw_label, source_version)"
+                " SELECT id, 'manual', 'no_id', 'Noise', '2.0' FROM recording"
+                " WHERE audio_hash = 'd' || repeat('0', 63)"
+                " RETURNING id"
+            )
+        ).scalar_one()
+    assert second_id > first_id
+
+    command.upgrade(cfg, "head")
+
+    with eng.connect() as conn:
+        surviving = (
+            conn.execute(
+                text(
+                    "SELECT identification.id FROM identification"
+                    " JOIN recording ON recording.id = identification.recording_id"
+                    " WHERE recording.audio_hash = 'd' || repeat('0', 63)"
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    assert surviving == [second_id]
+    eng.dispose()

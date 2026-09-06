@@ -420,6 +420,41 @@ def test_emt_manual_identification_changing_replaces_the_old_row(
         assert ids[0].source is IdSource.EMT_MANUAL
 
 
+def test_emt_manual_identification_clearing_removes_the_row(
+    engine: Engine,
+) -> None:
+    """`_apply_identifications` iterates ALL of `_EMT_SOURCES` every scan, not
+    just sources present in `parsed`, specifically so a source whose claim
+    disappears entirely between scans (e.g. an on-device manual ID cleared)
+    gets its row deleted rather than left behind. Previously only tested at
+    the `replace_claims` unit level (test_identifications_service.py); this
+    exercises the real `commit_scan` ingest path end to end."""
+
+    def _scanned_with_manual_id(manual_id: str | None) -> ScannedFile:
+        metadata = merge_metadata(
+            guano=None,
+            wamd=parse_wamd(wamd_payload(auto_id=None, manual_id=manual_id)),
+            filename=None,
+        )
+        return ScannedFile(audio_hash="f" * 64, path=ROOT / "a.wav", metadata=metadata)
+
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        commit_scan(
+            session, [(_scanned_with_manual_id("MYODAU"), 0)], archive_roots=(ROOT,)
+        )
+        session.commit()
+
+        report = commit_scan(
+            session, [(_scanned_with_manual_id(None), 0)], archive_roots=(ROOT,)
+        )
+        session.commit()
+
+        ids = session.scalars(select(Identification)).all()
+        assert ids == []
+        assert report.identifications_removed == 1
+
+
 def test_unmapped_label_is_stored_and_reported(engine: Engine) -> None:
     """Ingest must not fail on an unknown code; it becomes a review item."""
     with OrmSession(engine) as session:

@@ -235,3 +235,46 @@ def test_two_live_claims_with_the_same_key_tuple_still_collide(engine: Engine) -
         )
         with pytest.raises(IntegrityError):
             session.commit()
+
+
+def test_rows_differing_only_in_raw_label_or_source_version_now_collide(
+    engine: Engine,
+) -> None:
+    """The narrowed (recording_id, source, taxon_id) constraint (this branch's
+    drop of superseded_at) must reject a pair that was legally distinct under
+    the OLD 5-column key (recording_id, source, source_version, raw_label,
+    taxon_id) -- this is exactly the shape that made the migration's
+    dedup-before-narrowing step (ef85421bf57d) necessary in the first place."""
+    with OrmSession(engine) as session:
+        recording = Recording(
+            audio_hash="q" * 64,
+            path="q.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add(recording)
+        session.flush()
+
+        session.add(
+            Identification(
+                recording_id=recording.id,
+                source=IdSource.MANUAL,
+                verdict=Verdict.NO_ID,
+                raw_label="No ID",
+                source_version="1.0",
+                taxon_id=None,
+            ),
+        )
+        session.commit()
+
+        session.add(
+            Identification(
+                recording_id=recording.id,
+                source=IdSource.MANUAL,
+                verdict=Verdict.NO_ID,
+                raw_label="Noise",
+                source_version="2.0",
+                taxon_id=None,
+            ),
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()

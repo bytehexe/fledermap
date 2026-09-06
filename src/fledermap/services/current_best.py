@@ -53,12 +53,11 @@ class CurrentIdentification:
     @property
     def primary(self) -> Identification:
         """The single representative claim for headline/marker-color
-        purposes -- first-added (lowest first_seen_at). This is a NEW
-        tie-break, only reachable for a genuine multi-species MANUAL result;
-        every other source's tie-break (see `current_best_identification`
-        below) still uses `max(first_seen_at)`, unchanged from before this
-        rewrite -- there is no prior behavior for this case to be consistent
-        with."""
+        purposes -- first-added (lowest first_seen_at). This tie-break is
+        only reachable for a genuine multi-species MANUAL result: every
+        other source has at most one live row per recording by construction
+        (services/identifications.py's replace_claims), so there is nothing
+        to tie-break there any more."""
         return min(self.claims, key=lambda i: i.first_seen_at or _EPOCH)
 
     @property
