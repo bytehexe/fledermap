@@ -1,0 +1,31 @@
+name: Deploy MkDocs to GitHub Pages
+
+on: push
+
+jobs:
+  publish-docs:
+    name: Deploy docs to GitHub Pages 📚
+    # No tagged-release process exists yet for this project (see the
+    # "github+pypi release" backlog item) -- until it does, this job simply
+    # never runs, and the docs site is never published. Once tagging starts,
+    # revisit whether non-prerelease tags should be filtered separately.
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write      # to deploy to Pages
+      id-token: write   # to verify the deployment originates from an appropriate source
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install "mkdocs-material>=9,<10"
+      - run: mkdocs build --strict
+      - name: Upload static files as artifact
+        id: upload-pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/
+      - name: Deploy to GitHub Pages
+        id: deploy-pages
+        uses: actions/deploy-pages@v4

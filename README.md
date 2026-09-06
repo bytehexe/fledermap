@@ -26,7 +26,9 @@ fixture). Species identification natively covers Europe and North America
 ## Documentation
 
 Everything past this quickstart — how-to guides, reference material, and
-the reasoning behind the design — lives in **[`docs/`](docs/index.md)**.
+the reasoning behind the design — lives at
+**https://bytehexe.github.io/fledermap/**. (Not live until the first
+tagged release — see [`docs/index.md`](docs/index.md) in the meantime.)
 
 ## Built with agentic engineering
 
