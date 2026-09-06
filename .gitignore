@@ -23,6 +23,9 @@ src/fledermap/__about__.py
 .pytest_cache/
 .ruff_cache/
 
+# mkdocs build output
+/site/
+
 # Local secrets
 *.pwd
 .env

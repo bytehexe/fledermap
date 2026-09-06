@@ -1,21 +1,49 @@
 # fledermap
 
-Map-first organiser for bat recordings from handheld detectors.
+Map-first organiser for bat recordings from handheld detectors. Point it at
+the folder your detector (currently Wildlife Acoustics Echo Meter Touch)
+syncs its recordings into, and it builds a browsable map of where and when
+you recorded, with automatic species identification, session/site
+clustering, spectrograms, and audibilised (time-expanded/heterodyne)
+playback — all self-hosted, no cloud service involved.
 
-- Design: [`docs/superpowers/specs/2026-08-23-fledermap-design.md`](docs/superpowers/specs/2026-08-23-fledermap-design.md)
-- Authoritative sources for species codes, names and file formats: [`docs/references.md`](docs/references.md)
+Only Wildlife Acoustics EMT recordings (GUANO/`wamd` metadata plus the
+detector's own filename convention) are recognized today — files from other
+detectors are silently skipped, one at a time, rather than causing an error.
+If you'd like your device supported, please
+[open an issue](https://github.com/bytehexe/fledermap/issues) with a sample
+recording (subject to a license that allows us to use it as a test
+fixture). Species identification natively covers Europe and North America
+(USA/Canada) — see the docs for the exact species list.
 
-## Supported species
+## Quickstart
 
-fledermap resolves the species codes emitted by Wildlife Acoustics detectors
-(Echo Meter Touch / Kaleidoscope) to a taxon with scientific, English, and
-(where established) German common names. Bundled coverage, from the
-[Wildlife Acoustics species list](https://answers.wildlifeacoustics.com/r/en-US/Bat-Auto-ID-Performance-and-Supported-Species/Bat-Auto-ID-Supported-Species-and-Abbreviated-Codes):
+1. [Set up Fledermap](docs/how-to/setup.md) — write a config file, then
+   `fledermap install`.
+2. Point it at your detector's export folder and let it run — recordings
+   appear on the map on their own.
 
-- **Europe** — all 31 species on that list ([`taxa_eu.yaml`](src/fledermap/store/data/taxa_eu.yaml))
-- **North America (USA/Canada)** — all 38 species on that list ([`taxa_na.yaml`](src/fledermap/store/data/taxa_na.yaml))
+## Documentation
 
-A species code the detector emits but that isn't in either list resolves to no
-taxon rather than a guess, and shows up in the review queue as an unmapped
-species — see `docs/references.md` for why a missing mapping is preferred over
-a wrong one.
+Everything past this quickstart — how-to guides, reference material, and
+the reasoning behind the design — lives in **[`docs/`](docs/index.md)**.
+
+## Built with agentic engineering
+
+Fledermap's code, and most of this documentation, was written by an AI
+agent (Claude/Claude Code) working with a human maintainer, not typed by
+hand. If that matters to you as a user or a potential contributor — either
+way, that's fair — this is stated upfront so you can decide for yourself.
+
+## Security note
+
+Fledermap currently has **no authentication on any route**, and none is
+currently planned. Anyone who can reach the host — anyone on the same
+network, or further if port-forwarded — has full read/write access. Treat
+it accordingly, and if you need authentication,
+[open an issue](https://github.com/bytehexe/fledermap/issues) so it can be
+prioritized.
+
+## For contributors
+
+See [`docs/contributing.md`](docs/contributing.md).

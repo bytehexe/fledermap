@@ -120,6 +120,21 @@ extra-dependencies = ["ruff==0.16.4"]
 config-path = "none"
 dependencies = ["ruff==0.16.4"]
 
+[tool.hatch.envs.mkdocs]
+skip-install = true
+detached = true
+dependencies = [
+  # mkdocs-material's own team warns 2.0 removes the plugin/theming system
+  # entirely with no migration path and is currently unlicensed for
+  # production use -- pin the 1.x line deliberately rather than picking it
+  # up on a future `hatch env remove mkdocs`.
+  "mkdocs-material>=9,<10",
+]
+
+[tool.hatch.envs.mkdocs.scripts]
+serve = "mkdocs serve"
+build = "mkdocs build --strict"
+
 # scikit-learn ships no `py.typed` marker and there is no `types-scikit-learn`
 # stub package, so mypy cannot resolve it by any other means. A SCOPED override
 # is the correct fix here, unlike the global `ignore_missing_imports` rejected
