@@ -63,9 +63,11 @@ Notes on individual settings:
 # ~/.config/fledermap/config.toml
 database_url = "postgresql://fledermap:password@localhost/bats_db"
 archive_roots = ["/path/to/your/detector/archive"]
-media_root = "/var/lib/fledermap/media"
 
-# Everything below is optional -- shown with its default value.
+# Everything below is optional. media_root's actual default is a
+# platformdirs data directory, not a fixed path -- shown here is a typical
+# override instead.
+# media_root = "/var/lib/fledermap/media"
 # timestamp_source = "filename"       # or "metadata"
 # default_timezone = "UTC"            # any IANA zone name, e.g. "Europe/Berlin"
 # session_gap_hours = 6.0

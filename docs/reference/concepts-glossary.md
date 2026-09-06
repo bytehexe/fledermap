@@ -1,9 +1,9 @@
 # Concepts glossary
 
-- **Recording** — one audio file. Identified by the audio content itself
-  (its `fmt`/`data` chunks), so re-identifying a file on the detector
-  later — which renames it and rewrites its metadata — doesn't create a
-  duplicate.
+- **Recording** — one audio file. Identified by its actual audio content,
+  not its filename or metadata — so re-classifying a recording on the
+  detector later, which renames the file and rewrites its metadata,
+  doesn't create a duplicate.
 - **Identification** — one source's claim about a recording (a species, or
   a No ID/Noise verdict). Multiple sources can each have their own claim
   on the same recording at once; they never overwrite each other. See

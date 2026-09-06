@@ -14,8 +14,8 @@ is something you can bookmark or share.
   classifier emitted that Fledermap couldn't resolve to a taxon — see
   [The classifier model](../explanation/classifier-model.md) for why that
   happens and isn't a bug.
-- **Session** — restrict to one detector outing. Sessions are listed
-  by their time range and detector.
+- **Session** — restrict to one detector outing, listed by its time range
+  and detector.
 - **Source** — restrict to identifications from one specific source (a
   particular EMT metadata field, or a manual correction) rather than
   whichever source Fledermap currently trusts most for that recording.

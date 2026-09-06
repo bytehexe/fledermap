@@ -1,9 +1,8 @@
 # Supported species
 
-Fledermap resolves the species codes emitted by Wildlife Acoustics
-detectors (Echo Meter Touch / Kaleidoscope) to a taxon with scientific,
-English, and (where established) German common names. Bundled coverage,
-from the
+Fledermap resolves the species codes your detector emits to a taxon with
+scientific, English, and (where established) German common names. Bundled
+coverage, from the
 [Wildlife Acoustics species list](https://answers.wildlifeacoustics.com/r/en-US/Bat-Auto-ID-Performance-and-Supported-Species/Bat-Auto-ID-Supported-Species-and-Abbreviated-Codes):
 
 - **Europe** — all 31 species on that list.

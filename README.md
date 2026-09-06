@@ -9,8 +9,8 @@ playback — all self-hosted, no cloud service involved.
 
 Only Wildlife Acoustics EMT recordings (GUANO/`wamd` metadata plus the
 detector's own filename convention) are recognized today — files from other
-detectors are silently skipped, one at a time, rather than causing an error.
-If you'd like your device supported, please
+detectors are silently skipped rather than causing an error. If you'd like
+your device supported, please
 [open an issue](https://github.com/bytehexe/fledermap/issues) with a sample
 recording (subject to a license that allows us to use it as a test
 fixture). Species identification natively covers Europe and North America
@@ -18,10 +18,10 @@ fixture). Species identification natively covers Europe and North America
 
 ## Quickstart
 
-1. [Set up Fledermap](docs/how-to/setup.md) — write a config file, then
-   `fledermap install`.
-2. Point it at your detector's export folder and let it run — recordings
-   appear on the map on their own.
+1. [Set up Fledermap](docs/how-to/setup.md) — write a config file naming
+   your detector's export folder, then `fledermap install`.
+2. Sync recordings into that folder as usual — they appear on the map on
+   their own, no further action needed.
 
 ## Documentation
 
