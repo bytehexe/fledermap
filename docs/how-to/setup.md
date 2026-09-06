@@ -53,19 +53,18 @@ different file or use environment variables instead):
 
 ```toml
 database_url = "postgresql://fledermap:<password>@localhost/bats_db"
-archive_roots = ["/path/to/your/detector/archive"]
 
-# Set this explicitly rather than relying on the default — the fallback
-# location is fine for trying Fledermap out, but isn't somewhere you'd want
-# to depend on for data you care about keeping.
-media_root = "/var/lib/fledermap/media"
+# archive_roots -- where your recordings actually live. Fledermap only
+# ever reads from here, never moves, renames, or writes anything into it.
+archive_roots = ["/path/to/your/detector/archive"]
 ```
 
-`database_url` and `archive_roots` are the only two settings you must set;
-everything else has a sensible default. See
-[Configuration](../reference/configuration.md) for the full list —
-timezone handling, site-clustering tuning, the web server's host/port, and
-more.
+That's everything required — every other setting has a default. If you
+want Fledermap's generated data (spectrograms, audio previews) stored
+somewhere specific rather than its default location, see `media_root` in
+[Configuration](../reference/configuration.md). For what the
+archive/database/media split actually means, see
+[How Fledermap is organized](../explanation/how-fledermap-is-organized.md).
 
 ## 4. Install the services
 

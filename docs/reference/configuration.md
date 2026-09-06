@@ -39,11 +39,12 @@ Notes on individual settings:
   var (`FLEDERMAP_ARCHIVE_ROOTS=/mnt/syncthing,/mnt/sdcard-dump`). Order
   only matters when the exact same recording turns up under two different
   roots — it's attributed to whichever root was scanned first.
-- **`media_root`** has a default, but a real install should set it
-  explicitly anyway. The fallback location is fine for trying Fledermap
-  out, but is the wrong place for data you actually want to keep around —
-  particularly in a container, where "the platform default data
-  directory" is some ephemeral path gone on the next restart.
+- **`media_root`** — its default (a `platformdirs` data directory) is a
+  real, persistent location on a normal single-host install, so most
+  installs can leave it unset. Override it if you want the generated
+  spectrograms/previews stored somewhere specific, or in a container
+  deployment, where that same default path is ephemeral and gone on the
+  next restart.
 - **`static_root`**'s default (unlike `media_root`'s) is genuinely fine to
   leave as-is for any deployment — the vendor JS/CSS it holds is small and
   automatically re-fetched if missing, not something you place

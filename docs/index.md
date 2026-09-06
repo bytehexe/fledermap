@@ -12,6 +12,7 @@
   - [Supported species](reference/supported-species.md)
   - [Concepts glossary](reference/concepts-glossary.md)
 - **Explanation** — background and reasoning:
+  - [How Fledermap is organized](explanation/how-fledermap-is-organized.md)
   - [Why map-first?](explanation/why-map-first.md)
   - [The classifier model](explanation/classifier-model.md)
 
