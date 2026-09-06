@@ -63,9 +63,13 @@ Three pages under one area, plus link-ins from existing pages:
   global time-of-year and time-of-day line charts, plus a rarest-species list (see below).
 - **`/statistics/species/<taxon_id>`** — that species' share of recordings by site (bar chart)
   plus its own time-of-year/time-of-day lines (single series, no top-N grouping needed since
-  the species is already the filter).
+  the species is already the filter), plus two stat tiles: total recordings of this species and
+  distinct sites it's been detected at (both via `totals(session, taxon_id=...)`).
 - **`/statistics/sites/<site_id>`** — that site's species-composition donut (top-N + Other,
-  scoped to the site) plus its own time-of-year/time-of-day lines.
+  scoped to the site) plus its own time-of-year/time-of-day lines, plus three stat tiles: total
+  recordings at this site (`totals(session, site_id=...)`), species richness, and Shannon
+  diversity index (the latter two via `site_diversity(session, site_id=...)` — see "Site
+  diversity" below).
 
 The species detail page and site detail page each get a **"Statistics" link** into their
 respective sub-page — the same interlinking convention as the existing "Session"/"Show on map"
@@ -123,24 +127,79 @@ plain text (code + count), not links. It surfaces the same information a review 
 (rare/unusual unmapped codes are exactly the ones worth checking for a missing `taxon_code` entry
 or a typo'd label), without building a separate review-queue page for it.
 
+A third and fourth, unrelated global-only pair of lists — **most species-rich sites** and **most
+diverse sites** — sit alongside these two; see "Site diversity" below.
+
+### Site diversity
+
+Two related numbers, both derived from the same per-site species breakdown
+`recording_counts_by_site` already computes, but not currently surfaced anywhere:
+
+- **Species richness** — the count of distinct species (current-best `taxon_id`s) ever recorded
+  at a site.
+- **Shannon diversity index (H)** — richness weighted by evenness: a site with 10 species seen
+  roughly equally often ranks higher than one with 10 species where one dominates 95% of
+  recordings. Reported as a plain number (natural-log base, the conventional choice for H), not
+  normalized to 0–1 — that would be Pielou's evenness, a different metric, out of scope here.
+
+Both use the **same inclusion rules as `rarest_species`** (see "Species-breakdown inclusion
+rules" below), for consistency across every species-counting feature on these pages:
+`NOISE`/`NO_ID`/no-identification recordings excluded entirely; unmapped species excluded (no
+taxon to count); a multi-species recording counts toward **every** taxon it contains, using the
+same membership rule `recording_counts_by_site`'s `taxon_id` filter already uses.
+
+**Richness and Shannon can rank sites differently** — a site with fewer species spread evenly can
+out-score a richer site dominated by one species — so a single list sorted one way and captioned
+with the other's number would misrepresent whichever metric it wasn't sorted by. Two separate
+top-N lists instead, same pattern as the existing rarest-species/rarest-unmapped-codes pair:
+
+- **Most species-rich sites** — ranked by richness descending.
+- **Most diverse sites** — ranked by Shannon H descending.
+
+Each row in both lists shows the site name (linking to `/sites/<site_id>`, plain-text-label
+convention — same reasoning as the rarest-species list's species-name links) plus **both**
+numbers, so a reader can cross-reference a site's rank on the metric the list isn't sorted by.
+
+Two global-page surfaces, one site-page surface, one query function:
+
+- **Global page**: the two ranked lists above, plain list markup like the rarest-species list — a
+  handful of rows doesn't earn a chart axis.
+- **Site statistics page**: two plain stat tiles, "Species richness" and "Diversity index
+  (Shannon H)", for that one site — **not gauges**. Richness and Shannon are both open-ended
+  single totals with no natural min/max to scale a dial against, exactly the case the "No gauge
+  widgets" non-goal above already rules out; a bare number is the right form here too.
+
+All three surfaces are one function, `site_diversity`, since all three need the identical
+per-site richness/Shannon computation — see the Query functions section below for its two call
+shapes (ranked top-N vs. single site).
+
 ### Page × diagram matrix
 
 | Diagram | `/statistics` (global) | `/statistics/sites/<id>` | `/statistics/species/<id>` |
 |---|---|---|---|
-| Stat tiles (total recordings / species / sites) | ✅ | — | — |
+| Stat tiles: total recordings | ✅ | ✅ (this site) | ✅ (this species) |
+| Stat tile: total species | ✅ | — (see richness instead) | — (page *is* one species) |
+| Stat tile: total sites | ✅ | — (page *is* one site) | ✅ (sites this species detected at) |
 | Species-composition donut (top-N + Other) | ✅ (all recordings) | ✅ (scoped to this site) | — (the page *is* one species) |
 | Site-ranking bar chart | — (no single-species filter to rank sites by) | — (the page *is* one site) | ✅ (this species' recordings by site) |
 | Recordings-per-month line chart | ✅ (top-N species + Other) | ✅ (top-N species + Other, scoped to this site) | ✅ (single series, this species only) |
 | Recordings-per-hour-of-day line chart | ✅ (top-N species + Other) | ✅ (top-N species + Other, scoped to this site) | ✅ (single series, this species only) |
 | Rarest-species list | ✅ (global only) | — | — |
 | Rarest unmapped-codes list | ✅ (global only) | — | — |
+| Most species-rich sites list | ✅ (global only) | — | — |
+| Most diverse sites list (Shannon H) | ✅ (global only) | — | — |
+| Site diversity stat tiles (richness / Shannon H) | — | ✅ | — |
 
-Every row after the stat tiles, except the rarest-species list, is one of the five query
-functions below with `site_id`/`taxon_id` left unset (global), `site_id` set (site page), or
-`taxon_id` set (species page) — no page gets a diagram type the other two don't also support in
-some form, which is what keeps this a shared chart-component set rather than three bespoke
-pages. The rarest-species list is deliberately global-only (see its own subsection above) and
-so is the one row without a site/species-scoped counterpart.
+Stat tiles are all one `totals()` call per scope (global fills all three; site fills only "total
+recordings," paired with `site_diversity`'s richness/Shannon tiles; species fills "total
+recordings" and "total sites" via membership, since "total species" is meaningless when the page
+already is one species). Every chart row is one of the query functions below with `site_id`/
+`taxon_id` left unset (global), `site_id` set (site page), or `taxon_id` set (species page) — no
+page gets a diagram type the other two don't also support in some form, which is what keeps this
+a shared chart-component set rather than three bespoke pages. The rarest-species list, the two
+site-diversity lists, and the site diversity tiles are each deliberately scoped to only one page
+(see their own subsections above) and so are the rows without a full site/species-scoped
+counterpart.
 
 ## Data layer
 
@@ -153,8 +212,16 @@ Query functions, each taking an `OrmSession` and optional `site_id`/`taxon_id` f
 global, per-site, and per-species pages call the *same* functions rather than three separate
 implementations:
 
-- `global_totals(session) -> Totals` — total recordings, total distinct species (taxa with at
-  least one non-superseded, current-best SPECIES-verdict identification), total sites.
+- `totals(session, *, site_id=None, taxon_id=None) -> Totals` — the plain stat-tile numbers,
+  scoped like every other function here. Global (no filter): total recordings, total distinct
+  species (taxa with at least one non-superseded, current-best SPECIES-verdict identification),
+  total sites. `site_id` set: total recordings at that site only (`total_species`/`total_sites`
+  left unset — richness is a different, already-covered metric via `site_diversity`, and "total
+  sites" doesn't mean anything scoped to one site). `taxon_id` set: total recordings of that
+  species and total distinct sites it's been recorded at, both using the same **membership**
+  rule as `recording_counts_by_site`'s `taxon_id` filter (`total_species` left unset — the page
+  already *is* one species). Renamed from the single-purpose `global_totals` once the site and
+  species pages needed their own scoped totals too.
 - `recording_counts_by_taxon(session, *, site_id=None, top_n=8) -> TaxonBreakdown` — ranked
   counts by current-best taxon, plus an `"Other"` bucket for everything past `top_n`. Must use
   `current_best.py`'s current-best-identification logic (the same one the map/drawer/recording
@@ -191,6 +258,17 @@ implementations:
   `taxon_id` (there is no taxon to group by). A separate function rather than a variant of
   `rarest_species` because its return shape has no `taxon_id`/color/link at all — just a code and
   a count (see "Rarest-species list" above).
+- `site_diversity(session, *, site_id=None, sort_by="richness", top_n=8) -> SiteDiversityBreakdown`
+  — species richness + Shannon diversity index per site. With `site_id` unset: top-N sites ranked
+  by `sort_by` (`"richness"` or `"shannon"`) descending — the global page calls this twice, once
+  per sort key, for its two separate lists ("most species-rich sites" / "most diverse sites");
+  both numbers are present in every row regardless of which one it's sorted by, so each list can
+  show its own cross-reference column. With `site_id` set: the single-row breakdown for that
+  site's two stat tiles (`sort_by` is meaningless for one row and ignored). One function, not
+  separate ranking/single-site/per-metric variants, since all of them need the identical per-site
+  richness/Shannon computation — only the "which column sorts" and "one row vs. top-N rows"
+  shapes differ. See "Site
+  diversity" above for the inclusion rules (same as `rarest_species`) and why this isn't a gauge.
 
 ### Species-breakdown inclusion rules
 
@@ -224,7 +302,7 @@ don't all treat the non-clean cases the same way — this needed its own pass ra
   list's total row-sum can therefore exceed `total recordings`. This is why
   `recording_counts_by_taxon` and `rarest_species` are two separate functions rather than one
   shared implementation with a sort-order flag.
-- **`global_totals`'s "distinct species" count** must be computed from the full `taxon_ids`
+- **`totals`'s global-scope "distinct species" count** must be computed from the full `taxon_ids`
   frozenset of every current-best identification, not just each recording's single/primary
   taxon — otherwise a species that only ever appears as part of a multi-species result would
   never be counted as detected at all.
