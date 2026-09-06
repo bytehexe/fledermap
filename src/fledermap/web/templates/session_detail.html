@@ -60,7 +60,8 @@
 ---
 {{ op.counterpart.weather }}{% else %}{{ detail.session.weather or op.counterpart.weather or '' }}{% endif %}</textarea>
         </label>
-        <button type="submit" name="action" value="merge">Accept merge</button>
+        <button type="submit" name="action" value="merge"
+          onclick="return window.confirm('Merge session #{{ op.counterpart.id }} into this one? This permanently deletes session #{{ op.counterpart.id }} and cannot be undone.');">Accept merge</button>
         <button type="submit" name="action" value="reject">Reject</button>
       </form>
     </div>

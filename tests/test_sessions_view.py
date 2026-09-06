@@ -465,6 +465,37 @@ def test_merge_banner_note_textarea_omits_separator_when_only_one_side_has_text(
     assert "---" not in note_textarea
 
 
+def test_merge_banner_accept_button_is_confirm_gated(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """'Accept merge' permanently deletes the counterpart session
+    (resolve_merge_proposal) with no undo -- style guide's "no single click
+    may overwrite or delete stored data" rule requires a window.confirm()
+    gate. 'Reject' only flips a resolution flag, so it must NOT be gated."""
+    with OrmSession(engine) as session:
+        a, _b, _proposal = _make_open_proposal(session)
+        session_id = a.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    response = client.get(f"/sessions/{session_id}")
+
+    html = response.get_data(as_text=True)
+    banner_start = html.index('class="merge-banner"')
+    accept_start = html.index('value="merge"', banner_start)
+    accept_end = html.index("</button>", accept_start)
+    accept_button = html[accept_start:accept_end]
+    assert "onclick=" in accept_button
+    assert "window.confirm(" in accept_button
+
+    reject_start = html.index('value="reject"', banner_start)
+    reject_end = html.index("</button>", reject_start)
+    reject_button = html[reject_start:reject_end]
+    assert "onclick=" not in reject_button
+
+
 def test_merge_badge_in_sessions_list_links_to_session_detail(
     engine: Engine,
     tmp_path: Path,
