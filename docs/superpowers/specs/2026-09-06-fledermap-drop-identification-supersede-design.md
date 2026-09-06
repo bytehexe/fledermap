@@ -125,10 +125,15 @@ IS NULL` already) and single-claim-per-automatic-source is already the documente
 
 **Callers:**
 
-- `_apply_identifications` (`services/ingest.py`): for each EMT source present in `parsed`,
-  build the 0-or-1-element `desired` list from that source's parsed claim and call
-  `replace_claims`. A source entirely absent from `parsed` this scan is left untouched (matches
-  today: ingest only acts on sources it actually parsed something for).
+- `_apply_identifications` (`services/ingest.py`): for **every** source in `_EMT_SOURCES`
+  (not just ones present in `parsed`), build a `desired` list — `[ClaimInput(...)]` from that
+  source's entry in `parsed` if present, `[]` if not — and call `replace_claims`. The empty case
+  matters: today, an EMT source whose chunk previously had a claim but no longer does (e.g. the
+  operator clears an on-device manual correction, so `EMT_MANUAL` no longer appears in `parsed`
+  at all) still gets its existing row superseded, because `_apply_identifications` walks *every*
+  existing live key looking for one missing from `incoming`, not just keys `incoming` mentions.
+  `replace_claims(..., desired=[])` must reproduce that: delete the row outright, don't skip it
+  just because the source has nothing to contribute this scan.
 - `set_manual_classification` (`services/manual_classification.py`): builds the full `desired`
   list from the submitted verdict/taxon_ids (one `ClaimInput` per taxon for SPECIES, one
   sentinel `ClaimInput(taxon_id=None, verdict=...)` for NO_ID/NOISE, empty list for "clear") and
