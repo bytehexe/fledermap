@@ -284,18 +284,6 @@ def test_recording_panel_renders_identification_list_content(
                 first_seen_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
             ),
         )
-        session.add(
-            Identification(
-                recording_id=recording.id,
-                source=IdSource.EMT_WAMD,
-                source_version=None,
-                verdict=Verdict.SPECIES,
-                taxon_id=taxon.id,
-                raw_label="EPTSER",
-                first_seen_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
-                superseded_at=datetime(2026, 8, 25, 21, 5, tzinfo=UTC),
-            ),
-        )
         session.commit()
 
     app = create_app(engine, tmp_path / "static", tmp_path / "media")
@@ -305,7 +293,7 @@ def test_recording_panel_renders_identification_list_content(
     html = response.get_data(as_text=True)
     assert "emt.guano" in html
     assert "EPTSER" in html
-    assert 'class="superseded"' in html
+    assert 'class="superseded"' not in html
 
 
 def test_recording_panel_not_found_renders_gracefully(

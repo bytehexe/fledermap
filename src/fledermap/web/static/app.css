@@ -442,9 +442,6 @@ button:disabled { cursor: default; opacity: 0.5; }
   color: var(--color-muted);
   font-style: italic;
 }
-/* Style guide: promoted on second use (was two byte-identical rules,
-   .superseded and .identification-superseded, a few lines apart). */
-.superseded, .identification-superseded { text-decoration: line-through; opacity: 0.6; }
 
 .session-detail-columns { display: flex; gap: 1rem; margin: 1rem 0; flex-wrap: wrap; }
 .session-detail-columns .col { flex: 1 1 260px; }
