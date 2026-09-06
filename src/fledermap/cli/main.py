@@ -222,7 +222,8 @@ def ingest(ctx: click.Context, sweep: bool) -> None:
         )
         click.echo(
             f"identifications added {report.identifications_added}  "
-            f"superseded {report.identifications_superseded}",
+            f"updated {report.identifications_updated}  "
+            f"removed {report.identifications_removed}",
         )
         if report.unmapped_labels:
             labels = ", ".join(sorted(report.unmapped_labels))

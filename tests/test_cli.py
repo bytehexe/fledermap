@@ -140,7 +140,8 @@ def test_ingest_reports_created_recordings(
     assert "replaced 0" in result.output
     assert "duplicates 0" in result.output
     assert "identifications added 4" in result.output
-    assert "superseded 0" in result.output
+    assert "updated 0" in result.output
+    assert "removed 0" in result.output
 
 
 def test_second_run_creates_nothing(clean_database_url: str, tmp_path: Path) -> None:

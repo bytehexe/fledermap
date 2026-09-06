@@ -261,8 +261,9 @@ def run_ingest_cycle(context: procrastinate.JobContext, timestamp: int) -> None:
             f"updated {report.updated} moved {report.moved} "
             f"replaced {report.replaced} duplicates {report.duplicates} "
             f"skipped {skipped} identifications added "
-            f"{report.identifications_added} superseded "
-            f"{report.identifications_superseded} reconnected {reconnected}"
+            f"{report.identifications_added} updated "
+            f"{report.identifications_updated} removed "
+            f"{report.identifications_removed} reconnected {reconnected}"
         )
 
         # A refused sweep (spec §10 decision 2) must NOT skip derive: it's

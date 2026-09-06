@@ -204,10 +204,10 @@ def test_moved_and_reidentified_reports_as_moved(engine: Engine) -> None:
     re-ID case) is reported as MOVED, not UPDATED — spec section 6 defines the
     outcome by (hash, path) status ('known hash, new path'), not by whether
     metadata happens to also differ. See task-11 report, judgement call on
-    'MOVED masks UPDATED'. The underlying data still records the change either
-    way: the old identification is superseded and a new one is added."""
+    'MOVED masks UPDATED'. The underlying claim is updated in place: neither
+    "NoID" nor "EPTSER" resolves to a taxon here (no seed_taxonomy call), so
+    both share taxon_id=None -- same identity, same row."""
     with OrmSession(engine) as session:
-        seed_taxonomy(session)
         commit_scan(
             session,
             [(_scanned(name="NoID_20150610_215446.wav", label="NoID"), 0)],
@@ -227,28 +227,34 @@ def test_moved_and_reidentified_reports_as_moved(engine: Engine) -> None:
         # The orthogonal counters (task-11 fix round 1, priority 5) are what
         # give this exact case visibility: MOVED alone tells the operator
         # nothing about the identification change happening underneath it.
-        assert report.identifications_added == 1
-        assert report.identifications_superseded == 1
+        assert report.identifications_added == 0
+        assert report.identifications_updated == 1
+        assert report.identifications_removed == 0
         ids = session.scalars(select(Identification)).all()
-        assert len(ids) == 2
-        assert {i.raw_label for i in ids} == {"NoID", "EPTSER"}
+        assert len(ids) == 1
+        assert ids[0].raw_label == "EPTSER"
 
 
-def test_changed_identification_supersedes_the_old_one(engine: Engine) -> None:
-    """The EMT changing its mind is recorded, not overwritten."""
+def test_changed_identification_to_a_different_taxon_replaces_the_old_row(
+    engine: Engine,
+) -> None:
+    """The EMT changing its mind to a different species deletes the old row
+    and inserts a new one -- no history kept."""
     with OrmSession(engine) as session:
         seed_taxonomy(session)
         commit_scan(session, [(_scanned(label="MYODAU"), 0)], archive_roots=(ROOT,))
         session.commit()
 
-        commit_scan(session, [(_scanned(label="EPTSER"), 0)], archive_roots=(ROOT,))
+        report = commit_scan(
+            session, [(_scanned(label="EPTSER"), 0)], archive_roots=(ROOT,)
+        )
         session.commit()
 
+        assert report.identifications_added == 1
+        assert report.identifications_removed == 1
         ids = session.scalars(select(Identification)).all()
-        assert len(ids) == 2
-        superseded = [i for i in ids if i.superseded_at is not None]
-        assert len(superseded) == 1
-        assert superseded[0].raw_label == "MYODAU"
+        assert len(ids) == 1
+        assert ids[0].raw_label == "EPTSER"
 
 
 def test_note_change_without_move_is_reported_as_updated(engine: Engine) -> None:
@@ -373,17 +379,19 @@ def test_duplicate_manual_identifications_collapse_to_one_row(engine: Engine) ->
         assert ids[0].raw_label == "EPTSER"
 
 
-def test_emt_manual_identification_is_superseded_on_rescan(engine: Engine) -> None:
-    """The operator changing the on-device manual ID must supersede the old
-    claim, not leave two contradictory active manual identifications (task-11
-    fix round 1, priority 4). Goes through the real `merge_metadata`, not a
-    hand-built `ParsedIdentification`, so it exercises the actual source this
-    defect was about.
+def test_emt_manual_identification_changing_replaces_the_old_row(
+    engine: Engine,
+) -> None:
+    """The operator changing the on-device manual ID must replace the old
+    claim outright, not leave two contradictory active manual identifications
+    (task-11 fix round 1, priority 4). Goes through the real `merge_metadata`,
+    not a hand-built `ParsedIdentification`, so it exercises the actual source
+    this defect was about.
 
-    Before the fix: `IdSource.MANUAL` (excluded from `_EMT_SOURCES`) means the
-    second scan adds EPTSER without ever superseding MYODAU — two active
-    claims. After the fix: `IdSource.EMT_MANUAL` is in `_EMT_SOURCES`, so the
-    rescan supersedes it correctly.
+    Before the original fix: `IdSource.MANUAL` (excluded from `_EMT_SOURCES`)
+    meant the second scan added EPTSER without ever touching MYODAU — two
+    active claims. `IdSource.EMT_MANUAL` is in `_EMT_SOURCES`, so the rescan
+    replaces it correctly.
     """
 
     def _scanned_with_manual_id(manual_id: str) -> ScannedFile:
@@ -407,13 +415,9 @@ def test_emt_manual_identification_is_superseded_on_rescan(engine: Engine) -> No
         session.commit()
 
         ids = session.scalars(select(Identification)).all()
-        active = [i for i in ids if i.superseded_at is None]
-        assert len(active) == 1
-        assert active[0].raw_label == "EPTSER"
-        assert active[0].source is IdSource.EMT_MANUAL
-        superseded = [i for i in ids if i.superseded_at is not None]
-        assert len(superseded) == 1
-        assert superseded[0].raw_label == "MYODAU"
+        assert len(ids) == 1
+        assert ids[0].raw_label == "EPTSER"
+        assert ids[0].source is IdSource.EMT_MANUAL
 
 
 def test_unmapped_label_is_stored_and_reported(engine: Engine) -> None:

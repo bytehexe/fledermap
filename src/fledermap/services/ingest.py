@@ -27,6 +27,7 @@ from fledermap.domain.metadata import (
     ScannedFile,
 )
 from fledermap.ingest.scan import INCOMPLETE_SCAN_REASONS, scan_with_skips
+from fledermap.services.identifications import ClaimInput, replace_claims
 from fledermap.store.geo import decode_point
 from fledermap.store.models import Identification, Recording
 from fledermap.store.seed import resolve_code
@@ -101,7 +102,8 @@ class IngestReport:
     # changed, independent of whether the file also moved. Both are computed
     # inside `_apply_identifications` (task-11 fix round 1, priority 5).
     identifications_added: int = 0
-    identifications_superseded: int = 0
+    identifications_updated: int = 0
+    identifications_removed: int = 0
     unmapped_labels: set[str] = field(default_factory=set)
     # Every audio_hash that got a brand-new Recording row this call — CREATED
     # (unknown hash, unknown path) *or* REPLACED (unknown hash at an already-
@@ -185,57 +187,56 @@ def _apply_identifications(
     report: IngestReport,
     now: datetime,
 ) -> bool:
-    """Add new claims and supersede ones this source no longer makes.
+    """Bring every EMT source's claim set (0 or 1 claims each, per source) in
+    line with what this scan parsed, via replace_claims.
 
-    `incoming` is keyed by `(source, source_version, raw_label)` -- narrower
-    than `uq_identification_source_claim`'s own five-column key (which also
-    includes `taxon_id`, and is now a partial unique INDEX scoped to
-    `WHERE superseded_at IS NULL`, not a plain constraint; see
-    store/models.py). That narrower key is still correct here: every
-    automatic source maps one `raw_label` to one `taxon_id` deterministically,
-    so `source_version`/`raw_label` alone already identify a claim for these
-    sources -- only `MANUAL` (handled separately, by
-    services/manual_classification.py) ever puts more than one `taxon_id`
-    under an otherwise-identical key. Built as a dict (not the original
-    set-plus-list combination) so that two identical claims in `parsed` --
-    GUANO and wamd both reporting the same `manual_id`, the normal case since
-    the EMT writes both -- collapse into one candidate instead of both being
-    inserted and hitting the index (task-11 amendments, defect 2).
+    Iterates ALL of `_EMT_SOURCES`, not just sources present in `parsed`: a
+    source that previously had a claim but has nothing in `parsed` this scan
+    (e.g. an on-device manual correction cleared, so EMT_MANUAL no longer
+    appears at all) must still have its row deleted, not left behind.
+
+    Resolution (`resolve_code`) only runs when a source's `raw_label` text
+    actually changed from what's on file (or there's no existing row yet) --
+    matching `reresolve_unmapped_identifications`'s documented contract that
+    `_apply_identifications` resolves a claim once, not on every scan. An
+    unchanged `raw_label` keeps whatever `taxon_id` the existing row already
+    has (resolved or still `None`); only `reresolve_unmapped_identifications`
+    retries resolution for an unchanged label.
     """
-    changed = False
-    incoming = {(p.source, p.source_version, p.raw_label): p for p in parsed}
-    existing = {
-        (i.source, i.source_version, i.raw_label): i
-        for i in recording.identifications
-        if i.superseded_at is None
+    parsed_by_source = {p.source: p for p in parsed}
+    existing_by_source = {
+        i.source: i for i in recording.identifications if i.source in _EMT_SOURCES
     }
+    changed = False
 
-    for key, ident in existing.items():
-        if key not in incoming and ident.source in _EMT_SOURCES:
-            ident.superseded_at = now
-            report.identifications_superseded += 1
+    for source in _EMT_SOURCES:
+        p = parsed_by_source.get(source)
+        existing = existing_by_source.get(source)
+        desired: list[ClaimInput] = []
+        if p is not None:
+            if existing is not None and existing.raw_label == p.raw_label:
+                taxon_id = existing.taxon_id
+            else:
+                taxon = None
+                if p.raw_label:
+                    taxon = resolve_code(session, _code_source(p.source), p.raw_label)
+                    if taxon is None:
+                        report.unmapped_labels.add(p.raw_label)
+                taxon_id = taxon.id if taxon else None
+            desired.append(
+                ClaimInput(
+                    taxon_id=taxon_id,
+                    verdict=p.verdict,
+                    raw_label=p.raw_label,
+                    source_version=p.source_version,
+                ),
+            )
+        result = replace_claims(session, recording, source, desired, now)
+        report.identifications_added += result.added
+        report.identifications_updated += result.updated
+        report.identifications_removed += result.removed
+        if result.added or result.updated or result.removed:
             changed = True
-
-    for key, p in incoming.items():
-        if key in existing:
-            continue
-        taxon = None
-        if p.raw_label:
-            taxon = resolve_code(session, _code_source(p.source), p.raw_label)
-            if taxon is None:
-                report.unmapped_labels.add(p.raw_label)
-        recording.identifications.append(
-            Identification(
-                source=p.source,
-                source_version=p.source_version,
-                verdict=p.verdict,
-                taxon_id=taxon.id if taxon else None,
-                raw_label=p.raw_label,
-                first_seen_at=now,
-            ),
-        )
-        report.identifications_added += 1
-        changed = True
 
     return changed
 
