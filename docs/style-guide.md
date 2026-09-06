@@ -145,6 +145,73 @@ Spectrogram and oscillogram images are stretched independently on both axes
 drag-resize. Full detail lives in this repo's root `CLAUDE.md` under "Derived media rendering" —
 check there before touching either image's CSS.
 
+## Interaction & data-safety rules
+
+These are behavioral conventions, not CSS — they apply regardless of which shared class a page
+uses. Some existing pages don't fully comply yet (tracked in the backlog); write new UI to this
+standard even where an older page hasn't been brought up to it yet.
+
+- **A filter applies immediately, with no save step.** This is what `.filter-bar` above already
+  means by "applies a query — typically live, on `change`": nothing a filter does is destructive
+  or hard to redo, so there's nothing a save/confirm step would protect. If a control changes
+  what's displayed rather than what's stored, it belongs in this category even outside
+  `.filter-bar` itself.
+- **A form that changes stored data needs an explicit Save**, and nothing it does should take
+  effect before Save is pressed. This is the opposite default from filters above, and **a single
+  form must never mix the two** — a "pick what to show" control and a "what to store" control
+  never belong in the same `<form>`, even if they'd otherwise sit next to each other visually.
+  Split them into two separate forms (they can still be laid out side by side) rather than
+  building one form that partly live-applies and partly waits for Save.
+- **The Save button is the form's default/primary action** — use the `.button-primary` class
+  (`app.css`) on it, consistently, on every form, everywhere: accent background/border + bold
+  text, the same "this one matters" visual language `.tool-button[aria-pressed="true"]` and
+  `#view-lock-toggle[aria-pressed="true"]` already use for their active state, rather than a
+  second one. A form's other buttons (Cancel, a destructive action gated per the rule below) stay
+  plain `button` — only the one default/primary action per form gets `.button-primary`.
+
+  ```html
+  <button type="submit" class="button-primary">Save</button>
+  ```
+- **A page holding unsaved changes must warn before it's left unsaved** (navigating away, closing
+  the tab). Track a dirty flag (current form values differ from what was last loaded/saved) and
+  register a `window.addEventListener("beforeunload", ...)` listener that calls
+  `event.preventDefault()` (and sets `event.returnValue = ""`, for the browsers that still need
+  it) whenever that flag is true; clear the flag on a successful save. This is the only mechanism
+  to use — not a custom in-page modal, which cannot intercept a tab close or URL-bar navigation
+  the way `beforeunload` does. It only applies to actual page navigation; an htmx partial swap
+  that never leaves the page has nothing to guard.
+- **No single click may overwrite or delete stored data**, other than pressing Save itself (which
+  the two rules above already gate behind a deliberate action and a visually distinct button).
+  A destructive control (clear, delete, reset-to-default) must not take effect immediately:
+  either stage the change behind the form's own Save (so leaving without saving discards it, per
+  the unsaved-changes warning above), or — for an action with no form/Save step to stage behind,
+  such as deleting a whole record — gate it behind `window.confirm("...")` and only act if it
+  returns `true`. Use `confirm()` specifically, not a custom modal: it needs no markup, no CSS, no
+  focus-trap logic, and reads unambiguously as a yes/no gate to every user regardless of page —
+  the same reasoning as `beforeunload` above.
+- **A dedicated Cancel/discard button never needs a confirmation of its own** — the unsaved-changes
+  guard above exists for *accidental* navigation; clicking Cancel already states the intent to
+  discard, so gating it behind another confirm would just be a second click standing in for the
+  first. Wire Cancel to clear the dirty flag before it navigates or resets the form, so the
+  `beforeunload` listener doesn't also fire for a deliberate discard.
+- **UI elements are disabled, never hidden.** Removing a control from the layout when it's
+  unavailable breaks muscle memory and reflows whatever's around it; disabling it in place keeps
+  its position stable. This was already the deciding call for the recording-detail page's locked
+  scrollbar (`.detail-scroll.view-locked` in `app.css`) over hiding it — extend the same judgment
+  to buttons, form fields, and any other control.
+- **A disabled element must be visually unmistakable as disabled** — greyed out, not merely
+  unresponsive. A real `<button>`, `<input>`, `<select>`, or `<textarea>` gets this for free from
+  its native `disabled` attribute plus `app.css`'s `:disabled` rules (`opacity: 0.5` today —
+  extend that rule if a control type needs a different treatment, in the same change). An `<a>`
+  styled and used as a button, or any custom widget, has no native `disabled` attribute to set —
+  use `aria-disabled="true"` plus a shared `.is-disabled` class (`opacity: 0.5`, `cursor: default`,
+  `pointer-events: none` — matching `:disabled`'s own look) instead of inventing a one-off
+  treatment per widget, and check `aria-disabled` at the top of its click handler too:
+  `pointer-events: none` stops a mouse click but not a `Enter`/`Space` keydown reaching a
+  focusable element. A native control with no CSS disabled state at all (a scrollbar) needs its
+  own hand-rolled treatment — see the comment above `.detail-scroll.view-locked` for how that
+  case was solved when the platform gave it nothing to opt into.
+
 ## Standing rule: promote on second use
 
 When a rule is written as page- or ID-scoped CSS for a single element, and a second page later

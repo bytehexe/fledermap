@@ -218,6 +218,24 @@ button {
 button:hover { background: var(--color-bg-subtle); border-color: var(--color-accent); }
 button:disabled { cursor: default; opacity: 0.5; }
 
+/* The form's default/primary action (a Save button, per the style guide's
+   "Interaction & data-safety rules") -- reuses the same accent-background
+   language as `.tool-button[aria-pressed="true"]` / `#view-lock-toggle[aria-pressed="true"]`
+   rather than inventing a second "this one matters" visual language. */
+.button-primary {
+  background: var(--color-accent);
+  color: var(--color-bg);
+  border-color: var(--color-accent);
+  font-weight: 600;
+}
+.button-primary:hover { background: var(--color-accent); opacity: 0.9; }
+
+/* Disabled look for an element with no native `disabled` attribute (an `<a>` used
+   as a button, a custom widget) -- matches `button:disabled` above. Pair with
+   `aria-disabled="true"` and a click-handler guard; `pointer-events: none` alone
+   only blocks a mouse click, not a keyboard Enter/Space on a focusable element. */
+.is-disabled { opacity: 0.5; cursor: default; pointer-events: none; }
+
 /* Style guide: promoted on second use -- .classifier-chip below shares the pill
    shape (background/border/border-radius/font-size) but not this chip's own
    flex layout or its asymmetric padding (room for a leading label before the
