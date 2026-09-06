@@ -27,7 +27,6 @@ def _ident(
     *,
     taxon_id: int | None = 1,
     verdict: Verdict = Verdict.SPECIES,
-    superseded: bool = False,
     first_seen_at: datetime = datetime(2026, 8, 25, tzinfo=UTC),
 ) -> Identification:
     return Identification(
@@ -35,7 +34,6 @@ def _ident(
         verdict=verdict,
         taxon_id=taxon_id,
         first_seen_at=first_seen_at,
-        superseded_at=datetime(2026, 8, 26, tzinfo=UTC) if superseded else None,
     )
 
 
@@ -66,49 +64,10 @@ def test_emt_guano_beats_emt_wamd_beats_emt_filename() -> None:
     assert best.primary.taxon_id == 3
 
 
-def test_superseded_identifications_are_ignored() -> None:
-    r = _recording(
-        _ident(IdSource.MANUAL, superseded=True),
-        _ident(IdSource.EMT_GUANO, taxon_id=5),
-    )
-
-    best = current_best_identification(r)
-
-    assert best is not None
-    assert best.primary.source == IdSource.EMT_GUANO
-    assert best.primary.taxon_id == 5
-
-
 def test_no_identifications_returns_none() -> None:
     r = _recording()
 
     assert current_best_identification(r) is None
-
-
-def test_all_superseded_returns_none() -> None:
-    r = _recording(_ident(IdSource.EMT_GUANO, superseded=True))
-
-    assert current_best_identification(r) is None
-
-
-def test_two_non_superseded_claims_from_the_same_source_break_on_recency() -> None:
-    r = _recording(
-        _ident(
-            IdSource.EMT_GUANO,
-            taxon_id=1,
-            first_seen_at=datetime(2026, 1, 1, tzinfo=UTC),
-        ),
-        _ident(
-            IdSource.EMT_GUANO,
-            taxon_id=2,
-            first_seen_at=datetime(2026, 6, 1, tzinfo=UTC),
-        ),
-    )
-
-    best = current_best_identification(r)
-
-    assert best is not None
-    assert best.primary.taxon_id == 2
 
 
 def test_automatic_no_id_is_passive_and_a_lower_precedence_species_wins() -> None:
@@ -298,15 +257,6 @@ def test_identification_status_shadowed_for_a_lower_precedence_real_claim() -> N
     best = current_best_identification(r)
 
     assert identification_status(loser, best) == "shadowed"
-
-
-def test_identification_status_superseded_regardless_of_precedence() -> None:
-    superseded = _ident(IdSource.MANUAL, taxon_id=1, superseded=True)
-    winner = _ident(IdSource.EMT_GUANO, taxon_id=2)
-    r = _recording(superseded, winner)
-    best = current_best_identification(r)
-
-    assert identification_status(superseded, best) == "superseded"
 
 
 def test_identification_status_every_claim_of_a_multi_species_winner_is_current() -> (

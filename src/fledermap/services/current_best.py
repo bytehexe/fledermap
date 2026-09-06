@@ -81,22 +81,17 @@ def current_best_identification(recording: Recording) -> CurrentIdentification |
     outright and stops the walk.
 
     Only MANUAL may surface more than one claim (a genuine multi-species
-    file). Every other source is deduped to its single most-recently
-    first-seen claim before wrapping, same tie-break as before this
-    rewrite -- a non-MANUAL source having two non-superseded claims at once
-    is rare (normally a rescan supersedes the prior claim first) and never
-    represents a real multi-species result."""
-    candidates = [i for i in recording.identifications if i.superseded_at is None]
+    file) -- every other source has at most one live row per recording by
+    construction (services/identifications.py's replace_claims keeps it that
+    way), so there is nothing to dedupe here any more."""
     for source in _PRECEDENCE:
-        matches = [i for i in candidates if i.source == source]
+        matches = [i for i in recording.identifications if i.source == source]
         if not matches:
             continue
         if source != IdSource.MANUAL and all(
             m.verdict == Verdict.NO_ID for m in matches
         ):
             continue
-        if source != IdSource.MANUAL:
-            matches = [max(matches, key=lambda i: i.first_seen_at or _EPOCH)]
         return CurrentIdentification.from_matches(matches)
     return None
 
@@ -129,7 +124,7 @@ def recording_headline(taxon: Taxon | None, best: CurrentIdentification | None) 
     return best.verdict.value
 
 
-IdentificationStatus = Literal["current", "passive", "shadowed", "superseded"]
+IdentificationStatus = Literal["current", "passive", "shadowed"]
 
 
 def identification_status(
@@ -141,27 +136,15 @@ def identification_status(
     so a human making a manual call can see *why* the page shows what it
     shows, not just the final headline in isolation.
 
-    A row is in exactly one of these four states:
-    - "superseded": a past claim from the same source, replaced by a newer
-      one -- orthogonal to the other three, since current_best_identification
-      never even considers superseded rows.
+    A row is in exactly one of these three states:
     - "current": one of `best.claims` -- actually driving the shown result.
     - "passive": an automatic-source NO_ID claim skipped per the precedence
       walk (services/current_best.py's `current_best_identification`) --
       true regardless of what ultimately won, since this describes the
       row's own status, not the overall outcome.
     - "shadowed": a real claim that lost only because a higher-precedence
-      source's claim won outright. Includes the edge case of a second,
-      non-surviving claim from the SAME winning non-MANUAL source (that
-      source's claims are deduped to one before wrapping in
-      `current_best_identification` -- see that function's docstring) --
-      still genuinely not part of `best.claims` and not an automatic NO_ID,
-      so "shadowed" is the correct bucket even though nothing of higher
-      precedence is actually responsible; callers rendering this state
-      should not blindly attribute it to `best.primary.source`.
+      source's claim won outright.
     """
-    if ident.superseded_at is not None:
-        return "superseded"
     if best is not None and ident in best.claims:
         return "current"
     if ident.source != IdSource.MANUAL and ident.verdict == Verdict.NO_ID:
