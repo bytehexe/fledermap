@@ -9,7 +9,8 @@ Every setting below can also be set in an optional TOML config file (see
 `resolve_config_file`) -- env var wins when both are set, matching the plan
 for an eventual Docker deployment (env-only there) without forcing a
 standalone/local user to export a shellful of `FLEDERMAP_*` variables just to
-run the CLI. See docs/setup.md for the full config file reference.
+run the CLI. See docs/reference/configuration.md for the full config file
+reference.
 """
 
 from __future__ import annotations

@@ -116,7 +116,8 @@ under "Environment gotchas" before assuming CLI-adjacent code belongs there.
   part of a built wheel, so code `serve` needs at runtime cannot live there (it used to, and
   broke every real install — caught only because nothing had tried installing the package
   itself yet).
-- **Every `FLEDERMAP_*` setting can also live in a TOML config file** (see `docs/setup.md`), at
+- **Every `FLEDERMAP_*` setting can also live in a TOML config file** (see
+  `docs/reference/configuration.md`), at
   a `platformdirs` config directory by default, or wherever `FLEDERMAP_CONFIG_FILE` names.
   **Env var wins when both are set** — deliberate, since a future Docker deployment configures
   purely through env and the file exists for standalone/local use, not to override the
