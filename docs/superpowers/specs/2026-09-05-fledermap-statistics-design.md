@@ -435,6 +435,20 @@ considered done, per CLAUDE.md's JavaScript tooling section.
 
 - A "most active site" / "most recorded species" highlight-style tile — considered and declined
   for this pass (plain totals only) but a natural next stat-tile addition.
+- **Estimated true richness + sample coverage**, alongside the observed richness/Shannon this
+  pass adds. Observed richness only counts species actually detected so far — it necessarily
+  understates a site's true species count, more so for a sparsely-sampled site, and gives no
+  sense of how confident that gap is. A Chao-style asymptotic estimator (bias-corrected true
+  richness, with a confidence interval) plus its companion sample-coverage percentage would
+  answer both "how many species are actually here" and "how much do we trust the observed
+  count." Candidate library: [hillrep](https://pypi.org/project/hillrep/) (MIT, `>=3.10`, no
+  heavy core deps) — a Python port of the ecology-standard `iNEXT` R framework's Hill-number
+  math (Chao asymptotic richness/Shannon/Simpson, coverage-based rarefaction/extrapolation,
+  bootstrap confidence intervals); despite its immune-repertoire framing on PyPI, the underlying
+  estimators are the same ones ecological species-richness work already uses, so it's a
+  plausible fit rather than a reach. Would sit alongside the observed richness/Shannon tiles on
+  the site page and the two ranked global lists this pass adds — not scoped or vetted further
+  here.
 - Date-range filtering on the statistics pages.
 - Revisiting live-vs-cached aggregation if recording counts grow large enough that per-request
   `GROUP BY` queries become a real page-load cost.
