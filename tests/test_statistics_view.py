@@ -82,3 +82,26 @@ def test_statistics_site_page_renders_and_404s_for_unknown_site(
 
     missing_response = client.get("/statistics/sites/999999")
     assert missing_response.status_code == 404
+
+
+def test_statistics_species_page_renders_and_404s_for_unknown_taxon(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Eptesicus serotinus")
+        session.add(taxon)
+        session.commit()
+        taxon_id = taxon.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    response = client.get(f"/statistics/species/{taxon_id}")
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert "Eptesicus serotinus" in html
+
+    missing_response = client.get("/statistics/species/999999")
+    assert missing_response.status_code == 404

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  {% include "_theme_init.html" %}
+  {% include "_favicon.html" %}
+  <title>Fledermap — {{ taxon.scientific_name }} statistics</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+</head>
+<body>
+  {% include "_nav.html" %}
+  <main class="main-content">
+    <p><a href="/species/{{ taxon.id }}">← {{ taxon.scientific_name }}</a></p>
+    <h1>{{ taxon.scientific_name }} — Statistics</h1>
+
+    <div class="stats-band">
+      <div class="band-label">Overview</div>
+      <div class="stats-tiles">
+        <div class="stats-tile"><div class="num">{{ totals.total_recordings }}</div><div class="label">Recordings</div></div>
+        <div class="stats-tile"><div class="num">{{ totals.total_sites }}</div><div class="label">Sites detected at</div></div>
+      </div>
+    </div>
+
+    <div class="stats-band">
+      <div class="band-label">Sites</div>
+      <canvas id="sites-bar" data-chart="bar"></canvas>
+    </div>
+
+    <div class="stats-band">
+      <div class="band-label">Activity over time</div>
+      <div class="stats-panel-grid">
+        <div class="stats-panel">
+          <div class="stats-panel-header">Recordings per month</div>
+          <canvas id="month-line" data-chart="line"></canvas>
+          <details class="stats-caption"><summary>ⓘ</summary>Bucketed by calendar month, server time (UTC) -- not adjusted to any local timezone.</details>
+        </div>
+        <div class="stats-panel">
+          <div class="stats-panel-header">Recordings per hour of day</div>
+          <canvas id="hour-line" data-chart="line"></canvas>
+          <details class="stats-caption"><summary>ⓘ</summary>Hour of day, server time (UTC) -- not sunset-relative (see the backlogged "H:MM before/after sunset" feature).</details>
+        </div>
+      </div>
+    </div>
+
+    <script id="sites-bar-data" type="application/json">{{ sites | tojson }}</script>
+    <script id="month-line-data" type="application/json">{{ month | tojson }}</script>
+    <script id="hour-line-data" type="application/json">{{ hour | tojson }}</script>
+  </main>
+
+  <script src="{{ url_for('vendor.static', filename='chart.js') }}"></script>
+  <script src="{{ url_for('static', filename='marker_colors.js') }}"></script>
+  <script src="{{ url_for('static', filename='statistics_charts.js') }}"></script>
+  <script src="{{ url_for('static', filename='statistics.js') }}"></script>
+</body>
+</html>

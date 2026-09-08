@@ -13,11 +13,13 @@ from fledermap.services.statistics import (
     rarest_unmapped_codes,
     recording_counts_by_hour,
     recording_counts_by_month,
+    recording_counts_by_site,
     recording_counts_by_taxon,
     site_diversity,
     totals,
 )
 from fledermap.store.geo import decode_point
+from fledermap.store.models import Taxon
 from fledermap.web.params import fallback_site_label
 
 statistics_bp = flask.Blueprint(
@@ -77,6 +79,42 @@ def global_statistics_page() -> flask.Response:
             rarest_codes=rarest_codes,
             richest_sites=richest_sites.entries,
             diverse_sites=diverse_sites.entries,
+            month=_series_json(month_series),
+            hour=_series_json(hour_series),
+        )
+    return flask.make_response(html)
+
+
+def _site_breakdown_json(breakdown: object) -> dict[str, object]:
+    return {
+        "entries": [
+            {
+                "site": {"id": e.site.id, "name": e.site.name or f"Site #{e.site.id}"},
+                "count": e.count,
+                "statistics_url": f"/statistics/sites/{e.site.id}",  # type: ignore[attr-defined]
+            }
+            for e in breakdown.entries  # type: ignore[attr-defined]
+        ],
+    }
+
+
+@statistics_bp.get("/statistics/species/<int:taxon_id>")
+def species_statistics_page(taxon_id: int) -> flask.Response:
+    engine = flask.current_app.config["ENGINE"]
+    with OrmSession(engine) as session:
+        taxon = session.get(Taxon, taxon_id)
+        if taxon is None:
+            flask.abort(404)
+        species_totals = totals(session, taxon_id=taxon_id)
+        site_breakdown = recording_counts_by_site(session, taxon_id=taxon_id)
+        month_series = recording_counts_by_month(session, taxon_id=taxon_id)
+        hour_series = recording_counts_by_hour(session, taxon_id=taxon_id)
+
+        html = flask.render_template(
+            "statistics_species.html",
+            taxon=taxon,
+            totals=species_totals,
+            sites=_site_breakdown_json(site_breakdown),
             month=_series_json(month_series),
             hour=_series_json(hour_series),
         )

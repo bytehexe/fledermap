@@ -41,8 +41,37 @@ function mountLine(canvasId, dataId) {
   });
 }
 
+function mountSiteBar(canvasId, dataId) {
+  const canvas = document.getElementById(canvasId);
+  const raw = readEmbeddedJson(dataId);
+  if (!canvas || !raw) return;
+  new Chart(canvas, {
+    type: "bar",
+    data: {
+      labels: raw.entries.map((e) => e.site.name),
+      datasets: [{ data: raw.entries.map((e) => e.count), backgroundColor: OTHER_COLOR }],
+    },
+    options: {
+      indexAxis: "y",
+      plugins: { legend: { display: false } },
+      // A bar in the site-ranking chart click-throughs to that site's own
+      // statistics sub-page -- same "chart element -> stats sub-page"
+      // behavior as the global page's donut slices (spec's "Name and label
+      // linking" section).
+      onClick: (_event, elements) => {
+        if (!elements.length) return;
+        const entry = raw.entries[elements[0].index];
+        if (entry && entry.statistics_url) {
+          window.location.href = entry.statistics_url;
+        }
+      },
+    },
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   mountDonut("species-donut", "species-donut-data");
   mountLine("month-line", "month-line-data");
   mountLine("hour-line", "hour-line-data");
+  mountSiteBar("sites-bar", "sites-bar-data");
 });
