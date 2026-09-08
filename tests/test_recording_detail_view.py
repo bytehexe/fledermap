@@ -536,10 +536,13 @@ def test_manual_classification_route_sets_a_species_claim(
     assert "classifier-tags" in html
 
 
-def test_manual_classification_route_sets_no_id_with_no_chips_and_pressed_button(
+def test_manual_classification_route_sets_no_id_as_a_sentinel_chip(
     engine: Engine,
     tmp_path: Path,
 ) -> None:
+    # No ID/Noise are chips, not toggle buttons (docs/style-guide.md's
+    # explicit-Save rule -- see _classifier_box.html/classifier_box.js) --
+    # a standing NO_ID verdict renders as a data-sentinel-verdict chip.
     with OrmSession(engine) as session:
         recording = Recording(
             audio_hash="l" * 64,
@@ -557,12 +560,8 @@ def test_manual_classification_route_sets_no_id_with_no_chips_and_pressed_button
 
     assert response.status_code == 200
     html = response.get_data(as_text=True)
-    assert re.search(
-        r'data-verdict="no_id"[^>]*aria-pressed="true"',
-        html,
-        re.DOTALL,
-    )
     tags_block = html.split('id="classifier-tags"')[1].split("</div>")[0]
+    assert 'data-sentinel-verdict="no_id"' in tags_block
     assert "data-taxon-id" not in tags_block
 
 
@@ -718,6 +717,41 @@ def test_identifications_box_renders_on_the_details_page(
     assert "identification-passive" in html
     assert "identification-current" in html
     assert "passive, ignored" in html
+
+
+def test_identifications_box_shows_the_taxon_name_for_a_manual_claim(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    # A MANUAL claim has no raw_label of its own (it's a structured taxon
+    # pick, not a detector's raw code string) -- before identification_label
+    # existed, the row fell back to the bare word "species" with no
+    # indication of which one was actually chosen.
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
+        session.add(taxon)
+        session.flush()
+        recording = Recording(
+            audio_hash="m" * 64,
+            path="m.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        recording.identifications = [
+            Identification(
+                source=IdSource.MANUAL,
+                verdict=Verdict.SPECIES,
+                taxon_id=taxon.id,
+            ),
+        ]
+        session.add(recording)
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/recordings/{'m' * 64}")
+    html = response.get_data(as_text=True)
+
+    assert "Pipistrellus pipistrellus" in html
+    assert "manual: species" not in html
 
 
 def test_recording_details_page_tiles_are_not_natively_draggable(

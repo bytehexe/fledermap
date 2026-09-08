@@ -10,7 +10,7 @@
   <ul>
     {% for ident, status in identifications_with_status %}
     <li class="identification-{{ status }}">
-      {{ ident.source.value }}: {{ ident.raw_label or ident.verdict.value }}
+      {{ ident.source.value }}: {{ identification_label(ident, ident.taxon) }}
       {% if status == "passive" %}<span>— passive, ignored</span>{% endif %}
       {% if status == "shadowed" and best %}
         {% if ident.source == best.primary.source %}

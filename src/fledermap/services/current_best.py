@@ -123,6 +123,35 @@ def recording_headline(taxon: Taxon | None, best: CurrentIdentification | None) 
     return best.verdict.value
 
 
+def identification_label(ident: Identification, taxon: Taxon | None) -> str:
+    """One identification row's own label, for the per-source breakdown
+    (`_identifications_box.html`, `_recording_panel.html` -- centralized
+    here for the same reason as `recording_headline` above: both templates
+    had their own copy of `ident.raw_label or ident.verdict.value`, which
+    silently rendered a MANUAL claim as the bare word "species" -- MANUAL
+    never sets `raw_label` (it's a structured taxon pick, not a detector's
+    raw code string), so it fell straight through to the generic verdict
+    fallback with no indication of which species was actually chosen.
+
+    - Both a code and a resolved taxon (an automatic classifier whose code
+      mapped): "<code> (<scientific name>)", e.g. "PIPPIP (Pipistrellus
+      pipistrellus)".
+    - A resolved taxon with no code (the MANUAL case this was added for):
+      just the scientific name.
+    - A code with no resolved taxon (an unmapped automatic code): the raw
+      code alone.
+    - Neither: the verdict's own value (`species`/`no_id`/`noise`), same
+      fallback `recording_headline` uses.
+    """
+    if taxon is not None:
+        if ident.raw_label:
+            return f"{ident.raw_label} ({taxon.scientific_name})"
+        return taxon.scientific_name
+    if ident.raw_label:
+        return ident.raw_label
+    return ident.verdict.value
+
+
 IdentificationStatus = Literal["current", "passive", "shadowed"]
 
 

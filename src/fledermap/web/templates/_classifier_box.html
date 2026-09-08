@@ -1,13 +1,20 @@
 {# src/fledermap/web/templates/_classifier_box.html -- recording-details page only
    (design spec §5: manual classification is a deliberate, close-review action, not a
    quick map-browsing one -- not duplicated in the drawer panel). Placed below the meta
-   line and above the tool toolbar (spec §5's placement decision). A tag multiselect for
-   species/group taxa (backed by taxon_search_index, a small inline JSON search index --
-   ~70 taxa, no per-keystroke endpoint needed at this scale) plus No ID/Noise/Clear
-   controls, mutually exclusive with the tag chips per the design's within-MANUAL
-   exclusivity rule -- enforced here for immediate UI feedback, but the real guarantee is
-   server-side in services/manual_classification.py's set_manual_classification, which
-   raises on an inconsistent combination rather than silently coercing it.
+   line and above the tool toolbar (spec §5's placement decision).
+
+   A single tag/chip flow for everything the box can stage: species/group taxa (backed
+   by taxon_search_index, a small inline JSON search index -- ~70 taxa, no per-keystroke
+   endpoint needed at this scale) AND No ID/Noise, which classifier_logic.js's
+   SENTINEL_ENTRIES adds to that same searchable list rather than two separate toggle
+   buttons -- typing "no id" or "noise" surfaces them exactly like a species. Nothing is
+   sent to the server until Save is pressed (docs/style-guide.md's "a form that changes
+   stored data needs an explicit Save" rule) -- chip add/remove is a purely client-side
+   edit of the staged set; a mix that can't collapse to one valid state (a sentinel chip
+   alongside a species chip, or two sentinels) is only flagged at Save time, in
+   #classifier-error, not prevented while editing. The server is still the real
+   guarantee (services/manual_classification.py's set_manual_classification raises on an
+   inconsistent combination), not just this client-side check.
 
    `current_taxa`/`manual_verdict` are the box's OWN state -- built from
    services/manual_classification.py's current_manual_state, NOT from `best`
@@ -29,33 +36,28 @@
       <button type="button" class="classifier-chip-remove" aria-label="Remove {{ taxon.scientific_name }}">×</button>
     </span>
     {% endfor %}
+    {% if manual_verdict is not none and manual_verdict.value in ("no_id", "noise") %}
+    {% set sentinel_label = "No ID" if manual_verdict.value == "no_id" else "Noise" %}
+    <span class="classifier-chip" data-sentinel-verdict="{{ manual_verdict.value }}">
+      {{ sentinel_label }}
+      <button type="button" class="classifier-chip-remove" aria-label="Remove {{ sentinel_label }}">×</button>
+    </span>
+    {% endif %}
   </div>
   <input
     type="text"
     id="classifier-search"
     class="classifier-search"
-    placeholder="Add a species or group…"
+    placeholder="Add a species, group, No ID, or Noise…"
     autocomplete="off"
-    {% if manual_verdict is not none and manual_verdict.value in ("no_id", "noise") %}disabled{% endif %}
   >
   <ul id="classifier-suggestions" class="classifier-suggestions" hidden></ul>
   <p class="classifier-hint">
-    Can't pin the exact species? Search "HiF", "LoF", or "Hilo" for a frequency-class group
-    before falling back to No ID.
+    Can't pin the exact species? Search "HiF", "LoF", or "Hilo" for a frequency-class group,
+    or "No ID"/"Noise" if there's nothing to identify.
   </p>
+  <p class="classifier-error" id="classifier-error" hidden></p>
   <div class="classifier-actions">
-    <button
-      type="button"
-      class="tool-button classifier-verdict-button"
-      data-verdict="no_id"
-      aria-pressed="{{ 'true' if manual_verdict is not none and manual_verdict.value == 'no_id' else 'false' }}"
-    >No ID</button>
-    <button
-      type="button"
-      class="tool-button classifier-verdict-button"
-      data-verdict="noise"
-      aria-pressed="{{ 'true' if manual_verdict is not none and manual_verdict.value == 'noise' else 'false' }}"
-    >Noise</button>
-    <button type="button" class="tool-button" id="classifier-clear">Clear</button>
+    <button type="button" class="button-primary" id="classifier-save">Save</button>
   </div>
 </div>

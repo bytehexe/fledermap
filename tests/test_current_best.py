@@ -6,6 +6,7 @@ from fledermap.domain.codes import IdSource, Verdict
 from fledermap.services.current_best import (
     CurrentIdentification,
     current_best_identification,
+    identification_label,
     identification_status,
     recording_headline,
 )
@@ -220,6 +221,46 @@ def test_recording_headline_shows_multiple_species_for_a_multi_claim_result() ->
     )
 
     assert recording_headline(None, best) == "Multiple Species"
+
+
+def test_identification_label_shows_code_and_scientific_name_when_both_exist() -> None:
+    taxon = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
+    ident = _ident(IdSource.EMT_GUANO, taxon_id=1)
+    ident.raw_label = "PIPPIP"
+
+    assert identification_label(ident, taxon) == "PIPPIP (Pipistrellus pipistrellus)"
+
+
+def test_identification_label_shows_only_the_scientific_name_with_no_raw_label() -> (
+    None
+):
+    # The MANUAL case this was added to fix: a manual classification has a
+    # resolved taxon but no raw_label of its own.
+    taxon = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
+    ident = _ident(IdSource.MANUAL, taxon_id=1)
+
+    assert identification_label(ident, taxon) == "Pipistrellus pipistrellus"
+
+
+def test_identification_label_falls_back_to_the_raw_label_without_a_taxon() -> None:
+    ident = _ident(IdSource.EMT_FILENAME, taxon_id=None, verdict=Verdict.SPECIES)
+    ident.raw_label = "EPTNIL"
+
+    assert identification_label(ident, None) == "EPTNIL"
+
+
+def test_identification_label_falls_back_to_the_verdict_value_with_neither() -> None:
+    ident = _ident(IdSource.EMT_FILENAME, taxon_id=None, verdict=Verdict.SPECIES)
+
+    assert identification_label(ident, None) == "species"
+
+
+def test_identification_label_shows_no_id_and_noise_verdicts_directly() -> None:
+    no_id = _ident(IdSource.MANUAL, taxon_id=None, verdict=Verdict.NO_ID)
+    noise = _ident(IdSource.EMT_FILENAME, taxon_id=None, verdict=Verdict.NOISE)
+
+    assert identification_label(no_id, None) == "no_id"
+    assert identification_label(noise, None) == "noise"
 
 
 def test_identification_status_current_for_the_winning_claim() -> None:

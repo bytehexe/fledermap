@@ -173,6 +173,10 @@ class Identification(Base):
     first_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     recording: Mapped[Recording] = relationship(back_populates="identifications")
+    # No back_populates -- nothing needs the reverse (Taxon -> every claim
+    # that ever referenced it). Read-only convenience for resolving a row's
+    # display label (services/current_best.py's identification_label).
+    taxon: Mapped[Taxon | None] = relationship()
 
 
 class Taxon(Base):

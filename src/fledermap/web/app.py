@@ -10,7 +10,7 @@ from pathlib import Path
 import flask
 from sqlalchemy import Engine
 
-from fledermap.services.current_best import recording_headline
+from fledermap.services.current_best import identification_label, recording_headline
 from fledermap.web.api.geojson import api_bp
 from fledermap.web.params import detector_label
 from fledermap.web.views.map import views_bp
@@ -49,6 +49,7 @@ def create_app(
     app.config["ARCHIVE_ROOTS"] = archive_roots
     app.jinja_env.filters["detector_label"] = detector_label
     app.jinja_env.globals["recording_headline"] = recording_headline
+    app.jinja_env.globals["identification_label"] = identification_label
 
     vendor_bp = flask.Blueprint(
         "vendor",

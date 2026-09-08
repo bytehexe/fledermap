@@ -2,7 +2,8 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const {
   matchesQuery,
-  buildSaveBody,
+  deriveSavePayload,
+  SENTINEL_ENTRIES,
 } = require("../../src/fledermap/web/static/classifier_logic.js");
 
 const pipistrelle = {
@@ -55,33 +56,61 @@ test("matchesQuery does not throw when codes is missing entirely", () => {
   assert.equal(matchesQuery(noCodes, "xyz"), false);
 });
 
-test("buildSaveBody with an active verdict button sends only that verdict", () => {
+test("SENTINEL_ENTRIES has exactly No ID and Noise, matchable by matchesQuery", () => {
+  assert.equal(SENTINEL_ENTRIES.length, 2);
+  const noId = SENTINEL_ENTRIES.find((e) => e.sentinelVerdict === "no_id");
+  const noise = SENTINEL_ENTRIES.find((e) => e.sentinelVerdict === "noise");
+  assert.ok(noId);
+  assert.ok(noise);
+  assert.ok(matchesQuery(noId, "no id"));
+  assert.ok(matchesQuery(noise, "noise"));
+});
+
+test("deriveSavePayload with only species chips sends verdict=species", () => {
   assert.deepEqual(
-    buildSaveBody({ activeVerdict: "no_id", taxonIds: [] }),
-    { verdict: "no_id" },
+    deriveSavePayload([
+      { kind: "taxon", id: 1 },
+      { kind: "taxon", id: 2 },
+    ]),
+    { ok: true, verdict: "species", taxonIds: ["1", "2"] },
   );
 });
 
-test("buildSaveBody with taxon ids and no active verdict sends verdict=species", () => {
+test("deriveSavePayload with a single No ID chip sends verdict=no_id", () => {
   assert.deepEqual(
-    buildSaveBody({ activeVerdict: null, taxonIds: ["1", "2"] }),
-    { verdict: "species", taxonIds: ["1", "2"] },
+    deriveSavePayload([{ kind: "sentinel", verdict: "no_id" }]),
+    { ok: true, verdict: "no_id", taxonIds: [] },
   );
 });
 
-test("buildSaveBody with neither sends an empty clear payload", () => {
+test("deriveSavePayload with a single Noise chip sends verdict=noise", () => {
   assert.deepEqual(
-    buildSaveBody({ activeVerdict: null, taxonIds: [] }),
-    {},
+    deriveSavePayload([{ kind: "sentinel", verdict: "noise" }]),
+    { ok: true, verdict: "noise", taxonIds: [] },
   );
 });
 
-test("buildSaveBody prefers the active verdict button over any taxon ids", () => {
-  // Mirrors the mutual-exclusion the UI already enforces (selecting a
-  // verdict button clears the tag box) -- this pins the fallback order if
-  // that invariant is ever violated upstream.
+test("deriveSavePayload with no chips sends a clear payload (verdict=null)", () => {
   assert.deepEqual(
-    buildSaveBody({ activeVerdict: "noise", taxonIds: ["1"] }),
-    { verdict: "noise" },
+    deriveSavePayload([]),
+    { ok: true, verdict: null, taxonIds: [] },
   );
+});
+
+test("deriveSavePayload rejects mixing a sentinel chip with species chips", () => {
+  const result = deriveSavePayload([
+    { kind: "taxon", id: 1 },
+    { kind: "sentinel", verdict: "no_id" },
+  ]);
+  assert.equal(result.ok, false);
+  assert.ok(result.error);
+});
+
+test("deriveSavePayload rejects both No ID and Noise chips together", () => {
+  const result = deriveSavePayload([
+    { kind: "sentinel", verdict: "no_id" },
+    { kind: "sentinel", verdict: "noise" },
+  ]);
+  assert.equal(result.ok, false);
+  assert.ok(result.error);
 });

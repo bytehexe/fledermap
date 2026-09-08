@@ -728,9 +728,14 @@ button:disabled { cursor: default; opacity: 0.5; }
 }
 /* border/border-radius/padding/background/color/font come from the shared
    form-control rule above (style guide: promote on second use) -- width is
-   the only thing genuinely unique to this input. */
+   the only thing genuinely unique to this input. box-sizing: border-box is
+   required alongside it: without it, `width: 100%` is the *content* width,
+   and the shared rule's own padding+border are added on top -- the input
+   rendered wider than .classifier-box's padding-box and visibly overflowed
+   it (found live, 2026-09-08). */
 .classifier-search {
   width: 100%;
+  box-sizing: border-box;
 }
 .classifier-suggestions {
   /* Was missing a background and any positioning, so it rendered in normal
@@ -769,3 +774,12 @@ button:disabled { cursor: default; opacity: 0.5; }
   color: var(--color-muted);
 }
 .classifier-actions { display: flex; gap: 0.4rem; margin-top: 0.5rem; }
+/* Save-time validation message (e.g. a sentinel chip staged alongside a
+   species chip) -- local to the box, not the project's alert() fallback,
+   since this is a validation the user can immediately act on rather than a
+   failed network request. */
+.classifier-error {
+  margin: 0.4rem 0 0;
+  font-size: 0.8rem;
+  color: var(--color-warning);
+}

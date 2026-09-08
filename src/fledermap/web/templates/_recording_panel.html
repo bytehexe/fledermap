@@ -81,7 +81,7 @@
     <ul>
       {% for ident in recording.identifications %}
       <li>
-        {{ ident.source.value }}: {{ ident.raw_label or ident.verdict.value }}
+        {{ ident.source.value }}: {{ identification_label(ident, ident.taxon) }}
       </li>
       {% endfor %}
     </ul>
