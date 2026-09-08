@@ -9,7 +9,7 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import IdSource, Verdict
-from fledermap.services.statistics import totals
+from fledermap.services.statistics import recording_counts_by_taxon, totals
 from fledermap.store.models import Identification, Recording, Site, Taxon
 
 pytestmark = pytest.mark.db
@@ -160,3 +160,113 @@ def test_totals_species_scoped_counts_by_membership(engine: Engine) -> None:
     assert result.total_recordings == 1
     assert result.total_sites == 1
     assert result.total_species is None
+
+
+def test_recording_counts_by_taxon_excludes_noise_no_id_and_unidentified(
+    engine: Engine,
+) -> None:
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Eptesicus serotinus")
+        session.add(taxon)
+        session.flush()
+        _recording(session, audio_hash="a" * 64, taxon_id=taxon.id)
+        _recording(session, audio_hash="b" * 64, verdict=Verdict.NOISE)
+        _recording(session, audio_hash="c" * 64, verdict=Verdict.NO_ID)
+        _recording(session, audio_hash="d" * 64, verdict=None)
+        session.commit()
+
+    with OrmSession(engine) as session:
+        result = recording_counts_by_taxon(session)
+
+    assert [(e.taxon.scientific_name, e.count) for e in result.entries] == [
+        ("Eptesicus serotinus", 1),
+    ]
+    assert result.other_count == 0
+    assert result.unmapped_count == 0
+    assert result.multi_species_count == 0
+
+
+def test_recording_counts_by_taxon_unmapped_species_gets_own_bucket(
+    engine: Engine,
+) -> None:
+    with OrmSession(engine) as session:
+        _recording(session, audio_hash="a" * 64, taxon_id=None, verdict=Verdict.SPECIES)
+        session.commit()
+
+    with OrmSession(engine) as session:
+        result = recording_counts_by_taxon(session)
+
+    assert result.entries == []
+    assert result.unmapped_count == 1
+
+
+def test_recording_counts_by_taxon_multi_species_gets_own_bucket_not_per_taxon(
+    engine: Engine,
+) -> None:
+    with OrmSession(engine) as session:
+        taxon_a = Taxon(rank="species", scientific_name="Eptesicus serotinus")
+        taxon_b = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
+        session.add_all([taxon_a, taxon_b])
+        session.flush()
+        r = Recording(
+            audio_hash="a" * 64,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add(r)
+        session.flush()
+        session.add_all(
+            [
+                Identification(
+                    recording_id=r.id,
+                    source=IdSource.EMT_MANUAL,
+                    verdict=Verdict.SPECIES,
+                    taxon_id=taxon_a.id,
+                    first_seen_at=r.recorded_at,
+                ),
+                Identification(
+                    recording_id=r.id,
+                    source=IdSource.EMT_MANUAL,
+                    verdict=Verdict.SPECIES,
+                    taxon_id=taxon_b.id,
+                    first_seen_at=r.recorded_at,
+                ),
+            ],
+        )
+        session.commit()
+
+    with OrmSession(engine) as session:
+        result = recording_counts_by_taxon(session)
+
+    # ONE recording, ONE "Multiple Species" bucket -- NOT one count per taxon
+    # (that's rarest_species's job, not this function's -- see Task 6).
+    assert result.entries == []
+    assert result.multi_species_count == 1
+
+
+def test_recording_counts_by_taxon_folds_past_top_n_into_other(
+    engine: Engine,
+) -> None:
+    with OrmSession(engine) as session:
+        taxa = [Taxon(rank="species", scientific_name=f"Species {i}") for i in range(3)]
+        session.add_all(taxa)
+        session.flush()
+        # Species 0: 3 recordings, Species 1: 2, Species 2: 1 -- top_n=2 keeps
+        # Species 0 and 1, folds Species 2's single recording into Other.
+        for i, count in enumerate([3, 2, 1]):
+            for n in range(count):
+                _recording(
+                    session,
+                    audio_hash=f"{i}{n}".rjust(64, "0"),
+                    taxon_id=taxa[i].id,
+                )
+        session.commit()
+
+    with OrmSession(engine) as session:
+        result = recording_counts_by_taxon(session, top_n=2)
+
+    assert [(e.taxon.scientific_name, e.count) for e in result.entries] == [
+        ("Species 0", 3),
+        ("Species 1", 2),
+    ]
+    assert result.other_count == 1

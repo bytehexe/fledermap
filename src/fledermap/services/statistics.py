@@ -15,8 +15,9 @@ from dataclasses import dataclass
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session as OrmSession
 
+from fledermap.domain.codes import Verdict
 from fledermap.services.current_best import current_best_identification
-from fledermap.store.models import Recording, Site
+from fledermap.store.models import Recording, Site, Taxon
 
 DEFAULT_TOP_N = 8
 
@@ -90,4 +91,71 @@ def totals(
         total_recordings=len(recordings),
         total_species=len(species_ids),
         total_sites=total_sites,
+    )
+
+
+@dataclass(frozen=True)
+class TaxonCount:
+    taxon: Taxon
+    count: int
+
+
+@dataclass(frozen=True)
+class TaxonBreakdown:
+    """Species-composition donut data. `other_count`/`unmapped_count`/
+    `multi_species_count` are each their own donut slice -- see the spec's
+    "Species-breakdown inclusion rules" for why noise/no_id/unidentified
+    recordings appear in none of them."""
+
+    entries: list[TaxonCount]
+    other_count: int
+    unmapped_count: int
+    multi_species_count: int
+
+
+def recording_counts_by_taxon(
+    session: OrmSession,
+    *,
+    site_id: int | None = None,
+    top_n: int = DEFAULT_TOP_N,
+) -> TaxonBreakdown:
+    recordings = _scoped_recordings(session, site_id=site_id)
+    counts: dict[int, int] = {}
+    unmapped = 0
+    multi = 0
+    for r in recordings:
+        best = current_best_identification(r)
+        if best is None or best.verdict in (Verdict.NOISE, Verdict.NO_ID):
+            continue
+        if best.is_multi:
+            multi += 1
+            continue
+        taxon_id = best.primary.taxon_id
+        if taxon_id is None:
+            unmapped += 1
+            continue
+        counts[taxon_id] = counts.get(taxon_id, 0) + 1
+
+    ranked = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)
+    top = ranked[:top_n]
+    other_count = sum(c for _, c in ranked[top_n:])
+
+    taxa_by_id: dict[int, Taxon] = {}
+    if top:
+        taxa_by_id = {
+            t.id: t
+            for t in session.scalars(
+                select(Taxon).where(Taxon.id.in_([tid for tid, _ in top])),
+            )
+        }
+    entries = [
+        TaxonCount(taxon=taxa_by_id[tid], count=c)
+        for tid, c in top
+        if tid in taxa_by_id
+    ]
+    return TaxonBreakdown(
+        entries=entries,
+        other_count=other_count,
+        unmapped_count=unmapped,
+        multi_species_count=multi,
     )
