@@ -234,3 +234,47 @@ def rarest_unmapped_codes(
     return CodeBreakdown(
         entries=[CodeCount(code=c, count=n) for c, n in ranked[:bottom_n]],
     )
+
+
+@dataclass(frozen=True)
+class SiteCount:
+    site: Site
+    count: int
+
+
+@dataclass(frozen=True)
+class SiteBreakdown:
+    entries: list[SiteCount]
+
+
+def recording_counts_by_site(session: OrmSession, *, taxon_id: int) -> SiteBreakdown:
+    """Ranked site counts for one species -- the per-species page's "which
+    sites" bar chart. `taxon_id` matches by MEMBERSHIP in a recording's
+    current-best taxon set, not equality (same rule `totals`'s species scope
+    uses) -- a multi-species recording containing the filtered species still
+    counts, even though it's not that recording's sole result."""
+    recordings = _scoped_recordings(session)
+    counts: dict[int, int] = {}
+    for r in recordings:
+        if r.site_id is None:
+            continue
+        best = current_best_identification(r)
+        if best is None or taxon_id not in best.taxon_ids:
+            continue
+        counts[r.site_id] = counts.get(r.site_id, 0) + 1
+
+    sites_by_id: dict[int, Site] = {}
+    if counts:
+        sites_by_id = {
+            s.id: s for s in session.scalars(select(Site).where(Site.id.in_(counts)))
+        }
+    entries = sorted(
+        (
+            SiteCount(site=sites_by_id[sid], count=c)
+            for sid, c in counts.items()
+            if sid in sites_by_id
+        ),
+        key=lambda e: e.count,
+        reverse=True,
+    )
+    return SiteBreakdown(entries=entries)

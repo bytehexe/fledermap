@@ -12,6 +12,7 @@ from fledermap.domain.codes import IdSource, Verdict
 from fledermap.services.statistics import (
     rarest_species,
     rarest_unmapped_codes,
+    recording_counts_by_site,
     recording_counts_by_taxon,
     totals,
 )
@@ -416,3 +417,88 @@ def test_rarest_unmapped_codes_groups_by_raw_label(engine: Engine) -> None:
         ("WEIRDCODE", 1),
         ("COMMONCODE", 2),
     ]
+
+
+def test_recording_counts_by_site_ranks_by_count_descending(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Eptesicus serotinus")
+        busy = Site(
+            centroid=WKTElement("POINT(10 50)", srid=4326),
+            radius_m=50.0,
+            recording_count=2,
+            first_at=datetime(2026, 8, 25, tzinfo=UTC),
+            last_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        quiet = Site(
+            centroid=WKTElement("POINT(11 51)", srid=4326),
+            radius_m=50.0,
+            recording_count=1,
+            first_at=datetime(2026, 8, 25, tzinfo=UTC),
+            last_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add_all([taxon, busy, quiet])
+        session.flush()
+        _recording(session, audio_hash="a" * 64, taxon_id=taxon.id, site_id=busy.id)
+        _recording(session, audio_hash="b" * 64, taxon_id=taxon.id, site_id=busy.id)
+        _recording(session, audio_hash="c" * 64, taxon_id=taxon.id, site_id=quiet.id)
+        session.commit()
+        taxon_id = taxon.id
+
+    with OrmSession(engine) as session:
+        result = recording_counts_by_site(session, taxon_id=taxon_id)
+
+    assert [(e.site.recording_count, e.count) for e in result.entries] == [
+        (2, 2),
+        (1, 1),
+    ]
+
+
+def test_recording_counts_by_site_matches_by_membership_not_equality(
+    engine: Engine,
+) -> None:
+    with OrmSession(engine) as session:
+        taxon_a = Taxon(rank="species", scientific_name="Eptesicus serotinus")
+        taxon_b = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
+        site = Site(
+            centroid=WKTElement("POINT(10 50)", srid=4326),
+            radius_m=50.0,
+            recording_count=1,
+            first_at=datetime(2026, 8, 25, tzinfo=UTC),
+            last_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add_all([taxon_a, taxon_b, site])
+        session.flush()
+        r = Recording(
+            audio_hash="a" * 64,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            site_id=site.id,
+        )
+        session.add(r)
+        session.flush()
+        session.add_all(
+            [
+                Identification(
+                    recording_id=r.id,
+                    source=IdSource.EMT_MANUAL,
+                    verdict=Verdict.SPECIES,
+                    taxon_id=taxon_a.id,
+                    first_seen_at=r.recorded_at,
+                ),
+                Identification(
+                    recording_id=r.id,
+                    source=IdSource.EMT_MANUAL,
+                    verdict=Verdict.SPECIES,
+                    taxon_id=taxon_b.id,
+                    first_seen_at=r.recorded_at,
+                ),
+            ],
+        )
+        session.commit()
+        taxon_a_id = taxon_a.id
+
+    with OrmSession(engine) as session:
+        result = recording_counts_by_site(session, taxon_id=taxon_a_id)
+
+    assert len(result.entries) == 1
+    assert result.entries[0].count == 1
