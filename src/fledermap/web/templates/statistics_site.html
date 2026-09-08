@@ -27,7 +27,7 @@
       <div class="stats-solo-chart">
         <canvas id="species-donut" data-chart="donut"></canvas>
       </div>
-      <details class="stats-caption"><summary>ⓘ</summary>Only recordings with a species-level result are counted; noise/no-ID/unidentified recordings are excluded.</details>
+      <div class="stats-caption">Only recordings with a species-level result are counted. <details><summary>ⓘ</summary>Noise/no-ID/unidentified recordings are excluded.</details></div>
     </div>
 
     <div class="stats-band">
@@ -36,12 +36,12 @@
         <div class="stats-panel">
           <div class="stats-panel-header">Recordings per month</div>
           <canvas id="month-line" data-chart="line"></canvas>
-          <details class="stats-caption"><summary>ⓘ</summary>Bucketed by calendar month, server time (UTC) -- not adjusted to any local timezone.</details>
+          <div class="stats-caption">Bucketed by calendar month, server time (UTC). <details><summary>ⓘ</summary>Not adjusted to any local timezone.</details></div>
         </div>
         <div class="stats-panel">
           <div class="stats-panel-header">Recordings per hour of day</div>
           <canvas id="hour-line" data-chart="line"></canvas>
-          <details class="stats-caption"><summary>ⓘ</summary>Hour of day, server time (UTC) -- not sunset-relative (see the backlogged "H:MM before/after sunset" feature).</details>
+          <div class="stats-caption">Hour of day, server time (UTC). <details><summary>ⓘ</summary>Not sunset-relative (see the backlogged "H:MM before/after sunset" feature).</details></div>
         </div>
       </div>
     </div>

@@ -224,9 +224,14 @@ def rarest_unmapped_codes(
     across every source's live claims (not just current-best) -- this is a
     review-queue-style surface ("which unmapped codes exist at all, and how
     rare are they"), not a per-recording current-best breakdown."""
-    stmt = select(Identification.raw_label).where(
-        Identification.taxon_id.is_(None),
-        Identification.verdict == Verdict.SPECIES,
+    stmt = (
+        select(Identification.raw_label)
+        .join(Recording, Identification.recording_id == Recording.id)
+        .where(
+            Identification.taxon_id.is_(None),
+            Identification.verdict == Verdict.SPECIES,
+            Recording.missing_since.is_(None),
+        )
     )
     counts: dict[str, int] = {}
     for (raw_label,) in session.execute(stmt):

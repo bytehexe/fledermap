@@ -39,6 +39,11 @@ function seriesToChartData(series, otherColor) {
     borderColor: colorForTaxon(taxon.id),
   }));
   if (series.other_included) {
+    // `bucket[null]` works because a JS object subscript coerces its key to
+    // a string ("null"), matching the literal string "null" that
+    // views/statistics.py's _series_json deliberately writes for the
+    // Other/single-series bucket key -- this is a real Python<->JS contract,
+    // not an accident. Do not "fix" this into a JS null/undefined check.
     datasets.push({
       label: "Other",
       data: series.buckets.map((bucket) => bucket[null] || 0),

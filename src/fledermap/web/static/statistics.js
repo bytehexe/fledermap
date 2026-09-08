@@ -116,9 +116,20 @@ function mountSiteBar(canvasId, dataId) {
   });
 }
 
+function paintTaxonSwatches() {
+  // Rarest-species list swatches (global page only) -- same colorForTaxon()
+  // palette every other chart on these pages uses. Safe to call
+  // unconditionally: site/species pages have no [data-taxon-swatch]
+  // elements, so this is a no-op there.
+  document.querySelectorAll("[data-taxon-swatch]").forEach((el) => {
+    el.style.backgroundColor = colorForTaxon(Number(el.dataset.taxonSwatch));
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   mountDonut("species-donut", "species-donut-data");
   mountLine("month-line", "month-line-data");
   mountLine("hour-line", "hour-line-data");
   mountSiteBar("sites-bar", "sites-bar-data");
+  paintTaxonSwatches();
 });

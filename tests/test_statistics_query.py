@@ -423,6 +423,51 @@ def test_rarest_unmapped_codes_groups_by_raw_label(engine: Engine) -> None:
     ]
 
 
+def test_rarest_unmapped_codes_excludes_missing_recordings(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        r1 = Recording(
+            audio_hash="a" * 64,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        r2 = Recording(
+            audio_hash="b" * 64,
+            path="b.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            missing_since=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add_all([r1, r2])
+        session.flush()
+        session.add_all(
+            [
+                Identification(
+                    recording_id=r1.id,
+                    source=IdSource.EMT_GUANO,
+                    verdict=Verdict.SPECIES,
+                    taxon_id=None,
+                    raw_label="LIVECODE",
+                    first_seen_at=r1.recorded_at,
+                ),
+                Identification(
+                    recording_id=r2.id,
+                    source=IdSource.EMT_GUANO,
+                    verdict=Verdict.SPECIES,
+                    taxon_id=None,
+                    raw_label="MISSINGCODE",
+                    first_seen_at=r2.recorded_at,
+                ),
+            ],
+        )
+        session.commit()
+
+    with OrmSession(engine) as session:
+        result = rarest_unmapped_codes(session)
+
+    codes = [e.code for e in result.entries]
+    assert "LIVECODE" in codes
+    assert "MISSINGCODE" not in codes
+
+
 def test_recording_counts_by_site_ranks_by_count_descending(engine: Engine) -> None:
     with OrmSession(engine) as session:
         taxon = Taxon(rank="species", scientific_name="Eptesicus serotinus")

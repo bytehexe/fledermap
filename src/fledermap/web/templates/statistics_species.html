@@ -26,6 +26,16 @@
       <div class="stats-solo-chart">
         <canvas id="sites-bar" data-chart="bar"></canvas>
       </div>
+      <div class="stats-caption">Counts recordings where this species was identified, including as one of multiple species in a multi-species recording. <details><summary>ⓘ</summary>A recording with no linked site is not counted here.</details></div>
+      <table class="entity-list">
+        <tbody>
+          {% for entry in sites.entries %}
+          <tr><td><a href="/sites/{{ entry.site.id }}">{{ entry.site.name }}</a></td><td>{{ entry.count }}</td></tr>
+          {% else %}
+          <tr><td>No sites detected yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
 
     <div class="stats-band">
@@ -34,12 +44,12 @@
         <div class="stats-panel">
           <div class="stats-panel-header">Recordings per month</div>
           <canvas id="month-line" data-chart="line"></canvas>
-          <details class="stats-caption"><summary>ⓘ</summary>Bucketed by calendar month, server time (UTC) -- not adjusted to any local timezone.</details>
+          <div class="stats-caption">Bucketed by calendar month, server time (UTC). <details><summary>ⓘ</summary>Not adjusted to any local timezone.</details></div>
         </div>
         <div class="stats-panel">
           <div class="stats-panel-header">Recordings per hour of day</div>
           <canvas id="hour-line" data-chart="line"></canvas>
-          <details class="stats-caption"><summary>ⓘ</summary>Hour of day, server time (UTC) -- not sunset-relative (see the backlogged "H:MM before/after sunset" feature).</details>
+          <div class="stats-caption">Hour of day, server time (UTC). <details><summary>ⓘ</summary>Not sunset-relative (see the backlogged "H:MM before/after sunset" feature).</details></div>
         </div>
       </div>
     </div>

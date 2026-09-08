@@ -164,7 +164,10 @@ full `<h2>`. `.stats-panel` (bordered, own `.stats-panel-header`) wraps an indiv
 ONLY where a band holds 2+ widgets meant to be compared side by side — laid out via
 `.stats-panel-grid`'s responsive `auto-fit` grid, which adapts to however many cards a band
 actually has rather than assuming a fixed count. A band holding exactly one widget renders it
-directly (no redundant nested card). `.stats-tile` is a single stat number (a count), kept
+directly (no redundant nested card). That lone widget's chart still needs a `.stats-solo-chart`
+wrapper around its `<canvas>` (a fixed `max-width`, no border) — without a sized parent, Chart.js's
+responsive resize measures the full-width band and renders the chart far too large. `.stats-tile`
+is a single stat number (a count), kept
 distinct from `.entity-list`'s table rows since it's one number, not a row of comparable fields.
 Never nest a bordered `.stats-panel` inside another `.stats-panel` — a card only ever nests
 inside a tinted, borderless band.

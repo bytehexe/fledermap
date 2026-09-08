@@ -558,6 +558,10 @@ button:disabled { cursor: default; opacity: 0.5; }
    deliberately with NO border -- unlike `.stats-panel`, matching the design
    spec's "no extra card border" for a lone widget. */
 .stats-solo-chart { max-width: 420px; }
+/* Rarest-species list swatch (colorForTaxon(), same palette as every chart on
+   these pages) -- background-color set by JS (statistics.js's
+   paintTaxonSwatches()), not here. */
+.taxon-swatch { display: inline-block; width: 0.7em; height: 0.7em; border-radius: 2px; margin-right: 0.4em; vertical-align: middle; }
 
 /* Recording details page (design spec 2026-09-01, section 3/4). */
 .detail-scroll {
