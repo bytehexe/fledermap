@@ -31,6 +31,7 @@ from fledermap.cli.main import (
 from fledermap.config import Config
 from fledermap.jobs.app import ensure_schema
 from fledermap.jobs.watch import start_watching as _real_start_watching
+from fledermap.media.paths import spectrogram_path
 from fledermap.services.vendor_assets import ASSETS, IntegrityError, VendorAsset
 from fledermap.store.db import make_engine
 from fledermap.store.models import Recording, Site
@@ -845,6 +846,28 @@ def test_enqueue_media_command_reports_disk_gap_but_avoids_duplicate_jobs(
     # own defer attempts were all refused by queueing_lock, even though the
     # reported count above doesn't reflect that.
     assert count == 6
+
+
+def test_clean_media_command_reports_what_it_removed(
+    clean_database_url: str,
+    tmp_path: Path,
+) -> None:
+    media_root = tmp_path / "media"
+    orphan_path = spectrogram_path(media_root, "c" * 64)
+    orphan_path.parent.mkdir(parents=True, exist_ok=True)
+    orphan_path.write_bytes(b"orphan")
+
+    env = {
+        "FLEDERMAP_DATABASE_URL": clean_database_url,
+        "FLEDERMAP_ARCHIVE_ROOTS": str(tmp_path / "archive"),
+        "FLEDERMAP_MEDIA_ROOT": str(media_root),
+    }
+    runner = CliRunner()
+    result = runner.invoke(cli, ["clean-media"], env=env)
+
+    assert result.exit_code == 0, result.output
+    assert "removed 1 orphaned directory" in result.output
+    assert not orphan_path.parent.exists()
 
 
 def test_backfill_site_names_command_reports_zero_with_no_sites(

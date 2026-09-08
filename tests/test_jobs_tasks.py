@@ -20,6 +20,7 @@ from fledermap.jobs.app import (
     requeue_stalled_jobs,
 )
 from fledermap.jobs.tasks import (
+    _CLEAN_MEDIA_CYCLE_LOCK,
     _INGEST_CYCLE_LOCK,
     _NAME_SITE_LOCK,
     make_preview_task,
@@ -29,12 +30,14 @@ from fledermap.jobs.tasks import (
     preview_lock_key,
     render_oscillogram_task,
     render_spectrogram_task,
+    run_clean_media_cycle,
     run_ingest_cycle,
     spectrogram_lock_key,
 )
 from fledermap.jobs.tasks import (
     app as jobs_app,
 )
+from fledermap.media.paths import spectrogram_path
 from fledermap.services import site_naming
 from fledermap.store.models import Recording, Site
 from fledermap.store.models import Session as SessionModel
@@ -653,6 +656,71 @@ def test_run_ingest_cycle_fails_the_job_on_an_unexpected_error(
             {"id": job_id},
         ).scalar()
     assert status == "failed"
+
+
+def test_run_clean_media_cycle_removes_an_orphaned_directory(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    media_root = tmp_path / "media"
+    orphan_path = spectrogram_path(media_root, "z1" * 32)
+    orphan_path.parent.mkdir(parents=True, exist_ok=True)
+    orphan_path.write_bytes(b"orphan")
+    jobs_app.open(engine)
+    ensure_schema(jobs_app, engine)
+
+    run_clean_media_cycle.configure(
+        lock=_CLEAN_MEDIA_CYCLE_LOCK,
+        queueing_lock=_CLEAN_MEDIA_CYCLE_LOCK,
+    ).defer(timestamp=int(time.time()))
+    _run_worker(
+        engine,
+        wait=False,
+        install_signal_handlers=False,
+        listen_notify=False,
+        queues=["maintenance"],
+        additional_context={"media_root": media_root, "engine": engine},
+    )
+
+    assert not orphan_path.parent.exists()
+
+
+def test_run_clean_media_cycle_does_not_run_during_a_media_queue_worker(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """Pins down the reason this task has its own `"maintenance"` queue,
+    separate from `"media"` -- see its docstring. A worker scoped to
+    `queues=["media"]` (exactly what the spectrogram/oscillogram/preview
+    tests above use) must NOT execute it, even though the periodic deferrer
+    still creates a job row for it on every worker run regardless of
+    `queues`."""
+    media_root = tmp_path / "media"
+    orphan_path = spectrogram_path(media_root, "z2" * 32)
+    orphan_path.parent.mkdir(parents=True, exist_ok=True)
+    orphan_path.write_bytes(b"orphan")
+    jobs_app.open(engine)
+    ensure_schema(jobs_app, engine)
+
+    run_clean_media_cycle.configure(
+        lock=_CLEAN_MEDIA_CYCLE_LOCK,
+        queueing_lock=_CLEAN_MEDIA_CYCLE_LOCK,
+    ).defer(timestamp=int(time.time()))
+    _run_worker(
+        engine,
+        wait=False,
+        install_signal_handlers=False,
+        listen_notify=False,
+        queues=["media"],
+        additional_context={
+            "archive_roots": (),
+            "media_root": media_root,
+            "engine": engine,
+        },
+    )
+
+    # Still there -- the maintenance-queue job was never picked up.
+    assert orphan_path.parent.exists()
 
 
 def test_name_site_task_writes_the_resolved_name_onto_the_site(

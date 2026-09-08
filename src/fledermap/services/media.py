@@ -3,7 +3,9 @@ a backfill sweep turn into actual Procrastinate deferrals (design spec §8)."""
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
+from typing import NamedTuple
 
 import procrastinate
 from sqlalchemy import select
@@ -138,3 +140,74 @@ def backfill_media(db_session: OrmSession, media_root: Path) -> int:
     missing = [h for h in hashes if not _has_media(media_root, h)]
     enqueue_media(missing, engine)
     return len(missing)
+
+
+class CleanMediaResult(NamedTuple):
+    dirs_removed: int
+    files_removed: int
+    bytes_freed: int
+
+
+def clean_media(db_session: OrmSession, media_root: Path) -> CleanMediaResult:
+    """Prune orphaned derived-media on disk (backlog: "clean-media"). Derived
+    media is fully regenerable from the read-only archive (D16), so this is
+    always safe -- `backfill_media`/the next ingest cycle re-renders
+    whatever a viewer actually needs again.
+
+    Two orphan categories, per the design note this closes:
+
+    - A whole `<hash[:2]>/<hash>/` directory whose hash has NO row in
+      `recording` at all (not even one with `missing_since` set -- that
+      still has a row, and its media stays, since the file might come
+      back). Nothing in this codebase deletes a `Recording` row today, but
+      the layout makes no promise that stays true forever.
+    - An individual file inside a still-valid recording's directory that
+      isn't one of the CURRENT `spectrogram_path`/`oscillogram_path`/
+      `preview_path` names -- left behind by an old params/preview-version
+      bump (see `media/paths.py`'s `PREVIEW_VERSION` comment: nothing reads
+      or deletes those automatically).
+
+    Uses the same three path helpers `_has_media`/the render tasks write
+    through, not a hand-built glob, for the same reason `_has_media` does:
+    a hand-built pattern would drift out of step with a real bump instead
+    of tracking it.
+    """
+    if not media_root.is_dir():
+        return CleanMediaResult(0, 0, 0)
+
+    hashes_in_db = set(db_session.scalars(select(Recording.audio_hash)).all())
+
+    dirs_removed = 0
+    files_removed = 0
+    bytes_freed = 0
+
+    for shard_dir in media_root.iterdir():
+        if not shard_dir.is_dir():
+            continue
+        for hash_dir in shard_dir.iterdir():
+            if not hash_dir.is_dir():
+                continue
+            audio_hash = hash_dir.name
+            if audio_hash not in hashes_in_db:
+                bytes_freed += sum(
+                    f.stat().st_size for f in hash_dir.rglob("*") if f.is_file()
+                )
+                shutil.rmtree(hash_dir)
+                dirs_removed += 1
+                continue
+
+            current_names = {
+                spectrogram_path(media_root, audio_hash).name,
+                oscillogram_path(media_root, audio_hash).name,
+                preview_path(media_root, audio_hash).name,
+            }
+            for file_path in hash_dir.iterdir():
+                if file_path.is_file() and file_path.name not in current_names:
+                    bytes_freed += file_path.stat().st_size
+                    file_path.unlink()
+                    files_removed += 1
+
+        if not any(shard_dir.iterdir()):
+            shard_dir.rmdir()
+
+    return CleanMediaResult(dirs_removed, files_removed, bytes_freed)

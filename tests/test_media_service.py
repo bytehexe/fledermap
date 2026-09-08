@@ -13,6 +13,7 @@ from fledermap.jobs.tasks import app as jobs_app
 from fledermap.media.paths import oscillogram_path, preview_path, spectrogram_path
 from fledermap.services.media import (
     backfill_media,
+    clean_media,
     enqueue_media,
     resolve_recording,
     resolve_wav_path,
@@ -143,6 +144,118 @@ def test_backfill_media_skips_a_recording_flagged_missing(
     assert count == 1
     assert _todo_job_count(engine, present_hash) == 3
     assert _todo_job_count(engine, gone_hash) == 0
+
+
+def test_clean_media_removes_a_directory_for_a_hash_not_in_the_recording_table(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    media_root = tmp_path / "media"
+    orphan_hash = "o1" * 32
+    orphan_path = spectrogram_path(media_root, orphan_hash)
+    orphan_path.parent.mkdir(parents=True, exist_ok=True)
+    orphan_path.write_bytes(b"orphan")
+
+    with OrmSession(engine) as session:
+        result = clean_media(session, media_root)
+
+    assert result.dirs_removed == 1
+    assert not orphan_path.parent.exists()
+
+
+def test_clean_media_removes_a_stale_render_but_keeps_the_current_one(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    media_root = tmp_path / "media"
+    with OrmSession(engine) as session:
+        recording = _make_recording(session, audio_hash="s1" * 32, path="s.wav")
+        session.commit()
+        audio_hash = recording.audio_hash
+
+    current_path = spectrogram_path(media_root, audio_hash)
+    current_path.parent.mkdir(parents=True, exist_ok=True)
+    current_path.write_bytes(b"current")
+    stale_path = current_path.parent / "spectrogram-oldparamshash.webp"
+    stale_path.write_bytes(b"stale")
+
+    with OrmSession(engine) as session:
+        result = clean_media(session, media_root)
+
+    assert result.files_removed == 1
+    assert not stale_path.exists()
+    assert current_path.exists()
+
+
+def test_clean_media_leaves_a_flagged_missing_recordings_media_alone(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    # A missing_since recording still has a real `recording` row -- its
+    # existing media isn't orphaned, just not being re-rendered (the file
+    # might come back).
+    media_root = tmp_path / "media"
+    with OrmSession(engine) as session:
+        recording = _make_recording(session, audio_hash="m1" * 32, path="m.wav")
+        recording.missing_since = datetime(2026, 8, 25, tzinfo=UTC)
+        session.commit()
+        audio_hash = recording.audio_hash
+
+    current_path = spectrogram_path(media_root, audio_hash)
+    current_path.parent.mkdir(parents=True, exist_ok=True)
+    current_path.write_bytes(b"current")
+
+    with OrmSession(engine) as session:
+        result = clean_media(session, media_root)
+
+    assert result.dirs_removed == 0
+    assert result.files_removed == 0
+    assert current_path.exists()
+
+
+def test_clean_media_prunes_an_empty_shard_directory(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    media_root = tmp_path / "media"
+    orphan_hash = "o2" * 32
+    orphan_path = spectrogram_path(media_root, orphan_hash)
+    orphan_path.parent.mkdir(parents=True, exist_ok=True)
+    orphan_path.write_bytes(b"orphan")
+    shard_dir = orphan_path.parent.parent
+
+    with OrmSession(engine) as session:
+        clean_media(session, media_root)
+
+    assert not shard_dir.exists()
+
+
+def test_clean_media_reports_bytes_freed(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    media_root = tmp_path / "media"
+    orphan_hash = "o3" * 32
+    orphan_path = spectrogram_path(media_root, orphan_hash)
+    orphan_path.parent.mkdir(parents=True, exist_ok=True)
+    orphan_path.write_bytes(b"12345")
+
+    with OrmSession(engine) as session:
+        result = clean_media(session, media_root)
+
+    assert result.bytes_freed == 5
+
+
+def test_clean_media_on_a_nonexistent_media_root_removes_nothing(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    media_root = tmp_path / "does-not-exist"
+
+    with OrmSession(engine) as session:
+        result = clean_media(session, media_root)
+
+    assert result == (0, 0, 0)
 
 
 def test_resolve_wav_path_raises_filenotfounderror_for_out_of_range_index() -> None:

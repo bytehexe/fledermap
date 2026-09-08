@@ -39,7 +39,7 @@ from fledermap.services.ingest import (
     scan_all_roots,
     sweep_missing,
 )
-from fledermap.services.media import backfill_media, enqueue_media
+from fledermap.services.media import backfill_media, clean_media, enqueue_media
 from fledermap.services.site_naming import enqueue_site_naming
 from fledermap.services.systemd_install import render_unit_files, systemd_user_dir
 from fledermap.services.vendor_assets import (
@@ -479,6 +479,34 @@ def enqueue_media_command() -> None:
         session.commit()
 
     click.echo(f"enqueued {count}")
+
+
+@cli.command(name="clean-media")
+def clean_media_command() -> None:
+    """Prune orphaned files under FLEDERMAP_MEDIA_ROOT: whole directories for
+    hashes no longer in `recording`, and individual stale renders left
+    behind by an old params/preview-version bump. Safe to run any time --
+    everything removed is regenerable from the read-only archive (D16);
+    `fledermap enqueue-media`/the next ingest cycle re-renders whatever a
+    viewer actually needs again. Also runs on its own periodic cron inside
+    `worker` (see jobs/tasks.py) -- this command is for an on-demand run."""
+    try:
+        config = Config.from_env()
+    except ConfigError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    engine = make_engine(config.database_url)
+    _run_migrations(config.database_url)
+
+    with OrmSession(engine) as session:
+        result = clean_media(session, config.media_root)
+
+    click.echo(
+        f"removed {result.dirs_removed} orphaned director"
+        f"{'y' if result.dirs_removed == 1 else 'ies'}, "
+        f"{result.files_removed} stale file(s), "
+        f"freed {result.bytes_freed} bytes",
+    )
 
 
 @cli.command(name="backfill-site-names")

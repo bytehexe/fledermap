@@ -57,6 +57,12 @@ logger = logging.getLogger(__name__)
 _INGEST_CYCLE_LOCK = "ingest_cycle"
 _INGEST_CYCLE_CRON = "*/5 * * * *"
 
+# Disk hygiene, not correctness -- unlike ingest, nothing depends on this
+# running promptly, so it's much coarser than the 5-minute ingest cron.
+# 03:00 UTC daily, off-peak for a typical self-hosted install.
+_CLEAN_MEDIA_CYCLE_LOCK = "clean_media_cycle"
+_CLEAN_MEDIA_CYCLE_CRON = "0 3 * * *"
+
 # Design spec §7 asks for "a small fixed retry count (e.g. 3, exponential
 # backoff)". A bare `retry=3` resolves to `RetryStrategy(max_attempts=3)`
 # with EVERY wait parameter left at 0, so all three attempts fire
@@ -315,3 +321,44 @@ def run_ingest_cycle(context: procrastinate.JobContext, timestamp: int) -> None:
             site_report.site_count,
             site_report.unclustered,
         )
+
+
+@app.periodic(
+    cron=_CLEAN_MEDIA_CYCLE_CRON,
+    lock=_CLEAN_MEDIA_CYCLE_LOCK,
+    queueing_lock=_CLEAN_MEDIA_CYCLE_LOCK,
+)
+@app.task(queue="maintenance", pass_context=True)
+def run_clean_media_cycle(context: procrastinate.JobContext, timestamp: int) -> None:
+    """The periodic half of the `clean-media` backlog item (`timestamp`
+    unused -- see `run_ingest_cycle`'s docstring for why Procrastinate's
+    periodic machinery requires it as the first parameter regardless).
+    `fledermap clean-media` (`cli/main.py`) is the same work, on demand.
+
+    Its own `"maintenance"` queue, deliberately distinct from `"media"`:
+    Procrastinate's periodic deferrer creates a job for EVERY registered
+    periodic task on any worker run, not just the one(s) the test/caller
+    cares about (see `_run_worker`'s docstring in `tests/test_jobs_tasks.py`
+    for the `run_ingest_cycle`/`"ingest"` precedent this follows) -- sharing
+    `"media"` would make this run, and delete files, in the middle of every
+    existing spectrogram/oscillogram/preview test that scopes its worker to
+    `queues=["media"]`.
+    """
+    media_root: Path = context.additional_context["media_root"]
+    engine = context.additional_context["engine"]
+
+    # Local import: same circularity reasoning as `run_ingest_cycle`'s own
+    # local `enqueue_media` import above.
+    from fledermap.services.media import clean_media
+
+    with OrmSession(engine) as session:
+        result = clean_media(session, media_root)
+
+    logger.info(
+        "clean-media cycle: removed %d orphaned director%s, %d stale file(s), "
+        "freed %d bytes",
+        result.dirs_removed,
+        "y" if result.dirs_removed == 1 else "ies",
+        result.files_removed,
+        result.bytes_freed,
+    )
