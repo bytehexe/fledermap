@@ -131,6 +131,18 @@ document.addEventListener("DOMContentLoaded", () => {
   const recordingLayersByHash = new Map();
   let highlightedRecordingLayer = null;
 
+  // True for the whole duration of a recording-selected reveal (panTo +
+  // zoomToShowLayer), which fires its OWN moveend/zoomend events -- see
+  // that handler and refreshViewport below for why. Cleared by the reveal's
+  // own completion signal (zoomToShowLayer's callback), not by the first
+  // debounced refresh to check it: panTo and zoomToShowLayer are two
+  // SEPARATE animated movements, each firing its own moveend, so a
+  // consume-on-first-check flag was cleared by the debounce cycle from the
+  // first movement (our own panTo) before the second, later one
+  // (zoomToShowLayer's actual reveal) had even happened -- leaving that
+  // second, real reveal unsuppressed and the bug still reproducible.
+  let suppressViewportRefresh = false;
+
   // Whether the MOST RECENT fetch of each layer reported `truncated: true`
   // (services/map_query.py's MAX_FEATURES cap) -- tracked separately since
   // recordings/sites fetch independently (see refreshLayers below), and
@@ -309,6 +321,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // would fight the user's own just-made pan/zoom, and could also loop:
   // fitBounds() itself fires moveend).
   const refreshViewport = debounce(() => {
+    if (suppressViewportRefresh) return;
     void refreshLayers(withViewportBbox(query()));
   }, 300);
   map.on("moveend zoomend", refreshViewport);
@@ -460,9 +473,33 @@ document.addEventListener("DOMContentLoaded", () => {
   // is needed (still clustered at the current zoom), zoomToShowLayer's own
   // zoom-in happens around the point we already centered on, rather than
   // ALSO panning sideways to get there.
+  //
+  // Bug (Obsidian, 2026-09): a revealed marker would blink back into its
+  // cluster a moment after appearing. Root cause: panTo and zoomToShowLayer
+  // below are TWO SEPARATE animated movements, each firing its own
+  // moveend/zoomend, which the debounced viewport refresh below (300ms)
+  // picks up and, once it fires, rebuilds the ENTIRE recordings layer from
+  // a fresh fetch via clearLayers()+re-add -- wiping out zoomToShowLayer's
+  // spiderfy reveal (a purely visual "fan out" that doesn't change the
+  // marker's real position or the map's zoom) and reclustering the exact
+  // same marker right back, since nothing about the underlying geometry
+  // actually changed. suppressViewportRefresh skips every such refresh for
+  // the whole duration of this reveal -- the marker being revealed is
+  // already loaded (it's how we got the click in the first place), so
+  // there is nothing new to fetch for this specific navigation. It's set
+  // for the ENTIRE reveal (not just its first movement) and cleared by
+  // zoomToShowLayer's own completion callback -- the actual "reveal is
+  // done" signal -- with a generous safety-net timeout as a backstop for
+  // paths with no such callback (see below).
   document.body.addEventListener("recording-selected", (event) => {
     const { latitude, longitude, hash } = event.detail;
     const marker = recordingLayersByHash.get(hash);
+
+    // Only when this reveal will actually move/re-cluster the map -- an
+    // unconditional flag would wrongly swallow the next unrelated pan/zoom
+    // when neither branch below runs (no coordinates AND no loaded marker).
+    const revealing = (latitude != null && longitude != null) || marker;
+    if (revealing) suppressViewportRefresh = true;
 
     if (latitude != null && longitude != null) {
       map.panTo([latitude, longitude]);
@@ -470,11 +507,22 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // No marker (e.g. a stale hash after a filter change rebuilt the
     // layer) -- just highlight, same graceful no-op highlightRecording
-    // already falls back to.
+    // already falls back to. zoomToShowLayer's callback is the real
+    // "reveal finished" signal, so clear the suppression there; the
+    // marker-less panTo-only path has no equivalent callback to hook, so
+    // it relies on the safety-net timeout below instead.
     if (marker) {
-      recordingsLayer.zoomToShowLayer(marker, () => highlightRecording(hash));
+      recordingsLayer.zoomToShowLayer(marker, () => {
+        highlightRecording(hash);
+        suppressViewportRefresh = false;
+      });
     } else {
       highlightRecording(hash);
+    }
+    if (revealing) {
+      setTimeout(() => {
+        suppressViewportRefresh = false;
+      }, 2000);
     }
 
     // prev/next inside the drawer swaps which recording's panel is showing
