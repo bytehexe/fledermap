@@ -64,7 +64,7 @@
           <table class="entity-list">
             <tbody>
               {% for entry in richest_sites %}
-              <tr><td><a href="/sites/{{ entry.site.id }}">{{ entry.site.name or "Site #" ~ entry.site.id }}</a></td><td>richness {{ entry.richness }}, H {{ "%.2f"|format(entry.shannon) }}</td></tr>
+              <tr><td><a href="/sites/{{ entry.site.id }}">{{ entry.site.name or "Site #" ~ entry.site.id }}</a></td><td>richness {{ entry.richness }}</td></tr>
               {% else %}
               <tr><td>No sites yet.</td></tr>
               {% endfor %}
@@ -76,7 +76,7 @@
           <table class="entity-list">
             <tbody>
               {% for entry in diverse_sites %}
-              <tr><td><a href="/sites/{{ entry.site.id }}">{{ entry.site.name or "Site #" ~ entry.site.id }}</a></td><td>H {{ "%.2f"|format(entry.shannon) }}, richness {{ entry.richness }}</td></tr>
+              <tr><td><a href="/sites/{{ entry.site.id }}">{{ entry.site.name or "Site #" ~ entry.site.id }}</a></td><td>H {{ "%.2f"|format(entry.shannon) }}</td></tr>
               {% else %}
               <tr><td>No sites yet.</td></tr>
               {% endfor %}
