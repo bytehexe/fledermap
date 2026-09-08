@@ -212,6 +212,14 @@ standard even where an older page hasn't been brought up to it yet.
   focusable element. A native control with no CSS disabled state at all (a scrollbar) needs its
   own hand-rolled treatment — see the comment above `.detail-scroll.view-locked` for how that
   case was solved when the platform gave it nothing to opt into.
+- **A disabled element must not show a hover effect.** A native `<button disabled>` still
+  matches `:hover` in every major browser (unlike `:active`/click, which it correctly
+  suppresses) — without a guard, a disabled button visibly reacts to the mouse as if it were
+  clickable, contradicting the "visually unmistakable as disabled" rule above the moment a
+  cursor passes over it. Scope every `:hover` rule that applies to buttons with
+  `:not(:disabled)` (`app.css`'s `button:hover`/`.button-primary:hover`). The `.is-disabled`
+  custom-widget class doesn't need the same guard: its `pointer-events: none` already suppresses
+  `:hover` entirely, not just click.
 
 ## Standing rule: promote on second use
 

@@ -888,6 +888,101 @@ def test_recording_panel_links_to_the_details_page(
     assert f'href="/recordings/{"g1" * 32}"' in html
 
 
+def test_site_panel_links_species_to_species_detail_page(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        site = Site(
+            centroid=WKTElement("POINT(10 50)", srid=4326),
+            radius_m=50.0,
+            recording_count=1,
+            first_at=datetime(2026, 8, 25, tzinfo=UTC),
+            last_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        taxon = Taxon(rank="species", scientific_name="Eptesicus serotinus")
+        session.add_all([site, taxon])
+        session.flush()
+        recording = Recording(
+            audio_hash="a" * 64,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+            site_id=site.id,
+        )
+        session.add(recording)
+        session.flush()
+        session.add(
+            Identification(
+                recording_id=recording.id,
+                source=IdSource.EMT_GUANO,
+                verdict=Verdict.SPECIES,
+                taxon_id=taxon.id,
+                first_seen_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+        site_id, taxon_id = site.id, taxon.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    html = app.test_client().get(f"/sites/{site_id}/panel").get_data(as_text=True)
+
+    assert f'href="/species/{taxon_id}"' in html
+
+
+def test_site_panel_links_to_the_full_site_detail_page(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        site = Site(
+            centroid=WKTElement("POINT(10 50)", srid=4326),
+            radius_m=50.0,
+            recording_count=0,
+            first_at=datetime(2026, 8, 25, tzinfo=UTC),
+            last_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add(site)
+        session.commit()
+        site_id = site.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    html = app.test_client().get(f"/sites/{site_id}/panel").get_data(as_text=True)
+
+    assert f'href="/sites/{site_id}"' in html
+
+
+def test_recording_panel_links_to_the_full_site_detail_page(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        site = Site(
+            centroid=WKTElement("POINT(10 50)", srid=4326),
+            radius_m=50.0,
+            recording_count=1,
+            first_at=datetime(2026, 8, 25, tzinfo=UTC),
+            last_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add(site)
+        session.flush()
+        session.add(
+            Recording(
+                audio_hash="a" * 64,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                site_id=site.id,
+            ),
+        )
+        session.commit()
+        site_id = site.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/recordings/{'a' * 64}/panel?verdict=all")
+
+    html = response.get_data(as_text=True)
+    assert f'href="/sites/{site_id}"' in html
+
+
 def test_taxon_filter_finds_either_of_two_manual_species_claims(
     engine: Engine,
     tmp_path: Path,

@@ -215,7 +215,7 @@ button {
   color: var(--color-text);
   cursor: pointer;
 }
-button:hover { background: var(--color-bg-subtle); border-color: var(--color-accent); }
+button:hover:not(:disabled) { background: var(--color-bg-subtle); border-color: var(--color-accent); }
 button:disabled { cursor: default; opacity: 0.5; }
 
 /* The form's default/primary action (a Save button, per the style guide's
@@ -228,7 +228,7 @@ button:disabled { cursor: default; opacity: 0.5; }
   border-color: var(--color-accent);
   font-weight: 600;
 }
-.button-primary:hover { background: var(--color-accent); opacity: 0.9; }
+.button-primary:hover:not(:disabled) { background: var(--color-accent); opacity: 0.9; }
 
 /* Disabled look for an element with no native `disabled` attribute (an `<a>` used
    as a button, a custom widget) -- matches `button:disabled` above. Pair with

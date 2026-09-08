@@ -6,6 +6,7 @@
 <div class="panel-header">
   <h2>{{ label }}</h2>
   <button type="button" onclick="fledermapFilterBySite({{ detail.site.id }})">Show only this site</button>
+  <a href="/sites/{{ detail.site.id }}">Full site page</a>
 </div>
 
 <div class="panel-columns">
@@ -13,7 +14,7 @@
     <h3>Species</h3>
     <ul>
       {% for taxon, count in detail.species_counts %}
-      <li>{{ taxon.scientific_name }}: {{ count }}</li>
+      <li><a href="/species/{{ taxon.id }}">{{ taxon.scientific_name }}</a>: {{ count }}</li>
       {% endfor %}
     </ul>
   </div>

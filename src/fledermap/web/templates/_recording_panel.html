@@ -97,7 +97,7 @@
     <p>Session: <a href="/sessions/{{ recording_session.id }}">{{ recording_session.started_at.strftime('%Y-%m-%d %H:%M') }}–{{ recording_session.ended_at.strftime('%H:%M') }} ({{ recording_session.detector_key | detector_label }})</a></p>
     {% endif %}
     {% if site %}
-    <p>Site: <a href="#" hx-get="/sites/{{ site.id }}/panel" hx-target="#drawer-body">{{ site_label }}</a></p>
+    <p>Site: <a href="#" hx-get="/sites/{{ site.id }}/panel" hx-target="#drawer-body">{{ site_label }}</a> (<a href="/sites/{{ site.id }}">full page</a>)</p>
     {% endif %}
     {% if previous %}
     <button type="button" hx-get="/recordings/{{ previous.audio_hash }}/panel?{{ filter_qs }}" hx-target="#drawer-body">← Previous</button>
