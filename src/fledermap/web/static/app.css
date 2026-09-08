@@ -546,6 +546,18 @@ button:disabled { cursor: default; opacity: 0.5; }
 .stats-tile .label { font-size: 0.75rem; color: var(--color-muted); }
 .stats-caption { font-size: 0.8rem; color: var(--color-muted); margin: 0.4rem 0; }
 .stats-caption summary { cursor: pointer; }
+/* A single-widget band's chart (site page's donut, species page's site-ranking
+   bar -- see the design spec's "renders that widget directly in the band, ...
+   no extra card border") has no `.stats-panel` grid column to size it, unlike
+   a multi-card band's charts. Chart.js's responsive resize reads its CANVAS'S
+   PARENT element's measured width to compute both width and height (via its
+   own aspectRatio) -- a `max-width` on the canvas itself only clips the
+   already-computed box after the fact, leaving height unconstrained (caught
+   live 2026-09-08: the donut's 1:1 aspect ratio blew it up to 1000px+
+   square). `.stats-solo-chart` constrains the actual measured parent instead,
+   deliberately with NO border -- unlike `.stats-panel`, matching the design
+   spec's "no extra card border" for a lone widget. */
+.stats-solo-chart { max-width: 420px; }
 
 /* Recording details page (design spec 2026-09-01, section 3/4). */
 .detail-scroll {

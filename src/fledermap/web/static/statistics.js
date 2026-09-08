@@ -12,8 +12,16 @@ function readEmbeddedJson(id) {
 }
 
 function navigateOnLegendClick(getDetailUrl) {
+  // Chart.js's default legend-item shape differs by chart type: a
+  // pie/doughnut legend item carries `.index` (the data-point index), while
+  // a line/bar legend item -- one item per dataset -- carries
+  // `.datasetIndex` instead and has no `.index` at all. mountDonut's entries
+  // line up with `.index`; mountLine's `raw.taxa` line up with
+  // `.datasetIndex`. Fall back from one to the other so this one helper
+  // serves both mounters correctly.
   return (_event, legendItem) => {
-    const url = getDetailUrl(legendItem.index);
+    const idx = legendItem.index ?? legendItem.datasetIndex;
+    const url = getDetailUrl(idx);
     if (url) window.location.href = url;
   };
 }
