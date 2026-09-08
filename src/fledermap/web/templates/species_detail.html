@@ -21,32 +21,43 @@
     <p>Codes: {{ detail.codes | join(", ") }}</p>
     {% endif %}
 
-    <div class="panel-columns">
-      <div class="col">
-        <h2>Sites</h2>
-        <ul>
-          {% for site, count in detail.sites %}
-          <li><a href="/sites/{{ site.id }}">{{ site.name or "Site #" ~ site.id }}</a>: {{ count }}</li>
-          {% else %}
-          <li>No sites recorded yet.</li>
-          {% endfor %}
-        </ul>
-      </div>
-      <div class="col">
-        <h2>Recent recordings</h2>
-        <ul>
-          {% for recording in detail.recent_recordings %}
-          <li>
-            <a href="/recordings/{{ recording.audio_hash }}?return_to=/species/{{ detail.taxon.id }}">
-              {{ recording.recorded_at.strftime('%Y-%m-%d %H:%M') }}
-            </a>
-          </li>
-          {% else %}
-          <li>No recordings yet.</li>
-          {% endfor %}
-        </ul>
-      </div>
-    </div>
+    <h2>Sites</h2>
+    <table class="entity-list">
+      <thead>
+        <tr>
+          <th>Site</th>
+          <th>Recordings</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for site, count in detail.sites %}
+        <tr>
+          <td><a href="/sites/{{ site.id }}">{{ site.name or "Site #" ~ site.id }}</a></td>
+          <td>{{ count }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="2">No sites recorded yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <h2>Recent recordings</h2>
+    <table class="entity-list">
+      <thead>
+        <tr>
+          <th>Time</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for recording in detail.recent_recordings %}
+        <tr>
+          <td><a href="/recordings/{{ recording.audio_hash }}?return_to=/species/{{ detail.taxon.id }}">{{ recording.recorded_at.strftime('%Y-%m-%d %H:%M') }}</a></td>
+        </tr>
+        {% else %}
+        <tr><td>No recordings yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </main>
 </body>
 </html>

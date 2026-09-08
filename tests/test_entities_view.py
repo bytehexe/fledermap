@@ -96,6 +96,10 @@ def test_species_detail_renders_common_names_and_404s_for_unknown_taxon(
     assert "Serotine bat" in html
     assert "Breitflügelfledermaus" in html
     assert "EPTSER" in html
+    assert "<table" in html  # sites + recent recordings render as tables, not lists
+    assert (
+        "panel-columns" not in html
+    )  # side-by-side column boxes dropped on this full page
 
     missing_response = client.get("/species/999999")
     assert missing_response.status_code == 404
@@ -150,6 +154,10 @@ def test_site_detail_page_renders_and_404s_for_unknown_site(
     assert response.status_code == 200
     html = response.get_data(as_text=True)
     assert "Old Barn" in html
+    assert "<table" in html  # species breakdown + sessions render as tables, not lists
+    assert (
+        "panel-columns" not in html
+    )  # side-by-side column boxes dropped on this full page
 
     missing_response = client.get("/sites/999999")
     assert missing_response.status_code == 404

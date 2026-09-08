@@ -351,6 +351,36 @@ def test_session_detail_lists_recordings(engine: Engine, tmp_path: Path) -> None
     assert "unidentified" in html  # no Identification rows -- current_best is None
 
 
+def test_session_detail_recording_rows_link_to_the_recording_details_page(
+    engine: Engine, tmp_path: Path
+) -> None:
+    with OrmSession(engine) as session:
+        s = AnnotationSession(
+            started_at=datetime(2026, 8, 21, tzinfo=UTC),
+            ended_at=datetime(2026, 8, 21, tzinfo=UTC),
+            detector_key="EMT\x1f1",
+        )
+        session.add(s)
+        session.flush()
+        audio_hash = "a".rjust(64, "0")
+        session.add(
+            Recording(
+                audio_hash=audio_hash,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 21, 21, tzinfo=UTC),
+                session_id=s.id,
+            ),
+        )
+        session.commit()
+        session_id = s.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/sessions/{session_id}")
+
+    html = response.get_data(as_text=True)
+    assert f'href="/recordings/{audio_hash}' in html
+
+
 def test_session_detail_no_merge_banner_when_no_open_proposal(
     engine: Engine,
     tmp_path: Path,

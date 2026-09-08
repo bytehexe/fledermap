@@ -18,28 +18,45 @@
     <p>{{ detail.site.recording_count }} recordings</p>
     {% if detail.site.admin_path %}<p>{{ detail.site.admin_path }}</p>{% endif %}
 
-    <div class="panel-columns">
-      <div class="col species-breakdown">
-        <h2>Species</h2>
-        <ul>
-          {% for taxon, count in detail.species_counts %}
-          <li><a href="/species/{{ taxon.id }}">{{ taxon.scientific_name }}</a>: {{ count }}</li>
-          {% else %}
-          <li>No species identified yet.</li>
-          {% endfor %}
-        </ul>
-      </div>
-      <div class="col sessions">
-        <h2>Sessions</h2>
-        <ul>
-          {% for s in detail.sessions %}
-          <li><a href="/sessions/{{ s.id }}">{{ s.started_at.strftime('%Y-%m-%d %H:%M') }}–{{ s.ended_at.strftime('%H:%M') }}</a></li>
-          {% else %}
-          <li>No sessions yet.</li>
-          {% endfor %}
-        </ul>
-      </div>
-    </div>
+    <h2>Species</h2>
+    <table class="entity-list">
+      <thead>
+        <tr>
+          <th>Species</th>
+          <th>Recordings</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for taxon, count in detail.species_counts %}
+        <tr>
+          <td><a href="/species/{{ taxon.id }}">{{ taxon.scientific_name }}</a></td>
+          <td>{{ count }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="2">No species identified yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <h2>Sessions</h2>
+    <table class="entity-list">
+      <thead>
+        <tr>
+          <th>Date range</th>
+          <th>Detector</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in detail.sessions %}
+        <tr>
+          <td><a href="/sessions/{{ s.id }}">{{ s.started_at.strftime('%Y-%m-%d %H:%M') }}–{{ s.ended_at.strftime('%H:%M') }}</a></td>
+          <td>{{ s.detector_key | detector_label }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="2">No sessions yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </main>
 </body>
 </html>

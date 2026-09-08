@@ -138,6 +138,42 @@ across a wide column. Used by `session_detail.html`'s edit form and merge-resolu
 </form>
 ```
 
+### `.entity-list`
+
+Use for any table listing rows of the same kind of thing (species, sites, sessions, recordings)
+where each row shares two or more comparable fields (a name/link plus a count, a date, a
+category). Gives the table full width, collapsed borders, and bordered/padded cells — shares its
+row styling with `#sessions-table` (`app.css`). See "Lists vs. tables" below for when a table is
+the right call over a plain `<ul>`.
+
+```html
+<table class="entity-list">
+  <thead><tr><th>Name</th><th>Count</th></tr></thead>
+  <tbody>
+    <tr><td><a href="...">...</a></td><td>3</td></tr>
+  </tbody>
+</table>
+```
+
+## Lists vs. tables
+
+Prefer a table (`.entity-list`, see above) over a bulleted `<ul>` once rows share two or more
+comparable fields — a name plus a count, a date, a category. A table gives those fields aligned
+columns a reader can scan down, which a `<ul>` of `"Name: count"` strings doesn't. Species/site
+detail pages' species-breakdown and sessions lists, and the session detail page's recordings
+list, were originally plain lists and read noticeably worse than the equivalent table once both
+existed side by side (2026-09-08) — converted, not left as a judgment call per page. A plain
+`<ul>` stays the right choice for a single-fact enumeration with nothing to align into columns
+(e.g. a caption's "what's excluded" note, or a form's list of validation errors).
+
+This is also why the two full standalone entity-detail pages (`species_detail.html`,
+`site_detail.html`) don't use `.panel-columns`, even though their content started as a copy of
+the drawer panels that do: `.panel-columns`' side-by-side boxes exist to fit a few short lists
+into the drawer's narrow, height-constrained space. A full page has the opposite constraint —
+plenty of width, and a table wants room to breathe — so these two pages stack their tables
+full-width instead. The drawer panels (`_site_panel.html`, `_recording_panel.html`) keep
+`.panel-columns` unchanged; the tradeoff that motivates it there still holds.
+
 ## Data plots (spectrogram/oscillogram)
 
 Not a general convention — noted here only as a pointer, since it's easy to mistake for one.

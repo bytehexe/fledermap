@@ -68,14 +68,24 @@
     {% endfor %}
 
     <h2>Recordings in this session ({{ recordings_with_id|length }})</h2>
-    <ul id="session-recordings">
-      {% for recording, best, taxon in recordings_with_id %}
-      <li>
-        {{ recording.recorded_at.strftime('%Y-%m-%d %H:%M') }} —
-        {{ recording_headline(taxon, best) }}
-      </li>
-      {% endfor %}
-    </ul>
+    <table class="entity-list" id="session-recordings">
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Species</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for recording, best, taxon in recordings_with_id %}
+        <tr>
+          <td><a href="/recordings/{{ recording.audio_hash }}?return_to=/sessions/{{ detail.session.id }}">{{ recording.recorded_at.strftime('%Y-%m-%d %H:%M') }}</a></td>
+          <td>{{ recording_headline(taxon, best) }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="2">No recordings yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </main>
 
   <script src="{{ url_for('vendor.static', filename='leaflet.js') }}"></script>
