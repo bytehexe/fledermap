@@ -1,9 +1,9 @@
 # Fledermap Statistics — Design
 
-**Status:** draft — sections approved individually in chat during brainstorming; awaiting the
-user's review of this written spec before writing an implementation plan. Not scheduled for
-implementation yet (explicitly deferred at the start of this brainstorming session).
-**Date:** 2026-09-05
+**Status:** approved 2026-09-08 — prerequisite Species/Site list+detail pages now exist; "Page
+layout" section added the same day after a mockup session settled the dashboard-vs-plain-sections
+question. Ready for an implementation plan.
+**Date:** 2026-09-05 (page-layout addition: 2026-09-08)
 
 ## Problem
 
@@ -200,6 +200,49 @@ a shared chart-component set rather than three bespoke pages. The rarest-species
 site-diversity lists, and the site diversity tiles are each deliberately scoped to only one page
 (see their own subsections above) and so are the rows without a full site/species-scoped
 counterpart.
+
+### Page layout: bands + selective cards
+
+Decided by mockup 2026-09-08 (see that session's brainstorm files) after the page's original
+plain-`<h2>`-separated-sections description read as a scroll of unrelated fragments rather than a
+dashboard. The three pages share one two-level layout:
+
+- **Bands** (a subtle background-tint block, no border) give the page its macro-structure — a
+  handful of large named groupings, **each holding however many cards its own content calls
+  for** (not a fixed count per band — see "variable card count" below). Global: **Overview**
+  (3 stat tiles, no cards), **Species** (3 cards: donut, rarest-species list,
+  rarest-unmapped-codes list), **Sites** (2 cards: most-species-rich-sites list, most-diverse-
+  sites list — the site-diversity lists are about sites, not species, so they get their own band
+  rather than being folded into "Species"), **Activity over time** (2 cards: the month/hour line
+  charts). Site page: **Overview** (its one stat tile + the two site-diversity tiles, no cards),
+  **Species** (1 card: its donut), **Activity over time** (2 cards: its month/hour lines).
+  Species page: **Overview** (its two stat tiles, no cards), **Sites** (1 card: the site-ranking
+  bar chart), **Activity over time** (2 cards: its single-series month/hour lines). A band's
+  label is a small bold/uppercase caption (`.band-label`), not a full `<h2>`.
+- **Cards** (a bordered, white/panel-background box with its own small header bar) appear
+  **only where a band holds 2+ widgets meant to be compared side by side** — e.g. the global
+  page's donut next to its rarest-species list, or the two line charts next to each other. A
+  band holding exactly one widget (the species page's site-ranking bar chart, either page's
+  single donut) renders that widget directly in the band, with its own header line but no extra
+  card border — a lone widget doesn't need a second box nested inside the band's own tint.
+  Stacking a bordered card inside a bordered band was tried and looked cluttered (double-boxing);
+  a card box only ever nests inside a *tinted, borderless* band, never inside another card.
+- **Variable card count, not a fixed grid.** A band's card area uses a responsive
+  `grid-template-columns: repeat(auto-fit, minmax(280px, 1fr))` rather than a hardcoded
+  `1fr 1fr` — the global page's Species band holds 3 cards, its Sites/Activity bands hold 2 each,
+  the site/species pages' single-card bands hold 1 (rendered without card chrome, per above).
+  `auto-fit`/`minmax` lays out whatever count a band actually has (wrapping to a new row past
+  however many 280px-minimum cards fit) without per-band CSS.
+- The stat-tiles row itself never gets individual card wrapping — `.dash-tile`'s own background/
+  border already makes each tile visually distinct, so wrapping the whole row in a second card
+  would be a third nested box for no gain.
+
+New shared classes for this, alongside the existing `.entity-list`/`.panel-columns` (see
+`docs/style-guide.md`, to be added there as part of implementation): `.stats-band` (the tinted
+macro-section), `.band-label`, `.stats-panel` (the bordered per-widget card), `.stats-tile` (a
+single stat number — likely a rename/reuse of whatever the mockup called `.dash-tile`, kept
+distinct from `.entity-list`'s table rows since a stat tile is a single number, not a row of
+comparable fields).
 
 ## Data layer
 
