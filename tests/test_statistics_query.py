@@ -13,6 +13,8 @@ from fledermap.domain.codes import IdSource, Verdict
 from fledermap.services.statistics import (
     rarest_species,
     rarest_unmapped_codes,
+    recording_counts_by_hour,
+    recording_counts_by_month,
     recording_counts_by_site,
     recording_counts_by_taxon,
     site_diversity,
@@ -570,3 +572,103 @@ def test_site_diversity_ranks_top_n_sites_by_richness(engine: Engine) -> None:
         result = site_diversity(session, sort_by="richness")
 
     assert [e.richness for e in result.entries] == [2, 1]
+
+
+def test_recording_counts_by_month_buckets_by_calendar_month(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Eptesicus serotinus")
+        session.add(taxon)
+        session.flush()
+        _recording(
+            session,
+            audio_hash="a" * 64,
+            taxon_id=taxon.id,
+            recorded_at=datetime(2026, 1, 15, tzinfo=UTC),
+        )
+        _recording(
+            session,
+            audio_hash="b" * 64,
+            taxon_id=taxon.id,
+            recorded_at=datetime(2026, 8, 15, tzinfo=UTC),
+        )
+        session.commit()
+        taxon_id = taxon.id
+
+    with OrmSession(engine) as session:
+        result = recording_counts_by_month(session)
+
+    assert result.labels[0] == "Jan"
+    assert result.buckets[0] == {taxon_id: 1}
+    assert result.buckets[7] == {taxon_id: 1}  # August = index 7
+    assert result.buckets[1] == {}
+    assert result.single_species is False
+
+
+def test_recording_counts_by_hour_buckets_by_clock_hour(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Eptesicus serotinus")
+        session.add(taxon)
+        session.flush()
+        _recording(
+            session,
+            audio_hash="a" * 64,
+            taxon_id=taxon.id,
+            recorded_at=datetime(2026, 8, 25, 22, 30, tzinfo=UTC),
+        )
+        session.commit()
+        taxon_id = taxon.id
+
+    with OrmSession(engine) as session:
+        result = recording_counts_by_hour(session)
+
+    assert len(result.buckets) == 24
+    assert result.buckets[22] == {taxon_id: 1}
+
+
+def test_recording_counts_by_month_taxon_scoped_is_a_single_unlabeled_series(
+    engine: Engine,
+) -> None:
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Eptesicus serotinus")
+        session.add(taxon)
+        session.flush()
+        _recording(
+            session,
+            audio_hash="a" * 64,
+            taxon_id=taxon.id,
+            recorded_at=datetime(2026, 1, 15, tzinfo=UTC),
+        )
+        session.commit()
+        taxon_id = taxon.id
+
+    with OrmSession(engine) as session:
+        result = recording_counts_by_month(session, taxon_id=taxon_id)
+
+    assert result.single_species is True
+    assert result.taxa == []
+    assert result.buckets[0] == {None: 1}
+
+
+def test_recording_counts_by_month_folds_past_top_n_into_other(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        taxa = [Taxon(rank="species", scientific_name=f"Species {i}") for i in range(3)]
+        session.add_all(taxa)
+        session.flush()
+        for i, count in enumerate([3, 2, 1]):
+            for n in range(count):
+                _recording(
+                    session,
+                    audio_hash=f"{i}{n}".rjust(64, "0"),
+                    taxon_id=taxa[i].id,
+                    recorded_at=datetime(2026, 1, 15, tzinfo=UTC),
+                )
+        session.commit()
+
+    with OrmSession(engine) as session:
+        result = recording_counts_by_month(session, top_n=2)
+
+    assert result.other_included is True
+    assert (
+        result.buckets[0][None] == 1
+    )  # Species 2's single recording folded into Other
+    assert len(result.taxa) == 2

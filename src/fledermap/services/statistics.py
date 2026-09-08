@@ -11,7 +11,7 @@ everything.\""""
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from sqlalchemy import func, select
@@ -369,3 +369,154 @@ def site_diversity(
     key = (lambda e: e.richness) if sort_by == "richness" else (lambda e: e.shannon)
     entries.sort(key=key, reverse=True)
     return SiteDiversityBreakdown(entries=entries[:top_n])
+
+
+MONTH_LABELS: tuple[str, ...] = (
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+)
+HOUR_LABELS: tuple[str, ...] = tuple(str(h) for h in range(24))
+
+
+@dataclass(frozen=True)
+class SeriesByMonth:
+    labels: tuple[str, ...]
+    taxa: list[Taxon]
+    other_included: bool
+    single_species: bool
+    buckets: list[dict[int | None, int]]
+
+
+@dataclass(frozen=True)
+class SeriesByHour:
+    labels: tuple[str, ...]
+    taxa: list[Taxon]
+    other_included: bool
+    single_species: bool
+    buckets: list[dict[int | None, int]]
+
+
+def _bucketed_series(
+    session: OrmSession,
+    *,
+    site_id: int | None,
+    taxon_id: int | None,
+    top_n: int,
+    bucket_count: int,
+    bucket_of: Callable[[Recording], int],
+) -> tuple[list[Taxon], bool, bool, list[dict[int | None, int]]]:
+    """Shared by `recording_counts_by_month`/`recording_counts_by_hour` --
+    the bucketing/Other-folding logic exists in exactly one place (spec's
+    "Data layer" section). Returns (taxa, other_included, single_species,
+    buckets)."""
+    recordings = _scoped_recordings(session, site_id=site_id)
+    buckets: list[dict[int | None, int]] = [{} for _ in range(bucket_count)]
+
+    if taxon_id is not None:
+        for r in recordings:
+            best = current_best_identification(r)
+            if best is None or taxon_id not in best.taxon_ids:
+                continue
+            b = bucket_of(r)
+            buckets[b][None] = buckets[b].get(None, 0) + 1
+        return [], False, True, buckets
+
+    per_bucket_counts: list[dict[int, int]] = [{} for _ in range(bucket_count)]
+    grand_totals: dict[int, int] = {}
+    for r in recordings:
+        best = current_best_identification(r)
+        if best is None or best.verdict in (Verdict.NOISE, Verdict.NO_ID):
+            continue
+        if best.is_multi or best.primary.taxon_id is None:
+            # A per-species line series has no room for a "Multiple
+            # Species"/"Unmapped" line the way the donut has a slice for
+            # each -- documented scope decision, see this task's docstring.
+            continue
+        tid = best.primary.taxon_id
+        b = bucket_of(r)
+        per_bucket_counts[b][tid] = per_bucket_counts[b].get(tid, 0) + 1
+        grand_totals[tid] = grand_totals.get(tid, 0) + 1
+
+    ranked = sorted(grand_totals.items(), key=lambda kv: kv[1], reverse=True)
+    top_ids = [tid for tid, _ in ranked[:top_n]]
+    other_ids = {tid for tid, _ in ranked[top_n:]}
+    other_included = bool(other_ids)
+
+    for b in range(bucket_count):
+        folded: dict[int | None, int] = {
+            tid: per_bucket_counts[b][tid]
+            for tid in top_ids
+            if tid in per_bucket_counts[b]
+        }
+        other_total = sum(
+            c for tid, c in per_bucket_counts[b].items() if tid in other_ids
+        )
+        if other_total:
+            folded[None] = other_total
+        buckets[b] = folded
+
+    taxa_by_id: dict[int, Taxon] = {}
+    if top_ids:
+        taxa_by_id = {
+            t.id: t for t in session.scalars(select(Taxon).where(Taxon.id.in_(top_ids)))
+        }
+    taxa = [taxa_by_id[tid] for tid in top_ids if tid in taxa_by_id]
+    return taxa, other_included, False, buckets
+
+
+def recording_counts_by_month(
+    session: OrmSession,
+    *,
+    site_id: int | None = None,
+    taxon_id: int | None = None,
+    top_n: int = DEFAULT_TOP_N,
+) -> SeriesByMonth:
+    taxa, other_included, single, buckets = _bucketed_series(
+        session,
+        site_id=site_id,
+        taxon_id=taxon_id,
+        top_n=top_n,
+        bucket_count=12,
+        bucket_of=lambda r: r.recorded_at.month - 1,
+    )
+    return SeriesByMonth(
+        labels=MONTH_LABELS,
+        taxa=taxa,
+        other_included=other_included,
+        single_species=single,
+        buckets=buckets,
+    )
+
+
+def recording_counts_by_hour(
+    session: OrmSession,
+    *,
+    site_id: int | None = None,
+    taxon_id: int | None = None,
+    top_n: int = DEFAULT_TOP_N,
+) -> SeriesByHour:
+    taxa, other_included, single, buckets = _bucketed_series(
+        session,
+        site_id=site_id,
+        taxon_id=taxon_id,
+        top_n=top_n,
+        bucket_count=24,
+        bucket_of=lambda r: r.recorded_at.hour,
+    )
+    return SeriesByHour(
+        labels=HOUR_LABELS,
+        taxa=taxa,
+        other_included=other_included,
+        single_species=single,
+        buckets=buckets,
+    )
