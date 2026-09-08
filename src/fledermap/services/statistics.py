@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import Verdict
 from fledermap.services.current_best import current_best_identification
-from fledermap.store.models import Recording, Site, Taxon
+from fledermap.store.models import Identification, Recording, Site, Taxon
 
 DEFAULT_TOP_N = 8
 
@@ -158,4 +158,79 @@ def recording_counts_by_taxon(
         other_count=other_count,
         unmapped_count=unmapped,
         multi_species_count=multi,
+    )
+
+
+def rarest_species(
+    session: OrmSession, *, bottom_n: int = DEFAULT_TOP_N
+) -> TaxonBreakdown:
+    """Bottom-N current-best taxa by recording count, excluding taxa with
+    zero recordings (a taxon never appears in `counts` unless something maps
+    to it). Unlike `recording_counts_by_taxon`, a multi-species recording
+    counts toward EVERY taxon it contains (see this function's own test for
+    why), and unmapped-species results have no taxon to appear under at all
+    -- both deliberate divergences documented in the spec."""
+    recordings = _scoped_recordings(session)
+    counts: dict[int, int] = {}
+    for r in recordings:
+        best = current_best_identification(r)
+        if best is None or best.verdict in (Verdict.NOISE, Verdict.NO_ID):
+            continue
+        for taxon_id in best.taxon_ids:
+            counts[taxon_id] = counts.get(taxon_id, 0) + 1
+
+    ranked = sorted(counts.items(), key=lambda kv: kv[1])
+    bottom = ranked[:bottom_n]
+    taxa_by_id: dict[int, Taxon] = {}
+    if bottom:
+        taxa_by_id = {
+            t.id: t
+            for t in session.scalars(
+                select(Taxon).where(Taxon.id.in_([tid for tid, _ in bottom])),
+            )
+        }
+    entries = [
+        TaxonCount(taxon=taxa_by_id[tid], count=c)
+        for tid, c in bottom
+        if tid in taxa_by_id
+    ]
+    return TaxonBreakdown(
+        entries=entries,
+        other_count=0,
+        unmapped_count=0,
+        multi_species_count=0,
+    )
+
+
+@dataclass(frozen=True)
+class CodeCount:
+    code: str
+    count: int
+
+
+@dataclass(frozen=True)
+class CodeBreakdown:
+    entries: list[CodeCount]
+
+
+def rarest_unmapped_codes(
+    session: OrmSession,
+    *,
+    bottom_n: int = DEFAULT_TOP_N,
+) -> CodeBreakdown:
+    """Bottom-N raw code strings among unmapped SPECIES-verdict claims,
+    across every source's live claims (not just current-best) -- this is a
+    review-queue-style surface ("which unmapped codes exist at all, and how
+    rare are they"), not a per-recording current-best breakdown."""
+    stmt = select(Identification.raw_label).where(
+        Identification.taxon_id.is_(None),
+        Identification.verdict == Verdict.SPECIES,
+    )
+    counts: dict[str, int] = {}
+    for (raw_label,) in session.execute(stmt):
+        label = raw_label or "(no code)"
+        counts[label] = counts.get(label, 0) + 1
+    ranked = sorted(counts.items(), key=lambda kv: kv[1])
+    return CodeBreakdown(
+        entries=[CodeCount(code=c, count=n) for c, n in ranked[:bottom_n]],
     )

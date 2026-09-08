@@ -9,7 +9,12 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import IdSource, Verdict
-from fledermap.services.statistics import recording_counts_by_taxon, totals
+from fledermap.services.statistics import (
+    rarest_species,
+    rarest_unmapped_codes,
+    recording_counts_by_taxon,
+    totals,
+)
 from fledermap.store.models import Identification, Recording, Site, Taxon
 
 pytestmark = pytest.mark.db
@@ -270,3 +275,144 @@ def test_recording_counts_by_taxon_folds_past_top_n_into_other(
         ("Species 1", 2),
     ]
     assert result.other_count == 1
+
+
+def test_rarest_species_excludes_taxa_with_zero_recordings(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        found = Taxon(rank="species", scientific_name="Eptesicus serotinus")
+        never_found = Taxon(rank="species", scientific_name="Myotis daubentonii")
+        session.add_all([found, never_found])
+        session.flush()
+        _recording(session, audio_hash="a" * 64, taxon_id=found.id)
+        session.commit()
+
+    with OrmSession(engine) as session:
+        result = rarest_species(session)
+
+    assert [e.taxon.scientific_name for e in result.entries] == ["Eptesicus serotinus"]
+
+
+def test_rarest_species_sorts_ascending_by_count(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        common = Taxon(rank="species", scientific_name="Common")
+        rare = Taxon(rank="species", scientific_name="Rare")
+        session.add_all([common, rare])
+        session.flush()
+        for n in range(3):
+            _recording(session, audio_hash=f"c{n}".rjust(64, "0"), taxon_id=common.id)
+        _recording(session, audio_hash="r0".rjust(64, "0"), taxon_id=rare.id)
+        session.commit()
+
+    with OrmSession(engine) as session:
+        result = rarest_species(session)
+
+    assert [(e.taxon.scientific_name, e.count) for e in result.entries] == [
+        ("Rare", 1),
+        ("Common", 3),
+    ]
+
+
+def test_rarest_species_multi_species_recording_counts_toward_every_taxon(
+    engine: Engine,
+) -> None:
+    """Deliberately DIFFERENT from recording_counts_by_taxon's own multi-
+    species handling (Task 3) -- this list is "which species are seldom
+    detected," so a multi-species recording adds to EVERY taxon it contains,
+    not one combined bucket."""
+    with OrmSession(engine) as session:
+        taxon_a = Taxon(rank="species", scientific_name="Eptesicus serotinus")
+        taxon_b = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
+        session.add_all([taxon_a, taxon_b])
+        session.flush()
+        r = Recording(
+            audio_hash="a" * 64,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add(r)
+        session.flush()
+        session.add_all(
+            [
+                Identification(
+                    recording_id=r.id,
+                    source=IdSource.EMT_MANUAL,
+                    verdict=Verdict.SPECIES,
+                    taxon_id=taxon_a.id,
+                    first_seen_at=r.recorded_at,
+                ),
+                Identification(
+                    recording_id=r.id,
+                    source=IdSource.EMT_MANUAL,
+                    verdict=Verdict.SPECIES,
+                    taxon_id=taxon_b.id,
+                    first_seen_at=r.recorded_at,
+                ),
+            ],
+        )
+        session.commit()
+
+    with OrmSession(engine) as session:
+        result = rarest_species(session)
+
+    assert {(e.taxon.scientific_name, e.count) for e in result.entries} == {
+        ("Eptesicus serotinus", 1),
+        ("Pipistrellus pipistrellus", 1),
+    }
+
+
+def test_rarest_unmapped_codes_groups_by_raw_label(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        r1 = Recording(
+            audio_hash="a" * 64,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        r2 = Recording(
+            audio_hash="b" * 64,
+            path="b.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        r3 = Recording(
+            audio_hash="c" * 64,
+            path="c.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add_all([r1, r2, r3])
+        session.flush()
+        session.add_all(
+            [
+                Identification(
+                    recording_id=r1.id,
+                    source=IdSource.EMT_GUANO,
+                    verdict=Verdict.SPECIES,
+                    taxon_id=None,
+                    raw_label="WEIRDCODE",
+                    first_seen_at=r1.recorded_at,
+                ),
+                Identification(
+                    recording_id=r2.id,
+                    source=IdSource.EMT_GUANO,
+                    verdict=Verdict.SPECIES,
+                    taxon_id=None,
+                    raw_label="COMMONCODE",
+                    first_seen_at=r2.recorded_at,
+                ),
+                Identification(
+                    recording_id=r3.id,
+                    source=IdSource.EMT_GUANO,
+                    verdict=Verdict.SPECIES,
+                    taxon_id=None,
+                    raw_label="COMMONCODE",
+                    first_seen_at=r3.recorded_at,
+                ),
+            ],
+        )
+        session.commit()
+
+    with OrmSession(engine) as session:
+        result = rarest_unmapped_codes(session)
+
+    assert [(e.code, e.count) for e in result.entries] == [
+        ("WEIRDCODE", 1),
+        ("COMMONCODE", 2),
+    ]
