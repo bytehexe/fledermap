@@ -99,6 +99,12 @@ ASSETS: tuple[VendorAsset, ...] = (
         sha256="b600e363d99d95444db54acbfb2deffec9ae792aa99a09229bcda078e5b55643",
         relative_path="alpine.min.js",
     ),
+    # Chart.js for the statistics feature
+    VendorAsset(
+        url="https://unpkg.com/chart.js@4.4.6/dist/chart.umd.js",
+        sha256="3850656abbdc319141e6e8ce8eacde2622fc767c30e20d81704af2bf3159f92d",
+        relative_path="chart.js",
+    ),
 )
 
 

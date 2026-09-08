@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from fledermap.services.vendor_assets import (
+    ASSETS,
     IntegrityError,
     VendorAsset,
     ensure_vendor_assets,
@@ -141,3 +142,8 @@ def test_ensure_vendor_assets_fetches_only_the_missing_ones(
     assert calls == ["https://x/b.js"]
     assert (tmp_path / "a.js").read_bytes() == b"already here, untouched"
     assert (tmp_path / "b.js").read_bytes() == payload
+
+
+def test_assets_includes_chart_js() -> None:
+    relative_paths = {asset.relative_path for asset in ASSETS}
+    assert "chart.js" in relative_paths
