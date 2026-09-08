@@ -619,6 +619,72 @@ def test_site_diversity_ranks_top_n_sites_by_richness(engine: Engine) -> None:
     assert [e.richness for e in result.entries] == [2, 1]
 
 
+def test_site_diversity_sort_by_estimated_richness_can_disagree_with_richness(
+    engine: Engine,
+) -> None:
+    """The two rankings deliberately aren't the same list -- a site with
+    FEWER observed species but only singleton detections can out-rank a
+    more-observed site once Chao1's bias correction applies. This is the
+    reason the global page's two lists are kept separate rather than one
+    annotated with the other."""
+    with OrmSession(engine) as session:
+        # more_observed: 4 taxa, each seen twice -- no singletons, so the
+        # Chao1 estimate equals the observed count (richness 4, est. 4).
+        more_observed = Site(
+            centroid=WKTElement("POINT(10 50)", srid=4326),
+            radius_m=50.0,
+            recording_count=8,
+            first_at=datetime(2026, 8, 25, tzinfo=UTC),
+            last_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        # fewer_observed_higher_estimate: 3 taxa, each seen exactly once --
+        # richness 3, but all-singleton (f2=0) bias correction gives
+        # Chao1 = 3 + 3*2/2 = 6, higher than more_observed's estimate.
+        fewer_observed_higher_estimate = Site(
+            centroid=WKTElement("POINT(11 51)", srid=4326),
+            radius_m=50.0,
+            recording_count=3,
+            first_at=datetime(2026, 8, 25, tzinfo=UTC),
+            last_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        taxa = [Taxon(rank="species", scientific_name=f"Species{i}") for i in range(7)]
+        session.add_all([more_observed, fewer_observed_higher_estimate, *taxa])
+        session.flush()
+        for i in range(4):
+            for j in range(2):
+                _recording(
+                    session,
+                    audio_hash=f"mo{i}{j}".ljust(64, "0"),
+                    taxon_id=taxa[i].id,
+                    site_id=more_observed.id,
+                )
+        for i in range(4, 7):
+            _recording(
+                session,
+                audio_hash=f"fe{i}".ljust(64, "0"),
+                taxon_id=taxa[i].id,
+                site_id=fewer_observed_higher_estimate.id,
+            )
+        session.commit()
+        more_observed_id = more_observed.id
+        fewer_observed_id = fewer_observed_higher_estimate.id
+
+    with OrmSession(engine) as session:
+        by_richness = site_diversity(session, sort_by="richness")
+        by_estimate = site_diversity(session, sort_by="estimated_richness")
+
+    assert [e.site.id for e in by_richness.entries] == [
+        more_observed_id,
+        fewer_observed_id,
+    ]
+    assert [e.site.id for e in by_estimate.entries] == [
+        fewer_observed_id,
+        more_observed_id,
+    ]
+    assert by_estimate.entries[0].estimated_richness == 6.0
+    assert by_estimate.entries[1].estimated_richness == 4.0
+
+
 def test_site_diversity_sort_by_coverage_ranks_least_sampled_first(
     engine: Engine,
 ) -> None:

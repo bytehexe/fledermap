@@ -363,9 +363,13 @@ def site_diversity(
     """`site_id` set: the single-row breakdown for one site's four stat
     tiles (observed richness/Shannon plus Chao1 estimated richness/sample
     coverage). `site_id` unset: top-N sites ranked by `sort_by` ("richness",
-    "shannon", or "coverage", the last ranking ascending -- least-sampled
-    first) -- the global page calls this three times, once per sort key,
-    for its three separate ranked lists."""
+    "shannon", "estimated_richness", or "coverage" -- "coverage" ranks
+    ascending, least-sampled first; the rest rank descending) -- the global
+    page calls this four times, once per sort key, for its four separate
+    ranked lists. "richness" and "estimated_richness" are deliberately two
+    different lists rather than one annotated list: they don't always agree
+    on order (a site with fewer observed species but more singleton/
+    doubleton detections can out-rank a more-observed one on the estimate)."""
     if site_id is not None:
         site = session.get(Site, site_id)
         if site is None:
@@ -412,10 +416,18 @@ def site_diversity(
         if sid in sites_by_id
     ]
     # "coverage" ranks ascending (least-sampled -- i.e. least-trustworthy
-    # observed counts -- first); richness/shannon rank descending (most of
-    # each first), matching the two existing global-page lists.
+    # observed counts -- first); richness/shannon/estimated_richness rank
+    # descending (most of each first). estimated_richness deliberately gets
+    # its own ranked list on the global page rather than folding into
+    # "richness"'s -- the two don't sort the same (a site with fewer
+    # observed species but far more singleton/doubleton detections can have
+    # a HIGHER Chao1 estimate than a more-observed site), so a single list
+    # sorted by one and merely annotated with the other would silently imply
+    # an ordering it doesn't have.
     if sort_by == "coverage":
         entries.sort(key=lambda e: e.sample_coverage)
+    elif sort_by == "estimated_richness":
+        entries.sort(key=lambda e: e.estimated_richness, reverse=True)
     else:
         key = (lambda e: e.richness) if sort_by == "richness" else (lambda e: e.shannon)
         entries.sort(key=key, reverse=True)

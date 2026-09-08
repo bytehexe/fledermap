@@ -54,7 +54,7 @@ def test_statistics_global_page_renders_stat_tiles_and_chart_data(
     assert "Least-sampled sites" in html
 
 
-def test_statistics_global_page_richest_sites_shows_estimated_richness(
+def test_statistics_global_page_has_a_separate_estimated_richness_list(
     engine: Engine,
     tmp_path: Path,
 ) -> None:
@@ -94,7 +94,12 @@ def test_statistics_global_page_richest_sites_shows_estimated_richness(
 
     assert response.status_code == 200
     html = response.get_data(as_text=True)
-    assert "richness 1 (est. 1.0)" in html
+    # A separate list, ranked and labeled by its own metric -- not folded
+    # into "Most species-rich sites"'s row (that list sorts by observed
+    # richness alone, and doesn't always agree on order with the estimate).
+    assert "Highest estimated true richness" in html
+    assert "est. 1.0" in html
+    assert "richness 1 (est." not in html
 
 
 def test_statistics_site_page_renders_and_404s_for_unknown_site(

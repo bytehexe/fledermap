@@ -488,11 +488,18 @@ considered done, per CLAUDE.md's JavaScript tooling section.
   checked and rejected: it pulls in `pandas` as a new hard dependency (plus a heavy AIRR-immune-
   repertoire-oriented API) just to compute two closed-form numbers this project already had
   every input for. Surfaced as two more Overview stat tiles on the site page ("Est. true richness"/"Sample
-  coverage"), and as a third ranked list on the global page's Sites band ("Least-sampled sites",
-  `site_diversity(sort_by="coverage")` ranking ascending — lowest coverage, i.e. least-trustworthy
-  observed count, first) rather than as a column on the two existing richness/Shannon lists,
-  which were themselves fixed at the same time to show only their own sort metric per row
-  (previously each showed both numbers, redundantly, in swapped order). No confidence interval
+  coverage"), and as two more ranked lists on the global page's Sites band -- "Highest estimated
+  true richness" (`site_diversity(sort_by="estimated_richness")`) and "Least-sampled sites"
+  (`sort_by="coverage"`, ranking ascending — lowest coverage, i.e. least-trustworthy observed
+  count, first) — bringing that band to 4 cards total, alongside the pre-existing "Most
+  species-rich sites" and "Most diverse sites (Shannon H)". Estimated richness deliberately got
+  its own list rather than an annotation on "Most species-rich sites"'s row (tried first, reverted
+  same day on review): the two rankings don't always agree — a site with fewer observed species
+  but only singleton/doubleton detections can out-rank a more-observed site once Chao1's bias
+  correction applies — so folding one into the other's row would have silently implied an
+  ordering neither list actually has. This is the same "each ranked list shows only its own sort
+  metric" principle the richness/Shannon lists were fixed to follow moments earlier, applied
+  consistently rather than special-cased away for the new estimate. No confidence interval
   was added — Chao1's asymptotic variance formula was judged not worth the added complexity for
   a first pass; a straight point estimate plus the coverage percentage already answers "how many
   species are probably here" and "how much do we trust that."
