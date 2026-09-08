@@ -36,7 +36,11 @@ def _taxon_json(taxon: object) -> dict[str, object]:
 def _breakdown_json(breakdown: object) -> dict[str, object]:
     return {
         "entries": [
-            {"taxon": _taxon_json(e.taxon), "count": e.count}
+            {
+                "taxon": _taxon_json(e.taxon),
+                "count": e.count,
+                "statistics_url": f"/statistics/species/{e.taxon.id}",  # type: ignore[attr-defined]
+            }
             for e in breakdown.entries  # type: ignore[attr-defined]
         ],
         "other_count": breakdown.other_count,  # type: ignore[attr-defined]

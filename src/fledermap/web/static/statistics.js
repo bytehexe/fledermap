@@ -11,6 +11,13 @@ function readEmbeddedJson(id) {
   return JSON.parse(el.textContent);
 }
 
+function navigateOnLegendClick(getDetailUrl) {
+  return (_event, legendItem) => {
+    const url = getDetailUrl(legendItem.index);
+    if (url) window.location.href = url;
+  };
+}
+
 function mountDonut(canvasId, dataId) {
   const canvas = document.getElementById(canvasId);
   const raw = readEmbeddedJson(dataId);
@@ -22,7 +29,29 @@ function mountDonut(canvasId, dataId) {
       labels: chartData.labels,
       datasets: [{ data: chartData.data, backgroundColor: chartData.colors }],
     },
-    options: { plugins: { legend: { position: "right" } } },
+    options: {
+      plugins: {
+        legend: {
+          position: "right",
+          onClick: navigateOnLegendClick((index) => {
+            const entry = raw.entries[index];
+            return entry ? `/species/${entry.taxon.id}` : null;
+          }),
+        },
+      },
+      // A donut slice click-throughs to that taxon's own statistics
+      // sub-page -- same "chart element -> stats sub-page" behavior as the
+      // site-ranking bar chart's bars (spec's "Name and label linking"
+      // section). Extra slices (Other/Unmapped/Multiple Species) have no
+      // statistics_url and are simply not clickable.
+      onClick: (_event, elements) => {
+        if (!elements.length) return;
+        const entry = raw.entries[elements[0].index];
+        if (entry && entry.statistics_url) {
+          window.location.href = entry.statistics_url;
+        }
+      },
+    },
   });
 }
 
@@ -37,7 +66,17 @@ function mountLine(canvasId, dataId) {
       labels: chartData.labels,
       datasets: chartData.datasets.map((ds) => ({ ...ds, fill: false, tension: 0.2 })),
     },
-    options: { plugins: { legend: { display: chartData.datasets.length > 1 } } },
+    options: {
+      plugins: {
+        legend: {
+          display: chartData.datasets.length > 1,
+          onClick: navigateOnLegendClick((index) => {
+            const taxon = raw.taxa[index];
+            return taxon ? `/species/${taxon.id}` : null;
+          }),
+        },
+      },
+    },
   });
 }
 

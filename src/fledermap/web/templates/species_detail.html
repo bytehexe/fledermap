@@ -11,6 +11,7 @@
   {% include "_nav.html" %}
   <main class="main-content">
     <p><a href="/species">← All species</a></p>
+    <p><a href="/statistics/species/{{ detail.taxon.id }}">Statistics</a></p>
     <h1>{{ detail.taxon.scientific_name }}</h1>
     <p class="entity-common-names">
       {% if detail.taxon.common_name_en %}<span>EN: {{ detail.taxon.common_name_en }}</span>{% endif %}

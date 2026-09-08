@@ -161,3 +161,41 @@ def test_site_detail_page_renders_and_404s_for_unknown_site(
 
     missing_response = client.get("/sites/999999")
     assert missing_response.status_code == 404
+
+
+def test_species_detail_page_links_to_its_statistics_subpage(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Eptesicus serotinus")
+        session.add(taxon)
+        session.commit()
+        taxon_id = taxon.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    html = app.test_client().get(f"/species/{taxon_id}").get_data(as_text=True)
+
+    assert f'href="/statistics/species/{taxon_id}"' in html
+
+
+def test_site_detail_page_links_to_its_statistics_subpage(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        site = Site(
+            centroid=WKTElement("POINT(10 50)", srid=4326),
+            radius_m=50.0,
+            recording_count=1,
+            first_at=datetime(2026, 8, 25, tzinfo=UTC),
+            last_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add(site)
+        session.commit()
+        site_id = site.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    html = app.test_client().get(f"/sites/{site_id}").get_data(as_text=True)
+
+    assert f'href="/statistics/sites/{site_id}"' in html

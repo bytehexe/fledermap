@@ -105,3 +105,41 @@ def test_statistics_species_page_renders_and_404s_for_unknown_taxon(
 
     missing_response = client.get("/statistics/species/999999")
     assert missing_response.status_code == 404
+
+
+def test_statistics_global_page_donut_slices_are_click_throughs_to_species_pages(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Eptesicus serotinus")
+        session.add(taxon)
+        session.flush()
+        r = Recording(
+            audio_hash="a" * 64,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add(r)
+        session.flush()
+        session.add(
+            Identification(
+                recording_id=r.id,
+                source=IdSource.EMT_GUANO,
+                verdict=Verdict.SPECIES,
+                taxon_id=taxon.id,
+                first_seen_at=r.recorded_at,
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    html = app.test_client().get("/statistics").get_data(as_text=True)
+
+    # The donut mounts client-side from embedded JSON -- what the server-
+    # rendered page must supply is a per-taxon statistics URL alongside each
+    # entry, which statistics.js's onClick handler reads.
+    assert (
+        '"statistics_url": "/statistics/species/' in html
+        or '"statistics_url":"/statistics/species/' in html
+    )
