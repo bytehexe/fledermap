@@ -83,6 +83,19 @@
             </tbody>
           </table>
         </div>
+        <div class="stats-panel">
+          <div class="stats-panel-header">Least-sampled sites</div>
+          <table class="entity-list">
+            <tbody>
+              {% for entry in least_sampled_sites %}
+              <tr><td><a href="/sites/{{ entry.site.id }}">{{ entry.site.name or "Site #" ~ entry.site.id }}</a></td><td>{{ "%.0f"|format(entry.sample_coverage * 100) }}% coverage</td></tr>
+              {% else %}
+              <tr><td>No sites yet.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          <div class="stats-caption">Lowest estimated sample coverage first -- where the observed species counts are least likely to be complete. <details><summary>ⓘ</summary>Coverage estimates the fraction of each site's true species composition already represented in its recordings (Good-Turing estimator); a low value means more undetected species likely remain.</details></div>
+        </div>
       </div>
     </div>
 

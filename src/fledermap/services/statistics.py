@@ -296,11 +296,43 @@ def _shannon(taxon_counts: dict[int, int]) -> float:
     )
 
 
+def _chao1_richness(taxon_counts: dict[int, int]) -> float:
+    """Bias-corrected asymptotic species-richness estimate (Chao 1987),
+    computed directly rather than via the `hillrep` candidate the spec's
+    "Open follow-ups" section named -- that library pulls in `pandas` as a
+    new hard dependency (plus a heavy AIRR-immune-repertoire-oriented API)
+    just to compute two closed-form numbers this project already has all
+    the inputs for. f1/f2 are the counts of taxa detected exactly
+    once/twice ("singletons"/"doubletons") among `taxon_counts`."""
+    s_obs = len(taxon_counts)
+    if s_obs == 0:
+        return 0.0
+    f1 = sum(1 for c in taxon_counts.values() if c == 1)
+    f2 = sum(1 for c in taxon_counts.values() if c == 2)
+    if f2 > 0:
+        return s_obs + (f1**2) / (2 * f2)
+    return s_obs + f1 * (f1 - 1) / 2
+
+
+def _sample_coverage(taxon_counts: dict[int, int]) -> float:
+    """Good-Turing sample-coverage estimate: the fraction of individuals
+    belonging to a species observed more than once, i.e. how much of the
+    site's true species composition this sample already represents. Pairs
+    with `_chao1_richness` -- see that function's docstring."""
+    n = sum(taxon_counts.values())
+    if n == 0:
+        return 0.0
+    f1 = sum(1 for c in taxon_counts.values() if c == 1)
+    return 1 - f1 / n
+
+
 @dataclass(frozen=True)
 class SiteDiversity:
     site: Site
     richness: int
     shannon: float
+    estimated_richness: float
+    sample_coverage: float
 
 
 @dataclass(frozen=True)
@@ -328,10 +360,12 @@ def site_diversity(
     sort_by: str = "richness",
     top_n: int = DEFAULT_TOP_N,
 ) -> SiteDiversityBreakdown:
-    """`site_id` set: the single-row breakdown for one site's two stat
-    tiles. `site_id` unset: top-N sites ranked by `sort_by` ("richness" or
-    "shannon") -- the global page calls this twice, once per sort key, for
-    its two separate ranked lists."""
+    """`site_id` set: the single-row breakdown for one site's four stat
+    tiles (observed richness/Shannon plus Chao1 estimated richness/sample
+    coverage). `site_id` unset: top-N sites ranked by `sort_by` ("richness",
+    "shannon", or "coverage", the last ranking ascending -- least-sampled
+    first) -- the global page calls this three times, once per sort key,
+    for its three separate ranked lists."""
     if site_id is not None:
         site = session.get(Site, site_id)
         if site is None:
@@ -340,7 +374,11 @@ def site_diversity(
         return SiteDiversityBreakdown(
             entries=[
                 SiteDiversity(
-                    site=site, richness=len(counts), shannon=_shannon(counts)
+                    site=site,
+                    richness=len(counts),
+                    shannon=_shannon(counts),
+                    estimated_richness=_chao1_richness(counts),
+                    sample_coverage=_sample_coverage(counts),
                 ),
             ],
         )
@@ -367,12 +405,20 @@ def site_diversity(
             site=sites_by_id[sid],
             richness=len(counts),
             shannon=_shannon(counts),
+            estimated_richness=_chao1_richness(counts),
+            sample_coverage=_sample_coverage(counts),
         )
         for sid, counts in by_site.items()
         if sid in sites_by_id
     ]
-    key = (lambda e: e.richness) if sort_by == "richness" else (lambda e: e.shannon)
-    entries.sort(key=key, reverse=True)
+    # "coverage" ranks ascending (least-sampled -- i.e. least-trustworthy
+    # observed counts -- first); richness/shannon rank descending (most of
+    # each first), matching the two existing global-page lists.
+    if sort_by == "coverage":
+        entries.sort(key=lambda e: e.sample_coverage)
+    else:
+        key = (lambda e: e.richness) if sort_by == "richness" else (lambda e: e.shannon)
+        entries.sort(key=key, reverse=True)
     return SiteDiversityBreakdown(entries=entries[:top_n])
 
 

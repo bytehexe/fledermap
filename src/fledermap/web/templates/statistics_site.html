@@ -19,7 +19,10 @@
         <div class="stats-tile"><div class="num">{{ totals.total_recordings }}</div><div class="label">Recordings</div></div>
         <div class="stats-tile"><div class="num">{{ diversity.richness }}</div><div class="label">Species richness</div></div>
         <div class="stats-tile"><div class="num">{{ "%.2f"|format(diversity.shannon) }}</div><div class="label">Diversity index (Shannon H)</div></div>
+        <div class="stats-tile"><div class="num">{{ "%.1f"|format(diversity.estimated_richness) }}</div><div class="label">Est. true richness</div></div>
+        <div class="stats-tile"><div class="num">{{ "%.0f"|format(diversity.sample_coverage * 100) }}%</div><div class="label">Sample coverage</div></div>
       </div>
+      <div class="stats-caption">Estimated richness projects how many species likely occur here in total, beyond what's been detected so far. <details><summary>ⓘ</summary>Chao1 asymptotic estimator; sample coverage (Good-Turing) is the estimated fraction of that total already represented in this site's recordings -- both computed from the same species-detection counts as the tiles above.</details></div>
     </div>
 
     <div class="stats-band">

@@ -619,6 +619,68 @@ def test_site_diversity_ranks_top_n_sites_by_richness(engine: Engine) -> None:
     assert [e.richness for e in result.entries] == [2, 1]
 
 
+def test_site_diversity_sort_by_coverage_ranks_least_sampled_first(
+    engine: Engine,
+) -> None:
+    with OrmSession(engine) as session:
+        # well_sampled: every taxon detected several times -> no singletons
+        # -> full (1.0) coverage.
+        well_sampled = Site(
+            centroid=WKTElement("POINT(10 50)", srid=4326),
+            radius_m=50.0,
+            recording_count=6,
+            first_at=datetime(2026, 8, 25, tzinfo=UTC),
+            last_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        # under_sampled: both taxa are singletons -> low coverage.
+        under_sampled = Site(
+            centroid=WKTElement("POINT(11 51)", srid=4326),
+            radius_m=50.0,
+            recording_count=2,
+            first_at=datetime(2026, 8, 25, tzinfo=UTC),
+            last_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        taxon_a = Taxon(rank="species", scientific_name="A")
+        taxon_b = Taxon(rank="species", scientific_name="B")
+        session.add_all([well_sampled, under_sampled, taxon_a, taxon_b])
+        session.flush()
+        for i in range(3):
+            _recording(
+                session,
+                audio_hash=f"wa{i}".ljust(64, "0"),
+                taxon_id=taxon_a.id,
+                site_id=well_sampled.id,
+            )
+            _recording(
+                session,
+                audio_hash=f"wb{i}".ljust(64, "0"),
+                taxon_id=taxon_b.id,
+                site_id=well_sampled.id,
+            )
+        _recording(
+            session,
+            audio_hash="ua".ljust(64, "0"),
+            taxon_id=taxon_a.id,
+            site_id=under_sampled.id,
+        )
+        _recording(
+            session,
+            audio_hash="ub".ljust(64, "0"),
+            taxon_id=taxon_b.id,
+            site_id=under_sampled.id,
+        )
+        session.commit()
+        well_sampled_id = well_sampled.id
+        under_sampled_id = under_sampled.id
+
+    with OrmSession(engine) as session:
+        result = site_diversity(session, sort_by="coverage")
+
+    assert [e.site.id for e in result.entries] == [under_sampled_id, well_sampled_id]
+    assert result.entries[0].sample_coverage < result.entries[1].sample_coverage
+    assert result.entries[1].sample_coverage == 1.0
+
+
 def test_recording_counts_by_month_buckets_by_calendar_month(engine: Engine) -> None:
     with OrmSession(engine) as session:
         taxon = Taxon(rank="species", scientific_name="Eptesicus serotinus")

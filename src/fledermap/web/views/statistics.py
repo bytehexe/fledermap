@@ -78,6 +78,7 @@ def global_statistics_page() -> flask.Response:
         rarest_codes = rarest_unmapped_codes(session)
         richest_sites = site_diversity(session, sort_by="richness")
         diverse_sites = site_diversity(session, sort_by="shannon")
+        least_sampled_sites = site_diversity(session, sort_by="coverage")
         month_series = recording_counts_by_month(session)
         hour_series = recording_counts_by_hour(session)
 
@@ -89,6 +90,7 @@ def global_statistics_page() -> flask.Response:
             rarest_codes=rarest_codes,
             richest_sites=richest_sites.entries,
             diverse_sites=diverse_sites.entries,
+            least_sampled_sites=least_sampled_sites.entries,
             month=_series_json(month_series),
             hour=_series_json(hour_series),
         )

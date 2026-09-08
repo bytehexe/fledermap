@@ -478,20 +478,24 @@ considered done, per CLAUDE.md's JavaScript tooling section.
 
 - A "most active site" / "most recorded species" highlight-style tile — considered and declined
   for this pass (plain totals only) but a natural next stat-tile addition.
-- **Estimated true richness + sample coverage**, alongside the observed richness/Shannon this
-  pass adds. Observed richness only counts species actually detected so far — it necessarily
-  understates a site's true species count, more so for a sparsely-sampled site, and gives no
-  sense of how confident that gap is. A Chao-style asymptotic estimator (bias-corrected true
-  richness, with a confidence interval) plus its companion sample-coverage percentage would
-  answer both "how many species are actually here" and "how much do we trust the observed
-  count." Candidate library: [hillrep](https://pypi.org/project/hillrep/) (MIT, `>=3.10`, no
-  heavy core deps) — a Python port of the ecology-standard `iNEXT` R framework's Hill-number
-  math (Chao asymptotic richness/Shannon/Simpson, coverage-based rarefaction/extrapolation,
-  bootstrap confidence intervals); despite its immune-repertoire framing on PyPI, the underlying
-  estimators are the same ones ecological species-richness work already uses, so it's a
-  plausible fit rather than a reach. Would sit alongside the observed richness/Shannon tiles on
-  the site page and the two ranked global lists this pass adds — not scoped or vetted further
-  here.
+- ~~**Estimated true richness + sample coverage**~~ — **implemented 2026-09-08**, alongside the
+  observed richness/Shannon this pass added. `services/statistics.py`'s `_chao1_richness`/
+  `_sample_coverage` compute both directly from the same per-taxon detection counts
+  `site_diversity` already builds, no new dependency: Chao1's bias-corrected asymptotic estimator
+  (`S_est = S_obs + f1²/(2·f2)`, or `S_obs + f1·(f1-1)/2` when there are no doubletons) and the
+  Good-Turing sample-coverage estimate (`C = 1 - f1/n`), where f1/f2 are the counts of taxa
+  detected exactly once/twice. The candidate `hillrep` library this entry originally named was
+  checked and rejected: it pulls in `pandas` as a new hard dependency (plus a heavy AIRR-immune-
+  repertoire-oriented API) just to compute two closed-form numbers this project already had
+  every input for. Surfaced as two more Overview stat tiles on the site page ("Est. true richness"/"Sample
+  coverage"), and as a third ranked list on the global page's Sites band ("Least-sampled sites",
+  `site_diversity(sort_by="coverage")` ranking ascending — lowest coverage, i.e. least-trustworthy
+  observed count, first) rather than as a column on the two existing richness/Shannon lists,
+  which were themselves fixed at the same time to show only their own sort metric per row
+  (previously each showed both numbers, redundantly, in swapped order). No confidence interval
+  was added — Chao1's asymptotic variance formula was judged not worth the added complexity for
+  a first pass; a straight point estimate plus the coverage percentage already answers "how many
+  species are probably here" and "how much do we trust that."
 - Date-range filtering on the statistics pages.
 - Revisiting live-vs-cached aggregation if recording counts grow large enough that per-request
   `GROUP BY` queries become a real page-load cost.

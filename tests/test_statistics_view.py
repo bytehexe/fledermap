@@ -51,6 +51,7 @@ def test_statistics_global_page_renders_stat_tiles_and_chart_data(
     assert "Eptesicus serotinus" in html  # embedded in the donut's JSON data
     assert "stats-band" in html
     assert "chart.js" in html  # vendored script tag
+    assert "Least-sampled sites" in html
 
 
 def test_statistics_site_page_renders_and_404s_for_unknown_site(
@@ -79,6 +80,8 @@ def test_statistics_site_page_renders_and_404s_for_unknown_site(
     html = response.get_data(as_text=True)
     assert "Old Barn" in html
     assert "Diversity index" in html
+    assert "Est. true richness" in html
+    assert "Sample coverage" in html
 
     missing_response = client.get("/statistics/sites/999999")
     assert missing_response.status_code == 404
