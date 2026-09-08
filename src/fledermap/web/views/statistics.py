@@ -56,7 +56,13 @@ def _series_json(series: object) -> dict[str, object]:
         "other_included": series.other_included,  # type: ignore[attr-defined]
         "single_species": series.single_species,  # type: ignore[attr-defined]
         "buckets": [
-            {("null" if k is None else k): v for k, v in bucket.items()}
+            # Every key must become a str, not just None -- Flask's
+            # DefaultJSONProvider has sort_keys=True, and json.dumps(...,
+            # sort_keys=True) raises TypeError comparing a str key ("null")
+            # against an int key (a taxon id) the moment a series mixes a
+            # real taxon breakdown with the Other/None bucket (caught live
+            # as a real 500 on /statistics, 2026-09-08).
+            {("null" if k is None else str(k)): v for k, v in bucket.items()}
             for bucket in series.buckets  # type: ignore[attr-defined]
         ],
     }
