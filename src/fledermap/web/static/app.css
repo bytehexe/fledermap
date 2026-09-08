@@ -531,6 +531,22 @@ button:disabled { cursor: default; opacity: 0.5; }
 /* Species/Site list + detail pages. */
 .entity-common-names { display: flex; gap: 1rem; color: var(--color-muted); font-size: 0.9rem; }
 
+/* Statistics dashboard: bands (macro-structure, tinted, no border) holding
+   cards (bordered, own header) only where 2+ widgets compare side by side --
+   see docs/superpowers/specs/2026-09-05-fledermap-statistics-design.md's
+   "Page layout" section for the exact band/card assignment per page. */
+.stats-band { background: var(--color-bg-subtle); border-radius: 6px; padding: 1rem; margin-bottom: 0.75rem; }
+.band-label { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.05em; color: var(--color-muted); text-transform: uppercase; margin-bottom: 0.6rem; }
+.stats-panel-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.75rem; }
+.stats-panel { background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.75rem; }
+.stats-panel-header { font-size: 0.85rem; font-weight: 600; margin-bottom: 0.5rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--color-border); }
+.stats-tiles { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+.stats-tile { flex: 1 1 140px; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.75rem; text-align: center; }
+.stats-tile .num { font-size: 1.4rem; font-weight: 700; color: var(--color-accent); }
+.stats-tile .label { font-size: 0.75rem; color: var(--color-muted); }
+.stats-caption { font-size: 0.8rem; color: var(--color-muted); margin: 0.4rem 0; }
+.stats-caption summary { cursor: pointer; }
+
 /* Recording details page (design spec 2026-09-01, section 3/4). */
 .detail-scroll {
   overflow-x: auto;

@@ -155,6 +155,20 @@ the right call over a plain `<ul>`.
 </table>
 ```
 
+### `.stats-band` / `.stats-panel` / `.stats-tile`
+
+Statistics dashboard layout (see the statistics design spec's "Page layout" section for the full
+rationale). `.stats-band` (tinted background, no border) groups a page's content into a handful
+of macro-sections, each labeled with `.band-label` (small bold/uppercase caption) rather than a
+full `<h2>`. `.stats-panel` (bordered, own `.stats-panel-header`) wraps an individual chart/list
+ONLY where a band holds 2+ widgets meant to be compared side by side — laid out via
+`.stats-panel-grid`'s responsive `auto-fit` grid, which adapts to however many cards a band
+actually has rather than assuming a fixed count. A band holding exactly one widget renders it
+directly (no redundant nested card). `.stats-tile` is a single stat number (a count), kept
+distinct from `.entity-list`'s table rows since it's one number, not a row of comparable fields.
+Never nest a bordered `.stats-panel` inside another `.stats-panel` — a card only ever nests
+inside a tinted, borderless band.
+
 ## Lists vs. tables
 
 Prefer a table (`.entity-list`, see above) over a bulleted `<ul>` once rows share two or more
