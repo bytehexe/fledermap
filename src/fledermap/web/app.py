@@ -18,6 +18,7 @@ from fledermap.web.views.map import views_bp
 from fledermap.web.views.media import media_bp
 from fledermap.web.views.recording_detail import recording_detail_bp
 from fledermap.web.views.sessions import sessions_bp
+from fledermap.web.views.statistics import statistics_bp
 
 
 def create_app(
@@ -65,4 +66,5 @@ def create_app(
     app.register_blueprint(sessions_bp)
     app.register_blueprint(recording_detail_bp)
     app.register_blueprint(entities_bp)
+    app.register_blueprint(statistics_bp)
     return app

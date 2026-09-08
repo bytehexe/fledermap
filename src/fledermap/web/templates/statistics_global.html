@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  {% include "_theme_init.html" %}
+  {% include "_favicon.html" %}
+  <title>Fledermap — Statistics</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+</head>
+<body>
+  {% include "_nav.html" %}
+  <main class="main-content">
+    <h1>Statistics</h1>
+
+    <div class="stats-band">
+      <div class="band-label">Overview</div>
+      <div class="stats-tiles">
+        <div class="stats-tile"><div class="num">{{ totals.total_recordings }}</div><div class="label">Recordings</div></div>
+        <div class="stats-tile"><div class="num">{{ totals.total_species }}</div><div class="label">Species</div></div>
+        <div class="stats-tile"><div class="num">{{ totals.total_sites }}</div><div class="label">Sites</div></div>
+      </div>
+    </div>
+
+    <div class="stats-band">
+      <div class="band-label">Species</div>
+      <div class="stats-panel-grid">
+        <div class="stats-panel">
+          <div class="stats-panel-header">Species composition</div>
+          <canvas id="species-donut" data-chart="donut"></canvas>
+          <details class="stats-caption"><summary>ⓘ</summary>Only recordings with a species-level result are counted; noise/no-ID/unidentified recordings are excluded, so this doesn't sum to the total recordings tile above.</details>
+        </div>
+        <div class="stats-panel">
+          <div class="stats-panel-header">Rarest species</div>
+          <table class="entity-list">
+            <tbody>
+              {% for entry in rarest.entries %}
+              <tr><td><a href="/species/{{ entry.taxon.id }}">{{ entry.taxon.scientific_name }}</a></td><td>{{ entry.count }}</td></tr>
+              {% else %}
+              <tr><td>No species detected yet.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="stats-panel">
+          <div class="stats-panel-header">Rarest unmapped codes</div>
+          <table class="entity-list">
+            <tbody>
+              {% for entry in rarest_codes.entries %}
+              <tr><td>{{ entry.code }}</td><td>{{ entry.count }}</td></tr>
+              {% else %}
+              <tr><td>No unmapped codes.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="stats-band">
+      <div class="band-label">Sites</div>
+      <div class="stats-panel-grid">
+        <div class="stats-panel">
+          <div class="stats-panel-header">Most species-rich sites</div>
+          <table class="entity-list">
+            <tbody>
+              {% for entry in richest_sites %}
+              <tr><td><a href="/sites/{{ entry.site.id }}">{{ entry.site.name or "Site #" ~ entry.site.id }}</a></td><td>richness {{ entry.richness }}, H {{ "%.2f"|format(entry.shannon) }}</td></tr>
+              {% else %}
+              <tr><td>No sites yet.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="stats-panel">
+          <div class="stats-panel-header">Most diverse sites (Shannon H)</div>
+          <table class="entity-list">
+            <tbody>
+              {% for entry in diverse_sites %}
+              <tr><td><a href="/sites/{{ entry.site.id }}">{{ entry.site.name or "Site #" ~ entry.site.id }}</a></td><td>H {{ "%.2f"|format(entry.shannon) }}, richness {{ entry.richness }}</td></tr>
+              {% else %}
+              <tr><td>No sites yet.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="stats-band">
+      <div class="band-label">Activity over time</div>
+      <div class="stats-panel-grid">
+        <div class="stats-panel">
+          <div class="stats-panel-header">Recordings per month</div>
+          <canvas id="month-line" data-chart="line"></canvas>
+          <details class="stats-caption"><summary>ⓘ</summary>Bucketed by calendar month, server time (UTC) -- not adjusted to any local timezone.</details>
+        </div>
+        <div class="stats-panel">
+          <div class="stats-panel-header">Recordings per hour of day</div>
+          <canvas id="hour-line" data-chart="line"></canvas>
+          <details class="stats-caption"><summary>ⓘ</summary>Hour of day, server time (UTC) -- not sunset-relative (see the backlogged "H:MM before/after sunset" feature).</details>
+        </div>
+      </div>
+    </div>
+
+    <script id="species-donut-data" type="application/json">{{ donut_json | safe }}</script>
+    <script id="month-line-data" type="application/json">{{ month_json | safe }}</script>
+    <script id="hour-line-data" type="application/json">{{ hour_json | safe }}</script>
+  </main>
+
+  <script src="{{ url_for('vendor.static', filename='chart.js') }}"></script>
+  <script src="{{ url_for('static', filename='marker_colors.js') }}"></script>
+  <script src="{{ url_for('static', filename='statistics_charts.js') }}"></script>
+  <script src="{{ url_for('static', filename='statistics.js') }}"></script>
+</body>
+</html>
