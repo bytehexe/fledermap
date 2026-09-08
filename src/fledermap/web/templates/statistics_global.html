@@ -102,9 +102,9 @@
       </div>
     </div>
 
-    <script id="species-donut-data" type="application/json">{{ donut_json | safe }}</script>
-    <script id="month-line-data" type="application/json">{{ month_json | safe }}</script>
-    <script id="hour-line-data" type="application/json">{{ hour_json | safe }}</script>
+    <script id="species-donut-data" type="application/json">{{ donut | tojson }}</script>
+    <script id="month-line-data" type="application/json">{{ month | tojson }}</script>
+    <script id="hour-line-data" type="application/json">{{ hour | tojson }}</script>
   </main>
 
   <script src="{{ url_for('vendor.static', filename='chart.js') }}"></script>

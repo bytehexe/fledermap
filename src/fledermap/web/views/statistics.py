@@ -4,8 +4,6 @@ sessions.py/recording_detail.py/entities.py."""
 
 from __future__ import annotations
 
-import json
-
 import flask
 from sqlalchemy.orm import Session as OrmSession
 
@@ -71,12 +69,12 @@ def global_statistics_page() -> flask.Response:
         html = flask.render_template(
             "statistics_global.html",
             totals=global_totals,
-            donut_json=json.dumps(_breakdown_json(donut)),
+            donut=_breakdown_json(donut),
             rarest=rarest,
             rarest_codes=rarest_codes,
             richest_sites=richest_sites.entries,
             diverse_sites=diverse_sites.entries,
-            month_json=json.dumps(_series_json(month_series)),
-            hour_json=json.dumps(_series_json(hour_series)),
+            month=_series_json(month_series),
+            hour=_series_json(hour_series),
         )
     return flask.make_response(html)
