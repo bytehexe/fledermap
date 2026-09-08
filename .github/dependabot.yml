@@ -1,0 +1,17 @@
+version: 2
+updates:
+  # fledermap is a CLI app (installed via pipx/pip, not imported as a
+  # library by other projects) -- versioning-strategy: increase, per
+  # Janna's own stated rule (increase for apps, widen for libraries).
+  - package-ecosystem: "pip"
+    directory: "/"
+    versioning-strategy: increase
+    schedule:
+      interval: "weekly"
+  # Keeps the SHA pins in .github/workflows/*.yml current (and their
+  # trailing "# vX" comments, which Dependabot updates in the same PR) --
+  # see release.yml's own commit for why they're pinned at all.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
