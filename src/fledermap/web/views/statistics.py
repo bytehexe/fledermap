@@ -7,6 +7,7 @@ from __future__ import annotations
 import flask
 from sqlalchemy.orm import Session as OrmSession
 
+from fledermap.services.map_query import site_detail
 from fledermap.services.statistics import (
     rarest_species,
     rarest_unmapped_codes,
@@ -16,6 +17,8 @@ from fledermap.services.statistics import (
     site_diversity,
     totals,
 )
+from fledermap.store.geo import decode_point
+from fledermap.web.params import fallback_site_label
 
 statistics_bp = flask.Blueprint(
     "statistics",
@@ -74,6 +77,37 @@ def global_statistics_page() -> flask.Response:
             rarest_codes=rarest_codes,
             richest_sites=richest_sites.entries,
             diverse_sites=diverse_sites.entries,
+            month=_series_json(month_series),
+            hour=_series_json(hour_series),
+        )
+    return flask.make_response(html)
+
+
+@statistics_bp.get("/statistics/sites/<int:site_id>")
+def site_statistics_page(site_id: int) -> flask.Response:
+    engine = flask.current_app.config["ENGINE"]
+    with OrmSession(engine) as session:
+        site_info = site_detail(session, site_id)
+        if site_info is None:
+            flask.abort(404)
+        label = (
+            site_info.site.name
+            if site_info.site.name
+            else fallback_site_label(decode_point(site_info.site.centroid))
+        )
+        site_totals = totals(session, site_id=site_id)
+        diversity = site_diversity(session, site_id=site_id).entries[0]
+        donut = recording_counts_by_taxon(session, site_id=site_id)
+        month_series = recording_counts_by_month(session, site_id=site_id)
+        hour_series = recording_counts_by_hour(session, site_id=site_id)
+
+        html = flask.render_template(
+            "statistics_site.html",
+            site=site_info.site,
+            label=label,
+            totals=site_totals,
+            diversity=diversity,
+            donut=_breakdown_json(donut),
             month=_series_json(month_series),
             hour=_series_json(hour_series),
         )

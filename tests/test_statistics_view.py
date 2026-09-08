@@ -5,11 +5,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from geoalchemy2.elements import WKTElement
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import IdSource, Verdict
-from fledermap.store.models import Identification, Recording, Taxon
+from fledermap.store.models import Identification, Recording, Site, Taxon
 from fledermap.web.app import create_app
 
 pytestmark = pytest.mark.db
@@ -50,3 +51,34 @@ def test_statistics_global_page_renders_stat_tiles_and_chart_data(
     assert "Eptesicus serotinus" in html  # embedded in the donut's JSON data
     assert "stats-band" in html
     assert "chart.js" in html  # vendored script tag
+
+
+def test_statistics_site_page_renders_and_404s_for_unknown_site(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        site = Site(
+            centroid=WKTElement("POINT(10 50)", srid=4326),
+            radius_m=50.0,
+            recording_count=1,
+            first_at=datetime(2026, 8, 25, tzinfo=UTC),
+            last_at=datetime(2026, 8, 25, tzinfo=UTC),
+            name="Old Barn",
+        )
+        session.add(site)
+        session.commit()
+        site_id = site.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    response = client.get(f"/statistics/sites/{site_id}")
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert "Old Barn" in html
+    assert "Diversity index" in html
+
+    missing_response = client.get("/statistics/sites/999999")
+    assert missing_response.status_code == 404
