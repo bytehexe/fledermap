@@ -519,14 +519,17 @@ button:disabled { cursor: default; opacity: 0.5; }
 }
 .stacked-form textarea { min-height: 4.5rem; resize: vertical; }
 .stacked-form button { margin-top: 0.2rem; }
-#sessions-table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
-#sessions-table th, #sessions-table td {
+#sessions-table, .entity-list { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+#sessions-table th, #sessions-table td, .entity-list th, .entity-list td {
   text-align: left;
   padding: 0.4rem 0.6rem;
   border-bottom: 1px solid var(--color-border);
   font-size: 0.9rem;
 }
 #sessions-pagination { display: flex; justify-content: center; gap: 0.5rem; margin-top: 0.75rem; }
+
+/* Species/Site list + detail pages. */
+.entity-common-names { display: flex; gap: 1rem; color: var(--color-muted); font-size: 0.9rem; }
 
 /* Recording details page (design spec 2026-09-01, section 3/4). */
 .detail-scroll {

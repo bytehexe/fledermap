@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  {% include "_theme_init.html" %}
+  {% include "_favicon.html" %}
+  <title>Fledermap — Sites</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+</head>
+<body>
+  {% include "_nav.html" %}
+  <main class="main-content">
+    <h1>Sites</h1>
+    <table class="entity-list">
+      <thead>
+        <tr>
+          <th>Site</th>
+          <th>Location</th>
+          <th>Recordings</th>
+          <th>Last active</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for site, label in rows %}
+        <tr>
+          <td><a href="/sites/{{ site.id }}">{{ label }}</a></td>
+          <td>{{ site.admin_path or "" }}</td>
+          <td>{{ site.recording_count }}</td>
+          <td>{{ site.last_at.strftime('%Y-%m-%d') }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4">No sites derived yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </main>
+</body>
+</html>

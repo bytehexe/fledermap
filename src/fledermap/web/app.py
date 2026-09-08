@@ -13,6 +13,7 @@ from sqlalchemy import Engine
 from fledermap.services.current_best import identification_label, recording_headline
 from fledermap.web.api.geojson import api_bp
 from fledermap.web.params import detector_label
+from fledermap.web.views.entities import entities_bp
 from fledermap.web.views.map import views_bp
 from fledermap.web.views.media import media_bp
 from fledermap.web.views.recording_detail import recording_detail_bp
@@ -63,4 +64,5 @@ def create_app(
     app.register_blueprint(media_bp)
     app.register_blueprint(sessions_bp)
     app.register_blueprint(recording_detail_bp)
+    app.register_blueprint(entities_bp)
     return app

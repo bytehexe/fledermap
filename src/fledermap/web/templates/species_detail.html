@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  {% include "_theme_init.html" %}
+  {% include "_favicon.html" %}
+  <title>Fledermap — {{ detail.taxon.scientific_name }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+</head>
+<body>
+  {% include "_nav.html" %}
+  <main class="main-content">
+    <p><a href="/species">← All species</a></p>
+    <h1>{{ detail.taxon.scientific_name }}</h1>
+    <p class="entity-common-names">
+      {% if detail.taxon.common_name_en %}<span>EN: {{ detail.taxon.common_name_en }}</span>{% endif %}
+      {% if detail.taxon.common_name_de %}<span>DE: {{ detail.taxon.common_name_de }}</span>{% endif %}
+    </p>
+    <p>Rank: {{ detail.taxon.rank }}</p>
+    {% if detail.codes %}
+    <p>Codes: {{ detail.codes | join(", ") }}</p>
+    {% endif %}
+
+    <div class="panel-columns">
+      <div class="col">
+        <h2>Sites</h2>
+        <ul>
+          {% for site, count in detail.sites %}
+          <li><a href="/sites/{{ site.id }}">{{ site.name or "Site #" ~ site.id }}</a>: {{ count }}</li>
+          {% else %}
+          <li>No sites recorded yet.</li>
+          {% endfor %}
+        </ul>
+      </div>
+      <div class="col">
+        <h2>Recent recordings</h2>
+        <ul>
+          {% for recording in detail.recent_recordings %}
+          <li>
+            <a href="/recordings/{{ recording.audio_hash }}?return_to=/species/{{ detail.taxon.id }}">
+              {{ recording.recorded_at.strftime('%Y-%m-%d %H:%M') }}
+            </a>
+          </li>
+          {% else %}
+          <li>No recordings yet.</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </main>
+</body>
+</html>

@@ -72,6 +72,20 @@ Roughly a pipeline, each stage its own top-level package under `src/fledermap/`:
 `db-restore.sh` (see "Database" below) — never part of the built wheel; see the `scripts/` bullet
 under "Environment gotchas" before assuming CLI-adjacent code belongs there.
 
+## Drawer/detail-page feature parity
+
+Whatever a map-drawer panel shows for an entity (a site, a species, once such things exist) must
+also be present on that entity's own standalone details page — unless the feature is clearly
+map-related (e.g. "Show only this site" on the map) or the user has explicitly said otherwise for
+that specific case. The drawer and the details page are two views onto the same entity, not two
+independently-scoped feature sets; a reader who lands on the details page (a shared link, a
+search result) shouldn't see less than someone who opened the drawer from the map. This doesn't
+require the two to share markup/templates — `services/entities.py`'s `species_detail` and the
+`site_detail`/`_site_panel.html` drawer route are deliberately independent query paths/templates
+even though they render the same content today, precisely so the details page can grow features
+beyond what the drawer needs without the two staying coupled; it means matching *feature
+coverage*, not implementation.
+
 ## Environment gotchas
 
 - **Docker is blocked by the command sandbox.** Any `db`-marked test (testcontainers + PostGIS)

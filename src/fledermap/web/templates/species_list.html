@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  {% include "_theme_init.html" %}
+  {% include "_favicon.html" %}
+  <title>Fledermap — Species</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+</head>
+<body>
+  {% include "_nav.html" %}
+  <main class="main-content">
+    <h1>Species</h1>
+    <table class="entity-list">
+      <thead>
+        <tr>
+          <th>Species</th>
+          <th>Code</th>
+          <th>Recordings</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td>
+            <a href="/species/{{ row.taxon.id }}">{{ row.taxon.scientific_name }}</a>
+            {% if row.taxon.common_name_en %} — {{ row.taxon.common_name_en }}{% endif %}
+          </td>
+          <td>{{ row.code or "" }}</td>
+          <td>{{ row.recording_count }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3">No species detected yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </main>
+</body>
+</html>
