@@ -10,7 +10,6 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import IdSource, Verdict
-from fledermap.services.map_query import MAX_FEATURES
 from fledermap.store.models import Identification, Recording, Site, Taxon
 from fledermap.web.app import create_app
 
@@ -249,7 +248,19 @@ def test_recordings_geojson_to_date_includes_the_whole_selected_day(
 def test_recordings_geojson_caps_at_max_features_and_reports_truncated(
     engine: Engine,
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Monkeypatched down rather than scaled to the real MAX_FEATURES: this
+    # only needs to prove the cap+truncated-flag mechanism works, and
+    # shouldn't get slower every time that production tuning knob is
+    # raised. `web.api.geojson`'s own `from ... import MAX_FEATURES` binding
+    # is what actually needs patching -- monkeypatching map_query's copy
+    # wouldn't reach the already-imported name here.
+    import fledermap.web.api.geojson as geojson_module
+
+    monkeypatch.setattr(geojson_module, "MAX_FEATURES", 3)
+    page_size = geojson_module.MAX_FEATURES
+
     with OrmSession(engine) as session:
         taxon = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
         session.add(taxon)
@@ -262,7 +273,7 @@ def test_recordings_geojson_caps_at_max_features_and_reports_truncated(
                 recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
                 geom=WKTElement("POINT(10 50)", srid=4326),
             )
-            for i in range(MAX_FEATURES + 1)
+            for i in range(page_size + 1)
         ]
         session.add_all(recordings)
         session.flush()
@@ -284,7 +295,40 @@ def test_recordings_geojson_caps_at_max_features_and_reports_truncated(
     response = client.get("/api/recordings.geojson")
 
     body = response.get_json()
-    assert len(body["features"]) == MAX_FEATURES
+    assert len(body["features"]) == page_size
+    assert body["truncated"] is True
+
+
+def test_sites_geojson_caps_at_max_features_and_reports_truncated(
+    engine: Engine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import fledermap.web.api.geojson as geojson_module
+
+    monkeypatch.setattr(geojson_module, "MAX_FEATURES", 3)
+    page_size = geojson_module.MAX_FEATURES
+
+    with OrmSession(engine) as session:
+        session.add_all(
+            [
+                Site(
+                    centroid=WKTElement("POINT(10 50)", srid=4326),
+                    radius_m=50.0,
+                    recording_count=1,
+                    first_at=datetime(2026, 8, 25, tzinfo=UTC),
+                    last_at=datetime(2026, 8, 25, tzinfo=UTC),
+                )
+                for _ in range(page_size + 1)
+            ],
+        )
+        session.commit()
+
+    client = _app_client(engine, tmp_path)
+    response = client.get("/api/sites.geojson")
+
+    body = response.get_json()
+    assert len(body["features"]) == page_size
     assert body["truncated"] is True
 
 

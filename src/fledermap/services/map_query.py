@@ -34,12 +34,27 @@ from fledermap.store.geo import decode_point
 from fledermap.store.models import Identification, Recording, Site, Taxon
 from fledermap.store.models import Session as AnnotationSession
 
-# This project's own established "tens to low thousands" scale assumption
-# (see module docstring) makes true server-side, zoom-aware clustering
-# unnecessary -- Leaflet.markercluster already declutters client-side (design
-# spec section 6/P4-7). Over the cap, callers report `truncated: True` rather
-# than a partial-and-silent result.
-MAX_FEATURES = 2000
+# The original 2000 (design spec P4-7) was a design-time guess ("this
+# project's own established 'tens to low thousands' scale assumption"), not
+# a measurement -- and a real archive turned out to reach "low thousands" of
+# RECORDINGS from a handful of SESSIONS, not the tens-to-thousands the guess
+# actually meant (Janna, 2026-09-08). Raised to 10,000 based on real
+# research instead: Leaflet.markercluster's own documented examples handle
+# 10,000-50,000 points comfortably in Chrome, and that's WITH the
+# unclustered-marker style (SVG pins) that's slower than what this project
+# already uses (L.circleMarker, per app.js) -- the commonly-cited
+# "performance gets rough" range (1,000-10,000) is specifically for
+# unclustered markers, not this setup.
+# (https://github.com/Leaflet/Leaflet.markercluster/issues/278,
+# https://github.com/rstudio/leaflet/issues/246). True server-side,
+# zoom-aware clustering is still unnecessary -- Leaflet.markercluster
+# already declutters client-side. The map also now sends its current
+# viewport as `bbox` on pan/zoom (app.js), which keeps a typical fetch far
+# below this ceiling regardless of total archive size -- this cap is a
+# backstop for a single very-zoomed-out fetch, not the normal case. Over
+# the cap, callers report `truncated: True` rather than a partial-and-silent
+# result -- surfaced in the map's UI as a warning banner (app.js).
+MAX_FEATURES = 10000
 
 BBox = tuple[float, float, float, float]  # (min_lon, min_lat, max_lon, max_lat)
 
@@ -84,7 +99,16 @@ def filtered_recordings(
     source: IdSource | None = None,
     favourite_only: bool = False,
 ) -> Sequence[Recording]:
-    stmt = select(Recording).where(Recording.missing_since.is_(None))
+    # Most-recent-first: without an explicit order, Postgres returns rows in
+    # an undefined order, and the GeoJSON API's [:MAX_FEATURES] slice
+    # (web/api/geojson.py) would then silently drop an ARBITRARY subset once
+    # a filtered result exceeds the cap -- not even "oldest" or "newest".
+    # Matches the sessions list's own precedent (started_at desc).
+    stmt = (
+        select(Recording)
+        .where(Recording.missing_since.is_(None))
+        .order_by(Recording.recorded_at.desc())
+    )
     if date_from is not None:
         stmt = stmt.where(Recording.recorded_at >= date_from)
     if date_to is not None:
@@ -167,7 +191,9 @@ def filtered_sites(
     date_to: datetime | None = None,
     site_id: int | None = None,
 ) -> Sequence[Site]:
-    stmt = select(Site)
+    # Same reasoning as filtered_recordings above -- most-recently-active
+    # first, deterministically, instead of an undefined DB order.
+    stmt = select(Site).order_by(Site.last_at.desc())
     if date_from is not None:
         stmt = stmt.where(Site.last_at >= date_from)
     if date_to is not None:

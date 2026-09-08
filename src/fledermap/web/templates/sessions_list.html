@@ -70,6 +70,31 @@
           {% endfor %}
         </tbody>
       </table>
+      <!-- Real pagination (MAX_SESSIONS=200 per page) instead of the old
+           silent whole-list cap -- see services/sessions.py's SessionsPage.
+           Disabled, not hidden, at each boundary (style guide's "UI
+           elements are disabled, never hidden" rule) -- a <button> rather
+           than <a> since these trigger the same htmx swap the filter form
+           above uses, not a real navigation. -->
+      {% set base_qs = "detector=" ~ (detector | urlencode) ~ "&from=" ~ (date_from | urlencode) ~ "&to=" ~ (date_to | urlencode) ~ "&open_proposals=" ~ ("1" if open_only else "") %}
+      <div class="pagination" id="sessions-pagination">
+        <button
+          type="button"
+          {% if offset == 0 %}disabled{% endif %}
+          hx-get="/sessions?{{ base_qs }}&offset={{ prev_offset }}"
+          hx-target="#sessions-table-wrapper"
+          hx-select="#sessions-table-wrapper"
+          hx-push-url="true"
+        >← Newer</button>
+        <button
+          type="button"
+          {% if not has_more %}disabled{% endif %}
+          hx-get="/sessions?{{ base_qs }}&offset={{ next_offset }}"
+          hx-target="#sessions-table-wrapper"
+          hx-select="#sessions-table-wrapper"
+          hx-push-url="true"
+        >Older →</button>
+      </div>
     </div>
   </main>
   <script src="{{ url_for('vendor.static', filename='htmx.min.js') }}"></script>

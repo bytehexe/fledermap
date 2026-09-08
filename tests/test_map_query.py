@@ -442,6 +442,56 @@ def test_filtered_recordings_by_site(engine: Engine) -> None:
         assert {r.audio_hash for r in results} == {"a" * 64}
 
 
+def test_filtered_recordings_orders_most_recent_first(engine: Engine) -> None:
+    # No ORDER BY means Postgres returns rows in an undefined order -- the
+    # GeoJSON API's [:MAX_FEATURES] slice (web/api/geojson.py) would then
+    # silently drop an ARBITRARY subset once a filtered result exceeds the
+    # cap, not even "oldest" or "newest". Deterministic, most-recent-first
+    # order matches the sessions list's own precedent (started_at desc).
+    with OrmSession(engine) as session:
+        older = _recording(
+            session,
+            audio_hash="a" * 64,
+            recorded_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+        newer = _recording(
+            session,
+            audio_hash="b" * 64,
+            recorded_at=datetime(2026, 6, 1, tzinfo=UTC),
+        )
+        session.add_all([older, newer])
+        session.commit()
+
+        results = filtered_recordings(session, verdict="all")
+
+    assert [r.audio_hash for r in results] == ["b" * 64, "a" * 64]
+
+
+def test_filtered_sites_orders_most_recently_active_first(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        older = Site(
+            centroid=WKTElement("POINT(10 50)", srid=4326),
+            radius_m=100.0,
+            recording_count=1,
+            first_at=datetime(2026, 1, 1, tzinfo=UTC),
+            last_at=datetime(2026, 1, 2, tzinfo=UTC),
+        )
+        newer = Site(
+            centroid=WKTElement("POINT(10 50)", srid=4326),
+            radius_m=100.0,
+            recording_count=1,
+            first_at=datetime(2026, 6, 1, tzinfo=UTC),
+            last_at=datetime(2026, 6, 2, tzinfo=UTC),
+        )
+        session.add_all([older, newer])
+        session.commit()
+        older_id, newer_id = older.id, newer.id
+
+        results = filtered_sites(session)
+
+    assert [s.id for s in results] == [newer_id, older_id]
+
+
 def test_filtered_sites_by_id(engine: Engine) -> None:
     with OrmSession(engine) as session:
         wanted = Site(

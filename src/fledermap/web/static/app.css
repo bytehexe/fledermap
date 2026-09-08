@@ -261,6 +261,11 @@ button:disabled { cursor: default; opacity: 0.5; }
   border-radius: 999px;
   font-size: 0.85rem;
 }
+.truncation-warning {
+  margin: 0.4rem 1rem;
+  font-size: 0.85rem;
+  color: var(--color-warning);
+}
 
 [x-cloak] { display: none !important; }
 
@@ -521,6 +526,7 @@ button:disabled { cursor: default; opacity: 0.5; }
   border-bottom: 1px solid var(--color-border);
   font-size: 0.9rem;
 }
+#sessions-pagination { display: flex; justify-content: center; gap: 0.5rem; margin-top: 0.75rem; }
 
 /* Recording details page (design spec 2026-09-01, section 3/4). */
 .detail-scroll {

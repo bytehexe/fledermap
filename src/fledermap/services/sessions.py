@@ -113,6 +113,16 @@ def open_proposal_session_ids(db_session: OrmSession) -> set[int]:
     return set(a_ids) | set(b_ids)
 
 
+@dataclass(frozen=True)
+class SessionsPage:
+    """One page of `filtered_sessions` -- `has_more` answers "is there
+    another page past this one" without a separate COUNT query (see
+    `filtered_sessions`'s own `limit(MAX_SESSIONS + 1)` below)."""
+
+    rows: Sequence[SessionListRow]
+    has_more: bool
+
+
 def filtered_sessions(
     db_session: OrmSession,
     *,
@@ -121,7 +131,8 @@ def filtered_sessions(
     date_to: datetime | None = None,
     open_proposals_only: bool = False,
     open_ids: set[int] | None = None,
-) -> Sequence[SessionListRow]:
+    offset: int = 0,
+) -> SessionsPage:
     stmt = select(AnnotationSession).order_by(AnnotationSession.started_at.desc())
     if detector:
         # A literal `%`/`_` in user input is otherwise interpreted as an
@@ -138,13 +149,17 @@ def filtered_sessions(
         if open_ids is None:
             open_ids = open_proposal_session_ids(db_session)
         if not open_ids:
-            return []
+            return SessionsPage(rows=[], has_more=False)
         stmt = stmt.where(AnnotationSession.id.in_(open_ids))
-    stmt = stmt.limit(MAX_SESSIONS)
+    # Fetch one row past the page size -- its presence alone answers
+    # `has_more` (below) without a second COUNT query.
+    stmt = stmt.offset(offset).limit(MAX_SESSIONS + 1)
 
     sessions = list(db_session.scalars(stmt).all())
+    has_more = len(sessions) > MAX_SESSIONS
+    sessions = sessions[:MAX_SESSIONS]
     if not sessions:
-        return []
+        return SessionsPage(rows=[], has_more=False)
 
     session_ids = [s.id for s in sessions]
     counts: dict[int, int] = {}
@@ -155,9 +170,10 @@ def filtered_sessions(
     ):
         if session_id is not None:
             counts[session_id] = count
-    return [
+    rows = [
         SessionListRow(session=s, recording_count=counts.get(s.id, 0)) for s in sessions
     ]
+    return SessionsPage(rows=rows, has_more=has_more)
 
 
 @dataclass(frozen=True)

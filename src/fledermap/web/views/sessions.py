@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session as OrmSession
 from fledermap.domain.codes import VisualSighting
 from fledermap.services.current_best import current_best_identification
 from fledermap.services.sessions import (
+    MAX_SESSIONS,
     AlreadyResolvedError,
     MergeConflictError,
     ProposalNotFoundError,
@@ -23,7 +24,7 @@ from fledermap.services.sessions import (
 )
 from fledermap.store.models import Session as AnnotationSession
 from fledermap.store.models import Taxon
-from fledermap.web.params import parse_datetime
+from fledermap.web.params import parse_datetime, parse_int
 
 sessions_bp = flask.Blueprint(
     "sessions",
@@ -40,6 +41,10 @@ def sessions_list_page() -> flask.Response:
     try:
         date_from = parse_datetime(from_raw)
         date_to = parse_datetime(to_raw, end_of_day=True)
+        # Negative clamps to 0 rather than erroring: a hand-edited/stale
+        # "Prev" link (e.g. after the underlying data shrank) should land on
+        # page 1, not 400.
+        offset = max(0, parse_int(flask.request.args.get("offset")) or 0)
     except ValueError as exc:
         return flask.make_response((str(exc), 400))
     open_only = flask.request.args.get("open_proposals") == "1"
@@ -47,17 +52,18 @@ def sessions_list_page() -> flask.Response:
     engine = flask.current_app.config["ENGINE"]
     with OrmSession(engine) as session:
         open_ids = open_proposal_session_ids(session)
-        rows = filtered_sessions(
+        page = filtered_sessions(
             session,
             detector=detector,
             date_from=date_from,
             date_to=date_to,
             open_proposals_only=open_only,
             open_ids=open_ids,
+            offset=offset,
         )
         html = flask.render_template(
             "sessions_list.html",
-            rows=rows,
+            rows=page.rows,
             open_ids=open_ids,
             detectors=list_detectors(session),
             detector=detector or "",
@@ -65,6 +71,10 @@ def sessions_list_page() -> flask.Response:
             date_to=to_raw,
             open_only=open_only,
             open_proposal_count=count_open_proposals(session),
+            offset=offset,
+            has_more=page.has_more,
+            prev_offset=max(0, offset - MAX_SESSIONS),
+            next_offset=offset + MAX_SESSIONS,
         )
     return flask.make_response(html)
 

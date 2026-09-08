@@ -68,6 +68,14 @@
       Site filter active
       <button type="button" @click="fledermapFilterBySite('')">×</button>
     </span>
+    <!-- The GeoJSON API's own `truncated` flag (services/map_query.py's
+         MAX_FEATURES cap) previously computed but never surfaced -- see
+         app.js's updateTruncationWarning. Starts hidden; toggled via
+         .hidden (never inline style), per the project's existing
+         convention. -->
+    <p id="truncation-warning" class="truncation-warning" hidden>
+      Showing the first {{ "{:,}".format(max_features) }} matching results — narrow the filters or zoom in to see the rest.
+    </p>
 
     <div id="map"></div>
 
@@ -90,6 +98,7 @@
   <script src="{{ url_for('vendor.static', filename='alpine.min.js') }}" defer></script>
   <script src="{{ url_for('static', filename='audio_controls.js') }}"></script>
   <script src="{{ url_for('static', filename='marker_colors.js') }}"></script>
+  <script src="{{ url_for('static', filename='map_viewport.js') }}"></script>
   <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>

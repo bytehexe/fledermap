@@ -21,6 +21,7 @@ from fledermap.services.manual_classification import (
     set_manual_classification,
 )
 from fledermap.services.map_query import (
+    MAX_FEATURES,
     filtered_recordings,
     has_unmapped_species,
     list_sessions,
@@ -53,6 +54,7 @@ def map_page() -> str:
             taxa=list_taxa(session),
             sessions=list_sessions(session),
             has_unmapped_species=has_unmapped_species(session),
+            max_features=MAX_FEATURES,
         )
 
 

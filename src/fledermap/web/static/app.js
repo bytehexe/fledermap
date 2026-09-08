@@ -83,6 +83,32 @@ document.addEventListener("DOMContentLoaded", () => {
     return params;
   }
 
+  // A CLONE of `params` with the map's current viewport appended as `bbox`
+  // -- never mutates the caller's own params object, and deliberately never
+  // used by buildUrl()/pushUrl() below: bbox is a live viewport artifact,
+  // not a filter the user consciously set, and pushing a new history entry
+  // on every pan/zoom (or sharing a URL that "freezes" the sender's own
+  // viewport) would both be wrong. Used only right before a fetch that
+  // should be scoped to what's currently on screen (refresh() and the
+  // moveend/zoomend listener below) -- NOT the initial load or a
+  // popstate-restore, which deliberately fetch everything matching the
+  // filters and then fit the view to it (see the file header comment and
+  // fitToVisible() below).
+  function withViewportBbox(params) {
+    const withBbox = new URLSearchParams(params);
+    const bounds = map.getBounds();
+    withBbox.set(
+      "bbox",
+      bboxParam({
+        west: bounds.getWest(),
+        south: bounds.getSouth(),
+        east: bounds.getEast(),
+        north: bounds.getNorth(),
+      }),
+    );
+    return withBbox;
+  }
+
   // Which drawer panel (if any) is currently open, so URL syncing knows
   // what to encode alongside the filters.
   let openPanel = null; // null | { kind: "recording", id: <hash> } | { kind: "site", id: <site id> }
@@ -105,6 +131,18 @@ document.addEventListener("DOMContentLoaded", () => {
   const recordingLayersByHash = new Map();
   let highlightedRecordingLayer = null;
 
+  // Whether the MOST RECENT fetch of each layer reported `truncated: true`
+  // (services/map_query.py's MAX_FEATURES cap) -- tracked separately since
+  // recordings/sites fetch independently (see refreshLayers below), and
+  // shown as one shared warning the moment either one truncates.
+  let recordingsTruncated = false;
+  let sitesTruncated = false;
+
+  function updateTruncationWarning() {
+    const warning = document.getElementById("truncation-warning");
+    warning.hidden = !(recordingsTruncated || sitesTruncated);
+  }
+
   async function refreshRecordings(params) {
     let response;
     try {
@@ -118,6 +156,8 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
     const recordingsData = await response.json();
+    recordingsTruncated = Boolean(recordingsData.truncated);
+    updateTruncationWarning();
     recordingsLayer.clearLayers();
     recordingLayersByHash.clear();
     highlightedRecordingLayer = null;
@@ -175,6 +215,8 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
     const sitesData = await response.json();
+    sitesTruncated = Boolean(sitesData.truncated);
+    updateTruncationWarning();
     sitesLayer.clearLayers();
     L.geoJSON(sitesData, {
       pointToLayer: (feature, latlng) =>
@@ -252,11 +294,24 @@ document.addEventListener("DOMContentLoaded", () => {
   // re-fit the map -- see the file header comment.
   function refresh() {
     const params = query();
-    void refreshLayers(params);
+    void refreshLayers(withViewportBbox(params));
     pushUrl();
   }
 
   document.getElementById("filters").addEventListener("input", refresh);
+
+  // Pan/zoom: refetch scoped to the new viewport, debounced so a drag-pan
+  // (many intermediate `move` frames -- `moveend` itself only fires once
+  // the gesture settles, but a fast series of discrete zoom/pan actions can
+  // still fire several moveend/zoomend events close together) coalesces
+  // into one fetch. Deliberately does NOT call pushUrl() (panning isn't a
+  // "filter change" worth a back-button stop) or fitToVisible() (that
+  // would fight the user's own just-made pan/zoom, and could also loop:
+  // fitBounds() itself fires moveend).
+  const refreshViewport = debounce(() => {
+    void refreshLayers(withViewportBbox(query()));
+  }, 300);
+  map.on("moveend zoomend", refreshViewport);
 
   const drawer = document.getElementById("drawer");
   const mapEl = document.getElementById("map");

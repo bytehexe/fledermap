@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -189,6 +190,86 @@ def test_sessions_list_empty_state(engine: Engine, tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert "No sessions match" in response.get_data(as_text=True)
+
+
+def test_sessions_list_pagination_buttons_disabled_at_start(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        session.add(
+            AnnotationSession(
+                started_at=datetime(2026, 8, 21, tzinfo=UTC),
+                ended_at=datetime(2026, 8, 21, tzinfo=UTC),
+                detector_key="EMT\x1f1",
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    response = client.get("/sessions")
+    html = response.get_data(as_text=True)
+
+    assert '<div class="pagination" id="sessions-pagination">' in html
+    # At offset 0 there's no earlier page -- "← Newer" is disabled
+    # regardless of how much data exists (has_more, which gates "Older →",
+    # is covered separately by the offset test below).
+    assert re.search(r"disabled[^>]*>← Newer</button>", html, re.DOTALL)
+
+
+def test_sessions_list_offset_shows_the_next_page(
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import fledermap.services.sessions as sessions_module
+
+    monkeypatch.setattr(sessions_module, "MAX_SESSIONS", 1)
+    with OrmSession(engine) as session:
+        session.add(
+            AnnotationSession(
+                started_at=datetime(2026, 8, 20, tzinfo=UTC),
+                ended_at=datetime(2026, 8, 20, tzinfo=UTC),
+                detector_key="OLDER\x1f1",
+            ),
+        )
+        session.add(
+            AnnotationSession(
+                started_at=datetime(2026, 8, 22, tzinfo=UTC),
+                ended_at=datetime(2026, 8, 22, tzinfo=UTC),
+                detector_key="NEWER\x1f1",
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    first_page = client.get("/sessions").get_data(as_text=True)
+    second_page = client.get("/sessions?offset=1").get_data(as_text=True)
+
+    # Not "NEWER"/"OLDER" -- both detector labels also appear in the filter
+    # form's <select> regardless of pagination (it lists every known
+    # detector, not just what's on the current page). The row dates are
+    # unique to each session's actual table row.
+    assert "2026-08-22" in first_page
+    assert "2026-08-20" not in first_page
+    assert "2026-08-20" in second_page
+    assert "2026-08-22" not in second_page
+
+
+def test_sessions_list_negative_offset_clamps_to_zero(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    response = client.get("/sessions?offset=-5")
+
+    assert response.status_code == 200
 
 
 def test_sessions_list_bad_date_returns_400(engine: Engine, tmp_path: Path) -> None:

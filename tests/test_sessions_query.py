@@ -34,7 +34,7 @@ def test_filtered_sessions_orders_newest_first(engine: Engine) -> None:
         session.add(_session("EMT\x1f1", base.replace(day=25), base.replace(day=25)))
         session.commit()
 
-        rows = filtered_sessions(session)
+        rows = filtered_sessions(session).rows
         assert [row.session.started_at.day for row in rows] == [25, 20]
 
 
@@ -45,7 +45,7 @@ def test_filtered_sessions_by_detector_substring(engine: Engine) -> None:
         session.add(_session("Kaleidoscope\x1f2", base, base))
         session.commit()
 
-        rows = filtered_sessions(session, detector="EMT")
+        rows = filtered_sessions(session, detector="EMT").rows
         assert len(rows) == 1
         assert rows[0].session.detector_key == "EMT\x1f1"
 
@@ -64,7 +64,7 @@ def test_filtered_sessions_detector_percent_is_escaped_not_a_wildcard(
         session.add(_session("Kaleidoscope\x1f2", base, base))
         session.commit()
 
-        rows = filtered_sessions(session, detector="%")
+        rows = filtered_sessions(session, detector="%").rows
         assert rows == []
 
 
@@ -75,7 +75,7 @@ def test_filtered_sessions_by_date_range(engine: Engine) -> None:
         session.add(_session("EMT\x1f1", base.replace(day=1), base.replace(day=1)))
         session.commit()
 
-        rows = filtered_sessions(session, date_from=base.replace(day=10))
+        rows = filtered_sessions(session, date_from=base.replace(day=10)).rows
         assert len(rows) == 1
         assert rows[0].session.started_at.day == 20
 
@@ -104,7 +104,7 @@ def test_filtered_sessions_reports_recording_count(engine: Engine) -> None:
         )
         session.commit()
 
-        rows = filtered_sessions(session)
+        rows = filtered_sessions(session).rows
         assert rows[0].recording_count == 2
 
 
@@ -114,7 +114,7 @@ def test_filtered_sessions_recording_count_zero_when_none(engine: Engine) -> Non
         session.add(_session("EMT\x1f1", base, base))
         session.commit()
 
-        rows = filtered_sessions(session)
+        rows = filtered_sessions(session).rows
         assert rows[0].recording_count == 0
 
 
@@ -148,7 +148,7 @@ def test_open_proposals_only_filters_to_sessions_with_an_open_proposal(
         )
         session.commit()
 
-        rows = filtered_sessions(session, open_proposals_only=True)
+        rows = filtered_sessions(session, open_proposals_only=True).rows
         assert {row.session.id for row in rows} == {a.id, b.id}
 
 
@@ -319,8 +319,49 @@ def test_filtered_sessions_runs_with_multiple_rows(engine: Engine) -> None:
             )
         session.commit()
 
-        rows = filtered_sessions(session)
+        rows = filtered_sessions(session).rows
         assert len(rows) == 2
+
+
+def test_filtered_sessions_has_more_is_false_when_everything_fits_on_one_page(
+    engine: Engine,
+) -> None:
+    with OrmSession(engine) as session:
+        base = datetime(2026, 8, 20, tzinfo=UTC)
+        session.add(_session("EMT\x1f1", base, base))
+        session.commit()
+
+        page = filtered_sessions(session)
+
+    assert page.has_more is False
+
+
+def test_filtered_sessions_offset_returns_the_next_page(
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # MAX_SESSIONS is 200 -- monkeypatched down to 2 here so this can
+    # exercise real pagination (a full page plus a remainder) without
+    # seeding 200+ rows.
+    import fledermap.services.sessions as sessions_module
+
+    monkeypatch.setattr(sessions_module, "MAX_SESSIONS", 2)
+
+    with OrmSession(engine) as session:
+        base = datetime(2026, 8, 1, tzinfo=UTC)
+        for day in range(1, 4):
+            session.add(
+                _session("EMT\x1f1", base.replace(day=day), base.replace(day=day))
+            )
+        session.commit()
+
+        first_page = filtered_sessions(session)
+        second_page = filtered_sessions(session, offset=2)
+
+    assert [row.session.started_at.day for row in first_page.rows] == [3, 2]
+    assert first_page.has_more is True
+    assert [row.session.started_at.day for row in second_page.rows] == [1]
+    assert second_page.has_more is False
 
 
 def test_session_detail_none_when_not_found(engine: Engine) -> None:
