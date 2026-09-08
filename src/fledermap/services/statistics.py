@@ -10,6 +10,8 @@ everything.\""""
 
 from __future__ import annotations
 
+import math
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from sqlalchemy import func, select
@@ -278,3 +280,92 @@ def recording_counts_by_site(session: OrmSession, *, taxon_id: int) -> SiteBreak
         reverse=True,
     )
     return SiteBreakdown(entries=entries)
+
+
+def _shannon(taxon_counts: dict[int, int]) -> float:
+    total = sum(taxon_counts.values())
+    if total == 0:
+        return 0.0
+    return -sum(
+        (c / total) * math.log(c / total) for c in taxon_counts.values() if c > 0
+    )
+
+
+@dataclass(frozen=True)
+class SiteDiversity:
+    site: Site
+    richness: int
+    shannon: float
+
+
+@dataclass(frozen=True)
+class SiteDiversityBreakdown:
+    entries: list[SiteDiversity]
+
+
+def _taxon_counts_at_site(recordings: Sequence[Recording]) -> dict[int, int]:
+    """Same inclusion rules as `rarest_species`: noise/no_id/unidentified
+    excluded, a multi-species recording increments every taxon it contains."""
+    counts: dict[int, int] = {}
+    for r in recordings:
+        best = current_best_identification(r)
+        if best is None or best.verdict in (Verdict.NOISE, Verdict.NO_ID):
+            continue
+        for taxon_id in best.taxon_ids:
+            counts[taxon_id] = counts.get(taxon_id, 0) + 1
+    return counts
+
+
+def site_diversity(
+    session: OrmSession,
+    *,
+    site_id: int | None = None,
+    sort_by: str = "richness",
+    top_n: int = DEFAULT_TOP_N,
+) -> SiteDiversityBreakdown:
+    """`site_id` set: the single-row breakdown for one site's two stat
+    tiles. `site_id` unset: top-N sites ranked by `sort_by` ("richness" or
+    "shannon") -- the global page calls this twice, once per sort key, for
+    its two separate ranked lists."""
+    if site_id is not None:
+        site = session.get(Site, site_id)
+        if site is None:
+            return SiteDiversityBreakdown(entries=[])
+        counts = _taxon_counts_at_site(_scoped_recordings(session, site_id=site_id))
+        return SiteDiversityBreakdown(
+            entries=[
+                SiteDiversity(
+                    site=site, richness=len(counts), shannon=_shannon(counts)
+                ),
+            ],
+        )
+
+    by_site: dict[int, dict[int, int]] = {}
+    for r in _scoped_recordings(session):
+        if r.site_id is None:
+            continue
+        best = current_best_identification(r)
+        if best is None or best.verdict in (Verdict.NOISE, Verdict.NO_ID):
+            continue
+        site_counts = by_site.setdefault(r.site_id, {})
+        for taxon_id in best.taxon_ids:
+            site_counts[taxon_id] = site_counts.get(taxon_id, 0) + 1
+
+    if not by_site:
+        return SiteDiversityBreakdown(entries=[])
+
+    sites_by_id = {
+        s.id: s for s in session.scalars(select(Site).where(Site.id.in_(by_site)))
+    }
+    entries = [
+        SiteDiversity(
+            site=sites_by_id[sid],
+            richness=len(counts),
+            shannon=_shannon(counts),
+        )
+        for sid, counts in by_site.items()
+        if sid in sites_by_id
+    ]
+    key = (lambda e: e.richness) if sort_by == "richness" else (lambda e: e.shannon)
+    entries.sort(key=key, reverse=True)
+    return SiteDiversityBreakdown(entries=entries[:top_n])

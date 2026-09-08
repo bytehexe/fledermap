@@ -1,6 +1,7 @@
 # tests/test_statistics_query.py
 from __future__ import annotations
 
+import math
 from datetime import UTC, datetime
 
 import pytest
@@ -14,6 +15,7 @@ from fledermap.services.statistics import (
     rarest_unmapped_codes,
     recording_counts_by_site,
     recording_counts_by_taxon,
+    site_diversity,
     totals,
 )
 from fledermap.store.models import Identification, Recording, Site, Taxon
@@ -502,3 +504,69 @@ def test_recording_counts_by_site_matches_by_membership_not_equality(
 
     assert len(result.entries) == 1
     assert result.entries[0].count == 1
+
+
+def test_site_diversity_single_site_richness_and_shannon(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        site = Site(
+            centroid=WKTElement("POINT(10 50)", srid=4326),
+            radius_m=50.0,
+            recording_count=2,
+            first_at=datetime(2026, 8, 25, tzinfo=UTC),
+            last_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        taxon_a = Taxon(rank="species", scientific_name="A")
+        taxon_b = Taxon(rank="species", scientific_name="B")
+        session.add_all([site, taxon_a, taxon_b])
+        session.flush()
+        _recording(session, audio_hash="a" * 64, taxon_id=taxon_a.id, site_id=site.id)
+        _recording(session, audio_hash="b" * 64, taxon_id=taxon_b.id, site_id=site.id)
+        session.commit()
+        site_id = site.id
+
+    with OrmSession(engine) as session:
+        result = site_diversity(session, site_id=site_id)
+
+    assert len(result.entries) == 1
+    entry = result.entries[0]
+    assert entry.richness == 2
+    # Two equally-common species: H = -sum(p*ln(p)) for p=[0.5, 0.5] = ln(2)
+    assert entry.shannon == pytest.approx(math.log(2))
+
+
+def test_site_diversity_unknown_site_id_returns_empty(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        result = site_diversity(session, site_id=999999)
+
+    assert result.entries == []
+
+
+def test_site_diversity_ranks_top_n_sites_by_richness(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        rich = Site(
+            centroid=WKTElement("POINT(10 50)", srid=4326),
+            radius_m=50.0,
+            recording_count=2,
+            first_at=datetime(2026, 8, 25, tzinfo=UTC),
+            last_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        poor = Site(
+            centroid=WKTElement("POINT(11 51)", srid=4326),
+            radius_m=50.0,
+            recording_count=1,
+            first_at=datetime(2026, 8, 25, tzinfo=UTC),
+            last_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        taxon_a = Taxon(rank="species", scientific_name="A")
+        taxon_b = Taxon(rank="species", scientific_name="B")
+        session.add_all([rich, poor, taxon_a, taxon_b])
+        session.flush()
+        _recording(session, audio_hash="a" * 64, taxon_id=taxon_a.id, site_id=rich.id)
+        _recording(session, audio_hash="b" * 64, taxon_id=taxon_b.id, site_id=rich.id)
+        _recording(session, audio_hash="c" * 64, taxon_id=taxon_a.id, site_id=poor.id)
+        session.commit()
+
+    with OrmSession(engine) as session:
+        result = site_diversity(session, sort_by="richness")
+
+    assert [e.richness for e in result.entries] == [2, 1]
