@@ -1,0 +1,116 @@
+name: Publish Python 🐍 distribution 📦 to PyPI
+
+# Tag-gated like publish-docs.yml: the workflow triggers on every push, but
+# every job below is guarded with `if: github.ref_type == 'tag'`, so a
+# non-tag push costs nothing. This is the release gate, not general CI --
+# fledermap has no per-push CI yet (tracked separately, see CLAUDE.md).
+on: push
+
+# Default GITHUB_TOKEN to read-only regardless of the repo's own default
+# setting; jobs that need more (publish-to-pypi's id-token, create-release's
+# contents: write) declare it explicitly below.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Lint and test the code 🧪
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install hatch
+        run: python -m pip install hatch --user
+      - name: Lint (ruff check + format, non-mutating)
+        run: hatch fmt --check
+      - name: Type-check
+        run: hatch run types:check
+      # db-marked tests (PostGIS testcontainer) need Docker and are
+      # deliberately not run here -- see CLAUDE.md's "Environment gotchas"
+      # and "Tooling" sections; run `hatch test` (incl. -m db) locally
+      # before tagging a release.
+      - name: Test (excl. db)
+        run: hatch test -m "not db"
+      - name: JS tests
+        run: node --test tests/js/
+
+  build:
+    name: Build distribution 📦
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    needs:
+      - test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0 # hatch-vcs needs full history + tags to derive the version
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Install hatch
+        run: python -m pip install hatch --user
+      - name: Build a binary wheel and a source tarball
+        run: hatch build
+      - name: Store the distribution packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+
+  publish-to-pypi:
+    name: Publish Python 🐍 distribution 📦 to PyPI
+    if: github.ref_type == 'tag'
+    needs:
+      - build
+    runs-on: ubuntu-latest
+
+    environment:
+      name: pypi
+      url: https://pypi.org/p/fledermap
+
+    permissions:
+      id-token: write # IMPORTANT: mandatory for trusted publishing
+
+    steps:
+      - name: Download all the dists
+        uses: actions/download-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+      - name: Publish distribution 📦 to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    if: github.ref_type == 'tag'
+    needs:
+      - publish-to-pypi
+    steps:
+      - name: Create GitHub Release (stable)
+        uses: softprops/action-gh-release@v2
+        if: |
+          !contains(github.ref_name, 'a') && !contains(github.ref_name, 'b') && !contains(github.ref_name, 'rc')
+        with:
+          generate_release_notes: true
+      - name: Create GitHub Release (pre-release)
+        uses: softprops/action-gh-release@v2
+        if: |
+          contains(github.ref_name, 'a') || contains(github.ref_name, 'b') || contains(github.ref_name, 'rc')
+        with:
+          prerelease: true
+          generate_release_notes: true
