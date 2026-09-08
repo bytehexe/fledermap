@@ -54,6 +54,49 @@ def test_statistics_global_page_renders_stat_tiles_and_chart_data(
     assert "Least-sampled sites" in html
 
 
+def test_statistics_global_page_richest_sites_shows_estimated_richness(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        site = Site(
+            centroid=WKTElement("POINT(10 50)", srid=4326),
+            radius_m=50.0,
+            recording_count=1,
+            first_at=datetime(2026, 8, 25, tzinfo=UTC),
+            last_at=datetime(2026, 8, 25, tzinfo=UTC),
+            name="Old Barn",
+        )
+        taxon = Taxon(rank="species", scientific_name="Eptesicus serotinus")
+        session.add_all([site, taxon])
+        session.flush()
+        r = Recording(
+            audio_hash="a" * 64,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            site_id=site.id,
+        )
+        session.add(r)
+        session.flush()
+        session.add(
+            Identification(
+                recording_id=r.id,
+                source=IdSource.EMT_GUANO,
+                verdict=Verdict.SPECIES,
+                taxon_id=taxon.id,
+                first_seen_at=r.recorded_at,
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get("/statistics")
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert "richness 1 (est. 1.0)" in html
+
+
 def test_statistics_site_page_renders_and_404s_for_unknown_site(
     engine: Engine,
     tmp_path: Path,

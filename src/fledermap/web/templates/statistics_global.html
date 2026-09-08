@@ -64,12 +64,13 @@
           <table class="entity-list">
             <tbody>
               {% for entry in richest_sites %}
-              <tr><td><a href="/sites/{{ entry.site.id }}">{{ entry.site.name or "Site #" ~ entry.site.id }}</a></td><td>richness {{ entry.richness }}</td></tr>
+              <tr><td><a href="/sites/{{ entry.site.id }}">{{ entry.site.name or "Site #" ~ entry.site.id }}</a></td><td>richness {{ entry.richness }} (est. {{ "%.1f"|format(entry.estimated_richness) }})</td></tr>
               {% else %}
               <tr><td>No sites yet.</td></tr>
               {% endfor %}
             </tbody>
           </table>
+          <div class="stats-caption">Ranked by observed richness. <details><summary>ⓘ</summary>The parenthesized number is the Chao1 estimated true richness -- how many species likely occur here in total, including ones not yet detected. See "Least-sampled sites" for how much to trust the observed count.</details></div>
         </div>
         <div class="stats-panel">
           <div class="stats-panel-header">Most diverse sites (Shannon H)</div>
