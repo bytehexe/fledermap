@@ -30,8 +30,7 @@ fixture). Species identification natively covers Europe and North America
 
 Everything past this quickstart — how-to guides, reference material, and
 the reasoning behind the design — lives at
-**https://bytehexe.github.io/fledermap/**. (Not live until the first
-tagged release — see [`docs/index.md`](docs/index.md) in the meantime.)
+**https://bytehexe.github.io/fledermap/**.
 
 ## Built with agentic engineering
 
