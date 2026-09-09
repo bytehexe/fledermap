@@ -387,6 +387,42 @@ def test_recording_panel_explains_a_missing_site_as_an_outlier(
     assert "No site (outlier)" in html
 
 
+def test_recording_panel_explains_a_missing_geom_as_no_location_data(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """Feature parity with the recording-details page's equivalent line
+    (test_recording_details_page_explains_a_missing_geom_as_no_location_data)."""
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Eptesicus serotinus")
+        session.add(taxon)
+        session.flush()
+        recording = Recording(
+            audio_hash="f" * 64,
+            path="f.wav",
+            recorded_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+        )
+        session.add(recording)
+        session.flush()
+        session.add(
+            Identification(
+                recording_id=recording.id,
+                source=IdSource.EMT_GUANO,
+                verdict=Verdict.SPECIES,
+                taxon_id=taxon.id,
+                first_seen_at=recording.recorded_at,
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/recordings/{'f' * 64}/panel")
+
+    html = response.get_data(as_text=True)
+    assert "No location data" in html
+    assert "No site (outlier)" not in html
+
+
 def test_recording_panel_not_found_renders_gracefully(
     engine: Engine,
     tmp_path: Path,

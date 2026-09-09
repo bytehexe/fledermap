@@ -98,8 +98,10 @@
     {% endif %}
     {% if site %}
     <p>Site: <a href="/sites/{{ site.id }}?return_to=/?{{ filter_qs }}">{{ site_label }}</a></p>
-    {% else %}
+    {% elif recording.geom is not none %}
     <p>No site (outlier)</p>
+    {% else %}
+    <p>No location data</p>
     {% endif %}
     {% if previous %}
     <button type="button" hx-get="/recordings/{{ previous.audio_hash }}/panel?{{ filter_qs }}" hx-target="#drawer-body">← Previous</button>

@@ -60,10 +60,39 @@ def test_recording_details_page_explains_a_missing_site_as_an_outlier(
     engine: Engine,
     tmp_path: Path,
 ) -> None:
-    """A recording with no `site_id` (outside every derived site's radius,
-    or geo-less) must say so explicitly rather than just omitting the
-    "Site: ..." line -- otherwise a reader can't tell "outlier" apart from
-    "the site info silently failed to load"."""
+    """A recording with a real position but no `site_id` (outside every
+    derived site's radius) must say so explicitly rather than just omitting
+    the "Site: ..." line -- otherwise a reader can't tell "outlier" apart
+    from "the site info silently failed to load". Distinct from a recording
+    with no position at all -- see the "no location data" test below --
+    since only this one can actually be found by panning/zooming the map."""
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="f3" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+                geom=WKTElement("POINT(10 50)", srid=4326),
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/recordings/{'f3' * 32}")
+
+    html = response.get_data(as_text=True)
+    assert "No site (outlier)" in html
+
+
+def test_recording_details_page_explains_a_missing_geom_as_no_location_data(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """A recording with no `geom` at all (never had GPS/position metadata)
+    must be told apart from a genuine geo-outlier -- "No site (outlier)"
+    implies a real, findable position that just isn't clustered into a
+    site, which is misleading here: the map has nothing to pan or zoom to
+    for this recording at all (Obsidian backlog, 2026-09-09)."""
     with OrmSession(engine) as session:
         session.add(
             Recording(
@@ -78,7 +107,8 @@ def test_recording_details_page_explains_a_missing_site_as_an_outlier(
     response = app.test_client().get(f"/recordings/{'f3' * 32}")
 
     html = response.get_data(as_text=True)
-    assert "No site (outlier)" in html
+    assert "No location data" in html
+    assert "No site (outlier)" not in html
 
 
 def test_recording_details_page_site_link_points_at_the_sites_own_page(

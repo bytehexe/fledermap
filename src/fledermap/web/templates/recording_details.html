@@ -19,7 +19,7 @@
     {% endif %}
     {% set subtitle %}
       {{ recording.recorded_at.isoformat() }} — {{ recording.make }} {{ recording.model }}
-      {%- if site %} — Site: <a href="/sites/{{ site.id }}?return_to=/recordings/{{ recording.audio_hash }}">{{ site_label }}</a>{% else %} — No site (outlier){% endif -%}
+      {%- if site %} — Site: <a href="/sites/{{ site.id }}?return_to=/recordings/{{ recording.audio_hash }}">{{ site_label }}</a>{% elif recording.geom is not none %} — No site (outlier){% else %} — No location data{% endif -%}
     {% endset %}
     {% include "_entity_header.html" %}
     {% if params %}
