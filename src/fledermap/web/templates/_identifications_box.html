@@ -1,24 +1,19 @@
 {# src/fledermap/web/templates/_identifications_box.html -- the recording-details page's
-   own copy of the drawer panel's "Identifications" breakdown (_recording_panel.html),
-   annotated with each row's precedence status (services/current_best.py's
-   identification_status) so a human making a manual classification call can see WHY the
-   page shows what it shows, not just the resolved headline in isolation. Deliberately a
-   separate template rather than a shared include with the drawer's version -- the drawer's
-   own box is untouched by this feature (spec: manual classification is details-page-only). #}
+   own copy of the drawer panel's "Identifications" breakdown (_recording_panel.html): both
+   now render the same precedence-ordered list with the same current/passive/shadowed
+   styling (services/current_best.py's sort_identifications_by_precedence +
+   identification_status, app.css's .identification-current/-passive/-shadowed) --
+   position in the list plus bold/italic styling says why the page shows what it shows,
+   replacing an earlier per-row "shadowed by emt.guano" text annotation that needed the
+   winning source spelled out. Still a separate template rather than a shared include with
+   the drawer's version: this one's rows are wired for a future manual-classification pick
+   (spec: manual classification is details-page-only), the drawer's are read-only. #}
 <div class="col identifications">
   <h3>Identifications</h3>
   <ul>
     {% for ident, status in identifications_with_status %}
     <li class="identification-{{ status }}">
       {{ ident.source.value }}: {{ identification_label(ident, ident.taxon) }}
-      {% if status == "passive" %}<span>— passive, ignored</span>{% endif %}
-      {% if status == "shadowed" and best %}
-        {% if ident.source == best.primary.source %}
-        <span>— shadowed</span>
-        {% else %}
-        <span>— shadowed by {{ best.primary.source.value }}</span>
-        {% endif %}
-      {% endif %}
     </li>
     {% endfor %}
   </ul>

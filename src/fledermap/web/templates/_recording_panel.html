@@ -79,8 +79,8 @@
   <div class="col identifications">
     <h3>Identifications</h3>
     <ul>
-      {% for ident in recording.identifications %}
-      <li>
+      {% for ident, status in identifications_with_status %}
+      <li class="identification-{{ status }}">
         {{ ident.source.value }}: {{ identification_label(ident, ident.taxon) }}
       </li>
       {% endfor %}

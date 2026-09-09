@@ -778,7 +778,45 @@ def test_identifications_box_renders_on_the_details_page(
     assert "Identifications" in html
     assert "identification-passive" in html
     assert "identification-current" in html
-    assert "passive, ignored" in html
+    assert "shadowed by" not in html  # dropped in favor of styling + precedence order
+
+
+def test_identifications_box_orders_rows_by_source_precedence(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """emt.guano outranks emt.wamd in `current_best._PRECEDENCE`, so it must
+    render first even though it's the passive (NO_ID, skipped) row here and
+    emt.wamd is the one actually winning -- position reflects source
+    precedence, not which row happens to be "current"."""
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
+        session.add(taxon)
+        session.flush()
+        recording = Recording(
+            audio_hash="j" * 64,
+            path="j.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        recording.identifications = [
+            Identification(
+                source=IdSource.EMT_WAMD,
+                verdict=Verdict.SPECIES,
+                taxon_id=taxon.id,
+            ),
+            Identification(
+                source=IdSource.EMT_GUANO,
+                verdict=Verdict.NO_ID,
+            ),
+        ]
+        session.add(recording)
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/recordings/{'j' * 64}")
+    html = response.get_data(as_text=True)
+
+    assert html.index("emt.guano") < html.index("emt.wamd")
 
 
 def test_identifications_box_shows_the_taxon_name_for_a_manual_claim(

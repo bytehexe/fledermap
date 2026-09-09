@@ -15,6 +15,7 @@ from fledermap.media.preview import TIME_EXPANSION_FACTOR
 from fledermap.services.current_best import (
     current_best_identification,
     identification_status,
+    sort_identifications_by_precedence,
 )
 from fledermap.services.manual_classification import current_manual_state
 from fledermap.services.recording_detail import (
@@ -93,7 +94,7 @@ def recording_details_page(audio_hash: str) -> flask.Response:
             taxon = session.get(Taxon, best.primary.taxon_id)
         identifications_with_status = [
             (ident, identification_status(ident, best))
-            for ident in recording.identifications
+            for ident in sort_identifications_by_precedence(recording.identifications)
         ]
         taxon_search_index = _taxon_search_index(session)
 

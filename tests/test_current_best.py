@@ -9,6 +9,7 @@ from fledermap.services.current_best import (
     identification_label,
     identification_status,
     recording_headline,
+    sort_identifications_by_precedence,
 )
 from fledermap.store.models import Identification, Recording, Taxon
 
@@ -310,3 +311,33 @@ def test_identification_status_every_claim_of_a_multi_species_winner_is_current(
 
     assert identification_status(a, best) == "current"
     assert identification_status(b, best) == "current"
+
+
+def test_sort_identifications_by_precedence_puts_the_highest_precedence_source_first() -> (
+    None
+):
+    """emt.guano outranks emt.wamd in `_PRECEDENCE` regardless of which one
+    actually wins the precedence walk (identification_status decides that
+    separately) -- display order is purely about source rank."""
+    wamd = _ident(IdSource.EMT_WAMD)
+    guano = _ident(IdSource.EMT_GUANO)
+
+    assert sort_identifications_by_precedence([wamd, guano]) == [guano, wamd]
+
+
+def test_sort_identifications_by_precedence_is_stable_for_the_same_source() -> None:
+    """A multi-species MANUAL result has more than one claim from the same
+    source -- their relative order must survive the sort untouched."""
+    first = _ident(IdSource.MANUAL, taxon_id=1)
+    second = _ident(IdSource.MANUAL, taxon_id=2)
+
+    assert sort_identifications_by_precedence([first, second]) == [first, second]
+
+
+def test_sort_identifications_by_precedence_puts_an_unranked_source_last() -> None:
+    """A source defined in `IdSource` but not yet wired into `_PRECEDENCE`
+    (a future classifier, e.g. BATDETECT2) must not crash the sort."""
+    manual = _ident(IdSource.MANUAL)
+    future = _ident(IdSource.BATDETECT2)
+
+    assert sort_identifications_by_precedence([future, manual]) == [manual, future]

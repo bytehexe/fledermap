@@ -15,7 +15,11 @@ from fledermap.media.spectrogram import (
     DEFAULT_SPECTROGRAM_PARAMS,
     effective_max_freq_hz,
 )
-from fledermap.services.current_best import current_best_identification
+from fledermap.services.current_best import (
+    current_best_identification,
+    identification_status,
+    sort_identifications_by_precedence,
+)
 from fledermap.services.manual_classification import (
     current_manual_state,
     set_manual_classification,
@@ -111,6 +115,10 @@ def _render_recording_panel(
         taxon = None
         if best is not None and not best.is_multi and best.primary.taxon_id is not None:
             taxon = session.get(Taxon, best.primary.taxon_id)
+        identifications_with_status = [
+            (ident, identification_status(ident, best))
+            for ident in sort_identifications_by_precedence(recording.identifications)
+        ]
         point = decode_point(recording.geom)
 
         recording_session = (
@@ -143,6 +151,7 @@ def _render_recording_panel(
             recording=recording,
             best=best,
             taxon=taxon,
+            identifications_with_status=identifications_with_status,
             previous=previous,
             next=following,
             filter_qs=filter_qs,

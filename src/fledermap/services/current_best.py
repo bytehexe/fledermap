@@ -178,3 +178,30 @@ def identification_status(
     if ident.source != IdSource.MANUAL and ident.verdict == Verdict.NO_ID:
         return "passive"
     return "shadowed"
+
+
+def sort_identifications_by_precedence(
+    identifications: Sequence[Identification],
+) -> list[Identification]:
+    """Display order for the "Identifications" breakdown box on both the
+    recording-details page and the map drawer panel: highest-precedence
+    source first, the same order `current_best_identification`'s own walk
+    uses -- replaces the earlier per-row "shadowed by emt.guano" annotation,
+    which needed the winning source spelled out in text; the row's position
+    in this order plus its `identification_status` styling (bold/italic,
+    `app.css`'s `.identification-current`/`-passive`/`-shadowed`) now say
+    the same thing without it.
+
+    A source not yet wired into `_PRECEDENCE` (`domain.codes.IdSource` has
+    entries for classifiers not yet implemented, e.g. BATDETECT2 -- CLAUDE.md's
+    "further classifiers are coming" note) sorts last rather than raising.
+    Stable sort: multiple claims from the same source (a multi-species MANUAL
+    result) keep their relative order."""
+
+    def key(ident: Identification) -> int:
+        try:
+            return _PRECEDENCE.index(ident.source)
+        except ValueError:
+            return len(_PRECEDENCE)
+
+    return sorted(identifications, key=key)

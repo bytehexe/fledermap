@@ -296,6 +296,61 @@ def test_recording_panel_renders_identification_list_content(
     assert 'class="superseded"' not in html
 
 
+def test_recording_panel_orders_identifications_by_precedence_and_styles_status(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """Feature parity with the recording-details page's own Identifications
+    box (test_identifications_box_orders_rows_by_source_precedence /
+    test_identifications_box_renders_on_the_details_page): the drawer panel
+    gets the same precedence order and current/passive styling, not a plain
+    unordered, unstyled list."""
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Eptesicus serotinus")
+        session.add(taxon)
+        session.flush()
+        recording = Recording(
+            audio_hash="k" * 64,
+            path="k.wav",
+            recorded_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+            geom=WKTElement("POINT(10 50)", srid=4326),
+        )
+        session.add(recording)
+        session.flush()
+        session.add_all(
+            [
+                Identification(
+                    recording_id=recording.id,
+                    source=IdSource.EMT_WAMD,
+                    verdict=Verdict.SPECIES,
+                    taxon_id=taxon.id,
+                    first_seen_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+                ),
+                Identification(
+                    recording_id=recording.id,
+                    source=IdSource.EMT_GUANO,
+                    verdict=Verdict.NO_ID,
+                    first_seen_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+                ),
+            ],
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    html = (
+        app.test_client()
+        .get(f"/recordings/{'k' * 64}/panel?verdict=all")
+        .get_data(
+            as_text=True,
+        )
+    )
+
+    assert html.index("emt.guano") < html.index("emt.wamd")
+    assert "identification-passive" in html
+    assert "identification-current" in html
+    assert "shadowed by" not in html
+
+
 def test_recording_panel_explains_a_missing_site_as_an_outlier(
     engine: Engine,
     tmp_path: Path,
