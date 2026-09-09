@@ -31,6 +31,12 @@ jobs:
           node-version: "20"
       - name: Install hatch
         run: python -m pip install hatch --user
+      # ubuntu-latest runners don't ship ffmpeg/ffprobe -- media/preview.py
+      # shells out to ffmpeg for Opus encoding and the tests read back with
+      # ffprobe, deliberately failing loudly (not skipping) when missing --
+      # see CLAUDE.md's "Environment gotchas".
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - name: Lint (ruff check + format, non-mutating)
         run: hatch fmt --check
       - name: Type-check
