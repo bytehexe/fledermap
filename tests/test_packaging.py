@@ -15,6 +15,7 @@ tree -- matching this project's own documented verification convention
 
 from __future__ import annotations
 
+import os
 import subprocess
 import zipfile
 from pathlib import Path
@@ -32,11 +33,21 @@ def test_wheel_ships_the_alembic_migration_scripts(tmp_path: Path) -> None:
     was no `alembic/` directory anywhere in the installed environment for any
     path computation to find, correct or not."""
     dist_dir = tmp_path / "dist"
+    # This test runs inside `hatch test`'s own managed environment, which sets
+    # HATCH_ENV_ACTIVE (e.g. "hatch-test.py3.14") in this process's environment.
+    # The nested `hatch build` below inherits that by default and tries to
+    # reuse it as its build environment, which newer hatch rejects with
+    # "Environment `hatch-test.py3.14` is not a builder environment" --
+    # confirmed on hatch 1.18.0 in CI (unpinned `pip install hatch`), though
+    # not on the 1.14.2 pinned locally, which predates the check. Strip it so
+    # the nested build always picks its own isolated build environment.
+    env = {k: v for k, v in os.environ.items() if k != "HATCH_ENV_ACTIVE"}
     result = subprocess.run(
         ["hatch", "build", "-t", "wheel", str(dist_dir)],
         cwd=_REPO_ROOT,
         capture_output=True,
         text=True,
+        env=env,
     )
     assert result.returncode == 0, (
         f"hatch build failed (exit {result.returncode}):\n"
