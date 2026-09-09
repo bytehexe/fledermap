@@ -16,6 +16,12 @@
       Session: {{ detail.session.started_at.strftime('%Y-%m-%d %H:%M') }} – {{ detail.session.ended_at.strftime('%H:%M') }}
     </h1>
     <p class="detail-meta">Detector: {{ detail.session.detector_key | detector_label }}</p>
+    {% if detail.sites %}
+    <p class="detail-meta">
+      Sites:
+      {% for site in detail.sites %}<a href="/sites/{{ site.id }}">{{ site.name or "Site #" ~ site.id }}</a>{% if not loop.last %}, {% endif %}{% endfor %}
+    </p>
+    {% endif %}
 
     <div class="session-detail-columns">
       <div class="col session-map-col">
@@ -23,7 +29,7 @@
         <a href="/?session={{ detail.session.id }}">View on full map</a>
       </div>
       <div class="col session-edit-col">
-        <form class="stacked-form" method="post" action="/sessions/{{ detail.session.id }}">
+        <form class="stacked-form" id="session-edit-form" method="post" action="/sessions/{{ detail.session.id }}">
           <label>Seen visually?
             <select name="seen_visually">
               <option value="yes" {% if detail.session.seen_visually.value == 'yes' %}selected{% endif %}>Yes</option>
@@ -37,7 +43,7 @@
           <label>Weather
             <textarea name="weather">{{ detail.session.weather or '' }}</textarea>
           </label>
-          <button type="submit">Save</button>
+          <button type="submit" class="button-primary">Save</button>
           {% if request.args.get('saved') %}
           <span class="save-confirmation">✓ Saved</span>
           {% endif %}
@@ -52,7 +58,7 @@
         <a href="/sessions/{{ op.counterpart.id }}">#{{ op.counterpart.id }}</a>
         ({{ op.counterpart.started_at.strftime('%Y-%m-%d %H:%M') }}–{{ op.counterpart.ended_at.strftime('%H:%M') }}).
       </p>
-      <form class="stacked-form" method="post" action="/sessions/merge-proposals/{{ op.proposal.id }}/resolve">
+      <form class="stacked-form" id="merge-resolution-form" method="post" action="/sessions/merge-proposals/{{ op.proposal.id }}/resolve">
         <label>Combined note
           <textarea name="note">{% if detail.session.note and op.counterpart.note %}{{ detail.session.note }}
 ---
@@ -94,5 +100,6 @@
   <script src="{{ url_for('vendor.static', filename='leaflet.js') }}"></script>
   <script src="{{ url_for('vendor.static', filename='alpine.min.js') }}" defer></script>
   <script src="{{ url_for('static', filename='session_map.js') }}"></script>
+  <script src="{{ url_for('static', filename='unsaved_changes_guard.js') }}"></script>
 </body>
 </html>

@@ -321,6 +321,122 @@ def test_session_detail_shows_edit_form_with_current_values(
     assert "kind" not in html.lower()  # 2026-08-29: SessionKind removed entirely
 
 
+def test_session_detail_save_button_is_the_forms_primary_action(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """Style-guide audit (2026-09-09): the session-edit form's Save button was the
+    only submit button in the whole app missing `.button-primary`."""
+    with OrmSession(engine) as session:
+        s = AnnotationSession(
+            started_at=datetime(2026, 8, 21, tzinfo=UTC),
+            ended_at=datetime(2026, 8, 21, tzinfo=UTC),
+            detector_key="EMT\x1f1",
+        )
+        session.add(s)
+        session.commit()
+        session_id = s.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    html = app.test_client().get(f"/sessions/{session_id}").get_data(as_text=True)
+
+    assert '<button type="submit" class="button-primary">Save</button>' in html
+
+
+def test_session_detail_warns_before_leaving_unsaved_changes(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """Style-guide audit (2026-09-09): neither of this page's two forms had a
+    `beforeunload` guard at all, despite the Obsidian backlog's "All pages with a
+    save button: Warn if you leave the page without saving!" item being checked
+    off -- this page slipped through it. Guarded via unsaved_changes_guard.js
+    (a real HTML form's own submit already navigates, so DOM presence -- not the
+    guard's actual JS behavior, which needs a browser -- is what a Python test
+    can verify)."""
+    with OrmSession(engine) as session:
+        s = AnnotationSession(
+            started_at=datetime(2026, 8, 21, tzinfo=UTC),
+            ended_at=datetime(2026, 8, 21, tzinfo=UTC),
+            detector_key="EMT\x1f1",
+        )
+        session.add(s)
+        session.commit()
+        session_id = s.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    html = app.test_client().get(f"/sessions/{session_id}").get_data(as_text=True)
+
+    assert 'id="session-edit-form"' in html
+    assert "unsaved_changes_guard.js" in html
+
+
+def test_session_detail_links_the_sites_its_recordings_belong_to(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """Style-guide interlinking principle: a site already lists its sessions
+    (_site_panel.html/site_detail.html); this is the reverse direction."""
+    from geoalchemy2.elements import WKTElement
+
+    from fledermap.store.models import Site
+
+    with OrmSession(engine) as session:
+        s = AnnotationSession(
+            started_at=datetime(2026, 8, 21, tzinfo=UTC),
+            ended_at=datetime(2026, 8, 21, tzinfo=UTC),
+            detector_key="EMT\x1f1",
+        )
+        session.add(s)
+        site = Site(
+            centroid=WKTElement("POINT(10 50)", srid=4326),
+            radius_m=50.0,
+            recording_count=1,
+            first_at=datetime(2026, 8, 21, tzinfo=UTC),
+            last_at=datetime(2026, 8, 21, tzinfo=UTC),
+            name="Old Barn",
+        )
+        session.add(site)
+        session.flush()
+        session.add(
+            Recording(
+                audio_hash="a".rjust(64, "0"),
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 21, 21, tzinfo=UTC),
+                session_id=s.id,
+                site_id=site.id,
+            ),
+        )
+        session.commit()
+        session_id = s.id
+        site_id = site.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    html = app.test_client().get(f"/sessions/{session_id}").get_data(as_text=True)
+
+    assert f'<a href="/sites/{site_id}">Old Barn</a>' in html
+
+
+def test_session_detail_no_sites_line_when_no_recording_has_a_site(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        s = AnnotationSession(
+            started_at=datetime(2026, 8, 21, tzinfo=UTC),
+            ended_at=datetime(2026, 8, 21, tzinfo=UTC),
+            detector_key="EMT\x1f1",
+        )
+        session.add(s)
+        session.commit()
+        session_id = s.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    html = app.test_client().get(f"/sessions/{session_id}").get_data(as_text=True)
+
+    assert "Sites:" not in html
+
+
 def test_session_detail_lists_recordings(engine: Engine, tmp_path: Path) -> None:
     with OrmSession(engine) as session:
         s = AnnotationSession(

@@ -21,6 +21,7 @@ Defined in `app.css`'s `:root`:
 | `--color-bg-subtle` | `#f7f7f8` | `#242628` | Panel/toolbar background, one step off the page background |
 | `--color-accent` | `#2b6cb0` | `#5b9bd5` | Links and interactive accents |
 | `--color-warning` | `#b7791f` | `#d99a3f` | `.merge-badge`'s warning color |
+| `--color-success` | `#2f855a` | `#48bb78` | `.save-confirmation`'s "✓ Saved" text — see "Positive save feedback" below |
 | `--color-overlay` | `#ff2fd6` | `#ff2fd6` | Playback cursor and Ruler-tool measurement box — deliberately theme-invariant for visibility against both light and dark spectrograms |
 
 Never hardcode a hex color in a new rule — use the token. If a new color is genuinely needed,
@@ -294,6 +295,19 @@ standard even where an older page hasn't been brought up to it yet.
   ```html
   <button type="submit" class="button-primary">Save</button>
   ```
+- **A successful save gives positive feedback, not just silence.** Show a `.save-confirmation`
+  span ("✓ Saved", `color: var(--color-success)`) next to the Save button after a save succeeds —
+  without it, nothing tells the user their click actually did anything, which reads as broken
+  even when it worked. Two shapes exist, pick whichever matches how the form saves:
+  - **An AJAX save that swaps its own markup back in** (`_classifier_box.html`'s
+    `classifier_box.js`): the confirmation renders `hidden` in the server-side template and the
+    save handler un-hides it, then hides it again after a couple of seconds (`setTimeout`) —
+    needed because the swap re-creates the span fresh each time, so its own initial `hidden` state
+    can't be "already shown" from a previous save.
+  - **A plain `<form method="post">` that redirects back to itself** (`session_detail.html`'s
+    edit form): the handler redirects with a `?saved=1` query param, and the template renders the
+    confirmation only `{% if request.args.get('saved') %}` — there's no swap to piggyback on, so
+    the redirect itself carries the "just saved" signal.
 - **A page holding unsaved changes must warn before it's left unsaved** (navigating away, closing
   the tab). Track a dirty flag (current form values differ from what was last loaded/saved) and
   register a `window.addEventListener("beforeunload", ...)` listener that calls
@@ -302,6 +316,16 @@ standard even where an older page hasn't been brought up to it yet.
   to use — not a custom in-page modal, which cannot intercept a tab close or URL-bar navigation
   the way `beforeunload` does. It only applies to actual page navigation; an htmx partial swap
   that never leaves the page has nothing to guard.
+
+  A plain `<form method="post">`'s own submit is itself a navigation — without clearing the dirty
+  flag in a `submit` listener first, clicking the form's own Save button triggers the exact same
+  "leave without saving?" dialog this exists to prevent for everything else, since the save
+  hasn't round-tripped to the server yet by the time `beforeunload` fires. `unsaved_changes_guard.js`
+  (`session_detail.html`'s two forms — the session edit form and the merge-resolution form, per
+  the shared-class "promote on second use" rule) is the reusable version of this; an AJAX save
+  flow instead clears its own flag directly in the save handler once the request actually
+  succeeds (`classifier_box.js`'s `classifierBoxDirty`), which has no equivalent premature-fire
+  problem since an AJAX request is never itself a navigation.
 - **No single click may overwrite or delete stored data**, other than pressing Save itself (which
   the two rules above already gate behind a deliberate action and a visually distinct button).
   A destructive control (clear, delete, reset-to-default) must not take effect immediately:

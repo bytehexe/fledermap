@@ -15,7 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import MergeResolution, VisualSighting
-from fledermap.store.models import Recording, SessionMergeProposal
+from fledermap.store.models import Recording, SessionMergeProposal, Site
 from fledermap.store.models import Session as AnnotationSession
 
 # Priority order for merging `seen_visually` (design decision, 2026-08-28):
@@ -191,13 +191,21 @@ class SessionDetail:
     session: AnnotationSession
     recordings: Sequence[Recording]
     open_proposals: Sequence[OpenProposal]
+    sites: Sequence[Site]
 
 
 def session_detail(db_session: OrmSession, session_id: int) -> SessionDetail | None:
     """Assemble session detail for `/sessions/{id}`: the session, every
-    recording currently assigned to it (oldest first), and every unresolved
+    recording currently assigned to it (oldest first), every unresolved
     merge proposal naming it from either side (design spec section 5's
-    chained-proposal case: a session can appear in more than one)."""
+    chained-proposal case: a session can appear in more than one), and every
+    distinct site any of those recordings belongs to -- style guide's
+    "related entities are expected to link to each other, usually in both
+    directions" (a site already lists its sessions; this is the reverse
+    direction). A recording with no site (an outlier, or no geo data at
+    all -- see recording_details.html) simply contributes nothing here,
+    same "degrade in place" convention as everywhere else a site can be
+    absent."""
     session_obj = db_session.get(AnnotationSession, session_id)
     if session_obj is None:
         return None
@@ -207,6 +215,15 @@ def session_detail(db_session: OrmSession, session_id: int) -> SessionDetail | N
         .where(Recording.session_id == session_id)
         .order_by(Recording.recorded_at),
     ).all()
+
+    site_ids = {r.site_id for r in recordings if r.site_id is not None}
+    sites = (
+        db_session.scalars(
+            select(Site).where(Site.id.in_(site_ids)).order_by(Site.id),
+        ).all()
+        if site_ids
+        else []
+    )
 
     proposals = db_session.scalars(
         select(SessionMergeProposal).where(
@@ -230,6 +247,7 @@ def session_detail(db_session: OrmSession, session_id: int) -> SessionDetail | N
         session=session_obj,
         recordings=recordings,
         open_proposals=open_proposals,
+        sites=sites,
     )
 
 
