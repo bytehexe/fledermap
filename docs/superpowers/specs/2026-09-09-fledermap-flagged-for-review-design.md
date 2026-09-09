@@ -94,6 +94,14 @@ The feature is specifically about the **assigned species being wrong**, not a ge
   recordings" note appears, with a link back to the Reviews page.
 - **No new `Verdict`, `IdSource`, or change to `replace_claims`/`current_best_identification`.**
   This design reads existing identification data; it doesn't change how claims are resolved.
+- **No taxonomic hierarchy awareness in the misattribution match.** A manual genus/group-level
+  claim (e.g. `Myotis`/`MYSP`) and an automatic species-level claim it could arguably subsume
+  (e.g. `Myotis daubentonii`) are compared by plain `taxon_id` equality only, same as any other
+  taxon pair — a genus claim never "counts as agreeing with" a species claim underneath it. This
+  is a real taxonomic subtlety (a genus-level human call isn't actually wrong just because the
+  classifier went more specific) but resolving it needs a `Taxon.parent_id` walk that isn't worth
+  the complexity for what is otherwise a fairly small feature; treating every taxon as a distinct,
+  unrelated ID keeps the rule simple and easy to reason about.
 
 ## Design
 
