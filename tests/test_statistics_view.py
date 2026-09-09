@@ -158,6 +158,60 @@ def test_statistics_species_page_renders_and_404s_for_unknown_taxon(
     assert missing_response.status_code == 404
 
 
+def test_statistics_species_page_sites_bar_has_click_throughs_and_no_redundant_table(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """The site-ranking bar chart's bars (-> statistics sub-page) and axis-label
+    clicks (-> site detail page, statistics.js's mountSiteBar) already cover
+    what a `sites.entries` table below the chart would duplicate -- removed
+    2026-09-09 (style-guide audit) rather than kept redundant alongside it."""
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Eptesicus serotinus")
+        session.add(taxon)
+        site = Site(
+            centroid=WKTElement("POINT(10 50)", srid=4326),
+            radius_m=50.0,
+            recording_count=1,
+            first_at=datetime(2026, 8, 25, tzinfo=UTC),
+            last_at=datetime(2026, 8, 25, tzinfo=UTC),
+            name="Old Barn",
+        )
+        session.add(site)
+        session.flush()
+        r = Recording(
+            audio_hash="a" * 64,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            site_id=site.id,
+        )
+        session.add(r)
+        session.flush()
+        session.add(
+            Identification(
+                recording_id=r.id,
+                source=IdSource.EMT_GUANO,
+                verdict=Verdict.SPECIES,
+                taxon_id=taxon.id,
+                first_seen_at=r.recorded_at,
+            ),
+        )
+        session.commit()
+        taxon_id = taxon.id
+        site_id = site.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    html = (
+        app.test_client().get(f"/statistics/species/{taxon_id}").get_data(as_text=True)
+    )
+
+    assert (
+        f'"statistics_url": "/statistics/sites/{site_id}"' in html
+        or f'"statistics_url":"/statistics/sites/{site_id}"' in html
+    )
+    assert "entity-list" not in html
+
+
 def test_statistics_global_page_donut_slices_are_click_throughs_to_species_pages(
     engine: Engine,
     tmp_path: Path,

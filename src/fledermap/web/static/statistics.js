@@ -113,6 +113,33 @@ function mountSiteBar(canvasId, dataId) {
         }
       },
     },
+    // The donut's equivalent name-label click (legend text -> detail page) is
+    // Chart.js's own `legend.onClick`, but a bar chart's y-axis tick labels have
+    // no built-in click hook the way a legend does -- worse, `options.onClick`
+    // above is *only ever called for an event over `chartArea`* (confirmed via
+    // Chart.js's own docs: "Called if the event is... over chartArea"), so it
+    // never even fires for a click on the label column, no matter what hit-test
+    // logic lives inside it (verified live: an unconditional log inside onClick
+    // printed for every bar click and NONE for a label click). A chart-specific
+    // inline plugin's `beforeEvent` hook is Chart.js's own documented way to
+    // catch events outside chartArea ("Capturing events outside chartArea using
+    // a plugin" in the interactions docs) -- used here instead of onClick to
+    // make the axis label clickable too, matching the donut's plain-text-label
+    // -> detail-page convention.
+    plugins: [
+      {
+        id: "siteBarAxisLabelClick",
+        beforeEvent(chart, args) {
+          if (args.event.type !== "click") return;
+          const pos = Chart.helpers.getRelativePosition(args.event, chart);
+          const yScale = chart.scales.y;
+          if (pos.x >= chart.chartArea.left) return; // over the plot area, not the label column
+          if (pos.y < yScale.top || pos.y > yScale.bottom) return;
+          const entry = raw.entries[Math.round(yScale.getValueForPixel(pos.y))];
+          if (entry) window.location.href = `/sites/${entry.site.id}`;
+        },
+      },
+    ],
   });
 }
 
