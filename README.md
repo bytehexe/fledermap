@@ -5,7 +5,8 @@ the folder your detector (currently Wildlife Acoustics Echo Meter Touch)
 syncs its recordings into, and it builds a browsable map of where and when
 you recorded, with automatic species identification, session/site
 clustering, spectrograms, and audibilised (time-expanded/heterodyne)
-playback — all self-hosted, no cloud service involved.
+playback — a self-hosted web app you open in your browser, no cloud
+service involved.
 
 ![Fledermap's map view with a site cluster and a recording's detail drawer open, showing its spectrogram, oscillogram, and species identification](docs/assets/map-drawer.png)
 
