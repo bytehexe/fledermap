@@ -13,7 +13,8 @@
   <ul>
     {% for ident, status in identifications_with_status %}
     <li class="identification-{{ status }}">
-      {{ ident.source.value }}: {{ identification_label(ident, ident.taxon) }}
+      {{ ident.source.value }}:
+      {% if ident.taxon %}<a href="/species/{{ ident.taxon.id }}">{{ identification_label(ident, ident.taxon) }}</a>{% else %}{{ identification_label(ident, ident.taxon) }}{% endif %}
     </li>
     {% endfor %}
   </ul>

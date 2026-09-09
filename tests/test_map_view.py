@@ -265,6 +265,7 @@ def test_recording_panel_renders_identification_list_content(
         taxon = Taxon(rank="species", scientific_name="Eptesicus serotinus")
         session.add(taxon)
         session.flush()
+        taxon_id = taxon.id
         recording = Recording(
             audio_hash="e" * 64,
             path="e.wav",
@@ -279,7 +280,7 @@ def test_recording_panel_renders_identification_list_content(
                 source=IdSource.EMT_GUANO,
                 source_version=None,
                 verdict=Verdict.SPECIES,
-                taxon_id=taxon.id,
+                taxon_id=taxon_id,
                 raw_label="EPTSER",
                 first_seen_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
             ),
@@ -294,6 +295,9 @@ def test_recording_panel_renders_identification_list_content(
     assert "emt.guano" in html
     assert "EPTSER" in html
     assert 'class="superseded"' not in html
+    # Style-guide audit (2026-09-09): parity with recording_details.html's own
+    # Identifications box -- a mapped taxon's name must be a link.
+    assert f'<a href="/species/{taxon_id}">' in html
 
 
 def test_recording_panel_orders_identifications_by_precedence_and_styles_status(

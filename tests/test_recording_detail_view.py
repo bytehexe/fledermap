@@ -782,6 +782,7 @@ def test_identifications_box_renders_on_the_details_page(
         taxon = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
         session.add(taxon)
         session.flush()
+        taxon_id = taxon.id
         recording = Recording(
             audio_hash="h" * 64,
             path="h.wav",
@@ -795,7 +796,7 @@ def test_identifications_box_renders_on_the_details_page(
             Identification(
                 source=IdSource.EMT_WAMD,
                 verdict=Verdict.SPECIES,
-                taxon_id=taxon.id,
+                taxon_id=taxon_id,
             ),
         ]
         session.add(recording)
@@ -809,6 +810,10 @@ def test_identifications_box_renders_on_the_details_page(
     assert "identification-passive" in html
     assert "identification-current" in html
     assert "shadowed by" not in html  # dropped in favor of styling + precedence order
+    # Style-guide audit (2026-09-09): a mapped taxon's name in the Identifications
+    # breakdown must be a link (docs/style-guide.md's "wherever an entity's name is
+    # written, it should be a link" rule) -- it was plain text before.
+    assert f'<a href="/species/{taxon_id}">' in html
 
 
 def test_identifications_box_orders_rows_by_source_precedence(
