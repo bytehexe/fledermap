@@ -32,10 +32,19 @@ The feature is specifically about the **assigned species being wrong**, not a ge
   recording counts as already-reviewed, per the goal note "not classified manually"). Two criteria
   are buildable now:
   - **Rarity**: the assigned taxon has ≤2 recordings at this site, or ≤5 recordings dataset-wide.
-  - **Misattribution**: the claiming source has been contradicted by a `MANUAL` claim (one that
-    doesn't include this taxon) on >50% of the recordings where both that source's claim of this
-    taxon and *some* `MANUAL` claim exist, with at least 3 such disagreements observed (avoids
-    flagging on a single correction).
+  - **Misattribution**: the claiming source has been contradicted by a `MANUAL` claim on >50% of
+    the recordings where both that source's claim of this taxon and *some* `MANUAL` verdict exist,
+    with at least 3 such disagreements observed (avoids flagging on a single correction). Given a
+    classifier claim of taxon X and a standing `MANUAL` verdict on the same recording:
+    - `MANUAL` verdict `SPECIES` with taxon set containing X → **correct**, X is not overturned
+      even if the human also claimed other species alongside it (a classifier only ever names one
+      species per claim, so a broader human multi-species call still confirms X).
+    - `MANUAL` verdict `SPECIES` with a taxon set that does *not* contain X → **misattribution**.
+    - `MANUAL` verdict `NOISE` → **misattribution** (the human found no bat at all where the
+      classifier claimed X).
+    - `MANUAL` verdict `NO_ID` → **ignored entirely** — excluded from both the numerator and the
+      denominator. A human explicitly declining to call it isn't evidence the classifier was
+      wrong, just that the file was hard.
   - Two more criteria are explicitly deferred, not built: classifier disagreement and
     likely-multi-species, both requiring the batdetect2/noise classifiers this design doesn't
     include.
@@ -110,10 +119,12 @@ Two rule functions compose into it:
 - **`_rarity_reason`**: counts recordings of this taxon at `recording.site_id` and dataset-wide.
   Returns a reason string if either count is at or under its threshold (site ≤2, dataset ≤5).
 - **`_misattribution_reason`**: for the claiming source and taxon, counts (a) recordings where that
-  source claims this taxon *and* a `MANUAL` claim exists on the same recording, and (b) of those,
-  how many `MANUAL` claims do *not* include this taxon. Returns a reason string
-  (`"<SOURCE> is often wrong about <species>"`) if the disagreement count is ≥3 and is a strict
-  majority of (a).
+  source claims this taxon *and* a `MANUAL` verdict of `SPECIES` or `NOISE` exists on the same
+  recording (a `MANUAL` `NO_ID` is excluded entirely, per Goals), and (b) of those, how many are a
+  misattribution — `MANUAL` verdict `NOISE`, or `MANUAL` verdict `SPECIES` whose taxon set doesn't
+  contain this taxon (a `MANUAL` multi-species claim that *does* contain it still counts as
+  correct). Returns a reason string (`"<SOURCE> is often wrong about <species>"`) if the
+  disagreement count is ≥3 and is a strict majority of (a).
 
 Because a caller needing this for many recordings at once (the Reviews page, the `needs_review`
 filter) would otherwise run these per-recording queries once per row, the aggregate lookups
