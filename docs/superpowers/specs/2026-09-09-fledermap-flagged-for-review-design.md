@@ -53,26 +53,46 @@ The feature is specifically about the **assigned species being wrong**, not a ge
 - "Needs review" becomes a filter dimension (`needs_review`) alongside the existing ones in
   `services/map_query.py`, so it composes with the map's other filters and — because
   `neighbor_recordings` already builds prev/next generically over whatever `filtered_recordings`
-  returns — prev/next over the flagged set requires no new navigation machinery.
+  returns — the map's own `needs_review_only` browsing checkbox needs no new navigation machinery.
+  This dynamic, recompute-every-request behavior is fine for ordinary map browsing (matches every
+  other filter's existing "changed under you → not found" behavior), but is **not** used for the
+  guided review workflow below — see the next bullet for why.
+- **The guided review workflow uses a fixed snapshot, not a live re-query.** Working a review
+  queue inherently changes its own membership: classifying a recording removes it from
+  `needs_review` immediately (a live `MANUAL` claim now exists), and unflagging does too. If
+  prev/next recomputed `needs_review` on every request, clicking Next right after classifying the
+  current recording would fail outright — `neighbor_recordings` can't locate a recording that just
+  fell out of the set it's searching, and reports "not found" the same as if the filters had
+  changed. So a review session instead fixes its ordered list of recordings once, when the
+  reviewer starts (from the Reviews page), and prev/next/position-counter all operate on that
+  frozen list for the rest of the session — classifying or unflagging an item changes how it
+  displays when you land on it again, but never removes it from the list or reorders what's
+  ahead. This app keeps no server-side session state anywhere (`app.js`'s documented "everything
+  rides in the URL" scheme) — consistent with that, the snapshot is carried in the URL itself: a
+  `review=<id>,<id>,...` query param listing `Recording.id` values (the small integer primary key,
+  not the 64-character `audio_hash` — see Design §5 for why the choice of ID matters for URL
+  length) in the order fixed at session start.
 - Review happens on the recording **details page**, not the map drawer: the drawer's rendering is
   an overview, not the tiled spectrogram a reviewer actually needs to judge a call (see
   `docs/superpowers/specs/2026-08-25-fledermap-phase3-media-jobs-design.md`'s original detail-view
-  reasoning, still true here). The details page therefore gains prev/next for the first time,
-  scoped by whatever filter context is in its URL — the same filter-query-string pattern the
-  drawer already uses. Landing on the page from anywhere with an active filter (species-filtered
-  map view, the Reviews page, etc.) gets a prev/next scoped to that same set.
+  reasoning, still true here). The details page gains two distinct kinds of prev/next: the
+  existing filter-query-string pattern (dynamic, shared with the drawer, for an ordinary
+  species-/session-filtered browse), and the new snapshot-based kind described above for a review
+  session — the UI is unambiguous about which one is active (see the banner bullet below).
 - A new "Reviews" section (nav item, own page) is the dedicated entry point: shows the flagged
   count and a "Start reviewing (N)" button that jumps straight into the first flagged recording's
-  details page (filter state baked into the URL), and, below that, a table listing every flagged
-  recording individually (site, time, assigned species, matching reasons) — each row links
-  directly into its own details-page review, so a reviewer isn't limited to starting from the
-  first one.
+  details page with the fixed `review=<id-list>` snapshot baked into the URL, and, below that, a
+  table listing every flagged recording individually (site, time, assigned species, matching
+  reasons) — each row links directly into its own details-page review (same snapshot, different
+  starting position), so a reviewer isn't limited to starting from the first one.
 - Drawer/details parity (CLAUDE.md): the drawer panel gets the same flag badge, reasons, and
   manual-flag toggle as the details page — it just isn't the review *workflow* surface itself.
-- When navigation is specifically scoped to `needs_review` (as opposed to an ordinary
-  species/session-filtered browse), the details page makes that explicit — a banner naming it as a
-  review session, a position indicator ("3 of 12"), and an "Exit review" link back to the Reviews
-  page — so prev/next buttons don't appear with no explanation of why they're there.
+- When navigation is a review session (a `review=` snapshot in the URL), the details page makes
+  that explicit — a banner naming it as a review session, a position indicator ("3 of 12", from
+  the fixed list, never recomputed), and an "Exit review" link back to the Reviews page — so
+  prev/next buttons don't appear with no explanation of why they're there. An ordinary
+  species-/session-filtered prev/next (no `review=` param) stays the plain, unbannered row it
+  already would be.
 
 ## Non-goals
 
@@ -89,9 +109,17 @@ The feature is specifically about the **assigned species being wrong**, not a ge
   dropped in later without touching the rules already here.
 - **No prev/next default when no filter context is present** (e.g. a bare bookmarked link to a
   details page). Matches today's drawer behavior exactly — prev/next only appears when the page
-  was reached via some active filter.
+  was reached via some active filter or review snapshot.
 - **No wraparound at the ends of a review session's list.** Buttons disable, a "no more flagged
   recordings" note appears, with a link back to the Reviews page.
+- **No live-updating review snapshot, and no attempt to keep it in sync with concurrent changes**
+  (e.g. a second person unflagging something mid-session elsewhere). The list is fixed at session
+  start; if a snapshot references a recording that's since been deleted outright (not just
+  unflagged — deletion, not a normal part of this workflow, is the only way an id truly stops
+  resolving), that id is silently skipped when resolving the snapshot rather than erroring.
+- **No persistence of a review session across browser sessions/devices beyond what the URL itself
+  carries.** Bookmarking or sharing a review-session URL works (it's self-contained), but there's
+  no separate "resume my review" feature beyond that.
 - **No new `Verdict`, `IdSource`, or change to `replace_claims`/`current_best_identification`.**
   This design reads existing identification data; it doesn't change how claims are resolved.
 - **No taxonomic hierarchy awareness in the misattribution match.** A manual genus/group-level
@@ -154,38 +182,60 @@ aggregate lookups from §2).
 ### 4. Reviews page
 
 New blueprint, `GET /reviews`, added to `_nav.html`'s sidebar (`Map / Sessions / Species / Sites /
-Statistics / Reviews`). Renders:
+Statistics / Reviews`). Computes `filtered_recordings(session, needs_review=True)` once, in
+`recorded_at` order (the same order `neighbor_recordings` already sorts by, so the snapshot's
+"first" matches what a reviewer would expect), and renders:
 
-- The flagged count (`needs_review=True` count from `filtered_recordings`) and a "Start reviewing
-  (N)" button/link — disabled or hidden at zero — pointing at the first flagged recording's details
-  page with `?needs_review=true` (or however the query-string convention encodes it) so its
-  prev/next is scoped to the same set.
+- The flagged count and a "Start reviewing (N)" button/link — disabled or hidden at zero — whose
+  href is the first flagged recording's details page with the full ordered id list attached:
+  `/recordings/<audio_hash>?review=<id1>,<id2>,...`.
 - A table below it (same shape as the existing Sessions/Species/Sites list pages) with one row per
   flagged recording: site, time, assigned species, and the matching reasons (manual flag shows as
-  its own reason, e.g. "manually flagged"). Each row links directly into that recording's details
-  page, same scoped-filter query string.
+  its own reason, e.g. "manually flagged"). Each row links directly into that recording's own
+  details page, carrying the *same* full id list (so starting from row 5 still gives access to the
+  whole queue via prev/next, not just a truncated remainder).
+- A defensive cap, `MAX_REVIEW_SNAPSHOT = 500`, on how many ids the `review=` list ever carries —
+  matching `MAX_FEATURES`'s existing precedent of degrading visibly (a "showing the first 500"
+  note) rather than risking a request-line size an intermediary silently rejects. At this
+  project's expected review-queue scale (tens, not thousands) this is a backstop, not a normal
+  case.
 
 ### 5. Details page
 
-`web/views/recording_detail.py` gains prev/next: parse the incoming filter query string (same
-params `map_query.filtered_recordings` accepts, mirroring how `map.py`'s `_render_recording_panel`
-already does this for the drawer), call `filtered_recordings` + `neighbor_recordings`, and render
-prev/next links carrying the same filter query string forward — exactly the `_recording_panel.html`
-pattern, applied to `recording_details.html`. With no filter query string present, no prev/next
-renders (§ Non-goals).
+**Two independent prev/next mechanisms**, distinguished by which query param is present:
 
-At the ends of a `needs_review`-filtered list (no previous/next), the corresponding button is
+- **Ordinary filtered browsing** (unchanged from the drawer's existing pattern): `web/views/
+  recording_detail.py` parses the same filter params `map_query.filtered_recordings` accepts
+  (mirroring `map.py`'s `_render_recording_panel`), calls `filtered_recordings` +
+  `neighbor_recordings`, and renders prev/next links carrying that same filter query string
+  forward. Dynamic — recomputed on every request, "changed under you" behaves exactly like the
+  drawer's today.
+- **Review session** (a `review=<id>,<id>,...` param): parsed into an ordered list of
+  `Recording.id`, resolved via a single `select(Recording).where(Recording.id.in_(ids))` and
+  reordered to match the snapshot's own order (any id that no longer resolves — e.g. a deleted
+  recording — is silently dropped, per the Non-goals section). Previous/next are simply the
+  adjacent entries in that fixed list relative to the current recording's position within it —
+  no query against `needs_review`/`review_reasons` happens on this path at all, which is exactly
+  what makes it immune to the current recording changing its own review status mid-session. If the
+  current recording's id isn't found in the resolved list at all (a hand-edited or stale URL),
+  this falls back to "not a review session" — no banner, no snapshot-based prev/next.
+
+With neither present, no prev/next renders (§ Non-goals).
+
+At the ends of a review session's fixed list (no previous/next), the corresponding button is
 disabled/absent and a "no more flagged recordings" note appears with a link back to `/reviews`.
+This is a fixed-list boundary, not a live "nothing left needs review" check — the note simply means
+you've reached either end of the list you started with, even if reviewing earlier items has since
+left some of them no longer computed as needing review.
 
 **Review-mode banner.** Prev/next alone doesn't tell a reviewer *why* they're seeing navigation
 buttons — an ordinary species- or session-filtered browse from the map would look identical. When
-the incoming filter query string has `needs_review=true` specifically, the details page shows a
-distinct banner (not just the generic prev/next row): "Reviewing flagged recordings" plus a
-position indicator (e.g. "3 of 12", computed cheaply from the same `filtered_recordings` result
-already fetched for prev/next) and an explicit "Exit review" link back to `/reviews`. This banner
-only appears for `needs_review` navigation — a species-filtered or session-filtered prev/next stays
-the plain, unbannered row it already would be, since those aren't a "review session," just ordinary
-browsing.
+a `review=` snapshot is present specifically, the details page shows a distinct banner (not just
+the generic prev/next row): "Reviewing flagged recordings" plus a position indicator (e.g. "3 of
+12", the current recording's index within the fixed list) and an explicit "Exit review" link back
+to `/reviews`. This banner only appears for a review session — a species-filtered or
+session-filtered prev/next stays the plain, unbannered row it already would be, since those aren't
+a "review session," just ordinary browsing.
 
 The page (and the drawer panel, for parity) shows: a flag badge when `flagged_for_review` is set or
 `review_reasons` is non-empty, the list of reasons, and a manual-flag toggle button following the
