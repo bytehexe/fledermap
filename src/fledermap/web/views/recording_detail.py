@@ -25,7 +25,7 @@ from fledermap.services.recording_detail import (
 from fledermap.store.geo import decode_point
 from fledermap.store.models import Recording, Site, Taxon, TaxonCode
 from fledermap.store.models import Session as AnnotationSession
-from fledermap.web.params import fallback_site_label
+from fledermap.web.params import fallback_site_label, is_safe_relative_path
 
 recording_detail_bp = flask.Blueprint(
     "recording_detail",
@@ -58,24 +58,6 @@ def _taxon_search_index(session: OrmSession) -> list[dict[str, object]]:
 
 _DEFAULT_BACK_LINK = ("Back to map", "/")
 
-# ASCII tab/CR/LF are stripped by the WHATWG URL parser before it looks at a
-# URL's structure, so a raw one of these -- indistinguishable from a normal
-# path character to a plain `str` check -- must be rejected before it can
-# hide a "//" (or a backslash, see below) from `_is_safe_relative_path`.
-_URL_STRIPPED_CHARS = str.maketrans({"\t": None, "\r": None, "\n": None})
-
-
-def _is_safe_relative_path(value: str) -> bool:
-    """A same-origin relative path is safe to redirect to; anything a
-    browser's URL parser could turn into a protocol-relative (or absolute)
-    URL is not. Browsers normalize backslashes to forward slashes and strip
-    tab/CR/LF while parsing an http(s) URL (WHATWG URL spec), so both must
-    be normalized here too -- a literal `startswith("//")` check alone is
-    bypassed by `/\\evil.example` or a tab hidden between two slashes, both
-    of which a browser still resolves to `//evil.example`."""
-    normalized = value.translate(_URL_STRIPPED_CHARS).replace("\\", "/")
-    return normalized.startswith("/") and not normalized.startswith("//")
-
 
 def _resolve_back_link(return_to: str | None) -> tuple[str, str]:
     """Turn a caller-supplied `return_to` (a page's own path+query, e.g. the
@@ -83,9 +65,9 @@ def _resolve_back_link(return_to: str | None) -> tuple[str, str]:
     page's back link -- backlog note "Back to map": different text per
     origin, falling back to the map when the origin is missing or not one we
     recognise. Anything not a safe same-origin relative path (see
-    `_is_safe_relative_path`) is rejected rather than sending the user
+    `is_safe_relative_path`) is rejected rather than sending the user
     off-site."""
-    if return_to is None or not _is_safe_relative_path(return_to):
+    if return_to is None or not is_safe_relative_path(return_to):
         return _DEFAULT_BACK_LINK
     if return_to == "/" or return_to.startswith("/?"):
         return ("Back to map", return_to)

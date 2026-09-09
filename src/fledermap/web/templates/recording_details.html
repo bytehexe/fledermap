@@ -11,21 +11,19 @@
 <body>
   {% include "_nav.html" %}
   <main class="main-content" id="recording-detail">
-    <a href="{{ back_url }}">← {{ back_label }}</a>
-    <div class="detail-header">
-      <h1>{{ recording_headline(taxon, best) }}</h1>
-      {% include "_detail_favourite_button.html" %}
-    </div>
-    <p class="detail-meta">
+    {% set title = recording_headline(taxon, best) %}
+    {% set title_prefix %}{% include "_detail_favourite_button.html" %}{% endset %}
+    {% set actions = [{"label": "Show on map", "href": "/?recording=" ~ recording.audio_hash}] %}
+    {% if recording_session %}
+    {% set actions = actions + [{"label": "Session", "href": "/sessions/" ~ recording_session.id}] %}
+    {% endif %}
+    {% set subtitle %}
       {{ recording.recorded_at.isoformat() }} — {{ recording.make }} {{ recording.model }}
-      {% if site %} — Site: <a href="/?site={{ site.id }}">{{ site_label }}</a>{% endif %}
-      — <a href="/?recording={{ recording.audio_hash }}">Show on map</a>
-      {% if recording_session %} — <a href="/sessions/{{ recording_session.id }}">Session</a>{% endif %}
-    </p>
-    {% include "_identifications_box.html" %}
-    {% include "_classifier_box.html" %}
-
+      {%- if site %} — Site: <a href="/sites/{{ site.id }}?return_to=/recordings/{{ recording.audio_hash }}">{{ site_label }}</a>{% else %} — No site (outlier){% endif -%}
+    {% endset %}
+    {% include "_entity_header.html" %}
     {% if params %}
+    <h2>Audio</h2>
     <div class="detail-toolbar" id="detail-toolbar">
       <button type="button" class="tool-button" data-tool="default" aria-pressed="true">Default</button>
       <button type="button" class="tool-button" data-tool="ruler" aria-pressed="false">Ruler</button>
@@ -115,8 +113,12 @@
       {% endif %}
     </div>
     {% else %}
+    <h2>Audio</h2>
     <p>Missing duration or sample-rate metadata for this recording — cannot render at a locked scale.</p>
     {% endif %}
+
+    {% include "_identifications_box.html" %}
+    {% include "_classifier_box.html" %}
   </main>
   <div id="crosshair-readout" class="floating-readout crosshair-readout" hidden></div>
   {# `position: fixed`, screen coordinates set by recording_detail.js's `updateRulerBox` --

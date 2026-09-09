@@ -10,13 +10,14 @@
 <body>
   {% include "_nav.html" %}
   <main class="main-content">
-    <p><a href="/species">← All species</a></p>
-    <p><a href="/statistics/species/{{ detail.taxon.id }}">Statistics</a></p>
-    <h1>{{ detail.taxon.scientific_name }}</h1>
-    <p class="entity-common-names">
-      {% if detail.taxon.common_name_en %}<span>EN: {{ detail.taxon.common_name_en }}</span>{% endif %}
-      {% if detail.taxon.common_name_de %}<span>DE: {{ detail.taxon.common_name_de }}</span>{% endif %}
-    </p>
+    {% set title = detail.taxon.scientific_name %}
+    {% set actions = [{"label": "Statistics", "href": "/statistics/species/" ~ detail.taxon.id}] %}
+    {% set subtitle %}
+      {%- if detail.taxon.common_name_en %}EN: {{ detail.taxon.common_name_en }}{% endif -%}
+      {%- if detail.taxon.common_name_en and detail.taxon.common_name_de %} — {% endif -%}
+      {%- if detail.taxon.common_name_de %}DE: {{ detail.taxon.common_name_de }}{% endif -%}
+    {% endset %}
+    {% include "_entity_header.html" %}
     <p>Rank: {{ detail.taxon.rank }}</p>
     {% if detail.codes %}
     <p>Codes: {{ detail.codes | join(", ") }}</p>
@@ -42,7 +43,12 @@
       </tbody>
     </table>
 
-    <h2>Recent recordings</h2>
+    <h2>
+      Recent recordings
+      {%- if detail.recent_recordings | length >= recent_recordings_limit %}
+      (showing the most recent {{ recent_recordings_limit }})
+      {%- endif -%}
+    </h2>
     <table class="entity-list">
       <thead>
         <tr>

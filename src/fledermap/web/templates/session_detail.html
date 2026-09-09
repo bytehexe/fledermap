@@ -38,6 +38,9 @@
             <textarea name="weather">{{ detail.session.weather or '' }}</textarea>
           </label>
           <button type="submit">Save</button>
+          {% if request.args.get('saved') %}
+          <span class="save-confirmation">✓ Saved</span>
+          {% endif %}
         </form>
       </div>
     </div>

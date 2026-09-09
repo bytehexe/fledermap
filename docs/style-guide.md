@@ -172,6 +172,74 @@ distinct from `.entity-list`'s table rows since it's one number, not a row of co
 Never nest a bordered `.stats-panel` inside another `.stats-panel` — a card only ever nests
 inside a tinted, borderless band.
 
+### `.entity-header`
+
+Use for the top-of-page block on any full standalone entity page (`site_detail.html`,
+`species_detail.html`, `recording_details.html`) and, at drawer scale, `.panel-header` on
+`_site_panel.html`/`_recording_panel.html`: a title on the left, that page's own action links
+(Show on map, Statistics, Full page, …) right-aligned on the same row, wrapping to a second line
+on narrow screens rather than truncating either side. Replaces three pages each hand-rolling
+their own header shape (a `.panel-header` div, two loose `<p>` tags before the `<h1>`, a
+favourite button floated next to `<h1>` with the rest of the actions buried in a meta paragraph)
+— reconciled 2026-09-09 once the interlinking pass needed the same block on all three.
+
+```html
+<div class="entity-header">
+  <h1>{{ title }}</h1>
+  <div class="entity-header-actions">
+    <a href="...">Show on map</a>
+    <a href="...">Statistics</a>
+  </div>
+</div>
+<p class="entity-header-subtitle">{{ subtitle line: counts, admin path, common names, ... }}</p>
+```
+
+**Interlinking, two general principles** (Janna 2026-09-09) — the rest of this subsection is a
+specific instance of these:
+
+1. **Related entities are expected to link to each other, usually in both directions.** A site
+   page lists its species and sessions; a species page lists its sites — if one direction exists,
+   ask whether the other should too, rather than treating the first as the whole feature. Apply a
+   bit more care for a *list* of related entities than a single one: a site linking every
+   recording it has is fine, but a species page linking every single recording of it might not
+   be once that list is large — that's exactly the "recent recordings, capped" shape
+   `RECENT_RECORDINGS_LIMIT` already uses, not a reason to skip the link.
+2. **Wherever an entity's name is written, it should be a link, unless there's a good specific
+   reason it isn't.** Plain, unlinked text naming a site/species/session/recording is a gap to
+   ask about, not a neutral default.
+
+**An entity's own name/label, wherever it's rendered as a link, always points at that entity's
+own dedicated page** — never a filtered view of something else, and never an in-place panel swap.
+Before this rule, "click the site name" meant three different things depending on where you
+stood: the map filtered to that site (`recording_details.html`'s meta line), the site's drawer
+panel swapped in place (`_recording_panel.html`'s Site line, via `hx-get`), or (the one page that
+had it right) the site's own `/sites/<id>` page (`_recording_panel.html`'s separate `(full
+page)` link, `_site_panel.html`'s `Full site page`). Standardized on the last one everywhere: a
+name link is always `/sites/<id>` (or `/species/<id>`, `/sessions/<id>`) — the destination one
+click away, `/sites/<id>`, already carries its own "Show on map"/"Statistics" actions via this
+same `.entity-header`, so nothing the map-filter or in-drawer shortcuts offered is actually lost,
+just one hop further away. A page/panel that specifically wants the map-filtered view keeps that
+as its own explicitly-labeled action (e.g. `_site_panel.html`'s "Show only this site" button) —
+distinct from, and never substituting for, the entity's own name link.
+
+Every drawer panel header (`.panel-header`) and every full-page `.entity-header`'s self-link
+("this entity's own full page", when the page itself isn't already that full page) is labeled
+**"Full page"**, not a per-entity phrase like "Details" or "Full site page" — same role, same
+word, everywhere it appears.
+
+### Back-links (`return_to`)
+
+A detail page reachable from more than one place (the map drawer, a table row on another
+entity's page, another detail page's meta line) accepts an optional `return_to` query param — a
+same-origin relative path, validated with `web/params.py`'s `is_safe_relative_path` before it's
+trusted for anything (never build a second copy of that check; `recording_detail.py`'s original
+private copy was promoted there for exactly this reuse) — and turns it into that page's back
+link, falling back to a sensible page-specific default when absent, invalid, or from an
+unrecognised origin (see `recording_details.html`'s `_resolve_back_link` for the shape: known
+origins get a specific label like "Back to map"/"Back to sessions", anything else safe just gets
+"Back", anything unsafe or missing falls back to the page's default). A page reachable from
+essentially one place doesn't need this — don't add `return_to` support speculatively.
+
 ## Lists vs. tables
 
 Prefer a table (`.entity-list`, see above) over a bulleted `<ul>` once rows share two or more

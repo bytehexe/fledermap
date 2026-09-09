@@ -161,6 +161,7 @@ function initClassifierBox(box) {
         box.replaceWith(newBox);
         classifierBoxDirty = false;
         initClassifierBox(newBox);
+        showSaveConfirmation(newBox);
       })
       .catch((error) => {
         errorEl.textContent = "Could not save: " + error.message;
@@ -174,4 +175,20 @@ function initClassifierBox(box) {
 
   searchEl.addEventListener("input", () => renderSuggestions(searchEl.value));
   saveButton.addEventListener("click", save);
+}
+
+// A successful save swaps in a freshly server-rendered box (see
+// initClassifierBox's own comment above) whose confirmation span always
+// starts `hidden` -- so the "✓ Saved" flash has to be triggered here, after
+// the swap, rather than living inside save() where the old box is already
+// gone.
+const SAVE_CONFIRMATION_MS = 2000;
+
+function showSaveConfirmation(box) {
+  const confirmation = box.querySelector("#classifier-save-confirmation");
+  if (!confirmation) return;
+  confirmation.hidden = false;
+  setTimeout(() => {
+    confirmation.hidden = true;
+  }, SAVE_CONFIRMATION_MS);
 }

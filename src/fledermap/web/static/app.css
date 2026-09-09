@@ -6,6 +6,7 @@
   --color-bg-subtle: #f7f7f8;
   --color-accent: #2b6cb0;
   --color-warning: #b7791f;
+  --color-success: #2f855a;
   /* Deliberately NOT redefined in the dark-mode blocks below, and NOT
      `--color-accent` -- for the recording-detail page's spectrogram overlays
      (playback cursor, ruler box) only. The spectrogram's own palette
@@ -42,6 +43,7 @@
     --color-bg-subtle: #242628;
     --color-accent: #5b9bd5;
     --color-warning: #d99a3f;
+    --color-success: #48bb78;
     color-scheme: dark;
   }
 }
@@ -53,6 +55,7 @@
   --color-bg-subtle: #242628;
   --color-accent: #5b9bd5;
   --color-warning: #d99a3f;
+  --color-success: #48bb78;
   color-scheme: dark;
 }
 
@@ -314,13 +317,16 @@ button:disabled { cursor: default; opacity: 0.5; }
   gap: 0.5rem;
 }
 
-/* .panel-header is shared with _site_panel.html's own title+button row, and now with
-   the standalone recording-detail page's own h1+favourite-button row (.detail-header) --
-   wrap (rather than squeeze) is what keeps a long title from crowding its
-   button into an ugly multi-line wrap (caught from a real screenshot with
-   a long site name); the button itself never shrinks or wraps its own
-   text, so it stays a normal-looking button on whichever line it lands. */
-.panel-header, .detail-header {
+/* .panel-header is the drawer-scale version of this row (title left, actions right,
+   wrap rather than squeeze -- keeps a long title from crowding its actions into an
+   ugly multi-line wrap, caught from a real screenshot with a long site name); the
+   actions themselves never shrink or wrap their own text, so they stay
+   normal-looking on whichever line they land. .entity-header is the full-page-scale
+   version, shared by every standalone entity page (site/species/recording detail --
+   docs/style-guide.md's ".entity-header" section) since the interlinking pass that
+   unified their three previously-different header shapes (2026-09-09; recording's
+   own version was called .detail-header before that unification). */
+.panel-header, .entity-header {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -328,9 +334,11 @@ button:disabled { cursor: default; opacity: 0.5; }
   gap: 0.5rem;
 }
 .panel-header h2 { margin: 0 0 0.25rem; font-size: 1.15rem; }
-.detail-header h1 { margin: 1rem 0 0.25rem; }
-.panel-header button, .detail-header button { flex-shrink: 0; white-space: nowrap; }
-.panel-header a, .detail-header a { flex-shrink: 0; white-space: nowrap; }
+.entity-header h1 { margin: 1rem 0 0.25rem; }
+.panel-header button, .entity-header button { flex-shrink: 0; white-space: nowrap; }
+.panel-header a, .entity-header a { flex-shrink: 0; white-space: nowrap; }
+.entity-header-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; flex-shrink: 0; }
+.entity-header-subtitle { color: var(--color-muted); margin: 0 0 0.75rem; }
 .favourite-toggle {
   font-size: 1.1rem;
   line-height: 1;
@@ -527,9 +535,6 @@ button:disabled { cursor: default; opacity: 0.5; }
   font-size: 0.9rem;
 }
 #sessions-pagination { display: flex; justify-content: center; gap: 0.5rem; margin-top: 0.75rem; }
-
-/* Species/Site list + detail pages. */
-.entity-common-names { display: flex; gap: 1rem; color: var(--color-muted); font-size: 0.9rem; }
 
 /* Statistics dashboard: bands (macro-structure, tinted, no border) holding
    cards (bordered, own header) only where 2+ widgets compare side by side --
@@ -823,4 +828,15 @@ button:disabled { cursor: default; opacity: 0.5; }
   margin: 0.4rem 0 0;
   font-size: 0.8rem;
   color: var(--color-warning);
+}
+/* Positive save feedback -- shared by every Save button on the site
+   (classifier box, session-detail form), not just this one; docs/style-
+   guide.md's "a form that changes stored data needs an explicit Save"
+   rule covers the warn-before-leaving half, this is the confirming-it-
+   worked half. */
+.save-confirmation {
+  margin-left: 0.5rem;
+  align-self: center;
+  font-size: 0.85rem;
+  color: var(--color-success);
 }

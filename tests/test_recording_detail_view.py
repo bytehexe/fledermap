@@ -6,11 +6,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from geoalchemy2.elements import WKTElement
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import IdSource, Verdict
-from fledermap.store.models import Identification, Recording, Taxon
+from fledermap.store.models import Identification, Recording, Site, Taxon
 from fledermap.store.models import Session as AnnotationSession
 from fledermap.web.app import create_app
 
@@ -53,6 +54,67 @@ def test_recording_details_page_renders_the_recording(
     assert "Echo Meter Touch 2" in html
     assert f"/recordings/{'f2' * 32}/detail-spectrogram/0.webp" in html
     assert f"/recordings/{'f2' * 32}/detail-oscillogram/0.webp" in html
+
+
+def test_recording_details_page_explains_a_missing_site_as_an_outlier(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """A recording with no `site_id` (outside every derived site's radius,
+    or geo-less) must say so explicitly rather than just omitting the
+    "Site: ..." line -- otherwise a reader can't tell "outlier" apart from
+    "the site info silently failed to load"."""
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="f3" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/recordings/{'f3' * 32}")
+
+    html = response.get_data(as_text=True)
+    assert "No site (outlier)" in html
+
+
+def test_recording_details_page_site_link_points_at_the_sites_own_page(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """docs/style-guide.md's ".entity-header" rule: an entity's own name is
+    always the link to its own dedicated page -- not the map filtered to it
+    (`/?site=...`, this page's own previous behaviour)."""
+    with OrmSession(engine) as session:
+        site = Site(
+            centroid=WKTElement("POINT(10 50)", srid=4326),
+            radius_m=50.0,
+            recording_count=1,
+            first_at=datetime(2026, 8, 25, tzinfo=UTC),
+            last_at=datetime(2026, 8, 25, tzinfo=UTC),
+            name="Old Barn",
+        )
+        session.add(site)
+        session.flush()
+        session.add(
+            Recording(
+                audio_hash="f4" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+                site_id=site.id,
+            ),
+        )
+        session.commit()
+        site_id = site.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    html = app.test_client().get(f"/recordings/{'f4' * 32}").get_data(as_text=True)
+
+    assert f'href="/sites/{site_id}?return_to=/recordings/{"f4" * 32}"' in html
+    assert "/?site=" not in html
 
 
 def test_recording_details_page_bakes_in_the_preview_time_expansion_factor(

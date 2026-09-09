@@ -129,7 +129,7 @@ def save_session(session_id: int) -> flask.Response:
         session_obj.seen_visually = seen_visually
         session.commit()
 
-    return flask.make_response(flask.redirect(f"/sessions/{session_id}"))
+    return flask.make_response(flask.redirect(f"/sessions/{session_id}?saved=1"))
 
 
 @sessions_bp.post("/sessions/merge-proposals/<int:proposal_id>/resolve")

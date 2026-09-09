@@ -430,13 +430,41 @@ def test_save_session_updates_note_weather_and_seen_visually(
     )
 
     assert response.status_code == 302
-    assert response.location == f"/sessions/{session_id}"
+    assert response.location == f"/sessions/{session_id}?saved=1"
     with OrmSession(engine) as session:
         refreshed = session.get(AnnotationSession, session_id)
         assert refreshed is not None
         assert refreshed.note == "new note"
         assert refreshed.weather == "clear"
         assert refreshed.seen_visually == VisualSighting.YES
+
+
+def test_session_detail_page_shows_a_save_confirmation_after_saving(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """The Save form is a plain full-page POST+redirect (no htmx swap to
+    piggyback feedback on), so the `?saved=1` redirect target is the only
+    signal the page has that the save actually happened -- without it, a
+    successful save looks identical to the page just having loaded."""
+    with OrmSession(engine) as session:
+        s = AnnotationSession(
+            started_at=datetime(2026, 8, 21, tzinfo=UTC),
+            ended_at=datetime(2026, 8, 21, tzinfo=UTC),
+            detector_key="EMT\x1f1",
+        )
+        session.add(s)
+        session.commit()
+        session_id = s.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    plain_html = client.get(f"/sessions/{session_id}").get_data(as_text=True)
+    assert "Saved" not in plain_html
+
+    saved_html = client.get(f"/sessions/{session_id}?saved=1").get_data(as_text=True)
+    assert "✓ Saved" in saved_html
 
 
 def test_save_session_invalid_seen_visually_returns_400(

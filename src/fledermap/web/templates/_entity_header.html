@@ -1,0 +1,29 @@
+{# src/fledermap/web/templates/_entity_header.html -- shared top-of-page block for every
+   standalone entity page (site/species/recording detail), per docs/style-guide.md's
+   ".entity-header" section. Included `with context` by each page, which sets:
+     - back_url, back_label: the page's resolved back link (web/params.py's
+       is_safe_relative_path-driven return_to handling)
+     - title: plain text, the page's own h1
+     - title_prefix (optional): pre-rendered safe HTML placed before the title on the
+       same line (recording_details.html's favourite-toggle button)
+     - subtitle (optional): pre-rendered safe HTML, one line under the header row
+       (recording metadata, common names, site stats -- whatever the page's own
+       equivalent used to render as loose <p> tags before this existed)
+     - actions: a list of {label, href} dicts, right-aligned on the header row #}
+<p><a href="{{ back_url }}">← {{ back_label }}</a></p>
+<div class="entity-header">
+  <h1>
+    {%- if title_prefix %}{{ title_prefix }} {% endif -%}
+    {{ title }}
+  </h1>
+  {% if actions %}
+  <div class="entity-header-actions">
+    {% for action in actions %}
+    <a href="{{ action.href }}">{{ action.label }}</a>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% if subtitle %}
+<p class="entity-header-subtitle">{{ subtitle }}</p>
+{% endif %}

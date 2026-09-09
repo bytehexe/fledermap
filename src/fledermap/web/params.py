@@ -13,6 +13,30 @@ from fledermap.domain.codes import Verdict
 
 BBox = tuple[float, float, float, float]  # (min_lon, min_lat, max_lon, max_lat)
 
+# ASCII tab/CR/LF are stripped by the WHATWG URL parser before it looks at a
+# URL's structure, so a raw one of these -- indistinguishable from a normal
+# path character to a plain `str` check -- must be rejected before it can
+# hide a "//" (or a backslash, see below) from `is_safe_relative_path`.
+_URL_STRIPPED_CHARS = str.maketrans({"\t": None, "\r": None, "\n": None})
+
+
+def is_safe_relative_path(value: str) -> bool:
+    """A same-origin relative path is safe to redirect/link back to; anything
+    a browser's URL parser could turn into a protocol-relative (or absolute)
+    URL is not. Browsers normalize backslashes to forward slashes and strip
+    tab/CR/LF while parsing an http(s) URL (WHATWG URL spec), so both must be
+    normalized here too -- a literal `startswith("//")` check alone is
+    bypassed by `/\\evil.example` or a tab hidden between two slashes, both
+    of which a browser still resolves to `//evil.example`.
+
+    Shared by every page's `return_to`-driven back link (see
+    docs/style-guide.md's "Back-links (return_to)" section) -- originally
+    private to `recording_detail.py`, promoted here once `entities.py`'s
+    site/species detail pages needed the same check rather than a second
+    copy of it."""
+    normalized = value.translate(_URL_STRIPPED_CHARS).replace("\\", "/")
+    return normalized.startswith("/") and not normalized.startswith("//")
+
 
 def parse_bbox(raw: str | None) -> BBox | None:
     if raw is None:

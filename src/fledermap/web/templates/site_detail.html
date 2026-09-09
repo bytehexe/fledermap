@@ -10,14 +10,13 @@
 <body>
   {% include "_nav.html" %}
   <main class="main-content">
-    <p><a href="/sites">← All sites</a></p>
-    <div class="panel-header">
-      <h1>{{ label }}</h1>
-      <a href="/?site={{ detail.site.id }}">Show on map</a>
-      <a href="/statistics/sites/{{ detail.site.id }}">Statistics</a>
-    </div>
-    <p>{{ detail.site.recording_count }} recordings</p>
-    {% if detail.site.admin_path %}<p>{{ detail.site.admin_path }}</p>{% endif %}
+    {% set title = label %}
+    {% set actions = [
+      {"label": "Show on map", "href": "/?site=" ~ detail.site.id},
+      {"label": "Statistics", "href": "/statistics/sites/" ~ detail.site.id},
+    ] %}
+    {% set subtitle %}{{ detail.site.recording_count }} recordings{% if detail.site.admin_path %} — {{ detail.site.admin_path }}{% endif %}{% endset %}
+    {% include "_entity_header.html" %}
 
     <h2>Species</h2>
     <table class="entity-list">
