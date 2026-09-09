@@ -992,45 +992,70 @@ git commit -m "feat: add needs_review filter to filtered_recordings"
 
 **Files:**
 - Modify: `src/fledermap/web/views/map.py`
-- Test: `tests/test_web_map.py` (or the existing file covering `toggle_favourite` — confirm exact
-  filename with `grep -rn "toggle_favourite" tests/`)
+- Test: `tests/test_map_view.py` (home of `test_toggle_favourite_flips_it_on_then_off` and its
+  siblings — the new tests go alongside them)
 
 **Interfaces:**
-- Consumes: `Recording.flagged_for_review` (Task 1).
+- Consumes: `Recording.flagged_for_review` (Task 1); `create_app(engine, static_root, media_root)`
+  (`fledermap.web.app`, the test-app factory already used throughout `test_map_view.py`).
 - Produces: `POST /recordings/<audio_hash>/flag-for-review` (branches on `?panel=detail` exactly
   like `toggle_favourite`), consumed by Task 7's templates.
 
-- [ ] **Step 1: Locate the existing `toggle_favourite` test**
+- [ ] **Step 1: Write the failing tests**
 
-Run: `grep -rn "toggle_favourite\|/favourite" tests/*.py`
-
-Use whatever file that finds as the home for the new test (matching existing project layout
-rather than guessing a name).
-
-- [ ] **Step 2: Write the failing test**
-
-Add alongside the existing favourite-toggle test, following its exact shape (read it first to
-match fixtures/helpers used there):
+Add to `tests/test_map_view.py`, right after `test_toggle_favourite_flips_it_on_then_off`,
+following its exact shape:
 
 ```python
-def test_toggle_flag_for_review_flips_the_flag(client, ...) -> None:  # match existing fixture args
-    # Arrange a recording via whatever helper the favourite test already uses.
-    ...
-    response = client.post(f"/recordings/{audio_hash}/flag-for-review")
+def test_toggle_flag_for_review_flips_it_on_then_off(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="a" * 64,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    response = client.post(f"/recordings/{'a' * 64}/flag-for-review?verdict=all")
     assert response.status_code == 200
-    # Assert the DB row's flagged_for_review is now True (re-fetch via session).
-    ...
-    response2 = client.post(f"/recordings/{audio_hash}/flag-for-review")
-    # Assert it's back to False.
+    with OrmSession(engine) as session:
+        recording = session.get(Recording, 1)
+        assert recording is not None
+        assert recording.flagged_for_review is True
+
+    response = client.post(f"/recordings/{'a' * 64}/flag-for-review?verdict=all")
+    assert response.status_code == 200
+    with OrmSession(engine) as session:
+        recording = session.get(Recording, 1)
+        assert recording is not None
+        assert recording.flagged_for_review is False
+
+
+def test_toggle_flag_for_review_unknown_hash_returns_404(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().post(f"/recordings/{'f1' * 32}/flag-for-review")
+
+    assert response.status_code == 404
 ```
 
-- [ ] **Step 3: Run test to verify it fails**
+- [ ] **Step 2: Run tests to verify they fail**
 
-Run whatever command the existing favourite test uses (likely `hatch test tests/<file>.py -m db -v
--k flag_for_review`, `dangerouslyDisableSandbox: true`)
-Expected: FAIL — 404, route doesn't exist.
+Run: `hatch test tests/test_map_view.py -m db -v -k flag_for_review`
+(`dangerouslyDisableSandbox: true`)
+Expected: FAIL — 404 on every request, route doesn't exist.
 
-- [ ] **Step 4: Write the implementation**
+- [ ] **Step 3: Write the implementation**
 
 In `src/fledermap/web/views/map.py`, right after `toggle_favourite`:
 
@@ -1062,17 +1087,17 @@ def toggle_flag_for_review(audio_hash: str) -> flask.Response:
 diffs land together logically, but Task 6's own test only needs the drawer branch — the
 `?panel=detail` path is exercised once Task 7 adds the template.)
 
-- [ ] **Step 5: Run test to verify it passes**
+- [ ] **Step 4: Run tests to verify they pass**
 
-Same command as Step 3.
+Same command as Step 2.
 Expected: PASS
 
-- [ ] **Step 6: Type-check**
+- [ ] **Step 5: Type-check**
 
 Run: `hatch run types:check`
 Expected: PASS
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add src/fledermap/web/views/map.py tests/
@@ -1244,11 +1269,11 @@ git commit -m "feat: show flag badge, reasons, and toggle on drawer and details 
 - Modify: `src/fledermap/web/api/geojson.py`
 - Modify: `src/fledermap/web/templates/map.html`
 - Modify: `src/fledermap/web/static/app.js`
-- Test: `tests/test_geojson_api.py` (confirm exact filename via `grep -rn "favourite_only"
-  tests/*.py`); headless-Chrome live-verification for the checkbox itself.
+- Test: `tests/test_geojson_api.py`; headless-Chrome live-verification for the checkbox itself.
 
 **Interfaces:**
-- Consumes: Task 5's `filtered_recordings(..., needs_review=...)`.
+- Consumes: Task 5's `filtered_recordings(..., needs_review=...)`; the file's own `_app_client(engine,
+  tmp_path)` test helper (`tests/test_geojson_api.py:19`).
 - Produces: `needs_review_only` query param recognized end-to-end (checkbox → `app.js` → GeoJSON
   API → `filtered_recordings`), and by the drawer panel route (`_render_recording_panel` already
   reads `flask.request.args` generically via the panel/prev-next flow — extend its explicit
@@ -1256,23 +1281,44 @@ git commit -m "feat: show flag badge, reasons, and toggle on drawer and details 
 
 - [ ] **Step 1: Write the failing API test**
 
-Following the exact shape of the existing `favourite_only` GeoJSON API test (read it first):
+Add to `tests/test_geojson_api.py`, right after `test_recordings_geojson_favourite_only_filters_to_starred`,
+following its exact shape:
 
 ```python
-def test_recordings_geojson_needs_review_only_filters(client, ...) -> None:
-    # Arrange one flagged_for_review=True recording and one plain one via
-    # whatever helper the favourite_only test already uses.
-    ...
-    response = client.get("/recordings.geojson?needs_review_only=1")
-    ids = {f["properties"]["id"] for f in response.json["features"]}
-    assert ids == {flagged_id}
+def test_recordings_geojson_needs_review_only_filters_to_flagged(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        flagged = Recording(
+            audio_hash="a" * 64,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            geom=WKTElement("POINT(10 50)", srid=4326),
+            flagged_for_review=True,
+        )
+        plain = Recording(
+            audio_hash="b" * 64,
+            path="b.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            geom=WKTElement("POINT(11 51)", srid=4326),
+            flagged_for_review=False,
+        )
+        session.add_all([flagged, plain])
+        session.commit()
+
+    client = _app_client(engine, tmp_path)
+    response = client.get("/api/recordings.geojson?verdict=all&needs_review_only=1")
+
+    assert response.status_code == 200
+    hashes = [f["properties"]["audio_hash"] for f in response.get_json()["features"]]
+    assert hashes == ["a" * 64]
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run the same command style used for the existing `favourite_only` API test, with
-`dangerouslyDisableSandbox: true`.
-Expected: FAIL — param not read yet.
+Run: `hatch test tests/test_geojson_api.py -m db -v -k needs_review` (`dangerouslyDisableSandbox: true`)
+Expected: FAIL — param not read yet, so both recordings are returned.
 
 - [ ] **Step 3: Wire the param into the GeoJSON API**
 
@@ -1305,28 +1351,34 @@ Expected: PASS
 
 - [ ] **Step 6: Add the checkbox to `map.html`**
 
-Right next to the existing `favourite_only` checkbox (`map.html:62`):
+Right after the existing `favourite_only` checkbox (`map.html:61-63`), matching its exact
+multi-line `<label>` shape:
 
 ```html
-        <label><input type="checkbox" name="needs_review_only" value="1" x-model="needs_review_only"> Needs review</label>
+      <label>
+        <input type="checkbox" name="favourite_only" value="1" x-model="favourite_only">
+        ★ Favourites only
+      </label>
+      <label>
+        <input type="checkbox" name="needs_review_only" value="1" x-model="needs_review_only">
+        🚩 Needs review
+      </label>
 ```
 
-(Match whatever surrounding markup/label convention the `favourite_only` checkbox actually uses —
-read the few lines around it first rather than assuming a bare `<input>`.)
+(Only the new second `<label>` block is added — the first is shown for placement context.)
 
 - [ ] **Step 7: Wire it into `app.js`'s filter-state parsing**
 
-Alongside `app.js:30`'s `favourite_only: params.get("favourite_only") === "1",` inside the same
-Alpine `x-data` object:
+In `filterForm()` (`app.js:19-31`), alongside the existing `favourite_only:
+params.get("favourite_only") === "1",` line:
 
 ```javascript
     needs_review_only: params.get("needs_review_only") === "1",
 ```
 
-And in the `query()` function (`app.js:62-84`) wherever `favourite_only` is appended to the
-outgoing `FormData`/query params, add the same handling for `needs_review_only` (read that
-function's exact shape first — it likely only appends the param when truthy, matching
-`favourite_only`'s pattern).
+No change is needed in `query()` (`app.js:62-84`) — it builds `URLSearchParams` generically from
+the filter `<form>`'s own `FormData`, so the new checkbox's `name="needs_review_only"` is picked
+up automatically the same way `favourite_only` already is, with no per-field code.
 
 - [ ] **Step 8: Headless-Chrome live-verification**
 
@@ -1351,9 +1403,11 @@ git commit -m "feat: add needs_review_only filter to the map"
 
 ---
 
-## Task 9: Reviews page (nav item, blueprint, list + start-review entry point)
+## Task 9: Review snapshot helpers + Reviews page (nav item, blueprint, list + start-review entry point)
 
 **Files:**
+- Modify: `src/fledermap/services/review_flags.py` (snapshot helpers)
+- Modify: `tests/test_review_flags.py` (snapshot helper tests)
 - Create: `src/fledermap/web/views/reviews.py`
 - Create: `src/fledermap/web/templates/reviews.html`
 - Modify: `src/fledermap/web/templates/_nav.html`
@@ -1364,19 +1418,178 @@ git commit -m "feat: add needs_review_only filter to the map"
 - Consumes: Task 5's `filtered_recordings(..., needs_review=True)`, Task 4's `ReviewContext`/
   `review_reasons` (for the per-row reason display), `current_best_identification`
   (`services/current_best.py`).
-- Produces: `GET /reviews`, rendering `reviews.html` with `count: int`, `rows: list[dict]` (one per
-  flagged recording: `audio_hash`, `site_label`, `recorded_at`, `species_label`, `reasons`), and
-  `first_audio_hash: str | None` for the "Start reviewing" link's target. Consumed by Task 10 (the
-  details page's "no more flagged recordings" link target, and the query-string convention this
-  page's links establish).
+- Produces (in `services/review_flags.py`):
+  `MAX_REVIEW_SNAPSHOT: int` (500);
+  `build_review_snapshot(recordings: Sequence[Recording]) -> list[int]` (ordered `Recording.id`
+  list, capped);
+  `parse_review_snapshot(raw: str | None) -> list[int]` (parses a `review=` query param, skipping
+  anything that isn't a valid int rather than raising);
+  `resolve_review_snapshot(session: OrmSession, ids: Sequence[int]) -> list[Recording]` (resolves
+  ids back to `Recording` rows in the snapshot's own order, silently dropping any id that no
+  longer resolves). All three are consumed by Task 10's details-page prev/next.
+- Produces (in `web/views/reviews.py`): `GET /reviews`, rendering `reviews.html` with `count: int`,
+  `rows: list[dict]` (one per flagged recording: `audio_hash`, `site_label`, `recorded_at`,
+  `species_label`, `reasons`), `review_qs: str` (the comma-joined snapshot id list, empty string
+  when `count == 0`), and `truncated: bool` (whether the snapshot was capped at
+  `MAX_REVIEW_SNAPSHOT`).
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing tests for the snapshot helpers**
+
+Append to `tests/test_review_flags.py`:
+
+```python
+from fledermap.services.review_flags import (
+    build_review_snapshot,
+    parse_review_snapshot,
+    resolve_review_snapshot,
+)
+
+
+def test_build_review_snapshot_preserves_order() -> None:
+    class _Fake:
+        def __init__(self, id_: int) -> None:
+            self.id = id_
+
+    recordings = [_Fake(3), _Fake(1), _Fake(2)]
+    assert build_review_snapshot(recordings) == [3, 1, 2]
+
+
+def test_build_review_snapshot_caps_at_the_maximum() -> None:
+    class _Fake:
+        def __init__(self, id_: int) -> None:
+            self.id = id_
+
+    recordings = [_Fake(i) for i in range(600)]
+    snapshot = build_review_snapshot(recordings)
+    assert len(snapshot) == 500
+    assert snapshot == list(range(500))
+
+
+def test_parse_review_snapshot_round_trips_a_comma_list() -> None:
+    assert parse_review_snapshot("14,52,109") == [14, 52, 109]
+
+
+def test_parse_review_snapshot_skips_malformed_entries() -> None:
+    assert parse_review_snapshot("14,not-a-number,109,") == [14, 109]
+
+
+def test_parse_review_snapshot_empty_or_none_is_empty_list() -> None:
+    assert parse_review_snapshot(None) == []
+    assert parse_review_snapshot("") == []
+
+
+def test_resolve_review_snapshot_preserves_snapshot_order(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        ids = []
+        for audio_hash in ("a" * 64, "b" * 64, "c" * 64):
+            r = Recording(
+                audio_hash=audio_hash, path=f"{audio_hash}.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            )
+            session.add(r)
+            session.flush()
+            ids.append(r.id)
+        session.commit()
+        # Snapshot order is reversed relative to insertion/id order --
+        # resolve_review_snapshot must preserve THIS order, not re-sort.
+        snapshot_ids = [ids[2], ids[0], ids[1]]
+
+        resolved = resolve_review_snapshot(session, snapshot_ids)
+
+    assert [r.id for r in resolved] == snapshot_ids
+
+
+def test_resolve_review_snapshot_drops_unresolvable_ids(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        r = Recording(
+            audio_hash="a" * 64, path="a.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add(r)
+        session.commit()
+        real_id = r.id
+
+        resolved = resolve_review_snapshot(session, [999999, real_id])
+
+    assert [r.id for r in resolved] == [real_id]
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `hatch test tests/test_review_flags.py -v -k snapshot` (both marker sets;
+`dangerouslyDisableSandbox: true` for the `db`-marked ones)
+Expected: FAIL — the three functions don't exist yet.
+
+- [ ] **Step 3: Implement the snapshot helpers**
+
+Append to `src/fledermap/services/review_flags.py`:
+
+```python
+# Matches MAX_FEATURES's existing precedent elsewhere: degrade visibly (a
+# "showing the first 500" note) rather than risk a request-line size some
+# intermediary silently rejects. At this project's expected review-queue
+# scale (tens, not thousands) this is a backstop, not a normal case.
+MAX_REVIEW_SNAPSHOT = 500
+
+
+def build_review_snapshot(recordings: Sequence[Recording]) -> list[int]:
+    """Ordered Recording.id list for a review session's URL -- id, not
+    audio_hash, specifically to keep the query string compact (a 64-char
+    hash per entry would risk common ~8KB request-line limits well before
+    MAX_REVIEW_SNAPSHOT is even reached)."""
+    return [r.id for r in recordings[:MAX_REVIEW_SNAPSHOT]]
+
+
+def parse_review_snapshot(raw: str | None) -> list[int]:
+    """Parse a `review=<id>,<id>,...` query param into an ordered id list.
+    A malformed entry is skipped, not raised -- a hand-edited or stale URL
+    should degrade to "not a review session" (see resolve_review_snapshot
+    and recording_detail.py), never a 500."""
+    if not raw:
+        return []
+    ids: list[int] = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            ids.append(int(part))
+        except ValueError:
+            continue
+    return ids
+
+
+def resolve_review_snapshot(
+    session: OrmSession, ids: Sequence[int],
+) -> list[Recording]:
+    """Resolve a snapshot's id list back to Recording rows, IN THE
+    SNAPSHOT'S OWN ORDER -- not insertion or query order. Any id that no
+    longer resolves (e.g. a deleted recording) is silently dropped, per the
+    design spec's Non-goals section."""
+    if not ids:
+        return []
+    rows = session.scalars(select(Recording).where(Recording.id.in_(ids))).all()
+    by_id = {r.id: r for r in rows}
+    return [by_id[i] for i in ids if i in by_id]
+```
+
+(`Sequence` from `collections.abc` and `select` from `sqlalchemy` should already be imported at
+the top of the file from earlier tasks — add them if not.)
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `hatch test tests/test_review_flags.py -v -k snapshot`
+(`dangerouslyDisableSandbox: true` for the `db`-marked ones)
+Expected: PASS
+
+- [ ] **Step 5: Write the failing Reviews-page test**
 
 ```python
 # tests/test_reviews.py
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 from sqlalchemy import Engine
@@ -1389,57 +1602,57 @@ from fledermap.web.app import create_app
 pytestmark = pytest.mark.db
 
 
-def test_reviews_page_lists_flagged_recordings(engine: Engine, tmp_path) -> None:
+def test_reviews_page_lists_flagged_recordings(engine: Engine, tmp_path: Path) -> None:
     with OrmSession(engine) as session:
         taxon = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
         session.add(taxon)
         session.flush()
         r = Recording(
-            audio_hash="a" * 64, path="a.wav",
+            audio_hash="a" * 64,
+            path="a.wav",
             recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
         )
         session.add(r)
         session.flush()
         session.add(
             Identification(
-                recording_id=r.id, source=IdSource.EMT_GUANO,
-                verdict=Verdict.SPECIES, taxon_id=taxon.id, first_seen_at=r.recorded_at,
+                recording_id=r.id,
+                source=IdSource.EMT_GUANO,
+                verdict=Verdict.SPECIES,
+                taxon_id=taxon.id,
+                first_seen_at=datetime(2026, 8, 25, tzinfo=UTC),
             ),
         )
         session.commit()
+        recording_id = r.id
 
-    app = create_app(engine=engine, media_root=tmp_path)  # match whatever create_app's
-                                                            # actual signature/fixture is --
-                                                            # check tests/conftest.py or an
-                                                            # existing view test for the
-                                                            # real construction pattern
-    client = app.test_client()
-    response = client.get("/reviews")
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get("/reviews")
 
     assert response.status_code == 200
-    assert b"Pipistrellus pipistrellus" in response.data
-    assert b"a" * 64 in response.data or b"aaaaaaaa" in response.data
+    html = response.get_data(as_text=True)
+    assert "Pipistrellus pipistrellus" in html
+    assert "a" * 64 in html
+    assert "1 recording flagged for review" in html
+    assert f"review={recording_id}" in html
 
 
-def test_reviews_page_zero_flagged(engine: Engine, tmp_path) -> None:
-    app = create_app(engine=engine, media_root=tmp_path)
-    client = app.test_client()
-    response = client.get("/reviews")
+def test_reviews_page_zero_flagged(engine: Engine, tmp_path: Path) -> None:
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get("/reviews")
 
     assert response.status_code == 200
-    assert b"0" in response.data
+    html = response.get_data(as_text=True)
+    assert "0 recordings flagged for review" in html
+    assert "Start reviewing" not in html
 ```
 
-Before writing these, run `grep -rn "def client\|test_client\|create_app" tests/conftest.py
-tests/test_web_map.py` to find the project's actual Flask test-client fixture/pattern and rewrite
-the above to match it exactly rather than guessing `create_app`'s signature.
-
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 6: Run test to verify it fails**
 
 Run: `hatch test tests/test_reviews.py -m db -v` (`dangerouslyDisableSandbox: true`)
 Expected: FAIL — `/reviews` doesn't exist (404).
 
-- [ ] **Step 3: Write the route**
+- [ ] **Step 7: Write the route**
 
 ```python
 # src/fledermap/web/views/reviews.py
@@ -1447,7 +1660,9 @@ Expected: FAIL — `/reviews` doesn't exist (404).
 for-review-design.md): the dedicated entry point into the flagged-for-review
 workflow -- a count + "Start reviewing" link into the first flagged
 recording's details page, plus a table to jump into any individual one
-directly."""
+directly. Both links carry the SAME fixed review=<id-list> snapshot (see
+services/review_flags.py's build_review_snapshot) -- computed once here,
+not recomputed as the reviewer works through it."""
 
 from __future__ import annotations
 
@@ -1456,7 +1671,12 @@ from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.services.current_best import current_best_identification
 from fledermap.services.map_query import filtered_recordings
-from fledermap.services.review_flags import ReviewContext, review_reasons
+from fledermap.services.review_flags import (
+    MAX_REVIEW_SNAPSHOT,
+    ReviewContext,
+    build_review_snapshot,
+    review_reasons,
+)
 from fledermap.store.geo import decode_point
 from fledermap.store.models import Site
 from fledermap.web.params import fallback_site_label
@@ -1470,9 +1690,11 @@ def reviews_page() -> flask.Response:
     with OrmSession(engine) as session:
         recordings = filtered_recordings(session, needs_review=True)
         context = ReviewContext.build(session)
+        snapshot_ids = build_review_snapshot(recordings)
+        review_qs = ",".join(str(i) for i in snapshot_ids)
 
         rows = []
-        for r in recordings:
+        for r in recordings[:MAX_REVIEW_SNAPSHOT]:
             best = current_best_identification(r)
             species_label = (
                 best.primary.taxon.scientific_name
@@ -1500,14 +1722,15 @@ def reviews_page() -> flask.Response:
 
         html = flask.render_template(
             "reviews.html",
-            count=len(rows),
+            count=len(recordings),
             rows=rows,
-            first_audio_hash=rows[0]["audio_hash"] if rows else None,
+            review_qs=review_qs,
+            truncated=len(recordings) > MAX_REVIEW_SNAPSHOT,
         )
     return flask.make_response(html)
 ```
 
-- [ ] **Step 4: Write the template**
+- [ ] **Step 8: Write the template**
 
 ```html
 {# src/fledermap/web/templates/reviews.html #}
@@ -1525,10 +1748,11 @@ def reviews_page() -> flask.Response:
   <main class="main-content">
     <h1>Reviews</h1>
     <p>{{ count }} recording{{ "" if count == 1 else "s" }} flagged for review.</p>
-    {% if first_audio_hash %}
-    <a class="button" href="/recordings/{{ first_audio_hash }}?needs_review_only=1">Start reviewing ({{ count }})</a>
+    {% if truncated %}
+    <p class="warning-banner">Showing the first {{ rows | length }} — resolve some to see the rest.</p>
     {% endif %}
     {% if rows %}
+    <a class="button" href="/recordings/{{ rows[0].audio_hash }}?review={{ review_qs }}">Start reviewing ({{ count }})</a>
     <p>...or choose one below:</p>
     <table>
       <thead>
@@ -1539,7 +1763,7 @@ def reviews_page() -> flask.Response:
         <tr>
           <td>{{ row.site_label or "No site" }}</td>
           <td>{{ row.recorded_at.strftime('%Y-%m-%d %H:%M') }}</td>
-          <td><a href="/recordings/{{ row.audio_hash }}?needs_review_only=1">{{ row.species_label }}</a></td>
+          <td><a href="/recordings/{{ row.audio_hash }}?review={{ review_qs }}">{{ row.species_label }}</a></td>
           <td>{{ row.reasons | join(", ") }}</td>
         </tr>
         {% endfor %}
@@ -1551,7 +1775,7 @@ def reviews_page() -> flask.Response:
 </html>
 ```
 
-- [ ] **Step 5: Register the blueprint and nav item**
+- [ ] **Step 9: Register the blueprint and nav item**
 
 In `src/fledermap/web/app.py`, alongside the existing blueprint registrations:
 
@@ -1568,162 +1792,223 @@ In `src/fledermap/web/templates/_nav.html`, add after the `Statistics` link:
   <a class="sidebar-link" href="/reviews"><span class="label">Reviews</span></a>
 ```
 
-- [ ] **Step 6: Run test to verify it passes**
+- [ ] **Step 10: Run test to verify it passes**
 
 Run: `hatch test tests/test_reviews.py -m db -v` (`dangerouslyDisableSandbox: true`)
 Expected: PASS
 
-- [ ] **Step 7: Headless-Chrome live-verification**
+- [ ] **Step 11: Headless-Chrome live-verification**
 
 Confirm the nav item appears and links to `/reviews`, the page renders the count/table correctly
 against seeded data, and "Start reviewing" navigates to the first flagged recording's details page
-with `needs_review_only=1` in the URL.
+with `review=<id-list>` in the URL.
 
-- [ ] **Step 8: Run the fast test suite and type-check**
+- [ ] **Step 12: Run the fast test suite and type-check**
 
 Run: `hatch test -m "not db"` and `hatch run types:check`
 Expected: both PASS
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 13: Commit**
 
 ```bash
-git add src/fledermap/web/views/reviews.py src/fledermap/web/templates/reviews.html \
+git add src/fledermap/services/review_flags.py tests/test_review_flags.py \
+        src/fledermap/web/views/reviews.py src/fledermap/web/templates/reviews.html \
         src/fledermap/web/templates/_nav.html src/fledermap/web/app.py tests/test_reviews.py
-git commit -m "feat: add Reviews page"
+git commit -m "feat: add review snapshot helpers and the Reviews page"
 ```
 
 ---
 
-## Task 10: Details-page prev/next + review-mode banner
+## Task 10: Details-page review-session prev/next + review-mode banner
 
 **Files:**
 - Modify: `src/fledermap/web/views/recording_detail.py`
 - Modify: `src/fledermap/web/templates/recording_details.html`
-- Test: `tests/test_recording_detail.py` (confirm exact filename via `grep -rln
-  "recording_details_page" tests/*.py`)
+- Modify: `src/fledermap/web/static/app.css`
+- Test: `tests/test_recording_detail_view.py`
 
 **Interfaces:**
-- Consumes: Task 5's `filtered_recordings`/`neighbor_recordings` (`services/map_query.py`);
-  Task 9's `/reviews` as the "no more flagged recordings" link target.
-- Produces: `recording_details_page` reads the same filter query-string params
-  `_render_recording_panel` already reads, computes `previous`/`next` via `neighbor_recordings`
-  when any such param is present, and passes `previous`, `next`, `filter_qs`, and
-  `is_review_session: bool` (True iff `needs_review_only` was in the query string) plus
-  `review_position: tuple[int, int] | None` (`(index, total)`, 1-based) to the template.
+- Consumes: Task 9's `parse_review_snapshot`, `resolve_review_snapshot`
+  (`services/review_flags.py`); Task 9's `/reviews` as the "no more flagged recordings" link
+  target.
+- Produces: `recording_details_page` parses a `review=<id>,<id>,...` query param when present,
+  resolves it, and passes `previous: Recording | None`, `next: Recording | None`, `review_qs: str`
+  (the same id list, re-joined, for the prev/next links to carry forward), `is_review_session:
+  bool`, and `review_position: tuple[int, int] | None` (`(index, total)`, 1-based) to the template.
+  With no `review` param (or one that doesn't include the current recording), all of these are
+  `None`/`False`/empty and no prev/next renders — this is the ONLY prev/next mechanism on this
+  page (no general filter-driven case — see the design spec's Goals section for why).
 
 - [ ] **Step 1: Write the failing tests**
 
+Add to `tests/test_recording_detail_view.py`, following its exact `create_app`/`OrmSession`
+pattern (see e.g. `test_recording_details_page_shows_the_favourite_toggle_starred` for the shape):
+
 ```python
-# appended to tests/test_recording_detail.py (or wherever the existing route
-# tests for this page live -- confirm filename first)
-def test_details_page_has_no_prevnext_with_no_filter_context(client_and_engine) -> None:
-    # Arrange two plain recordings via whatever helper this test file already uses.
-    ...
-    response = client.get(f"/recordings/{audio_hash}")
-    assert b"Previous" not in response.data
-    assert b"Next" not in response.data
-
-
-def test_details_page_shows_prevnext_with_filter_context(client_and_engine) -> None:
-    # Arrange two recordings sharing a session_id, matching `_recording`'s
-    # session_id kwarg used elsewhere.
-    ...
-    response = client.get(f"/recordings/{first_hash}?session={session_id}")
-    assert b"Next" in response.data
-
-
-def test_details_page_shows_review_banner_for_needs_review_navigation(
-    client_and_engine,
+def test_details_page_has_no_prevnext_with_no_review_param(
+    engine: Engine,
+    tmp_path: Path,
 ) -> None:
-    # Arrange one flagged recording.
-    ...
-    response = client.get(f"/recordings/{audio_hash}?needs_review_only=1")
-    assert b"Reviewing flagged recordings" in response.data
-    assert b"1 of 1" in response.data or b"1 of" in response.data
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="b1" * 32, path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/recordings/{'b1' * 32}")
+
+    html = response.get_data(as_text=True)
+    assert "Previous" not in html
+    assert "Next →" not in html
+    assert "Reviewing flagged recordings" not in html
 
 
-def test_details_page_no_review_banner_for_ordinary_filtered_navigation(
-    client_and_engine,
+def test_details_page_shows_review_snapshot_prevnext_and_banner(
+    engine: Engine,
+    tmp_path: Path,
 ) -> None:
-    # Arrange two recordings sharing a session_id.
-    ...
-    response = client.get(f"/recordings/{first_hash}?session={session_id}")
-    assert b"Reviewing flagged recordings" not in response.data
+    with OrmSession(engine) as session:
+        first = Recording(
+            audio_hash="b2" * 32, path="a.wav",
+            recorded_at=datetime(2026, 8, 25, 20, 0, tzinfo=UTC),
+        )
+        second = Recording(
+            audio_hash="b3" * 32, path="b.wav",
+            recorded_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+        )
+        session.add_all([first, second])
+        session.commit()
+        first_id, second_id = first.id, second.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(
+        f"/recordings/{'b2' * 32}?review={first_id},{second_id}",
+    )
+
+    html = response.get_data(as_text=True)
+    assert "Reviewing flagged recordings" in html
+    assert "1 of 2" in html
+    assert f"/recordings/{'b3' * 32}?review={first_id},{second_id}" in html
+    assert "Previous" not in html  # at the start of the snapshot
+
+
+def test_details_page_review_snapshot_ignores_the_current_review_status(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """The snapshot is fixed at session start -- landing on the SECOND item
+    after the first was just reclassified (dropped out of needs_review)
+    must not affect this page's own prev/next, since it never re-queries
+    needs_review at all."""
+    with OrmSession(engine) as session:
+        first = Recording(
+            audio_hash="b4" * 32, path="a.wav",
+            recorded_at=datetime(2026, 8, 25, 20, 0, tzinfo=UTC),
+        )
+        second = Recording(
+            audio_hash="b5" * 32, path="b.wav",
+            recorded_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+            flagged_for_review=False,  # already "resolved" -- no longer needs review
+        )
+        session.add_all([first, second])
+        session.commit()
+        first_id, second_id = first.id, second.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(
+        f"/recordings/{'b5' * 32}?review={first_id},{second_id}",
+    )
+
+    html = response.get_data(as_text=True)
+    assert "2 of 2" in html
+    assert f"/recordings/{'b4' * 32}?review={first_id},{second_id}" in html
+    assert "Next →" not in html  # at the end
+
+
+def test_details_page_no_more_flagged_recordings_note_at_the_end(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="b6" * 32, path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+        recording_id = session.scalars(select(Recording)).one().id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/recordings/{'b6' * 32}?review={recording_id}")
+
+    html = response.get_data(as_text=True)
+    assert "No more flagged recordings" in html
+    assert 'href="/reviews"' in html
+
+
+def test_details_page_review_param_not_containing_current_recording_is_ignored(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="b7" * 32, path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/recordings/{'b7' * 32}?review=999999")
+
+    html = response.get_data(as_text=True)
+    assert "Reviewing flagged recordings" not in html
+    assert "Previous" not in html
 ```
+
+Add `from sqlalchemy import select` to the test file's imports if not already present.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `hatch test tests/test_recording_detail.py -m db -v -k "prevnext or review_banner"`
-(`dangerouslyDisableSandbox: true`)
-Expected: FAIL — no prev/next or banner logic exists yet on this page.
+Run: `hatch test tests/test_recording_detail_view.py -m db -v -k review` (`dangerouslyDisableSandbox: true`)
+Expected: FAIL — no `review` handling exists yet on this page.
 
 - [ ] **Step 3: Write the implementation**
 
-In `src/fledermap/web/views/recording_detail.py`, add imports:
+In `src/fledermap/web/views/recording_detail.py`, add the import:
 
 ```python
-from fledermap.services.map_query import filtered_recordings, neighbor_recordings
-from fledermap.web.params import (
-    parse_bool,
-    parse_datetime,
-    parse_int,
-    parse_taxon_filter,
-    parse_verdict,
-)
+from fledermap.services.review_flags import parse_review_snapshot, resolve_review_snapshot
 ```
 
-Inside `recording_details_page`, after the recording is loaded and before rendering, compute the
-filter-scoped neighbors — but only when at least one recognized filter param is present in the
-query string (matching the "no filter context, no prev/next" non-goal):
+Inside `recording_details_page`, after the recording is loaded and before rendering:
 
 ```python
-        filter_qs = flask.request.query_string.decode()
+        review_ids = parse_review_snapshot(flask.request.args.get("review"))
         previous = following = None
         is_review_session = False
         review_position: tuple[int, int] | None = None
-        if filter_qs:
-            date_from = parse_datetime(flask.request.args.get("from"))
-            date_to = parse_datetime(flask.request.args.get("to"), end_of_day=True)
-            taxon_id = parse_taxon_filter(flask.request.args.get("taxon"))
-            taxon_exclude = parse_bool(flask.request.args.get("taxon_exclude"))
-            verdict = parse_verdict(flask.request.args.get("verdict"))
-            session_id = parse_int(flask.request.args.get("session"))
-            site_id = parse_int(flask.request.args.get("site"))
-            source_raw = flask.request.args.get("source")
-            source = IdSource(source_raw) if source_raw else None
-            favourite_only = parse_bool(flask.request.args.get("favourite_only"))
-            needs_review_only = parse_bool(flask.request.args.get("needs_review_only"))
-
-            filtered = filtered_recordings(
-                session,
-                date_from=date_from,
-                date_to=date_to,
-                taxon_id=taxon_id,
-                taxon_exclude=taxon_exclude,
-                verdict=verdict,
-                session_id=session_id,
-                site_id=site_id,
-                source=source,
-                favourite_only=favourite_only,
-                needs_review=needs_review_only,
+        review_qs = ""
+        if review_ids:
+            ordered = resolve_review_snapshot(session, review_ids)
+            index = next(
+                (i for i, r in enumerate(ordered) if r.id == recording.id), None,
             )
-            neighbors = neighbor_recordings(filtered, audio_hash)
-            if neighbors is not None:
-                previous, following = neighbors
-                is_review_session = needs_review_only
-                if is_review_session:
-                    ordered = sorted(filtered, key=lambda r: r.recorded_at)
-                    index = next(
-                        i for i, r in enumerate(ordered) if r.audio_hash == audio_hash
-                    )
-                    review_position = (index + 1, len(ordered))
+            if index is not None:
+                is_review_session = True
+                review_position = (index + 1, len(ordered))
+                previous = ordered[index - 1] if index > 0 else None
+                following = ordered[index + 1] if index < len(ordered) - 1 else None
+                review_qs = ",".join(str(i) for i in review_ids)
 ```
 
-Add the needed `IdSource` import at the top of the file (`from fledermap.domain.codes import
-IdSource`) if not already present — check first, `recording_detail.py`'s current imports don't
-include it.
-
-Add `previous`, `next=following`, `filter_qs`, `is_review_session`, `review_position` to the
+Add `previous`, `next=following`, `review_qs`, `is_review_session`, `review_position` to the
 `flask.render_template("recording_details.html", ...)` call's kwargs.
 
 - [ ] **Step 4: Add prev/next and the review banner to `recording_details.html`**
@@ -1733,24 +2018,24 @@ reasons block added in Task 7, so the banner reads as "here's why, here's where 
 queue"):
 
 ```html
-    {% if is_review_session and review_position %}
+    {% if is_review_session %}
     <div class="review-banner">
       <strong>Reviewing flagged recordings</strong>
       <span>{{ review_position[0] }} of {{ review_position[1] }}</span>
       <a href="/reviews">Exit review</a>
     </div>
-    {% endif %}
     {% if previous or next %}
     <nav class="detail-prevnext">
       {% if previous %}
-      <a href="/recordings/{{ previous.audio_hash }}?{{ filter_qs }}">← Previous</a>
+      <a href="/recordings/{{ previous.audio_hash }}?review={{ review_qs }}">← Previous</a>
       {% endif %}
       {% if next %}
-      <a href="/recordings/{{ next.audio_hash }}?{{ filter_qs }}">Next →</a>
+      <a href="/recordings/{{ next.audio_hash }}?review={{ review_qs }}">Next →</a>
       {% endif %}
     </nav>
-    {% elif is_review_session %}
+    {% else %}
     <p class="review-banner">No more flagged recordings. <a href="/reviews">Back to Reviews</a></p>
+    {% endif %}
     {% endif %}
 ```
 
@@ -1759,21 +2044,21 @@ queue"):
 In `app.css`, add `.detail-prevnext` and `.review-banner` rules consistent with the project's
 existing color tokens (check `fledermap-style-guide` skill before hand-picking colors) — a
 distinct background/border for `.review-banner` so it visually reads as different from an ordinary
-prev/next row, per the spec's explicit requirement that review-mode navigation looks different
-from an ordinary filtered browse.
+row, per the spec's explicit requirement that review-mode navigation looks different from
+anything else on the page.
 
 - [ ] **Step 6: Run tests to verify they pass**
 
-Run: `hatch test tests/test_recording_detail.py -m db -v` (`dangerouslyDisableSandbox: true`)
+Run: `hatch test tests/test_recording_detail_view.py -m db -v` (`dangerouslyDisableSandbox: true`)
 Expected: PASS
 
 - [ ] **Step 7: Headless-Chrome live-verification**
 
-Confirm: a bare link to a details page shows no prev/next; a session-filtered link shows plain
-prev/next with no banner; a `needs_review_only=1` link (e.g. from the Reviews page's "Start
-reviewing" button) shows the distinct banner with correct position, and clicking Next advances
-through the flagged set; reaching the end shows "No more flagged recordings" with a working link
-back to `/reviews`.
+Confirm: a bare link to a details page shows no prev/next and no banner; navigating from the
+Reviews page's "Start reviewing" link shows the banner with correct position, and clicking Next
+advances through the snapshot; classifying the CURRENT recording and then clicking Next still
+works (the core case this design exists for — dynamic recomputation would have broken exactly
+this); reaching the end shows "No more flagged recordings" with a working link back to `/reviews`.
 
 - [ ] **Step 8: Run the full fast test suite and type-check**
 
@@ -1785,8 +2070,8 @@ Expected: both PASS
 ```bash
 git add src/fledermap/web/views/recording_detail.py \
         src/fledermap/web/templates/recording_details.html \
-        src/fledermap/web/static/app.css tests/
-git commit -m "feat: add prev/next and review-mode banner to recording details page"
+        src/fledermap/web/static/app.css tests/test_recording_detail_view.py
+git commit -m "feat: add review-snapshot prev/next and review-mode banner to recording details page"
 ```
 
 ---
@@ -1817,10 +2102,13 @@ Per superpowers:verification-before-completion — don't just trust the per-task
 passes in isolation. With `hatch run fledermap serve` running against real data (or the bundled
 sample recordings, noting their known non-representativeness per CLAUDE.md's "Sample data"
 section): flag a recording manually from the map drawer, confirm it appears on `/reviews`, click
-"Start reviewing", classify it via the existing classifier box, hit Next, confirm the
-just-classified recording no longer reappears in a fresh `/reviews` visit (since a MANUAL claim
-now excludes it — Goals section), and confirm the details page's plain prev/next (via a
-session-filtered link) still works exactly as before this plan started.
+"Start reviewing", classify the FIRST recording via the existing classifier box, then click Next
+— this is the exact case the fixed snapshot exists for: confirm Next still works immediately after
+the current recording drops out of `needs_review`, and that its position counter/prev-link still
+show it correctly by index rather than erroring or skipping. Confirm the just-classified recording
+no longer reappears in a fresh `/reviews` visit afterward (since a MANUAL claim now excludes it —
+Goals section), while still being reachable via "Previous" from later in that same review session
+(the snapshot doesn't drop it just because it's resolved).
 
 - [ ] **Step 5: Update the Obsidian backlog**
 
