@@ -75,10 +75,15 @@ The feature is specifically about the **assigned species being wrong**, not a ge
 - Review happens on the recording **details page**, not the map drawer: the drawer's rendering is
   an overview, not the tiled spectrogram a reviewer actually needs to judge a call (see
   `docs/superpowers/specs/2026-08-25-fledermap-phase3-media-jobs-design.md`'s original detail-view
-  reasoning, still true here). The details page gains two distinct kinds of prev/next: the
-  existing filter-query-string pattern (dynamic, shared with the drawer, for an ordinary
-  species-/session-filtered browse), and the new snapshot-based kind described above for a review
-  session — the UI is unambiguous about which one is active (see the banner bullet below).
+  reasoning, still true here). The details page gains prev/next for the first time — but scoped
+  specifically to a review session's `review=` snapshot, not a general "prev/next from whatever
+  filter got you here" mechanism. Checked before committing to that scope: every existing link
+  into the details page (the drawer's "Full page" link, and the species/session/site detail pages'
+  recording rows) passes its origin via `return_to=<path>`, never as direct top-level filter
+  params — so a fully general dynamic prev/next would have no real entry point today without also
+  rewiring those links, which is genuinely separate scope (the still-open "generalized prev/next
+  for the recordings details page based on a filter" backlog item) rather than something this
+  design bundles in.
 - A new "Reviews" section (nav item, own page) is the dedicated entry point: shows the flagged
   count and a "Start reviewing (N)" button that jumps straight into the first flagged recording's
   details page with the fixed `review=<id-list>` snapshot baked into the URL, and, below that, a
@@ -107,9 +112,13 @@ The feature is specifically about the **assigned species being wrong**, not a ge
   classifiers that don't exist. The criteria function's shape (a list of independent rule
   functions, each returning zero or more reason strings) is deliberately additive so these can be
   dropped in later without touching the rules already here.
-- **No prev/next default when no filter context is present** (e.g. a bare bookmarked link to a
-  details page). Matches today's drawer behavior exactly — prev/next only appears when the page
-  was reached via some active filter or review snapshot.
+- **No prev/next default when no `review=` snapshot is present** (e.g. a bare bookmarked link to a
+  details page, or one reached via `return_to`-only navigation). Prev/next on the details page
+  exists only for a review session — see Goals section for why a fully general filter-driven
+  version is out of scope here.
+- **No rewiring of existing details-page links** (the drawer's "Full page" link, or the
+  species/session/site detail pages' recording rows) to carry filter params directly. They keep
+  using `return_to=<path>` exactly as today.
 - **No wraparound at the ends of a review session's list.** Buttons disable, a "no more flagged
   recordings" note appears, with a link back to the Reviews page.
 - **No live-updating review snapshot, and no attempt to keep it in sync with concurrent changes**
@@ -202,25 +211,19 @@ Statistics / Reviews`). Computes `filtered_recordings(session, needs_review=True
 
 ### 5. Details page
 
-**Two independent prev/next mechanisms**, distinguished by which query param is present:
+Prev/next is scoped specifically to a review session's `review=<id>,<id>,...` query param — not a
+general "prev/next from whatever filter got you here" mechanism (see Goals section for why that
+broader version is explicitly out of scope here). The param is parsed into an ordered list of
+`Recording.id`, resolved via a single `select(Recording).where(Recording.id.in_(ids))` and
+reordered to match the snapshot's own order (any id that no longer resolves — e.g. a deleted
+recording — is silently dropped, per the Non-goals section). Previous/next are simply the adjacent
+entries in that fixed list relative to the current recording's position within it — no query
+against `needs_review`/`review_reasons` happens on this path at all, which is exactly what makes
+it immune to the current recording changing its own review status mid-session. If the current
+recording's id isn't found in the resolved list at all (a hand-edited or stale URL), this falls
+back to "not a review session" — no banner, no prev/next.
 
-- **Ordinary filtered browsing** (unchanged from the drawer's existing pattern): `web/views/
-  recording_detail.py` parses the same filter params `map_query.filtered_recordings` accepts
-  (mirroring `map.py`'s `_render_recording_panel`), calls `filtered_recordings` +
-  `neighbor_recordings`, and renders prev/next links carrying that same filter query string
-  forward. Dynamic — recomputed on every request, "changed under you" behaves exactly like the
-  drawer's today.
-- **Review session** (a `review=<id>,<id>,...` param): parsed into an ordered list of
-  `Recording.id`, resolved via a single `select(Recording).where(Recording.id.in_(ids))` and
-  reordered to match the snapshot's own order (any id that no longer resolves — e.g. a deleted
-  recording — is silently dropped, per the Non-goals section). Previous/next are simply the
-  adjacent entries in that fixed list relative to the current recording's position within it —
-  no query against `needs_review`/`review_reasons` happens on this path at all, which is exactly
-  what makes it immune to the current recording changing its own review status mid-session. If the
-  current recording's id isn't found in the resolved list at all (a hand-edited or stale URL),
-  this falls back to "not a review session" — no banner, no snapshot-based prev/next.
-
-With neither present, no prev/next renders (§ Non-goals).
+With no `review=` param present, no prev/next renders (§ Non-goals).
 
 At the ends of a review session's fixed list (no previous/next), the corresponding button is
 disabled/absent and a "no more flagged recordings" note appears with a link back to `/reviews`.
