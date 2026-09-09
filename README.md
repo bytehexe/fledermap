@@ -7,6 +7,8 @@ you recorded, with automatic species identification, session/site
 clustering, spectrograms, and audibilised (time-expanded/heterodyne)
 playback — all self-hosted, no cloud service involved.
 
+![Fledermap's map view with a site cluster and a recording's detail drawer open, showing its spectrogram, oscillogram, and species identification](docs/assets/map-drawer.png)
+
 Only Wildlife Acoustics EMT recordings (GUANO/`wamd` metadata plus the
 detector's own filename convention) are recognized today — files from other
 detectors are silently skipped rather than causing an error. If you'd like
