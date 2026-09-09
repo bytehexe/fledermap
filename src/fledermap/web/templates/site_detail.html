@@ -6,6 +6,7 @@
   {% include "_favicon.html" %}
   <title>Fledermap — {{ label }}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+  <link rel="stylesheet" href="{{ url_for('vendor.static', filename='leaflet.css') }}">
 </head>
 <body>
   {% include "_nav.html" %}
@@ -17,6 +18,16 @@
     ] %}
     {% set subtitle %}{{ detail.site.recording_count }} recordings{% if detail.site.admin_path %} — {{ detail.site.admin_path }}{% endif %}{% endset %}
     {% include "_entity_header.html" %}
+
+    {% if point %}
+    <div
+      id="site-mini-map"
+      data-site-id="{{ detail.site.id }}"
+      data-lat="{{ point[1] }}"
+      data-lng="{{ point[0] }}"
+      data-radius-m="{{ detail.site.radius_m }}"
+    ></div>
+    {% endif %}
 
     <h2>Species</h2>
     <table class="entity-list">
@@ -58,5 +69,8 @@
       </tbody>
     </table>
   </main>
+
+  <script src="{{ url_for('vendor.static', filename='leaflet.js') }}"></script>
+  <script src="{{ url_for('static', filename='site_map.js') }}"></script>
 </body>
 </html>

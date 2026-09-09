@@ -205,6 +205,39 @@ def test_site_detail_page_renders_and_404s_for_unknown_site(
     assert missing_response.status_code == 404
 
 
+def test_site_detail_page_renders_a_minimap_with_the_sites_own_geometry(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """Obsidian backlog: "Site's details page also needs a minimap!" --
+    unlike the map drawer's site panel (which sits right on top of the main
+    map already, so a redundant minimap there is the documented
+    drawer/detail-page parity exception for "clearly map-related"), the
+    standalone details page has no map context at all."""
+    with OrmSession(engine) as session:
+        site = Site(
+            centroid=WKTElement("POINT(10 50)", srid=4326),
+            radius_m=75.0,
+            recording_count=1,
+            first_at=datetime(2026, 8, 25, tzinfo=UTC),
+            last_at=datetime(2026, 8, 25, tzinfo=UTC),
+            name="Old Barn",
+        )
+        session.add(site)
+        session.commit()
+        site_id = site.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    html = app.test_client().get(f"/sites/{site_id}").get_data(as_text=True)
+
+    assert 'id="site-mini-map"' in html
+    assert f'data-site-id="{site_id}"' in html
+    assert 'data-lat="50.0"' in html
+    assert 'data-lng="10.0"' in html
+    assert 'data-radius-m="75.0"' in html
+    assert "site_map.js" in html
+
+
 def test_species_detail_page_links_to_its_statistics_subpage(
     engine: Engine,
     tmp_path: Path,

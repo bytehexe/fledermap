@@ -114,5 +114,6 @@ def site_detail_page(site_id: int) -> flask.Response:
             label=label,
             back_label=back_label,
             back_url=back_url,
+            point=point,
         )
     return flask.make_response(html)
