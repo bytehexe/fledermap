@@ -32,12 +32,15 @@ def test_wheel_ships_the_alembic_migration_scripts(tmp_path: Path) -> None:
     was no `alembic/` directory anywhere in the installed environment for any
     path computation to find, correct or not."""
     dist_dir = tmp_path / "dist"
-    subprocess.run(
+    result = subprocess.run(
         ["hatch", "build", "-t", "wheel", str(dist_dir)],
-        check=True,
         cwd=_REPO_ROOT,
         capture_output=True,
         text=True,
+    )
+    assert result.returncode == 0, (
+        f"hatch build failed (exit {result.returncode}):\n"
+        f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
     )
 
     wheel_path = next(dist_dir.glob("*.whl"))
