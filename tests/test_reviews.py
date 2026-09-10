@@ -130,3 +130,9 @@ def test_reviews_page_includes_unidentified_flagged_recording(
     assert "1 recording flagged for review" in html
     assert "b" * 64 in html
     assert f"review={recording_id}" in html
+    # The species column must use recording_headline's real "unidentified"
+    # label for a recording with no identification at all -- not the view's
+    # old hand-rolled ternary, which wrongly fell back to "unmapped species"
+    # for every non-simple case (unidentified, multi-species, NOISE, NO_ID).
+    assert ">unidentified<" in html
+    assert "unmapped species" not in html

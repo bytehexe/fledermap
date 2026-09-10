@@ -11,7 +11,10 @@ from __future__ import annotations
 import flask
 from sqlalchemy.orm import Session as OrmSession
 
-from fledermap.services.current_best import current_best_identification
+from fledermap.services.current_best import (
+    current_best_identification,
+    recording_headline,
+)
 from fledermap.services.map_query import filtered_recordings
 from fledermap.services.review_flags import (
     MAX_REVIEW_SNAPSHOT,
@@ -20,7 +23,7 @@ from fledermap.services.review_flags import (
     review_reasons,
 )
 from fledermap.store.geo import decode_point
-from fledermap.store.models import Site
+from fledermap.store.models import Site, Taxon
 from fledermap.web.params import fallback_site_label
 
 reviews_bp = flask.Blueprint("reviews", __name__, template_folder="../templates")
@@ -38,11 +41,14 @@ def reviews_page() -> flask.Response:
         rows = []
         for r in recordings[:MAX_REVIEW_SNAPSHOT]:
             best = current_best_identification(r)
-            species_label = (
-                best.primary.taxon.scientific_name
-                if best is not None and not best.is_multi and best.primary.taxon
-                else "unmapped species"
-            )
+            taxon = None
+            if (
+                best is not None
+                and not best.is_multi
+                and best.primary.taxon_id is not None
+            ):
+                taxon = session.get(Taxon, best.primary.taxon_id)
+            species_label = recording_headline(taxon, best)
             site = session.get(Site, r.site_id) if r.site_id else None
             site_label = (
                 site.name

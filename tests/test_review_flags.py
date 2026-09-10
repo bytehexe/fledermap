@@ -5,7 +5,7 @@ from typing import cast
 
 import pytest
 from geoalchemy2.elements import WKTElement
-from sqlalchemy import Engine
+from sqlalchemy import Engine, event, select
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import IdSource, Verdict
@@ -142,7 +142,8 @@ def test_taxon_counts_tallies_by_site_and_dataset(engine: Engine) -> None:
             )
         session.commit()
 
-        dataset_counts, site_counts = _taxon_counts(session)
+        recordings = session.scalars(select(Recording)).all()
+        dataset_counts, site_counts = _taxon_counts(recordings)
 
         # Capture IDs while session is still open
         taxon_id = taxon.id
@@ -264,7 +265,8 @@ def test_misattribution_rates_matches_the_spec_table(engine: Engine) -> None:
         )
         session.commit()
 
-        rates = _misattribution_rates(session)
+        recordings = session.scalars(select(Recording)).all()
+        rates = _misattribution_rates(recordings)
 
         # Capture ID while session is still open
         x_id = x.id
@@ -272,6 +274,42 @@ def test_misattribution_rates_matches_the_spec_table(engine: Engine) -> None:
     # 3 misattributions (b, d, e) out of 5 counted recordings (a, b, c, d, e)
     # -- f is excluded entirely, matching the "NO_ID ignored" rule.
     assert rates[(IdSource.EMT_GUANO, x_id)] == (3, 5)
+
+
+@pytest.mark.db
+def test_review_context_build_fetches_recordings_exactly_once(engine: Engine) -> None:
+    """`_taxon_counts` and `_misattribution_rates` used to each run their own
+    independent `select(Recording).where(missing_since.is_(None))` query --
+    `ReviewContext.build` must instead fetch once and share the result, so
+    exactly one such SELECT is sent to Postgres per `build` call."""
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="c" * 64,
+                path="c.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+    statements: list[str] = []
+
+    def _capture(conn, cursor, statement, parameters, context, executemany) -> None:  # noqa: ANN001
+        statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", _capture)
+    try:
+        with OrmSession(engine) as session:
+            ReviewContext.build(session)
+    finally:
+        event.remove(engine, "before_cursor_execute", _capture)
+
+    recording_selects = [
+        s
+        for s in statements
+        if s.strip().upper().startswith("SELECT") and "from recording " in s.lower()
+    ]
+    assert len(recording_selects) == 1, recording_selects
 
 
 @pytest.mark.db

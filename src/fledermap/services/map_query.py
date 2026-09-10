@@ -12,7 +12,10 @@ journal scale, tens to low thousands"); taxon/verdict because they must be
 evaluated against each recording's CURRENT-BEST identification (design spec
 P4-2), not "any non-superseded identification" -- computing that per
 candidate is exactly what `current_best_identification` does, and pushing
-that logic into SQL would duplicate it.
+that logic into SQL would duplicate it. `needs_review` is also Python-side,
+for the same reason: it needs `current_best_identification` plus
+`ReviewContext`'s aggregate rarity/misattribution lookups
+(`services/review_flags.py`), neither of which has a SQL equivalent.
 """
 
 from __future__ import annotations

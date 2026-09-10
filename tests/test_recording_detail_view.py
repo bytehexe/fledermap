@@ -1008,7 +1008,14 @@ def test_details_page_review_snapshot_ignores_the_current_review_status(
     html = response.get_data(as_text=True)
     assert "2 of 2" in html
     assert f"/recordings/{'b4' * 32}?review={first_id},{second_id}" in html
+    assert "← Previous" in html  # a real prior item still exists
     assert "Next →" not in html  # at the end
+    # Landing on the last item of a real multi-item snapshot must still show
+    # the "no more flagged recordings" note -- previously this only rendered
+    # when BOTH previous and next were absent (i.e. only for a one-item
+    # snapshot), so a working "Previous" link and the note never appeared
+    # together even though the queue genuinely ended here.
+    assert "No more flagged recordings" in html
 
 
 def test_details_page_no_more_flagged_recordings_note_at_the_end(

@@ -28,7 +28,7 @@ DATASET_RARITY_MAX = 5
 
 
 def _taxon_counts(
-    session: OrmSession,
+    recordings: Sequence[Recording],
 ) -> tuple[dict[int, int], dict[tuple[int, int], int]]:
     """(dataset-wide taxon_id -> count, (site_id, taxon_id) -> count), tallied
     from every non-missing recording's CURRENT-BEST taxon set -- same "walk
@@ -36,10 +36,11 @@ def _taxon_counts(
     services/statistics.py's totals/richness functions, since there's no SQL
     equivalent of current_best_identification's precedence walk. A
     multi-species MANUAL result contributes to every one of its taxa, not
-    just one."""
-    recordings = session.scalars(
-        select(Recording).where(Recording.missing_since.is_(None)),
-    ).all()
+    just one.
+
+    Takes the caller's already-fetched non-missing recordings rather than
+    querying its own -- `ReviewContext.build` fetches once and shares it with
+    `_misattribution_rates` (see that function's own docstring)."""
     dataset_counts: dict[int, int] = {}
     site_counts: dict[tuple[int, int], int] = {}
     for r in recordings:
@@ -83,11 +84,13 @@ MISATTRIBUTION_MIN_DISAGREEMENTS = 3
 
 
 def _misattribution_rates(
-    session: OrmSession,
+    recordings: Sequence[Recording],
 ) -> dict[tuple[IdSource, int], tuple[int, int]]:
     """(source, taxon_id) -> (misattribution_count, total_counted) across
     every non-missing recording that has both a claim of that taxon from
-    that source and SOME standing MANUAL verdict.
+    that source and SOME standing MANUAL verdict. Takes the caller's
+    already-fetched non-missing recordings -- see `_taxon_counts`'s
+    docstring for why.
 
     Per-recording accounting (spec's Goals section has the full table):
     - MANUAL SPECIES whose taxon set contains the classifier's taxon:
@@ -106,9 +109,6 @@ def _misattribution_rates(
     same as any other pair -- see the design spec's Non-goals section for
     why a Taxon.parent_id walk isn't worth it here.
     """
-    recordings = session.scalars(
-        select(Recording).where(Recording.missing_since.is_(None)),
-    ).all()
     totals: dict[tuple[IdSource, int], int] = {}
     disagreements: dict[tuple[IdSource, int], int] = {}
     for r in recordings:
@@ -159,11 +159,17 @@ class ReviewContext:
 
     @classmethod
     def build(cls, session: OrmSession) -> ReviewContext:
-        dataset_counts, site_counts = _taxon_counts(session)
+        # Fetched once and shared with both helpers below -- they used to
+        # each run their own identical `select(Recording)...` query, doubling
+        # this request's DB round-trips for no reason.
+        recordings = session.scalars(
+            select(Recording).where(Recording.missing_since.is_(None)),
+        ).all()
+        dataset_counts, site_counts = _taxon_counts(recordings)
         return cls(
             dataset_counts=dataset_counts,
             site_counts=site_counts,
-            misattribution_rates=_misattribution_rates(session),
+            misattribution_rates=_misattribution_rates(recordings),
         )
 
 
