@@ -33,6 +33,7 @@ from fledermap.services.map_query import (
     neighbor_recordings,
     site_detail,
 )
+from fledermap.services.review_flags import ReviewContext, review_reasons
 from fledermap.store.geo import decode_point
 from fledermap.store.models import Recording, Site, Taxon
 from fledermap.store.models import Session as AnnotationSession
@@ -112,6 +113,8 @@ def _render_recording_panel(
         previous, following = neighbors
         recording = next(r for r in recordings if r.audio_hash == audio_hash)
         best = current_best_identification(recording)
+        review_context = ReviewContext.build(session)
+        reasons = review_reasons(recording, review_context)
         taxon = None
         if best is not None and not best.is_multi and best.primary.taxon_id is not None:
             taxon = session.get(Taxon, best.primary.taxon_id)
@@ -150,6 +153,7 @@ def _render_recording_panel(
             found=True,
             recording=recording,
             best=best,
+            reasons=reasons,
             taxon=taxon,
             identifications_with_status=identifications_with_status,
             previous=previous,

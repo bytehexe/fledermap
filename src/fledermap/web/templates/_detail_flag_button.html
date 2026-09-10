@@ -1,0 +1,14 @@
+{# src/fledermap/web/templates/_detail_flag_button.html
+   Standalone recording-detail page's flag-for-review toggle -- its own small
+   fragment, same pattern as _detail_favourite_button.html, so
+   toggle_flag_for_review's `?panel=detail` branch can swap just this button. #}
+<button
+  type="button"
+  id="detail-flag"
+  class="flag-toggle"
+  hx-post="/recordings/{{ recording.audio_hash }}/flag-for-review?panel=detail"
+  hx-target="#detail-flag"
+  hx-swap="outerHTML"
+  aria-label="{{ 'Unflag for review' if recording.flagged_for_review else 'Flag for review' }}"
+  aria-pressed="{{ 'true' if recording.flagged_for_review else 'false' }}"
+>{{ "🚩" if recording.flagged_for_review else "⚑" }}</button>

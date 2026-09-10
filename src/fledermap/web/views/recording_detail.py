@@ -23,6 +23,7 @@ from fledermap.services.recording_detail import (
     DETAIL_PX_PER_MS,
     detail_params,
 )
+from fledermap.services.review_flags import ReviewContext, review_reasons
 from fledermap.store.geo import decode_point
 from fledermap.store.models import Recording, Site, Taxon, TaxonCode
 from fledermap.store.models import Session as AnnotationSession
@@ -89,6 +90,7 @@ def recording_details_page(audio_hash: str) -> flask.Response:
             flask.abort(404)
 
         best = current_best_identification(recording)
+        reasons = review_reasons(recording, ReviewContext.build(session))
         taxon = None
         if best is not None and not best.is_multi and best.primary.taxon_id is not None:
             taxon = session.get(Taxon, best.primary.taxon_id)
@@ -150,6 +152,7 @@ def recording_details_page(audio_hash: str) -> flask.Response:
             "recording_details.html",
             recording=recording,
             best=best,
+            reasons=reasons,
             taxon=taxon,
             current_taxa=current_taxa,
             manual_verdict=manual_verdict,
