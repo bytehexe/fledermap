@@ -435,3 +435,45 @@ of leaving it open ("follows the existing X pattern" when X's own placement is i
 "disabled/absent" instead of picking one). A UI change with no spec (a quick fix) does the same
 step immediately before making the change. See CLAUDE.md's "UI consistency process" for the
 process pointer and the outstanding spec this applies to.
+
+**A mockup is required, not optional, in two checkable cases** — neither is a judgment call about
+"is this ambiguous":
+
+1. The element is joining a region that already holds two or more other elements — a header, an
+   action row, a panel with existing buttons/links. Count what's already in the target region.
+2. The spec introduces a new page or a large UI surface with multiple sub-views/sections (several
+   panels, a layout with distinct regions, a page combining more than a couple of independently
+   meaningful blocks) — regardless of whether anything else already occupies that space, since
+   there's nothing to count yet. The mockup can be as rough as the surface is large: a full new
+   page's mockup is a coarse box-level sketch of its regions, not a fully-detailed rendering of
+   every element within them — scale the effort to what's actually being decided (relative
+   position and size of the sub-views), not to the page's total content.
+
+Below both thresholds (a lone save button, a form field going into an existing `.stacked-form`, a
+single self-contained addition with nothing else nearby to arrange against), an existing component
+rule already settles it and a mockup adds nothing — requiring one there is ceremony, not
+decision-forcing. A mockup doesn't substitute for the sweep-across-the-live-app step above,
+either: it clarifies where things sit *within this one spec's layout*, not whether that layout
+agrees with what another page already did — the sweep is what catches that.
+
+**The mockup goes in the spec itself, and stays cheap.** Not a full render of the page and not a
+real screenshot — a hand-drawn schematic (photographed/scanned) or an ASCII box diagram in a
+fenced code block, whichever is fastest to produce for the case at hand. Its only job is showing
+where the element sits relative to what's already there, checkable by someone reading the spec —
+not a design deliverable in its own right. Prefer plain ASCII in a code fence by default over a
+PlantUML Salt wireframe: a spec is read as raw text, by an agent and by a human in an editor (VS
+Code), neither of which renders PlantUML — Salt only becomes a viewable diagram after an active
+render step into an image, which isn't "obtained easily" for either reader. ASCII needs no such
+step; it's already legible exactly where the spec lives.
+
+**The decision must survive into the plan's own task text, not just the spec.**
+`superpowers:subagent-driven-development` dispatches each task's implementer with a *task brief* —
+that task's text extracted verbatim from the plan — and explicitly never gives it the whole plan
+file, let alone the spec; whatever the dispatching controller doesn't separately add to the
+dispatch is invisible to it. If a task's own text says "add the flag toggle button" without
+restating *where* (the mockup, or the decided position in words), the implementer has nothing to
+go on and will place it wherever seems reasonable for that task in isolation — which is exactly
+how the fav-button drift happened: two pieces of work, each locally reasonable, disagreeing with
+each other because neither one carried the other's decision forward. When writing a plan from a
+spec that made a placement decision, restate that decision (or reproduce the mockup) in the
+specific task(s) that implement it — in the task's own text, not just the plan's spec-link header.

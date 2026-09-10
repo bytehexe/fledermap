@@ -102,6 +102,14 @@ same step immediately before the change instead. A sweep finding something unrel
 decision at hand goes to the Obsidian backlog, not an inline fix (see
 `feedback-ui-bugs-diagnose-live-then-batch-in-obsidian`).
 
+**When writing the plan from that spec, put the placement decision in the specific task's own
+text, not just the spec.** An implementer subagent is dispatched with only that task's extracted
+brief text — never the plan file or the spec (`superpowers:subagent-driven-development`) — so a
+decision that lives anywhere else is invisible to it. See `docs/style-guide.md`'s mockup
+subsection for when a mockup is required (2+ existing elements in the target region, or a new page
+/large multi-section UI surface) and how it
+must be restated at plan time.
+
 The 2026-09-09 flagged-for-review spec was written without this step (an undecided
 disabled-vs-absent button, a toggle button deferred to the already-inconsistent favourite-button
 placement) and needs the decision made and written in before that plan is executed.
