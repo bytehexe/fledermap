@@ -30,6 +30,7 @@ from fledermap.services.current_best import (
     CurrentIdentification,
     current_best_identification,
 )
+from fledermap.services.review_flags import ReviewContext, review_reasons
 from fledermap.store.geo import decode_point
 from fledermap.store.models import Identification, Recording, Site, Taxon
 from fledermap.store.models import Session as AnnotationSession
@@ -98,6 +99,7 @@ def filtered_recordings(
     site_id: int | None = None,
     source: IdSource | None = None,
     favourite_only: bool = False,
+    needs_review: bool = False,
 ) -> Sequence[Recording]:
     # Most-recent-first: without an explicit order, Postgres returns rows in
     # an undefined order, and the GeoJSON API's [:MAX_FEATURES] slice
@@ -129,11 +131,16 @@ def filtered_recordings(
     if bbox is not None:
         recordings = [r for r in recordings if _within_bbox(decode_point(r.geom), bbox)]
 
+    review_context = ReviewContext.build(session) if needs_review else None
+
     results = []
     for r in recordings:
         best = current_best_identification(r)
         if not _passes_verdict_filter(best, verdict):
             continue
+        if needs_review and review_context is not None:
+            if not (r.flagged_for_review or review_reasons(r, review_context)):
+                continue
         if taxon_id is not None:
             # `taxon_exclude` inverts the match rather than negating the
             # whole filter -- a recording with no taxon at all (no

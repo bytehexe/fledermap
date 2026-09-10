@@ -675,3 +675,58 @@ def test_site_detail_tally_increments_every_taxon_of_a_multi_species_recording(
 def test_site_detail_returns_none_for_unknown_site(engine: Engine) -> None:
     with OrmSession(engine) as session:
         assert site_detail(session, 999999) is None
+
+
+def test_needs_review_keeps_manually_flagged_recordings(engine: Engine) -> None:
+    from fledermap.store.models import Recording as RecordingModel
+
+    with OrmSession(engine) as session:
+        flagged = _recording(session, audio_hash="a" * 64, verdict=None)
+        flagged_row = session.get(RecordingModel, flagged.id)
+        assert flagged_row is not None
+        flagged_row.flagged_for_review = True
+        _recording(session, audio_hash="b" * 64, verdict=None)
+        session.commit()
+
+        results = filtered_recordings(session, needs_review=True, verdict="all")
+
+    assert [r.id for r in results] == [flagged.id]
+
+
+def test_needs_review_keeps_computed_rarity_matches(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
+        session.add(taxon)
+        session.flush()
+        rare = _recording(session, audio_hash="a" * 64, taxon_id=taxon.id)
+        common_taxon = Taxon(rank="species", scientific_name="Eptesicus serotinus")
+        session.add(common_taxon)
+        session.flush()
+        for i in range(10):
+            _recording(
+                session,
+                audio_hash=f"{i:064x}",
+                taxon_id=common_taxon.id,
+                recorded_at=datetime(2026, 8, 20 + i % 5, tzinfo=UTC),
+            )
+        session.commit()
+
+        results = filtered_recordings(session, needs_review=True)
+
+    result_ids = {r.id for r in results}
+    assert rare.id in result_ids
+    # the common taxon's 10 recordings must NOT show up as needing review
+    common_ids = {
+        r.id for r in filtered_recordings(session, verdict="all") if r.id != rare.id
+    }
+    assert result_ids.isdisjoint(common_ids)
+
+
+def test_needs_review_false_has_no_effect(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        plain = _recording(session, audio_hash="a" * 64)
+        session.commit()
+
+        results = filtered_recordings(session, needs_review=False)
+
+    assert plain.id in {r.id for r in results}
