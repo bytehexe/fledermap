@@ -92,6 +92,17 @@ coverage*, not implementation.
   must run with `dangerouslyDisableSandbox: true`. The failure does not look like a sandbox
   problem — it surfaces as `requests.exceptions.ConnectionError: PermissionError(1, 'Operation
   not permitted')` out of `docker.from_env()`, which reads like a network fault.
+- **A subagent dispatched to run `db`-marked tests can stall indefinitely waiting on its own
+  foreground command.** The PostGIS testcontainer spin-up (~120s, driven by container startup —
+  not test count, so even a `-k`-narrowed subset pays the same cost) exceeds a single foreground
+  command's timeout, which moves it to background — but a dispatched subagent's own turn
+  structure isn't built to reliably wait across turns for that background job the way a
+  controlling session's wakeup/task-notification loop can. Seen in practice during a subagent-
+  driven-development run: an implementer stalled three times (~20 min each) trying to poll/Monitor
+  a backgrounded `hatch test -m db` run instead of getting a result back. **Fix:** the
+  *controlling* session runs any `db`-marked test itself (`run_in_background: true` +
+  its own wakeup mechanism, or just accept the ~120s wait) and relays pass/fail to the subagent —
+  never dispatch a subagent and expect it to run `-m db` tests to completion unassisted.
 - **`$TMPDIR` is only set in *sandboxed* Bash calls.** Unsandboxed it expands to empty, so
   `cp x "$TMPDIR/y"` silently targets `/y` and fails on permissions — and any restore step that
   depends on it never runs. Use the scratchpad path literally when running unsandboxed.
