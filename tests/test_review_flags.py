@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 from geoalchemy2.elements import WKTElement
 from sqlalchemy import Engine
@@ -7,10 +9,12 @@ from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import IdSource, Verdict
 from fledermap.services.review_flags import (
+    ReviewContext,
     _misattribution_rates,
     _misattribution_reason,
     _rarity_reason,
     _taxon_counts,
+    review_reasons,
 )
 from fledermap.store.models import Identification, Recording, Site, Taxon
 
@@ -264,3 +268,97 @@ def test_misattribution_rates_matches_the_spec_table(engine: Engine) -> None:
     # 3 misattributions (b, d, e) out of 5 counted recordings (a, b, c, d, e)
     # -- f is excluded entirely, matching the "NO_ID ignored" rule.
     assert rates[(IdSource.EMT_GUANO, x_id)] == (3, 5)
+
+
+@pytest.mark.db
+def test_review_reasons_empty_when_not_species_verdict(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        r = Recording(
+            audio_hash="a" * 64,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add(r)
+        session.flush()
+        session.add(
+            Identification(
+                recording_id=r.id,
+                source=IdSource.EMT_GUANO,
+                verdict=Verdict.NOISE,
+                taxon_id=None,
+                first_seen_at=r.recorded_at,
+            ),
+        )
+        session.commit()
+        context = ReviewContext.build(session)
+
+        assert review_reasons(r, context) == []
+
+
+@pytest.mark.db
+def test_review_reasons_empty_when_manually_classified(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
+        session.add(taxon)
+        session.flush()
+        r = Recording(
+            audio_hash="a" * 64,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add(r)
+        session.flush()
+        session.add_all(
+            [
+                Identification(
+                    recording_id=r.id,
+                    source=IdSource.EMT_GUANO,
+                    verdict=Verdict.SPECIES,
+                    taxon_id=taxon.id,
+                    first_seen_at=r.recorded_at,
+                ),
+                Identification(
+                    recording_id=r.id,
+                    source=IdSource.MANUAL,
+                    verdict=Verdict.SPECIES,
+                    taxon_id=taxon.id,
+                    first_seen_at=r.recorded_at,
+                ),
+            ]
+        )
+        session.commit()
+        context = ReviewContext.build(session)
+
+        # Already reviewed by a human -- a rare-species match must not fire.
+        assert review_reasons(r, context) == []
+
+
+@pytest.mark.db
+def test_review_reasons_includes_rarity_match(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
+        session.add(taxon)
+        session.flush()
+        r = Recording(
+            audio_hash="a" * 64,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add(r)
+        session.flush()
+        session.add(
+            Identification(
+                recording_id=r.id,
+                source=IdSource.EMT_GUANO,
+                verdict=Verdict.SPECIES,
+                taxon_id=taxon.id,
+                first_seen_at=r.recorded_at,
+            ),
+        )
+        session.commit()
+        context = ReviewContext.build(session)
+
+        reasons = review_reasons(r, context)
+
+    assert len(reasons) == 1
+    assert "Pipistrellus pipistrellus" in reasons[0]

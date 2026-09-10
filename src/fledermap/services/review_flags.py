@@ -9,11 +9,14 @@ module builds on rather than duplicates."""
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import IdSource, Verdict
 from fledermap.services.current_best import current_best_identification
+from fledermap.services.manual_classification import current_manual_state
 from fledermap.store.models import Recording
 
 # Fixed, explainable thresholds (spec: "fixed low count dataset-wide" over a
@@ -140,3 +143,64 @@ def _misattribution_reason(
     if disagreements >= MISATTRIBUTION_MIN_DISAGREEMENTS and disagreements * 2 > total:
         return f"{source.value} is often wrong about {taxon_label}"
     return None
+
+
+@dataclass(frozen=True)
+class ReviewContext:
+    """Aggregates shared across every `review_reasons` call in one request --
+    computing these per-recording would be an N+1 query pattern across a
+    whole filtered set (the Reviews page, the map's `needs_review` filter).
+    Build once per request, pass into every `review_reasons` call."""
+
+    dataset_counts: dict[int, int]
+    site_counts: dict[tuple[int, int], int]
+    misattribution_rates: dict[tuple[IdSource, int], tuple[int, int]]
+
+    @classmethod
+    def build(cls, session: OrmSession) -> ReviewContext:
+        dataset_counts, site_counts = _taxon_counts(session)
+        return cls(
+            dataset_counts=dataset_counts,
+            site_counts=site_counts,
+            misattribution_rates=_misattribution_rates(session),
+        )
+
+
+def review_reasons(recording: Recording, context: ReviewContext) -> list[str]:
+    """Every computed reason this recording's assigned species should be
+    reviewed -- empty if none apply. Scoped to a SPECIES verdict with no
+    standing MANUAL claim (a human classifying it already counts as
+    reviewed); see the module docstring and the design spec's Goals section
+    for why nothing here is stored or dismissible."""
+    best = current_best_identification(recording)
+    if best is None or best.verdict != Verdict.SPECIES:
+        return []
+    manual_verdict, _manual_taxon_ids = current_manual_state(recording)
+    if manual_verdict is not None:
+        return []
+
+    reasons: list[str] = []
+    for claim in best.claims:
+        if claim.taxon_id is None:
+            continue
+        label = (
+            claim.taxon.scientific_name if claim.taxon else f"taxon #{claim.taxon_id}"
+        )
+        rarity = _rarity_reason(
+            context.dataset_counts,
+            context.site_counts,
+            recording.site_id,
+            claim.taxon_id,
+            label,
+        )
+        if rarity is not None:
+            reasons.append(rarity)
+        misattribution = _misattribution_reason(
+            context.misattribution_rates,
+            claim.source,
+            claim.taxon_id,
+            label,
+        )
+        if misattribution is not None:
+            reasons.append(misattribution)
+    return reasons
