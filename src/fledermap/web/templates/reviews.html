@@ -17,7 +17,7 @@
     <p class="truncation-warning">Showing the first {{ rows | length }} — resolve some to see the rest.</p>
     {% endif %}
     {% if rows %}
-    <a class="button-link button-primary" href="/recordings/{{ rows[0].audio_hash }}?review={{ review_qs }}">Start reviewing ({{ count }})</a>
+    <a class="button-link button-primary" href="/recordings/{{ rows[0].audio_hash }}?review={{ review_qs }}">Start reviewing ({{ snapshot_count }})</a>
     <p>...or choose one below:</p>
     <table class="entity-list">
       <thead>

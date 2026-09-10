@@ -57,3 +57,48 @@ def test_reviews_page_zero_flagged(engine: Engine, tmp_path: Path) -> None:
     html = response.get_data(as_text=True)
     assert "0 recordings flagged for review" in html
     assert "Start reviewing" not in html
+
+
+def test_reviews_page_start_reviewing_label_reflects_the_capped_snapshot_size(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """A flagged count over MAX_REVIEW_SNAPSHOT (500) must not make the
+    "Start reviewing (N)" button lie about how many recordings the review=
+    snapshot actually reaches -- it should read the same 500 the truncation
+    banner reports, not the untruncated total (this was the Important
+    finding from code review: the button previously showed `count`, not
+    `len(snapshot_ids)`)."""
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
+        session.add(taxon)
+        session.flush()
+        for i in range(501):
+            r = Recording(
+                audio_hash=f"{i:064x}",
+                path=f"{i}.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                flagged_for_review=True,
+            )
+            session.add(r)
+            session.flush()
+            session.add(
+                Identification(
+                    recording_id=r.id,
+                    source=IdSource.EMT_GUANO,
+                    verdict=Verdict.SPECIES,
+                    taxon_id=taxon.id,
+                    first_seen_at=r.recorded_at,
+                ),
+            )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get("/reviews")
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert "501 recordings flagged for review" in html
+    assert "Start reviewing (500)" in html
+    assert "Start reviewing (501)" not in html
+    assert "Showing the first 500" in html

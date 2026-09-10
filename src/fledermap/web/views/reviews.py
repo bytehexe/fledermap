@@ -67,6 +67,7 @@ def reviews_page() -> flask.Response:
         html = flask.render_template(
             "reviews.html",
             count=len(recordings),
+            snapshot_count=len(snapshot_ids),
             rows=rows,
             review_qs=review_qs,
             truncated=len(recordings) > MAX_REVIEW_SNAPSHOT,

@@ -208,7 +208,10 @@ main.main-content h1 { margin-top: 1rem; }
    second checkbox -- taxon_exclude below -- made it visible). */
 .filter-bar input[type="checkbox"] { vertical-align: middle; }
 
-button {
+/* .button-link (below) is an `<a>` styled as a button -- promoted here on
+   second use, per the style guide's convention, sharing every property a
+   link and a real `<button>` both need. */
+button, .button-link {
   font: inherit;
   font-size: 0.85rem;
   padding: 0.35rem 0.75rem;
@@ -218,7 +221,7 @@ button {
   color: var(--color-text);
   cursor: pointer;
 }
-button:hover:not(:disabled) { background: var(--color-bg-subtle); border-color: var(--color-accent); }
+button:hover:not(:disabled), .button-link:hover { background: var(--color-bg-subtle); border-color: var(--color-accent); }
 button:disabled { cursor: default; opacity: 0.5; }
 
 /* The form's default/primary action (a Save button, per the style guide's
@@ -242,21 +245,14 @@ button:disabled { cursor: default; opacity: 0.5; }
 /* An `<a>` styled as a button -- the bare `button` rule above is
    element-scoped and never applies to a link, but the Reviews page's
    "Start reviewing" is a navigation link, not a form control, so it can't
-   be a real `<button>`. Reuses the same chrome; combine with
-   `.button-primary` for the emphasized case. */
+   be a real `<button>`. Shared chrome is grouped into the `button` rule
+   above; only the properties a link needs that a `<button>` doesn't
+   (block layout, no underline) stay here. Combine with `.button-primary`
+   for the emphasized case. */
 .button-link {
   display: inline-block;
-  font: inherit;
-  font-size: 0.85rem;
-  padding: 0.35rem 0.75rem;
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  background: var(--color-bg);
-  color: var(--color-text);
   text-decoration: none;
-  cursor: pointer;
 }
-.button-link:hover { background: var(--color-bg-subtle); border-color: var(--color-accent); }
 
 /* Style guide: promoted on second use -- .classifier-chip below shares the pill
    shape (background/border/border-radius/font-size) but not this chip's own
