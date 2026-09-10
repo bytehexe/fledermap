@@ -85,6 +85,7 @@ def _render_recording_panel(
         source_raw = flask.request.args.get("source")
         source = IdSource(source_raw) if source_raw else None
         favourite_only = parse_bool(flask.request.args.get("favourite_only"))
+        needs_review_only = parse_bool(flask.request.args.get("needs_review_only"))
     except ValueError as exc:
         return flask.make_response((str(exc), 400)), None
 
@@ -104,6 +105,7 @@ def _render_recording_panel(
             site_id=site_id,
             source=source,
             favourite_only=favourite_only,
+            needs_review=needs_review_only,
         )
         neighbors = neighbor_recordings(recordings, audio_hash)
         if neighbors is None:
