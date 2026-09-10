@@ -213,6 +213,29 @@ def toggle_favourite(audio_hash: str) -> flask.Response:
     return response
 
 
+@views_bp.post("/recordings/<audio_hash>/flag-for-review")
+def toggle_flag_for_review(audio_hash: str) -> flask.Response:
+    engine = flask.current_app.config["ENGINE"]
+    with OrmSession(engine) as session:
+        recording = session.scalars(
+            select(Recording).where(Recording.audio_hash == audio_hash),
+        ).one_or_none()
+        if recording is None:
+            return flask.make_response(("Recording not found.", 404))
+        recording.flagged_for_review = not recording.flagged_for_review
+        session.commit()
+
+        if flask.request.args.get("panel") == "detail":
+            html = flask.render_template(
+                "_detail_flag_button.html",
+                recording=recording,
+            )
+            return flask.make_response(html)
+
+    response, _point = _render_recording_panel(audio_hash)
+    return response
+
+
 @views_bp.post("/recordings/<audio_hash>/manual-classification")
 def post_manual_classification(audio_hash: str) -> flask.Response:
     engine = flask.current_app.config["ENGINE"]
