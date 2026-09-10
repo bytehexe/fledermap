@@ -28,6 +28,7 @@ function filterForm() {
     verdict: params.get("verdict") || "",
     site: params.get("site") || "",
     favourite_only: params.get("favourite_only") === "1",
+    needs_review_only: params.get("needs_review_only") === "1",
   };
 }
 

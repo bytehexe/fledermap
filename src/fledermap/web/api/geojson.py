@@ -87,6 +87,7 @@ def recordings_geojson() -> ResponseReturnValue:
         session_id = parse_int(flask.request.args.get("session"))
         site_id = parse_int(flask.request.args.get("site"))
         favourite_only = parse_bool(flask.request.args.get("favourite_only"))
+        needs_review_only = parse_bool(flask.request.args.get("needs_review_only"))
     except ValueError as exc:
         return flask.jsonify({"error": str(exc)}), 400
 
@@ -104,6 +105,7 @@ def recordings_geojson() -> ResponseReturnValue:
             site_id=site_id,
             source=source,
             favourite_only=favourite_only,
+            needs_review=needs_review_only,
         )
         truncated = len(recordings) > MAX_FEATURES
         features = [_recording_feature(r, session) for r in recordings[:MAX_FEATURES]]

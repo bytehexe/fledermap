@@ -13,7 +13,28 @@
     aria-label="{{ 'Remove from favourites' if recording.favourite else 'Add to favourites' }}"
     aria-pressed="{{ 'true' if recording.favourite else 'false' }}"
   >{{ "★" if recording.favourite else "☆" }}</button>
+  <button
+    type="button"
+    class="flag-toggle"
+    hx-post="/recordings/{{ recording.audio_hash }}/flag-for-review?{{ filter_qs }}"
+    hx-target="#drawer-body"
+    aria-label="{{ 'Unflag for review' if recording.flagged_for_review else 'Flag for review' }}"
+    aria-pressed="{{ 'true' if recording.flagged_for_review else 'false' }}"
+  >{{ "🚩" if recording.flagged_for_review else "⚑" }}</button>
 </div>
+
+{% if recording.flagged_for_review or reasons %}
+<div class="review-reasons">
+  <strong>Flagged for review</strong>
+  {% if reasons %}
+  <ul>
+    {% for reason in reasons %}
+    <li>{{ reason }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</div>
+{% endif %}
 
 <div class="waveform-grid">
   <div class="axis-spacer"></div>

@@ -33,6 +33,7 @@ from fledermap.services.map_query import (
     neighbor_recordings,
     site_detail,
 )
+from fledermap.services.review_flags import ReviewContext, review_reasons
 from fledermap.store.geo import decode_point
 from fledermap.store.models import Recording, Site, Taxon
 from fledermap.store.models import Session as AnnotationSession
@@ -84,6 +85,7 @@ def _render_recording_panel(
         source_raw = flask.request.args.get("source")
         source = IdSource(source_raw) if source_raw else None
         favourite_only = parse_bool(flask.request.args.get("favourite_only"))
+        needs_review_only = parse_bool(flask.request.args.get("needs_review_only"))
     except ValueError as exc:
         return flask.make_response((str(exc), 400)), None
 
@@ -103,6 +105,7 @@ def _render_recording_panel(
             site_id=site_id,
             source=source,
             favourite_only=favourite_only,
+            needs_review=needs_review_only,
         )
         neighbors = neighbor_recordings(recordings, audio_hash)
         if neighbors is None:
@@ -112,6 +115,8 @@ def _render_recording_panel(
         previous, following = neighbors
         recording = next(r for r in recordings if r.audio_hash == audio_hash)
         best = current_best_identification(recording)
+        review_context = ReviewContext.build(session)
+        reasons = review_reasons(recording, review_context)
         taxon = None
         if best is not None and not best.is_multi and best.primary.taxon_id is not None:
             taxon = session.get(Taxon, best.primary.taxon_id)
@@ -150,6 +155,7 @@ def _render_recording_panel(
             found=True,
             recording=recording,
             best=best,
+            reasons=reasons,
             taxon=taxon,
             identifications_with_status=identifications_with_status,
             previous=previous,
@@ -205,6 +211,29 @@ def toggle_favourite(audio_hash: str) -> flask.Response:
         if flask.request.args.get("panel") == "detail":
             html = flask.render_template(
                 "_detail_favourite_button.html",
+                recording=recording,
+            )
+            return flask.make_response(html)
+
+    response, _point = _render_recording_panel(audio_hash)
+    return response
+
+
+@views_bp.post("/recordings/<audio_hash>/flag-for-review")
+def toggle_flag_for_review(audio_hash: str) -> flask.Response:
+    engine = flask.current_app.config["ENGINE"]
+    with OrmSession(engine) as session:
+        recording = session.scalars(
+            select(Recording).where(Recording.audio_hash == audio_hash),
+        ).one_or_none()
+        if recording is None:
+            return flask.make_response(("Recording not found.", 404))
+        recording.flagged_for_review = not recording.flagged_for_review
+        session.commit()
+
+        if flask.request.args.get("panel") == "detail":
+            html = flask.render_template(
+                "_detail_flag_button.html",
                 recording=recording,
             )
             return flask.make_response(html)

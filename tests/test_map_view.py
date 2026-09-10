@@ -701,6 +701,48 @@ def test_toggle_favourite_does_not_set_hx_trigger(
     assert "HX-Trigger" not in response.headers
 
 
+def test_toggle_flag_for_review_flips_it_on_then_off(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="a" * 64,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    response = client.post(f"/recordings/{'a' * 64}/flag-for-review?verdict=all")
+    assert response.status_code == 200
+    with OrmSession(engine) as session:
+        recording = session.get(Recording, 1)
+        assert recording is not None
+        assert recording.flagged_for_review is True
+
+    response = client.post(f"/recordings/{'a' * 64}/flag-for-review?verdict=all")
+    assert response.status_code == 200
+    with OrmSession(engine) as session:
+        recording = session.get(Recording, 1)
+        assert recording is not None
+        assert recording.flagged_for_review is False
+
+
+def test_toggle_flag_for_review_unknown_hash_returns_404(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().post(f"/recordings/{'f1' * 32}/flag-for-review")
+
+    assert response.status_code == 404
+
+
 def test_favourite_only_filters_the_recording_panel_set(
     engine: Engine,
     tmp_path: Path,

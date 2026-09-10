@@ -1,6 +1,9 @@
 # Fledermap Flagged for Review — Design
 
-**Status:** design, not yet implemented.
+**Status:** implemented, 2026-09-10 — all 11 tasks complete, each individually reviewed clean, and
+the whole-branch final review's findings (two view-layer bugs, one duplicate-query cleanup, and
+the doc drift fixed by this note) were addressed in one fix-up pass; see that pass's own commit
+for details.
 **Date:** 2026-09-09
 
 ## Problem
@@ -186,14 +189,18 @@ same reason those are Python-side (needs `current_best_identification`, plus her
 aggregate lookups from §2).
 
 `neighbor_recordings` needs no changes — it already computes prev/next generically over whatever
-`filtered_recordings` returns.
+`filtered_recordings` returns. It sorts that result ASCENDING for the drawer's own prev/next,
+which is a different direction from the DESCENDING order the Reviews page's own snapshot preserves
+(§4) — these are two independent, non-interacting navigation mechanisms (the drawer's dynamic
+prev/next vs. the details page's fixed review-session prev/next, §5), so their orderings need not
+and do not match.
 
 ### 4. Reviews page
 
 New blueprint, `GET /reviews`, added to `_nav.html`'s sidebar (`Map / Sessions / Species / Sites /
-Statistics / Reviews`). Computes `filtered_recordings(session, needs_review=True)` once, in
-`recorded_at` order (the same order `neighbor_recordings` already sorts by, so the snapshot's
-"first" matches what a reviewer would expect), and renders:
+Statistics / Reviews`). Computes `filtered_recordings(session, needs_review=True)` once, and the
+snapshot preserves that query's own `recorded_at` DESCENDING order verbatim (newest-first, matching
+every other list page in this app, e.g. the sessions list) — renders:
 
 - The flagged count and a "Start reviewing (N)" button/link — disabled or hidden at zero — whose
   href is the first flagged recording's details page with the full ordered id list attached:

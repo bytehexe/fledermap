@@ -208,7 +208,10 @@ main.main-content h1 { margin-top: 1rem; }
    second checkbox -- taxon_exclude below -- made it visible). */
 .filter-bar input[type="checkbox"] { vertical-align: middle; }
 
-button {
+/* .button-link (below) is an `<a>` styled as a button -- promoted here on
+   second use, per the style guide's convention, sharing every property a
+   link and a real `<button>` both need. */
+button, .button-link {
   font: inherit;
   font-size: 0.85rem;
   padding: 0.35rem 0.75rem;
@@ -218,7 +221,7 @@ button {
   color: var(--color-text);
   cursor: pointer;
 }
-button:hover:not(:disabled) { background: var(--color-bg-subtle); border-color: var(--color-accent); }
+button:hover:not(:disabled), .button-link:hover { background: var(--color-bg-subtle); border-color: var(--color-accent); }
 button:disabled { cursor: default; opacity: 0.5; }
 
 /* The form's default/primary action (a Save button, per the style guide's
@@ -238,6 +241,18 @@ button:disabled { cursor: default; opacity: 0.5; }
    `aria-disabled="true"` and a click-handler guard; `pointer-events: none` alone
    only blocks a mouse click, not a keyboard Enter/Space on a focusable element. */
 .is-disabled { opacity: 0.5; cursor: default; pointer-events: none; }
+
+/* An `<a>` styled as a button -- the bare `button` rule above is
+   element-scoped and never applies to a link, but the Reviews page's
+   "Start reviewing" is a navigation link, not a form control, so it can't
+   be a real `<button>`. Shared chrome is grouped into the `button` rule
+   above; only the properties a link needs that a `<button>` doesn't
+   (block layout, no underline) stay here. Combine with `.button-primary`
+   for the emphasized case. */
+.button-link {
+  display: inline-block;
+  text-decoration: none;
+}
 
 /* Style guide: promoted on second use -- .classifier-chip below shares the pill
    shape (background/border/border-radius/font-size) but not this chip's own
@@ -344,6 +359,44 @@ button:disabled { cursor: default; opacity: 0.5; }
   line-height: 1;
   padding: 0.15rem 0.4rem;
   color: var(--color-accent);
+}
+
+.flag-toggle {
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0.15rem 0.4rem;
+  color: var(--color-warning);
+}
+
+.review-reasons {
+  font-size: 0.8rem;
+  color: var(--color-muted);
+  border-left: 3px solid var(--color-warning);
+  padding: 0.25rem 0.5rem;
+  margin: 0.5rem 0;
+}
+
+/* Review-session banner + prev/next -- deliberately distinct from
+   `.review-reasons` above (a border-left, meant to sit flush against the
+   entity header) and from `.merge-banner` (accent-bordered): this one uses
+   the warning color so a reviewer glancing at the page can immediately
+   tell "I am inside a review session" apart from "this recording happens
+   to be flagged" (spec's explicit requirement). */
+.review-banner {
+  margin: 0.75rem 0;
+  padding: 0.5rem 0.75rem;
+  background: var(--color-bg-subtle);
+  border: 1px solid var(--color-warning);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.detail-prevnext {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0.5rem 0 0.75rem;
 }
 
 /* Waveform + spectrogram, sharing a time axis and a left-hand column

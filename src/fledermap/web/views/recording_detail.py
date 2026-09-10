@@ -23,6 +23,12 @@ from fledermap.services.recording_detail import (
     DETAIL_PX_PER_MS,
     detail_params,
 )
+from fledermap.services.review_flags import (
+    ReviewContext,
+    parse_review_snapshot,
+    resolve_review_snapshot,
+    review_reasons,
+)
 from fledermap.store.geo import decode_point
 from fledermap.store.models import Recording, Site, Taxon, TaxonCode
 from fledermap.store.models import Session as AnnotationSession
@@ -89,6 +95,7 @@ def recording_details_page(audio_hash: str) -> flask.Response:
             flask.abort(404)
 
         best = current_best_identification(recording)
+        reasons = review_reasons(recording, ReviewContext.build(session))
         taxon = None
         if best is not None and not best.is_multi and best.primary.taxon_id is not None:
             taxon = session.get(Taxon, best.primary.taxon_id)
@@ -146,10 +153,29 @@ def recording_details_page(audio_hash: str) -> flask.Response:
 
         back_label, back_url = _resolve_back_link(flask.request.args.get("return_to"))
 
+        review_ids = parse_review_snapshot(flask.request.args.get("review"))
+        previous = following = None
+        is_review_session = False
+        review_position: tuple[int, int] | None = None
+        review_qs = ""
+        if review_ids:
+            ordered = resolve_review_snapshot(session, review_ids)
+            index = next(
+                (i for i, r in enumerate(ordered) if r.id == recording.id),
+                None,
+            )
+            if index is not None:
+                is_review_session = True
+                review_position = (index + 1, len(ordered))
+                previous = ordered[index - 1] if index > 0 else None
+                following = ordered[index + 1] if index < len(ordered) - 1 else None
+                review_qs = ",".join(str(i) for i in review_ids)
+
         html = flask.render_template(
             "recording_details.html",
             recording=recording,
             best=best,
+            reasons=reasons,
             taxon=taxon,
             current_taxa=current_taxa,
             manual_verdict=manual_verdict,
@@ -166,5 +192,10 @@ def recording_details_page(audio_hash: str) -> flask.Response:
             time_expansion_factor=TIME_EXPANSION_FACTOR,
             back_label=back_label,
             back_url=back_url,
+            previous=previous,
+            next=following,
+            review_qs=review_qs,
+            is_review_session=is_review_session,
+            review_position=review_position,
         )
     return flask.make_response(html)
