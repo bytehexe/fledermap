@@ -48,6 +48,17 @@ repos:
         language: system
         types: [javascript]
         pass_filenames: false
+      - id: style-guide-reminder
+        name: UI change reminder (docs/style-guide.md)
+        # Non-blocking (always exits 0) -- see the script's own docstring for
+        # why this exists: docs/style-guide.md and the fledermap-style-guide
+        # skill are both invoked by judgment only, so this is the mechanical
+        # backstop that fires regardless of whether that judgment call was
+        # made. Scoped to the actual template/CSS source, not the generated
+        # `site/` docs build or `.superpowers/brainstorm/` scratch HTML.
+        entry: hatch run python scripts/check_ui_change_reminder.py
+        language: system
+        files: ^src/fledermap/web/.*\.(html|css)$
       - id: commit-msg-conventional
         name: commit message follows Conventional Commits
         entry: hatch run python scripts/check_commit_msg.py

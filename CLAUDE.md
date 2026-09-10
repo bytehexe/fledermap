@@ -72,7 +72,9 @@ Roughly a pipeline, each stage its own top-level package under `src/fledermap/`:
 `db-restore.sh` (see "Database" below) — never part of the built wheel; see the `scripts/` bullet
 under "Environment gotchas" before assuming CLI-adjacent code belongs there.
 
-## Drawer/detail-page feature parity
+## UI consistency process
+
+### Drawer/detail-page feature parity
 
 Whatever a map-drawer panel shows for an entity (a site, a species, once such things exist) must
 also be present on that entity's own standalone details page — unless the feature is clearly
@@ -85,6 +87,24 @@ require the two to share markup/templates — `services/entities.py`'s `species_
 even though they render the same content today, precisely so the details page can grow features
 beyond what the drawer needs without the two staying coupled; it means matching *feature
 coverage*, not implementation.
+
+**When adding a `docs/style-guide.md` rule because an existing page violated it, grep the other
+templates for the same shape in the same change** (see the guide's "Standing rule: sweep on new
+rule") and fix or explicitly track any other instances — don't leave them implicit in the rule's
+own prose. Pre-commit's non-blocking `style-guide-reminder` hook (see "Tooling" below) points at
+the guide on any UI change but does not verify compliance — it doesn't substitute for this.
+
+**Before drafting a spec that adds, redesigns, or re-places a UI element, sweep-and-decide its
+placement first** — see `docs/style-guide.md`'s "decide element placement once, project-wide" for
+what that means and its timing rule. The spec states the resulting decision; it doesn't leave
+placement or disabled-vs-hidden open for implementation to pick. An unspecced quick fix does the
+same step immediately before the change instead. A sweep finding something unrelated to the
+decision at hand goes to the Obsidian backlog, not an inline fix (see
+`feedback-ui-bugs-diagnose-live-then-batch-in-obsidian`).
+
+The 2026-09-09 flagged-for-review spec was written without this step (an undecided
+disabled-vs-absent button, a toggle button deferred to the already-inconsistent favourite-button
+placement) and needs the decision made and written in before that plan is executed.
 
 ## Environment gotchas
 
@@ -205,6 +225,13 @@ it needs nothing installed beyond `node` itself, which this project already assu
 - Pre-commit's `js-tests` hook (`types: [javascript]`) runs `node --test tests/js/` only when a
   staged file is JS — it does not run on every commit, matching `ruff-check`/`mypy`'s existing
   `types:`-filtered pattern for Python-only files.
+- **Pre-commit's `style-guide-reminder` hook is non-blocking** — it prints a pointer at
+  `docs/style-guide.md` whenever a commit touches `src/fledermap/web/**/*.{html,css}`, and always
+  exits 0. It exists because both the style guide and the `fledermap-style-guide` skill are
+  invoked by judgment only (the skill fires only if a session recognizes the trigger) — this is
+  the mechanical backstop, not a compliance check. It cannot verify the change actually follows
+  the guide, only that the guide was surfaced; see "UI consistency process" above for the gap this
+  narrows and the one it doesn't.
 
 ## Database
 

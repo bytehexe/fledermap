@@ -268,6 +268,18 @@ Spectrogram and oscillogram images are stretched independently on both axes
 drag-resize. Full detail lives in this repo's root `CLAUDE.md` under "Derived media rendering" —
 check there before touching either image's CSS.
 
+## Scrolling
+
+**A page should not produce an unintended scrollbar, horizontal or vertical.** The
+recording-detail page's vertical scrollbar was treated as a real defect and eliminated via
+`fitDetailHeight()`'s shrink-to-fit (see this repo's root `CLAUDE.md`, "Derived media rendering")
+— that fix was specific to that page's fixed-aspect content, but the underlying judgment
+generalizes: a scrollbar appearing where nothing about the page's content requires one (an
+overflowing fixed-width element, an unaccounted-for margin, a flex child that doesn't shrink) is a
+layout bug to find and fix, not a fact of the page. The site-detail page's horizontal scrollbar is
+the currently-open instance of the *horizontal* case — no shrink-to-fit exists for it yet, only
+the vertical precedent above.
+
 ## Interaction & data-safety rules
 
 These are behavioral conventions, not CSS — they apply regardless of which shared class a page
@@ -375,3 +387,51 @@ user — don't leave a second, near-duplicate copy sitting next to the first. Th
 `sessions_list.html` needing the identical look later is what turned it into a class instead of
 a second copy-pasted ID block. Apply the same judgment to the next repeat, whatever it turns out
 to be.
+
+## Standing rule: sweep on new rule
+
+Almost every open `[!!flag:UI Consistency]` backlog item traces back to the same shape: a rule
+above got written *after* someone noticed one violation, and only that one spot got fixed —
+nothing then swept the rest of the templates for the same shape. The disable-don't-hide rule (in
+"Interaction & data-safety rules" above) shipped with two pre-existing violations left open rather
+than fixed alongside it; the interlinking rules stayed explicitly non-exhaustive by their own
+text. Same discipline as CLAUDE.md's "grep for every reader" rule for code removals, applied here:
+**when a rule is added because an existing page violated it, grep the other templates for the
+same shape in that same change**, and file any deferred fixes as explicit backlog items rather
+than leaving them implicit in the rule's own prose.
+
+## Standing rule: decide element placement once, project-wide
+
+When a UI element that plausibly recurs across entities gets added (a favourite button, a
+"jump to full page" link, a status badge), its position within the shared header/panel shape is a
+project-wide decision to make explicitly in that same change, not a per-page judgment call to
+re-improvise every time it comes up. Two concrete cases where this wasn't done:
+
+- The favourite button's position drifted between the details page and the drawer panel — each
+  was built without asking "where does this element go, everywhere it appears," so each landed it
+  somewhere slightly different. `.entity-header-actions` documents that the *action links* are
+  right-aligned as a group; it never said the favourite button belongs in that same group, so nothing
+  pinned its position down when a second page added it.
+- The "Full page" self-link's *wording* was standardized (see `.entity-header` above), but not its
+  *position* — the rule fixed what the link says without also fixing where in the header/panel it
+  sits, so site and recording ended up saying the same word in different places.
+
+The failure mode is specifically **silent relocation**: the element's natural/previous spot is
+already occupied by something else on the new page, and rather than that conflict forcing a
+decision (does the existing occupant move, does the new element take a different but *consistent*
+spot everywhere, is the shared shape itself wrong), the new element just goes wherever fits on
+that one page and the conflict is never resolved for the project as a whole. When adding a
+recurring element, or reusing one on an entity that already has something in its usual slot: name
+the target position as a rule (extend `.entity-header`/`.panel-header`'s own documentation, the
+way the "Full page" wording rule did, but for position too), apply it everywhere the element
+already exists in the same change, and if the slot's occupied, decide the conflict outright rather
+than parking the new element in whatever space happens to be free.
+
+**Timing: before the spec, not during implementation.** When a spec will add, redesign, or
+re-place a UI element, this decision — sweep the live app for every other place the
+element/pattern appears, decide its position against this guide, mock up if the guide doesn't
+already settle it — happens *before the spec is drafted*, so the spec states the decision instead
+of leaving it open ("follows the existing X pattern" when X's own placement is inconsistent,
+"disabled/absent" instead of picking one). A UI change with no spec (a quick fix) does the same
+step immediately before making the change. See CLAUDE.md's "UI consistency process" for the
+process pointer and the outstanding spec this applies to.
