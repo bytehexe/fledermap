@@ -12,6 +12,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
 
+from fledermap.domain.codes import IdSource, Verdict
 from fledermap.services.current_best import current_best_identification
 from fledermap.store.models import Recording
 
@@ -69,4 +70,73 @@ def _rarity_reason(
     if dataset_count <= DATASET_RARITY_MAX:
         plural = "" if dataset_count == 1 else "s"
         return f"{taxon_label}: rare ({dataset_count} recording{plural} dataset-wide)"
+    return None
+
+
+# Minimum disagreement count before a source/taxon pair is ever flagged --
+# avoids treating one correction as proof of a pattern.
+MISATTRIBUTION_MIN_DISAGREEMENTS = 3
+
+
+def _misattribution_rates(
+    session: OrmSession,
+) -> dict[tuple[IdSource, int], tuple[int, int]]:
+    """(source, taxon_id) -> (misattribution_count, total_counted) across
+    every non-missing recording that has both a claim of that taxon from
+    that source and SOME standing MANUAL verdict.
+
+    Per-recording accounting (spec's Goals section has the full table):
+    - MANUAL SPECIES whose taxon set contains the classifier's taxon:
+      correct (not counted as a disagreement) -- a classifier only ever
+      names one species, so a broader human multi-species call still
+      confirms it.
+    - MANUAL SPECIES whose taxon set does NOT contain it, or MANUAL NOISE:
+      counted as a disagreement.
+    - MANUAL NO_ID: excluded entirely, from both numerator and denominator
+      -- a human declining to call it isn't evidence the classifier was
+      wrong.
+
+    Deliberately no taxonomic-hierarchy awareness: a manual genus/group
+    claim (e.g. Myotis/MYSP) and an automatic species-level claim underneath
+    it (e.g. Myotis daubentonii) are compared by plain taxon_id equality,
+    same as any other pair -- see the design spec's Non-goals section for
+    why a Taxon.parent_id walk isn't worth it here.
+    """
+    recordings = session.scalars(
+        select(Recording).where(Recording.missing_since.is_(None)),
+    ).all()
+    totals: dict[tuple[IdSource, int], int] = {}
+    disagreements: dict[tuple[IdSource, int], int] = {}
+    for r in recordings:
+        manual_claims = [i for i in r.identifications if i.source == IdSource.MANUAL]
+        if not manual_claims:
+            continue
+        manual_verdict = manual_claims[0].verdict
+        if manual_verdict == Verdict.NO_ID:
+            continue
+        manual_taxon_ids = frozenset(
+            i.taxon_id for i in manual_claims if i.taxon_id is not None
+        )
+        for ident in r.identifications:
+            if ident.source == IdSource.MANUAL or ident.taxon_id is None:
+                continue
+            key = (ident.source, ident.taxon_id)
+            totals[key] = totals.get(key, 0) + 1
+            is_correct = (
+                manual_verdict == Verdict.SPECIES and ident.taxon_id in manual_taxon_ids
+            )
+            if not is_correct:
+                disagreements[key] = disagreements.get(key, 0) + 1
+    return {key: (disagreements.get(key, 0), total) for key, total in totals.items()}
+
+
+def _misattribution_reason(
+    rates: dict[tuple[IdSource, int], tuple[int, int]],
+    source: IdSource,
+    taxon_id: int,
+    taxon_label: str,
+) -> str | None:
+    disagreements, total = rates.get((source, taxon_id), (0, 0))
+    if disagreements >= MISATTRIBUTION_MIN_DISAGREEMENTS and disagreements * 2 > total:
+        return f"{source.value} is often wrong about {taxon_label}"
     return None
