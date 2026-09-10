@@ -102,3 +102,31 @@ def test_reviews_page_start_reviewing_label_reflects_the_capped_snapshot_size(
     assert "Start reviewing (500)" in html
     assert "Start reviewing (501)" not in html
     assert "Showing the first 500" in html
+
+
+def test_reviews_page_includes_unidentified_flagged_recording(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """A recording flagged for review with no identification (unidentified)
+    must appear on the reviews page, not be filtered out by the verdict
+    filter. The manual flag is independent of species classification."""
+    with OrmSession(engine) as session:
+        r = Recording(
+            audio_hash="b" * 64,
+            path="b.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            flagged_for_review=True,
+        )
+        session.add(r)
+        session.commit()
+        recording_id = r.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get("/reviews")
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert "1 recording flagged for review" in html
+    assert "b" * 64 in html
+    assert f"review={recording_id}" in html

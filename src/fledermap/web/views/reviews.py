@@ -30,7 +30,7 @@ reviews_bp = flask.Blueprint("reviews", __name__, template_folder="../templates"
 def reviews_page() -> flask.Response:
     engine = flask.current_app.config["ENGINE"]
     with OrmSession(engine) as session:
-        recordings = filtered_recordings(session, needs_review=True)
+        recordings = filtered_recordings(session, needs_review=True, verdict="all")
         context = ReviewContext.build(session)
         snapshot_ids = build_review_snapshot(recordings)
         review_qs = ",".join(str(i) for i in snapshot_ids)
