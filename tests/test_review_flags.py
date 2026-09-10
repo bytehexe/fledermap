@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import cast
 
 import pytest
 from geoalchemy2.elements import WKTElement
@@ -14,6 +15,9 @@ from fledermap.services.review_flags import (
     _misattribution_reason,
     _rarity_reason,
     _taxon_counts,
+    build_review_snapshot,
+    parse_review_snapshot,
+    resolve_review_snapshot,
     review_reasons,
 )
 from fledermap.store.models import Identification, Recording, Site, Taxon
@@ -362,3 +366,81 @@ def test_review_reasons_includes_rarity_match(engine: Engine) -> None:
 
     assert len(reasons) == 1
     assert "Pipistrellus pipistrellus" in reasons[0]
+
+
+class _FakeRecording:
+    """Stands in for a real `Recording` in the two `build_review_snapshot`
+    tests below -- only `.id` is read, so a full ORM row (with its
+    NOT NULL columns) would be pure setup noise. `cast` at each call site
+    tells mypy this satisfies the `Sequence[Recording]` parameter without
+    an `# type: ignore`."""
+
+    def __init__(self, id_: int) -> None:
+        self.id = id_
+
+
+def test_build_review_snapshot_preserves_order() -> None:
+    recordings = cast(
+        "list[Recording]", [_FakeRecording(3), _FakeRecording(1), _FakeRecording(2)]
+    )
+    assert build_review_snapshot(recordings) == [3, 1, 2]
+
+
+def test_build_review_snapshot_caps_at_the_maximum() -> None:
+    recordings = cast("list[Recording]", [_FakeRecording(i) for i in range(600)])
+    snapshot = build_review_snapshot(recordings)
+    assert len(snapshot) == 500
+    assert snapshot == list(range(500))
+
+
+def test_parse_review_snapshot_round_trips_a_comma_list() -> None:
+    assert parse_review_snapshot("14,52,109") == [14, 52, 109]
+
+
+def test_parse_review_snapshot_skips_malformed_entries() -> None:
+    assert parse_review_snapshot("14,not-a-number,109,") == [14, 109]
+
+
+def test_parse_review_snapshot_empty_or_none_is_empty_list() -> None:
+    assert parse_review_snapshot(None) == []
+    assert parse_review_snapshot("") == []
+
+
+@pytest.mark.db
+def test_resolve_review_snapshot_preserves_snapshot_order(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        ids = []
+        for audio_hash in ("a" * 64, "b" * 64, "c" * 64):
+            r = Recording(
+                audio_hash=audio_hash,
+                path=f"{audio_hash}.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            )
+            session.add(r)
+            session.flush()
+            ids.append(r.id)
+        session.commit()
+        # Snapshot order is reversed relative to insertion/id order --
+        # resolve_review_snapshot must preserve THIS order, not re-sort.
+        snapshot_ids = [ids[2], ids[0], ids[1]]
+
+        resolved = resolve_review_snapshot(session, snapshot_ids)
+
+    assert [r.id for r in resolved] == snapshot_ids
+
+
+@pytest.mark.db
+def test_resolve_review_snapshot_drops_unresolvable_ids(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        r = Recording(
+            audio_hash="a" * 64,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add(r)
+        session.commit()
+        real_id = r.id
+
+        resolved = resolve_review_snapshot(session, [999999, real_id])
+
+    assert [r.id for r in resolved] == [real_id]

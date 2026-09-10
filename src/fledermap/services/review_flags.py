@@ -9,6 +9,7 @@ module builds on rather than duplicates."""
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from sqlalchemy import select
@@ -204,3 +205,52 @@ def review_reasons(recording: Recording, context: ReviewContext) -> list[str]:
         if misattribution is not None:
             reasons.append(misattribution)
     return reasons
+
+
+# Matches MAX_FEATURES's existing precedent elsewhere: degrade visibly (a
+# "showing the first 500" note) rather than risk a request-line size some
+# intermediary silently rejects. At this project's expected review-queue
+# scale (tens, not thousands) this is a backstop, not a normal case.
+MAX_REVIEW_SNAPSHOT = 500
+
+
+def build_review_snapshot(recordings: Sequence[Recording]) -> list[int]:
+    """Ordered Recording.id list for a review session's URL -- id, not
+    audio_hash, specifically to keep the query string compact (a 64-char
+    hash per entry would risk common ~8KB request-line limits well before
+    MAX_REVIEW_SNAPSHOT is even reached)."""
+    return [r.id for r in recordings[:MAX_REVIEW_SNAPSHOT]]
+
+
+def parse_review_snapshot(raw: str | None) -> list[int]:
+    """Parse a `review=<id>,<id>,...` query param into an ordered id list.
+    A malformed entry is skipped, not raised -- a hand-edited or stale URL
+    should degrade to "not a review session" (see resolve_review_snapshot
+    and recording_detail.py), never a 500."""
+    if not raw:
+        return []
+    ids: list[int] = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            ids.append(int(part))
+        except ValueError:
+            continue
+    return ids
+
+
+def resolve_review_snapshot(
+    session: OrmSession,
+    ids: Sequence[int],
+) -> list[Recording]:
+    """Resolve a snapshot's id list back to Recording rows, IN THE
+    SNAPSHOT'S OWN ORDER -- not insertion or query order. Any id that no
+    longer resolves (e.g. a deleted recording) is silently dropped, per the
+    design spec's Non-goals section."""
+    if not ids:
+        return []
+    rows = session.scalars(select(Recording).where(Recording.id.in_(ids))).all()
+    by_id = {r.id: r for r in rows}
+    return [by_id[i] for i in ids if i in by_id]

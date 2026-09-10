@@ -1,0 +1,40 @@
+{# src/fledermap/web/templates/reviews.html #}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  {% include "_theme_init.html" %}
+  {% include "_favicon.html" %}
+  <title>Fledermap — Reviews</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+</head>
+<body>
+  {% include "_nav.html" %}
+  <main class="main-content">
+    <h1>Reviews</h1>
+    <p>{{ count }} recording{{ "" if count == 1 else "s" }} flagged for review.</p>
+    {% if truncated %}
+    <p class="truncation-warning">Showing the first {{ rows | length }} — resolve some to see the rest.</p>
+    {% endif %}
+    {% if rows %}
+    <a class="button-link button-primary" href="/recordings/{{ rows[0].audio_hash }}?review={{ review_qs }}">Start reviewing ({{ count }})</a>
+    <p>...or choose one below:</p>
+    <table class="entity-list">
+      <thead>
+        <tr><th>Site</th><th>Time</th><th>Species</th><th>Reasons</th></tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td>{{ row.site_label or "No site" }}</td>
+          <td>{{ row.recorded_at.strftime('%Y-%m-%d %H:%M') }}</td>
+          <td><a href="/recordings/{{ row.audio_hash }}?review={{ review_qs }}">{{ row.species_label }}</a></td>
+          <td>{{ row.reasons | join(", ") }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </main>
+</body>
+</html>
