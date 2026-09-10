@@ -376,6 +376,29 @@ button:disabled { cursor: default; opacity: 0.5; }
   margin: 0.5rem 0;
 }
 
+/* Review-session banner + prev/next -- deliberately distinct from
+   `.review-reasons` above (a border-left, meant to sit flush against the
+   entity header) and from `.merge-banner` (accent-bordered): this one uses
+   the warning color so a reviewer glancing at the page can immediately
+   tell "I am inside a review session" apart from "this recording happens
+   to be flagged" (spec's explicit requirement). */
+.review-banner {
+  margin: 0.75rem 0;
+  padding: 0.5rem 0.75rem;
+  background: var(--color-bg-subtle);
+  border: 1px solid var(--color-warning);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.detail-prevnext {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0.5rem 0 0.75rem;
+}
+
 /* Waveform + spectrogram, sharing a time axis and a left-hand column
    reserved for the spectrogram's frequency-axis labels (design decision:
    two data plots, not photos -- each stretches to fill its own cell on

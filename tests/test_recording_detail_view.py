@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 from geoalchemy2.elements import WKTElement
-from sqlalchemy import Engine
+from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import IdSource, Verdict
@@ -920,3 +920,137 @@ def test_recording_details_page_tiles_are_not_natively_draggable(
     assert tile_tags, "expected at least one tile <img>"
     for tag in tile_tags:
         assert 'draggable="false"' in tag
+
+
+def test_details_page_has_no_prevnext_with_no_review_param(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="b1" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/recordings/{'b1' * 32}")
+
+    html = response.get_data(as_text=True)
+    assert "Previous" not in html
+    assert "Next →" not in html
+    assert "Reviewing flagged recordings" not in html
+
+
+def test_details_page_shows_review_snapshot_prevnext_and_banner(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        first = Recording(
+            audio_hash="b2" * 32,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, 20, 0, tzinfo=UTC),
+        )
+        second = Recording(
+            audio_hash="b3" * 32,
+            path="b.wav",
+            recorded_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+        )
+        session.add_all([first, second])
+        session.commit()
+        first_id, second_id = first.id, second.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(
+        f"/recordings/{'b2' * 32}?review={first_id},{second_id}",
+    )
+
+    html = response.get_data(as_text=True)
+    assert "Reviewing flagged recordings" in html
+    assert "1 of 2" in html
+    assert f"/recordings/{'b3' * 32}?review={first_id},{second_id}" in html
+    assert "Previous" not in html  # at the start of the snapshot
+
+
+def test_details_page_review_snapshot_ignores_the_current_review_status(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """The snapshot is fixed at session start -- landing on the SECOND item
+    after the first was just reclassified (dropped out of needs_review)
+    must not affect this page's own prev/next, since it never re-queries
+    needs_review at all."""
+    with OrmSession(engine) as session:
+        first = Recording(
+            audio_hash="b4" * 32,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, 20, 0, tzinfo=UTC),
+        )
+        second = Recording(
+            audio_hash="b5" * 32,
+            path="b.wav",
+            recorded_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+            flagged_for_review=False,  # already "resolved" -- no longer needs review
+        )
+        session.add_all([first, second])
+        session.commit()
+        first_id, second_id = first.id, second.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(
+        f"/recordings/{'b5' * 32}?review={first_id},{second_id}",
+    )
+
+    html = response.get_data(as_text=True)
+    assert "2 of 2" in html
+    assert f"/recordings/{'b4' * 32}?review={first_id},{second_id}" in html
+    assert "Next →" not in html  # at the end
+
+
+def test_details_page_no_more_flagged_recordings_note_at_the_end(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="b6" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+        recording_id = session.scalars(select(Recording)).one().id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/recordings/{'b6' * 32}?review={recording_id}")
+
+    html = response.get_data(as_text=True)
+    assert "No more flagged recordings" in html
+    assert 'href="/reviews"' in html
+
+
+def test_details_page_review_param_not_containing_current_recording_is_ignored(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="b7" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/recordings/{'b7' * 32}?review=999999")
+
+    html = response.get_data(as_text=True)
+    assert "Reviewing flagged recordings" not in html
+    assert "Previous" not in html

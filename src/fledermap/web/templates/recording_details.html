@@ -34,6 +34,25 @@
       {% endif %}
     </div>
     {% endif %}
+    {% if is_review_session %}
+    <div class="review-banner">
+      <strong>Reviewing flagged recordings</strong>
+      <span>{{ review_position[0] }} of {{ review_position[1] }}</span>
+      <a href="/reviews">Exit review</a>
+    </div>
+    {% if previous or next %}
+    <nav class="detail-prevnext">
+      {% if previous %}
+      <a href="/recordings/{{ previous.audio_hash }}?review={{ review_qs }}">← Previous</a>
+      {% endif %}
+      {% if next %}
+      <a href="/recordings/{{ next.audio_hash }}?review={{ review_qs }}">Next →</a>
+      {% endif %}
+    </nav>
+    {% else %}
+    <p class="review-banner">No more flagged recordings. <a href="/reviews">Back to Reviews</a></p>
+    {% endif %}
+    {% endif %}
     {% if params %}
     <h2>Audio</h2>
     <div class="detail-toolbar" id="detail-toolbar">
