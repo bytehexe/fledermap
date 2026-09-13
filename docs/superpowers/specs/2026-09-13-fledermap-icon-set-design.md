@@ -151,8 +151,28 @@ SVG markup once at creation time instead of the emoji character.
   live-verification, not optional — confirm each state's correct icon is visible/hidden and that
   toggling still works, the same technique used throughout this session's fixes.
 - Visual live-check (screenshot or headless Chrome) of at least one page from each icon's usage
-  list, both light and dark mode, to confirm `currentColor` theming actually works end-to-end
-  (not just that the SVG is present in the DOM).
+  list, both light and dark mode. **Presence of the icon in the DOM is not sufficient** — this
+  session's own recording-detail-page fixes (the equal-width button bug, the hover-color bug) were
+  exactly this failure mode: something was "there" and still visibly wrong. For each checked spot,
+  confirm:
+  - `currentColor` theming actually took effect (the icon's rendered color matches its intended
+    `--color-*` token, not a default black/white left over from a missed override) — check both
+    light and dark mode, since a hardcoded color would only be caught in one of them.
+  - **Layout is unchanged or deliberately improved, never regressed**: compare a before/after
+    screenshot (or bounding-box measurements) of each icon's containing element — button widths in
+    a row of buttons (e.g. the audio toolbar, the audio-controls row) stay equal/consistent the way
+    `82ca3df`/`5a50dfa` established this session, nothing wraps that didn't before, nothing changes
+    height and pushes sibling content around.
+  - **Icons are properly aligned**: vertically centered against adjacent text/other icons (not
+    sitting a few px high/low relative to a text baseline the way a raw emoji glyph's own font
+    metrics happened to differ from an SVG's), and horizontally consistent within any group of
+    icons that should share an axis (e.g. the flag/star pair, the playback button row) — the same
+    "two different center axes" problem caught live during the nav-logo work applies here just as
+    easily to icon-vs-text baseline alignment.
+  - This applies to every state of a toggle (both hollow AND solid, all three theme-toggle icons,
+    both view-lock states) — a layout check on only the default/first-seen state can miss a
+    regression that only shows up once a toggle flips (again, this session's own pattern: the
+    hover-state regression wasn't visible until actually hovering).
 
 ## Documentation
 
