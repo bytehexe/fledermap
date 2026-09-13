@@ -8,6 +8,13 @@
    stack on narrow screens" convention Phase 5a's drawer panels already
    use, plus a manual toggle at any width.
 
+   `.sidebar-header` (2026-09-13) holds the logo (a bonus shortcut to `/`,
+   reusing favicon.png -- see `_favicon.html`'s own comment on that asset)
+   next to the ☰/theme-toggle pair, replacing the `🦇` that used to prefix
+   the "Map" link below -- brainstormed live with Janna (mockup review) to
+   settle the logo's alignment; see app.css's `.sidebar-header`/
+   `.sidebar-logo` comments for the resulting layout decisions.
+
    Also owns the dark-mode toggle (2026-08-28): a single x-data scope for
    both, since they're both small pieces of standing nav state with no
    need to be split into separate components. theme starts from
@@ -59,11 +66,23 @@
        },
      }"
      :class="{ collapsed: collapsed }">
-  <button type="button" id="sidebar-toggle" @click="collapsed = !collapsed" aria-label="Toggle navigation">☰</button>
-  <button type="button" id="theme-toggle" x-cloak @click="cycleTheme()" :aria-label="'Theme: ' + theme + '. Click to change.'">
-    <span x-text="theme === 'dark' ? '🌙' : (theme === 'light' ? '☀️' : '🖥️')"></span>
-  </button>
-  <a class="sidebar-link" href="/"><span class="label">🦇 Map</span></a>
+  <div class="sidebar-header">
+    {# Bonus shortcut to the map, not the only way there -- "Map" stays a
+       plain entry in the link list below (Janna, 2026-09-13: "not 100% clear
+       that it exists otherwise" if the logo were the only way in). Hidden
+       entirely when collapsed (`#sidebar.collapsed .sidebar-logo`, app.css)
+       -- 48px has no room for it next to the two toggle buttons. #}
+    <a class="sidebar-logo" href="/" aria-label="Fledermap home">
+      <img src="{{ url_for('static', filename='favicon.png') }}" alt="" width="28" height="28">
+    </a>
+    <div class="sidebar-toggles">
+      <button type="button" id="sidebar-toggle" @click="collapsed = !collapsed" aria-label="Toggle navigation">☰</button>
+      <button type="button" id="theme-toggle" x-cloak @click="cycleTheme()" :aria-label="'Theme: ' + theme + '. Click to change.'">
+        <span x-text="theme === 'dark' ? '🌙' : (theme === 'light' ? '☀️' : '🖥️')"></span>
+      </button>
+    </div>
+  </div>
+  <a class="sidebar-link" href="/"><span class="label">Map</span></a>
   <a class="sidebar-link" href="/sessions"><span class="label">Sessions</span></a>
   <a class="sidebar-link" href="/species"><span class="label">Species</span></a>
   <a class="sidebar-link" href="/sites"><span class="label">Sites</span></a>

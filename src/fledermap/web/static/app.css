@@ -91,7 +91,33 @@ body { display: flex; flex-direction: row; }
 }
 #sidebar.collapsed { width: 48px; }
 #sidebar.collapsed .sidebar-link .label { display: none; }
-#sidebar-toggle, #theme-toggle { align-self: flex-end; margin-bottom: 0.5rem; }
+/* No room for the logo next to the two toggle buttons at 48px -- collapsed
+   keeps just the equal-width button stack, same as it did before the logo
+   existed. */
+#sidebar.collapsed .sidebar-logo { display: none; }
+.sidebar-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
+/* `flex: 1` claims the row's leftover width (the header row is only as wide
+   as the sidebar minus the button stack), then centers the logo within it --
+   both axes deliberate (Janna, live mockup review, 2026-09-13): horizontally
+   centered in its own space rather than flush against the sidebar's left
+   edge, and vertically centered against the two-button stack via this row's
+   own `align-items: center`. */
+.sidebar-logo { flex: 1; display: flex; justify-content: center; }
+.sidebar-logo img { display: block; }
+.sidebar-toggles { display: flex; flex-direction: column; gap: 0.25rem; }
+/* Previously `align-self: flex-end` on each button individually -- shrink-
+   to-fit, so ☰ and the theme icon (different natural widths) ended up
+   different sizes, most visible when the sidebar is narrow/collapsed
+   (Janna, live, 2026-09-13: "the buttons do not have the same width").
+   A fixed equal box with a centered icon fixes both buttons at once. */
+#sidebar-toggle, #theme-toggle {
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 .sidebar-link {
   display: block;
   padding: 0.4rem 0.5rem;
