@@ -150,13 +150,26 @@ document.addEventListener("DOMContentLoaded", () => {
   // That resolution stays deliberately fixed -- a precise 1:1 STFT-column-
   // to-pixel mapping the Ruler tool's math and a consistent pan scale
   // across recordings both depend on -- it was never meant as "always
-  // display at 100% of this." Roughly the size Janna preferred seeing
-  // (Obsidian backlog screenshot, 2026-09-11 -- 2026-09-13: that size had
-  // been a coincidental side effect of the pre-fix whole-page shrink
-  // algorithm below, not a deliberate target; made explicit here instead
-  // of relying on the Identifications/classifier boxes happening to force
-  // the same shrink).
-  const MAX_SPECTROGRAM_HEIGHT_PX = 370;
+  // display at 100% of this." Read from the wrap's own `data-*` attribute
+  // (set from services/recording_detail.py's DETAIL_COMFORT_MAX_HEIGHT_PX)
+  // rather than hardcoded here a second time -- the template applies that
+  // SAME constant as this wrap's initial inline `zoom`, so the very first
+  // paint already matches what this function recomputes; two independently
+  // hardcoded copies previously disagreed and visibly jumped the instant
+  // this script ran (found live 2026-09-13).
+  const MAX_SPECTROGRAM_HEIGHT_PX = parseFloat(wrap.dataset.comfortMaxHeightPx);
+
+  // Below this, the spectrogram is unreadable regardless of what's causing
+  // the shrink -- hide it and say so rather than rendering something
+  // useless (Janna, 2026-09-13: "below a certain size... we can simply
+  // refuse to display something there and say that this screen size is
+  // unsupported"). 76px = 2cm at 96dpi (the CSS reference pixel), the exact
+  // cutoff she chose. Client-only, unlike MAX_SPECTROGRAM_HEIGHT_PX above --
+  // this decision depends on the real browser viewport, which the server
+  // can't know at request time, so there's no server-side counterpart to
+  // keep in sync with.
+  const MIN_SUPPORTED_SPECTROGRAM_HEIGHT_PX = 76;
+  const tooSmallMessage = document.getElementById("detail-too-small-message");
 
   function fitDetailHeight() {
     // Measure natural (unzoomed) heights first -- clearing any previous zoom before measuring,
@@ -212,14 +225,20 @@ document.addEventListener("DOMContentLoaded", () => {
         ? MAX_SPECTROGRAM_HEIGHT_PX / spectrogramHeight
         : 1;
 
-    currentScale = Math.min(viewportFitScale, comfortScale);
-    if (currentScale >= 1) {
-      currentScale = 1;
-      return;
+    currentScale = Math.min(1, viewportFitScale, comfortScale);
+    if (currentScale < 1) {
+      const zoomValue = String(currentScale);
+      oscillogramWrap.style.zoom = zoomValue;
+      wrap.style.zoom = zoomValue;
     }
-    const zoomValue = String(currentScale);
-    oscillogramWrap.style.zoom = zoomValue;
-    wrap.style.zoom = zoomValue;
+
+    // Checked after applying the final scale (not per-constraint above) so
+    // it catches every path that can produce a too-small result, viewport-
+    // fit and comfort-cap alike -- toolbar and audio-row (playback) are
+    // never part of this shrink, so they stay visible/usable either way.
+    const tooSmall = spectrogramHeight * currentScale < MIN_SUPPORTED_SPECTROGRAM_HEIGHT_PX;
+    scrollEl.hidden = tooSmall;
+    tooSmallMessage.hidden = !tooSmall;
   }
 
   // Dense axis (design spec section 3): fixed ms/kHz intervals, built from

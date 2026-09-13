@@ -200,8 +200,17 @@ def test_recording_details_page_reserves_the_final_wrap_sizes_up_front(
     response = app.test_client().get(f"/recordings/{'f7' * 32}")
 
     html = response.get_data(as_text=True)
-    assert 'style="width: 2207px; height: 48px;"' in html  # oscillogram wrap
-    assert 'style="width: 2207px; height: 564px;"' in html  # spectrogram wrap
+    # zoom comes from DETAIL_COMFORT_MAX_HEIGHT_PX (300) / the spectrogram's
+    # own 564px height -- both wraps share the same initial_zoom (Janna,
+    # 2026-09-13: server and client must read one shared constant so their
+    # sizes can never disagree).
+    zoom = 300 / 564
+    assert (
+        f'style="width: 2207px; height: 48px; zoom: {zoom};"' in html
+    )  # oscillogram wrap
+    assert (
+        f'style="width: 2207px; height: 564px; zoom: {zoom};"' in html
+    )  # spectrogram wrap
 
 
 def test_recording_details_page_puts_oscillogram_above_spectrogram(

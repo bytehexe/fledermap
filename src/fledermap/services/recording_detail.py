@@ -58,6 +58,21 @@ DETAIL_MAX_FREQ_KHZ = 120.0
 # a spectrogram wider than that limit (design spec's 2026-09-01 tiling addendum).
 DETAIL_MAX_TILE_WIDTH_PX = 8000
 
+# How tall the spectrogram displays by default, independent of the locked-scale
+# render resolution above (DETAIL_PX_PER_KHZ) -- that resolution stays fixed for
+# the Ruler tool's 1:1 pixel math; this is purely a display cap, shrunk via CSS
+# `zoom` the same way recording_detail.js's viewport-fit shrink already works.
+# 300px chosen 2026-09-13 (Janna, live: ~80-90% of the 370px she'd confirmed
+# looked right one iteration earlier). Templated into the page's initial
+# `zoom` inline style AND into `data-comfort-max-height-px` for
+# recording_detail.js to read -- both MUST come from this one constant, never
+# a second hardcoded number, or the server's first paint and the client's
+# recomputed zoom can disagree and visibly jump (found live 2026-09-13: a
+# client-only version of this cap did exactly that, jumping from the
+# server-reserved native height down to the cap the instant the page's
+# script ran).
+DETAIL_COMFORT_MAX_HEIGHT_PX = 300
+
 
 @dataclass(frozen=True)
 class DetailTile:
@@ -87,6 +102,13 @@ class DetailParams:
     oscillogram: OscillogramParams
     max_freq_khz: float
     tiles: list[DetailTile]
+    # Both below come from DETAIL_COMFORT_MAX_HEIGHT_PX -- see that constant's
+    # own comment for why the template's initial `zoom` style and
+    # recording_detail.js's own comfort-cap constant both need to read
+    # `comfort_max_height_px` (via a `data-*` attribute) rather than each
+    # hardcoding the number separately.
+    comfort_max_height_px: int
+    initial_zoom: float
 
 
 def detail_params(duration_s: float, samplerate_hz: float) -> DetailParams:
@@ -106,9 +128,20 @@ def detail_params(duration_s: float, samplerate_hz: float) -> DetailParams:
         overlap=DETAIL_OVERLAP,
     )
     oscillogram = OscillogramParams(width_px=width_px)
+    # Only the comfort cap, never the viewport-fit shrink -- the server has
+    # no way to know the client's actual window size at request time, so
+    # this is deliberately just a best-effort initial guess for the common
+    # case (a window with room to spare). recording_detail.js's
+    # fitDetailHeight() still runs after load and corrects it further if the
+    # real viewport needs more shrinking than this.
+    initial_zoom = (
+        min(1.0, DETAIL_COMFORT_MAX_HEIGHT_PX / height_px) if height_px > 0 else 1.0
+    )
     return DetailParams(
         spectrogram=spectrogram,
         oscillogram=oscillogram,
         max_freq_khz=max_freq_hz / 1000,
         tiles=detail_tiles(width_px),
+        comfort_max_height_px=DETAIL_COMFORT_MAX_HEIGHT_PX,
+        initial_zoom=initial_zoom,
     )

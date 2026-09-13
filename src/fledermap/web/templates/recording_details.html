@@ -75,7 +75,7 @@
           <div
             class="detail-oscillogram-wrap"
             id="detail-oscillogram-wrap"
-            style="width: {{ params.oscillogram.width_px }}px; height: {{ params.oscillogram.height_px }}px;"
+            style="width: {{ params.oscillogram.width_px }}px; height: {{ params.oscillogram.height_px }}px; zoom: {{ params.initial_zoom }};"
           >
             <p class="media-placeholder detail-loading" id="oscillogram-loading">Rendering…</p>
             {% for tile in params.tiles %}
@@ -93,7 +93,8 @@
           <div
             class="detail-spectrogram-wrap"
             id="detail-spectrogram-wrap"
-            style="width: {{ params.spectrogram.width_px }}px; height: {{ params.spectrogram.height_px }}px;"
+            style="width: {{ params.spectrogram.width_px }}px; height: {{ params.spectrogram.height_px }}px; zoom: {{ params.initial_zoom }};"
+            data-comfort-max-height-px="{{ params.comfort_max_height_px }}"
           >
             <p class="media-placeholder detail-loading" id="spectrogram-loading">Rendering…</p>
             {% for tile in params.tiles %}
@@ -117,6 +118,14 @@
         </div>
       </div>
     </div>
+    {# Swapped in by recording_detail.js's fitDetailHeight() whenever the
+       computed spectrogram height would fall below a readable minimum
+       (Janna, 2026-09-13) -- the toolbar above and playback controls below
+       stay visible/usable either way; only the graphs themselves are
+       replaced. #}
+    <p class="media-placeholder" id="detail-too-small-message" hidden>
+      This window is too narrow or short to display the spectrogram at a readable size. Resize your browser window to see it.
+    </p>
     <div class="audio-row">
       {% if preview_ready %}
       <div

@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from fledermap.services.recording_detail import (
+    DETAIL_COMFORT_MAX_HEIGHT_PX,
     DETAIL_MAX_FREQ_KHZ,
     DETAIL_MAX_TILE_WIDTH_PX,
     DETAIL_OVERLAP,
@@ -38,6 +39,36 @@ def test_detail_params_clamps_to_nyquist_below_the_ceiling() -> None:
 
     assert params.max_freq_khz == 22.05
     assert params.spectrogram.height_px == round(22.05 * DETAIL_PX_PER_KHZ)
+
+
+def test_detail_params_reports_the_shared_comfort_height_constant() -> None:
+    # Both the template's initial `zoom` style and recording_detail.js's own
+    # comfort-cap constant must read this field rather than hardcoding a
+    # second number (Janna, 2026-09-13: "I don't want to address this
+    # again") -- this pins the field to the one source constant.
+    params = detail_params(duration_s=1.0, samplerate_hz=256_000)
+
+    assert params.comfort_max_height_px == DETAIL_COMFORT_MAX_HEIGHT_PX
+
+
+def test_detail_params_initial_zoom_caps_a_tall_spectrogram() -> None:
+    # 256kHz samplerate hits the DETAIL_MAX_FREQ_KHZ ceiling -> a spectrogram
+    # taller than the comfort cap, so initial_zoom must shrink it.
+    params = detail_params(duration_s=1.0, samplerate_hz=256_000)
+
+    assert params.spectrogram.height_px > DETAIL_COMFORT_MAX_HEIGHT_PX
+    assert params.initial_zoom == pytest.approx(
+        DETAIL_COMFORT_MAX_HEIGHT_PX / params.spectrogram.height_px
+    )
+
+
+def test_detail_params_initial_zoom_is_unscaled_for_a_short_spectrogram() -> None:
+    # 44_100 Hz clamps to a Nyquist-limited height well under the comfort
+    # cap -- initial_zoom must stay at 1.0, never scale *up*.
+    params = detail_params(duration_s=1.0, samplerate_hz=44_100)
+
+    assert params.spectrogram.height_px < DETAIL_COMFORT_MAX_HEIGHT_PX
+    assert params.initial_zoom == 1.0
 
 
 def test_detail_tiles_returns_one_tile_for_a_short_recording() -> None:
