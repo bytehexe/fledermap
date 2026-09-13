@@ -250,6 +250,20 @@ button, .button-link {
 button:hover:not(:disabled), .button-link:hover { background: var(--color-bg-subtle); border-color: var(--color-accent); }
 button:disabled { cursor: default; opacity: 0.5; }
 
+/* Inline Tabler SVG icons (icon() Jinja global, web/icons.py) already carry this class on their
+   own root <svg> -- Tabler's fetched markup, not something this app injects. Sized to match
+   surrounding text/button font-size (the same visual footprint the emoji glyphs it replaces had)
+   rather than a fixed pixel size. `vertical-align` corrects the few-px-too-high default inline-
+   SVG baseline (a well-known browser quirk) so it sits inline with adjacent text the way a glyph
+   naturally did. `flex-shrink: 0` guards against an icon squishing inside a tight flex row (the
+   same defensive pattern `.entity-header-actions`/`.panel-header-actions` already use). */
+.icon {
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.125em;
+  flex-shrink: 0;
+}
+
 /* The form's default/primary action (a Save button, per the style guide's
    "Interaction & data-safety rules") -- reuses the same accent-background
    language as `.tool-button[aria-pressed="true"]` / `#view-lock-toggle[aria-pressed="true"]`
