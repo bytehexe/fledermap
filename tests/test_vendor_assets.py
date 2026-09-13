@@ -147,3 +147,42 @@ def test_ensure_vendor_assets_fetches_only_the_missing_ones(
 def test_assets_includes_chart_js() -> None:
     relative_paths = {asset.relative_path for asset in ASSETS}
     assert "chart.js" in relative_paths
+
+
+def test_assets_includes_every_relative_path_exactly_once() -> None:
+    """A real regression risk right after appending 21 new entries by hand: a copy-paste
+    duplicate relative_path would silently overwrite one icon file with another's bytes on
+    fetch, with no error anywhere in this module."""
+    relative_paths = [asset.relative_path for asset in ASSETS]
+    assert len(relative_paths) == len(set(relative_paths))
+
+
+def test_assets_includes_every_icon_the_app_uses() -> None:
+    """Pins the exact (icon, style) inventory design spec 2026-09-13 requires -- catches an
+    icon silently dropped from ASSETS (icon() would then raise IconNotFoundError at render
+    time, but this test catches it before that ever ships)."""
+    relative_paths = {asset.relative_path for asset in ASSETS}
+    expected = {
+        "icons/outline/flag.svg",
+        "icons/filled/flag.svg",
+        "icons/outline/star.svg",
+        "icons/filled/star.svg",
+        "icons/filled/sun.svg",
+        "icons/filled/moon.svg",
+        "icons/outline/device-desktop.svg",
+        "icons/outline/menu-2.svg",
+        "icons/outline/lock.svg",
+        "icons/filled/lock.svg",
+        "icons/filled/player-play.svg",
+        "icons/filled/player-pause.svg",
+        "icons/filled/player-skip-back.svg",
+        "icons/outline/rotate.svg",
+        "icons/outline/chevron-left.svg",
+        "icons/outline/chevron-right.svg",
+        "icons/outline/alert-triangle.svg",
+        "icons/outline/info-circle.svg",
+        "icons/outline/check.svg",
+        "icons/outline/chevron-down.svg",
+        "icons/outline/x.svg",
+    }
+    assert expected <= relative_paths

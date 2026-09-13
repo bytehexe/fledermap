@@ -105,6 +105,115 @@ ASSETS: tuple[VendorAsset, ...] = (
         sha256="3850656abbdc319141e6e8ce8eacde2622fc767c30e20d81704af2bf3159f92d",
         relative_path="chart.js",
     ),
+    # Tabler Icons (MIT, https://tabler.io/icons), pinned 3.46.0 -- design spec
+    # docs/superpowers/specs/2026-09-13-fledermap-icon-set-design.md. Fetched and hashed directly
+    # against unpkg.com before this plan was written -- not invented. Only the specific
+    # (icon, style) pairs this app actually uses, never the whole library.
+    VendorAsset(
+        url="https://unpkg.com/@tabler/icons@3.46.0/icons/outline/flag.svg",
+        sha256="eafc36e1306bc87d9ae65fd6a75c5aff61d0ceb5ff852dbf94a03fa2068a2f89",
+        relative_path="icons/outline/flag.svg",
+    ),
+    VendorAsset(
+        url="https://unpkg.com/@tabler/icons@3.46.0/icons/filled/flag.svg",
+        sha256="012892f51a80299cff80e2ac96a8e64adebb72027e7614b86839c9f098971791",
+        relative_path="icons/filled/flag.svg",
+    ),
+    VendorAsset(
+        url="https://unpkg.com/@tabler/icons@3.46.0/icons/outline/star.svg",
+        sha256="9903f4359966f48225710d78088db8fdfbc30eb82596a4bb28bc49b56399465d",
+        relative_path="icons/outline/star.svg",
+    ),
+    VendorAsset(
+        url="https://unpkg.com/@tabler/icons@3.46.0/icons/filled/star.svg",
+        sha256="50ade4fd4b67aff7eca0a9f2ad0e8c52ef4cea659be4a1fff8f03a1a9647aec7",
+        relative_path="icons/filled/star.svg",
+    ),
+    VendorAsset(
+        url="https://unpkg.com/@tabler/icons@3.46.0/icons/filled/sun.svg",
+        sha256="91c6966504af4b913d7e231804b91a9bf1bce5b42ba5bc9d08c8e52cf0ebfb0c",
+        relative_path="icons/filled/sun.svg",
+    ),
+    VendorAsset(
+        url="https://unpkg.com/@tabler/icons@3.46.0/icons/filled/moon.svg",
+        sha256="86f4dd8822aec2c6b9ea9a9286371136587ec0c748cf52d815e3c0ff934879d2",
+        relative_path="icons/filled/moon.svg",
+    ),
+    VendorAsset(
+        url="https://unpkg.com/@tabler/icons@3.46.0/icons/outline/device-desktop.svg",
+        sha256="a18c2a33a20de14bacbff9df97b7896006fb166379da84eb12c304abbd803286",
+        relative_path="icons/outline/device-desktop.svg",
+    ),
+    VendorAsset(
+        url="https://unpkg.com/@tabler/icons@3.46.0/icons/outline/menu-2.svg",
+        sha256="a7630e8fc37c090e8d665c8739ea838566db4bcf79c7710a554ace3bf4733e04",
+        relative_path="icons/outline/menu-2.svg",
+    ),
+    VendorAsset(
+        url="https://unpkg.com/@tabler/icons@3.46.0/icons/outline/lock.svg",
+        sha256="748ef36a7e3b7a4dc2b44a16576dc60123968a6c8184155015f85cfa442ce7d7",
+        relative_path="icons/outline/lock.svg",
+    ),
+    VendorAsset(
+        url="https://unpkg.com/@tabler/icons@3.46.0/icons/filled/lock.svg",
+        sha256="b8b0946430cc541c8bb8e473cab0e57eaf5d06f31fd46e5e21f7dd47b6ce355d",
+        relative_path="icons/filled/lock.svg",
+    ),
+    VendorAsset(
+        url="https://unpkg.com/@tabler/icons@3.46.0/icons/filled/player-play.svg",
+        sha256="2ba08da4e3f0d78b6a957e355c948bf8d5cd4241286aa8bb48a54d97e767929b",
+        relative_path="icons/filled/player-play.svg",
+    ),
+    VendorAsset(
+        url="https://unpkg.com/@tabler/icons@3.46.0/icons/filled/player-pause.svg",
+        sha256="bb1386fd0e04b18f46d0399610b234cf7bca059638a3d3bd3f022ad54a48ac6b",
+        relative_path="icons/filled/player-pause.svg",
+    ),
+    VendorAsset(
+        url="https://unpkg.com/@tabler/icons@3.46.0/icons/filled/player-skip-back.svg",
+        sha256="53c3b0f8e6c21ca64faac237065f721a3f2bfaaddcce6731958aa662e351a4c8",
+        relative_path="icons/filled/player-skip-back.svg",
+    ),
+    VendorAsset(
+        url="https://unpkg.com/@tabler/icons@3.46.0/icons/outline/rotate.svg",
+        sha256="27bd2a929eee1460da0948b24156194d65b0a33fb3ba356d6ee18572d4eb76b1",
+        relative_path="icons/outline/rotate.svg",
+    ),
+    VendorAsset(
+        url="https://unpkg.com/@tabler/icons@3.46.0/icons/outline/chevron-left.svg",
+        sha256="55836d95fec17c6eaafa376b1c203c79fd04baf32fe1cd528a6df6884e16e866",
+        relative_path="icons/outline/chevron-left.svg",
+    ),
+    VendorAsset(
+        url="https://unpkg.com/@tabler/icons@3.46.0/icons/outline/chevron-right.svg",
+        sha256="0142561fc2fd1b6a18b2cb0c08959b6037643aecf6adc6612aefe16ec4f39f0f",
+        relative_path="icons/outline/chevron-right.svg",
+    ),
+    VendorAsset(
+        url="https://unpkg.com/@tabler/icons@3.46.0/icons/outline/alert-triangle.svg",
+        sha256="92a951d8e90c1b1d986449e74a8b2e1c52982dc3dbe09b141ac11990420408f4",
+        relative_path="icons/outline/alert-triangle.svg",
+    ),
+    VendorAsset(
+        url="https://unpkg.com/@tabler/icons@3.46.0/icons/outline/info-circle.svg",
+        sha256="bf4377dff0aaaddf1676a4bb7292f90f1102f19daaca7021331ba6a191317c1c",
+        relative_path="icons/outline/info-circle.svg",
+    ),
+    VendorAsset(
+        url="https://unpkg.com/@tabler/icons@3.46.0/icons/outline/check.svg",
+        sha256="012d69548a769f4287e0af4c535b2cdf6e40457651de8078c4e588f0488952d6",
+        relative_path="icons/outline/check.svg",
+    ),
+    VendorAsset(
+        url="https://unpkg.com/@tabler/icons@3.46.0/icons/outline/chevron-down.svg",
+        sha256="a3a801faaeeb084e8a96897a5e2f355870b861e9606a1b50a89011b2718cc322",
+        relative_path="icons/outline/chevron-down.svg",
+    ),
+    VendorAsset(
+        url="https://unpkg.com/@tabler/icons@3.46.0/icons/outline/x.svg",
+        sha256="445e1b53563ad7e089f94dee923c2ef3444c63d45294a733687471a76a3c3b8d",
+        relative_path="icons/outline/x.svg",
+    ),
 )
 
 
