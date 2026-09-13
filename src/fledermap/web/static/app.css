@@ -732,12 +732,30 @@ button:disabled { cursor: default; opacity: 0.5; }
   color: var(--color-bg);
   border-color: var(--color-accent);
 }
+/* The generic `button:hover:not(:disabled)` rule above ((0,2,1), pale
+   --color-bg-subtle background) otherwise beats this one ((0,2,0)) on hover,
+   washing an ACTIVE tool button's blue background out to gray while its text
+   stays white -- inconsistent-looking only on the pressed button, since an
+   unpressed one has no special background for the generic rule to fight with
+   (Janna, live, 2026-09-13: "some of the buttons have a weird hover color").
+   Restating the active look at :hover ((0,3,0)) keeps it stable. */
+.tool-button[aria-pressed="true"]:hover {
+  background: var(--color-accent);
+  color: var(--color-bg);
+  border-color: var(--color-accent);
+}
 /* Same active-state look as `.tool-button[aria-pressed="true"]` -- not the
    same class, since Lock is an independent toggle (design decision
    2026-09-04), not a member of the Default/Ruler exclusive-tool group, and
    sharing the selector would make it visually indistinguishable from a
    selected tool. */
 #view-lock-toggle[aria-pressed="true"] {
+  background: var(--color-accent);
+  color: var(--color-bg);
+  border-color: var(--color-accent);
+}
+/* Same generic-hover-rule-beats-us fix as `.tool-button[aria-pressed="true"]:hover` above. */
+#view-lock-toggle[aria-pressed="true"]:hover {
   background: var(--color-accent);
   color: var(--color-bg);
   border-color: var(--color-accent);

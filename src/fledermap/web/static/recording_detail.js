@@ -172,6 +172,17 @@ document.addEventListener("DOMContentLoaded", () => {
   const tooSmallMessage = document.getElementById("detail-too-small-message");
 
   function fitDetailHeight() {
+    // Same idea as clearing zoom below, for the OTHER piece of state this function can leave
+    // behind: if a previous run hid `scrollEl` (too-small case), it and everything inside it
+    // -- including the two wraps measured just below -- report a zero `getBoundingClientRect()`
+    // height while hidden. Left hidden across this call, that zero height would make every
+    // constraint below look satisfied (nothing to shrink) while `tooSmall` stays true forever,
+    // since `spectrogramHeight * currentScale` is `0 * anything`, itself always `< MIN_SUPPORTED_
+    // SPECTROGRAM_HEIGHT_PX` -- shrinking the window and growing it back stays stuck showing the
+    // "too small" message (found live 2026-09-13). Un-hide before measuring so the true natural
+    // size is always what gets measured; the too-small check at the end re-decides fresh either
+    // way.
+    scrollEl.hidden = false;
     // Measure natural (unzoomed) heights first -- clearing any previous zoom before measuring,
     // since already-shrunk wraps would otherwise make `mainContent` look like it has no
     // overflow even though the true unscaled content still would.
