@@ -59,7 +59,12 @@
       </label>
       <label>
         <input type="checkbox" name="needs_review_only" value="1" x-model="needs_review_only">
-        🚩 Needs review
+        {# ⚑ (U+2691, solid flag) -- matches the flagged state's own glyph everywhere else
+           (_detail_flag_button.html, the recording-panel/site-panel flag toggles), not the old
+           🚩 color emoji this checkbox was still using (Janna, 2026-09-13: "still uses the
+           wrong flag emoji - should align with the filled flag emoji that we use when
+           flagged"). Same convention "★ Favourites only" above already follows. #}
+        ⚑ Needs review
       </label>
       <input type="hidden" name="site" x-model="site">
     </form>
