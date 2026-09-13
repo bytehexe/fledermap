@@ -1,14 +1,6 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  {% include "_theme_init.html" %}
-  {% include "_favicon.html" %}
-  <title>Fledermap — {{ label }} statistics</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
-</head>
-<body>
-  {% include "_nav.html" %}
+{% extends "_layout.html" %}
+{% block title %}Fledermap — {{ label }} statistics{% endblock %}
+{% block content %}
   <main class="main-content">
     <p><a href="/sites/{{ site.id }}">← {{ label }}</a></p>
     <h1>{{ label }} — Statistics</h1>
@@ -53,10 +45,10 @@
     <script id="month-line-data" type="application/json">{{ month | tojson }}</script>
     <script id="hour-line-data" type="application/json">{{ hour | tojson }}</script>
   </main>
-
+{% endblock %}
+{% block scripts %}
   <script src="{{ url_for('vendor.static', filename='chart.js') }}"></script>
   <script src="{{ url_for('static', filename='marker_colors.js') }}"></script>
   <script src="{{ url_for('static', filename='statistics_charts.js') }}"></script>
   <script src="{{ url_for('static', filename='statistics.js') }}"></script>
-</body>
-</html>
+{% endblock %}

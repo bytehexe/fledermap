@@ -1,15 +1,7 @@
 {# src/fledermap/web/templates/recording_details.html #}
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  {% include "_theme_init.html" %}
-  {% include "_favicon.html" %}
-  <title>Fledermap — Recording {{ recording.audio_hash[:8] }}</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
-</head>
-<body>
-  {% include "_nav.html" %}
+{% extends "_layout.html" %}
+{% block title %}Fledermap — Recording {{ recording.audio_hash[:8] }}{% endblock %}
+{% block content %}
   <main class="main-content" id="recording-detail">
     {% set title = recording_headline(taxon, best) %}
     {% set actions = [{"label": "Show on map", "href": "/?recording=" ~ recording.audio_hash}] %}
@@ -162,11 +154,12 @@
      kept OUTSIDE the zoomed spectrogram wrap so the Δt/Δf readout text stays full-size even
      when `fitDetailHeight` has shrunk the image itself to fit the viewport. #}
   <div id="ruler-readout" class="floating-readout ruler-readout" hidden></div>
+{% endblock %}
+{% block scripts %}
   <script src="{{ url_for('vendor.static', filename='htmx.min.js') }}"></script>
   <script src="{{ url_for('vendor.static', filename='alpine.min.js') }}" defer></script>
   <script src="{{ url_for('static', filename='audio_controls.js') }}"></script>
   <script src="{{ url_for('static', filename='recording_detail.js') }}"></script>
   <script src="{{ url_for('static', filename='classifier_logic.js') }}"></script>
   <script src="{{ url_for('static', filename='classifier_box.js') }}"></script>
-</body>
-</html>
+{% endblock %}

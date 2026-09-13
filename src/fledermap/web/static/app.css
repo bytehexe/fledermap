@@ -357,13 +357,16 @@ button:disabled { cursor: default; opacity: 0.5; }
 .entity-header h1 { margin: 1rem 0 0.25rem; }
 .panel-header button, .entity-header button { flex-shrink: 0; white-space: nowrap; }
 .panel-header a, .entity-header a { flex-shrink: 0; white-space: nowrap; }
-.entity-header-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; flex-shrink: 0; align-items: center; }
-/* Drawer-scale equivalent of `.entity-header-actions` -- groups "Full page"
-   plus the flag/favourite toggles into one flex item so `.panel-header`'s
-   `justify-content: space-between` spaces title-vs-actions, not every
-   action individually across the row (Janna 2026-09-11: the individually
-   spread items read as unintentional centering). */
-.panel-header-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; flex-shrink: 0; align-items: center; }
+/* .panel-header-actions is the drawer-scale equivalent of
+   .entity-header-actions -- groups "Full page" plus the flag/favourite
+   toggles into one flex item so `.panel-header`'s `justify-content:
+   space-between` spaces title-vs-actions, not every action individually
+   across the row (Janna 2026-09-11: the individually spread items read as
+   unintentional centering). Same rule body as .entity-header-actions
+   deliberately -- one shared declaration, not two copies that could drift
+   (caught 2026-09-13 during an unrelated sweep: they'd already diverged
+   into two identical-but-separate rules). */
+.entity-header-actions, .panel-header-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; flex-shrink: 0; align-items: center; }
 .entity-header-subtitle { color: var(--color-muted); margin: 0 0 0.75rem; }
 .favourite-toggle {
   font-size: 1.1rem;

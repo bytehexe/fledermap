@@ -1,0 +1,42 @@
+{# src/fledermap/web/templates/_layout.html -- the shared page skeleton
+   every full page (as opposed to a drawer-panel fragment) extends,
+   introduced 2026-09-13 to make "every page has the nav/theme-init/
+   favicon/app.css" a structural guarantee rather than something 12
+   independently-copied <head>s merely happened to still agree on (found
+   via a sweep prompted by "some pages don't show the theme toggle" --
+   that specific claim didn't reproduce against any page today, but the
+   underlying risk -- a future page template silently missing one of
+   these, with nothing to catch it -- was real and worth closing).
+
+   Blocks a page template fills in:
+     - title (optional, default "Fledermap")
+     - extra_head (optional): additional <link>/<meta> tags, inserted
+       BEFORE app.css's own <link> so app.css can still override a vendor
+       stylesheet's conflicting rule -- the convention most pages already
+       followed; site_detail.html had it backwards (app.css before
+       leaflet.css), fixed by this refactor
+     - body_attrs (optional): raw attributes on <body>, e.g. map.html's
+       `x-data="filterForm()"`
+     - content (required): everything that goes after the nav
+     - scripts (optional): trailing <script> tags before </body>
+
+   Also adds a <meta name="viewport"> tag, present on NO page before this
+   refactor (same sweep) -- needed for a real mobile browser to render at
+   device width instead of shrinking a desktop-width layout down. #}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  {% include "_theme_init.html" %}
+  {% include "_favicon.html" %}
+  <title>{% block title %}Fledermap{% endblock %}</title>
+  {% block extra_head %}{% endblock %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+</head>
+<body{% block body_attrs %}{% endblock %}>
+  {% include "_nav.html" %}
+  {% block content %}{% endblock %}
+  {% block scripts %}{% endblock %}
+</body>
+</html>

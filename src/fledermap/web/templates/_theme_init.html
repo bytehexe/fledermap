@@ -1,7 +1,9 @@
 {# src/fledermap/web/templates/_theme_init.html -- included immediately
-   after <meta charset>, before everything else in every page's <head>
-   (map.html, sessions_list.html, session_detail.html), including app.css's
-   <link>. Applies a stored manual dark/light override BEFORE
+   after <meta charset>, before everything else in every page's <head>,
+   including app.css's <link>. Included once, by _layout.html (2026-09-13 --
+   previously duplicated in every page template's own <head>, one page at a
+   time; now every page gets it structurally by extending _layout.html).
+   Applies a stored manual dark/light override BEFORE
    first paint -- deliberately inline (not a separate .js file, which would
    fetch over the network and run too late to avoid a flash of the wrong
    theme) and deliberately not deferred. No stored value, or an invalid one

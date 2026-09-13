@@ -1,15 +1,9 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  {% include "_theme_init.html" %}
-  {% include "_favicon.html" %}
-  <title>Fledermap — {{ label }}</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+{% extends "_layout.html" %}
+{% block title %}Fledermap — {{ label }}{% endblock %}
+{% block extra_head %}
   <link rel="stylesheet" href="{{ url_for('vendor.static', filename='leaflet.css') }}">
-</head>
-<body>
-  {% include "_nav.html" %}
+{% endblock %}
+{% block content %}
   <main class="main-content">
     {% set title = label %}
     {% set actions = [
@@ -69,8 +63,8 @@
       </tbody>
     </table>
   </main>
-
+{% endblock %}
+{% block scripts %}
   <script src="{{ url_for('vendor.static', filename='leaflet.js') }}"></script>
   <script src="{{ url_for('static', filename='site_map.js') }}"></script>
-</body>
-</html>
+{% endblock %}

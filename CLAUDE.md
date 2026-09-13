@@ -64,7 +64,16 @@ Roughly a pipeline, each stage its own top-level package under `src/fledermap/`:
 - **`web/`** — the Flask app: `views/` (map, sessions, drawer-panel HTML routes), `api/`
   (GeoJSON endpoints), `templates/` + `static/` (server-rendered Jinja + htmx + Alpine.js +
   Leaflet, no frontend build step — vendor JS/CSS is fetched into `FLEDERMAP_STATIC_ROOT`, see
-  below).
+  below). Every full page (as opposed to a drawer-panel fragment) `{% extends "_layout.html" %}`
+  (2026-09-13) — the shared `<head>`/nav/`<body>` skeleton, so "every page has the nav, dark-mode
+  init, favicon, and app.css" is structural, not something each page's own copy of that skeleton
+  merely had to remember to keep in sync. Before this, all 12 page templates independently
+  duplicated the entire skeleton; a sweep prompted by "some pages don't show the theme toggle"
+  found no actual drift at the time, but the underlying risk (a future page silently missing one
+  of these, nothing to catch it) was real, and the same sweep found no `<meta name="viewport">`
+  on any page at all — `_layout.html` adds it. A page overrides `title`/`extra_head`/`body_attrs`
+  (raw `<body>` attributes, e.g. `map.html`'s `x-data`)/`content`/`scripts` as needed; see
+  `_layout.html`'s own docstring for each block's contract.
 - **`cli/main.py`** — the `fledermap` entry point tying the above together into the commands
   listed above.
 
