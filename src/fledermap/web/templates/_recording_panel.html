@@ -4,23 +4,33 @@
 {% else %}
 <div class="panel-header">
   <h2>{{ recording_headline(taxon, best) }}</h2>
-  <a class="details-link" href="/recordings/{{ recording.audio_hash }}?return_to=/?{{ filter_qs }}">Full page</a>
-  <button
-    type="button"
-    class="favourite-toggle"
-    hx-post="/recordings/{{ recording.audio_hash }}/favourite?{{ filter_qs }}"
-    hx-target="#drawer-body"
-    aria-label="{{ 'Remove from favourites' if recording.favourite else 'Add to favourites' }}"
-    aria-pressed="{{ 'true' if recording.favourite else 'false' }}"
-  >{{ "★" if recording.favourite else "☆" }}</button>
-  <button
-    type="button"
-    class="flag-toggle"
-    hx-post="/recordings/{{ recording.audio_hash }}/flag-for-review?{{ filter_qs }}"
-    hx-target="#drawer-body"
-    aria-label="{{ 'Unflag for review' if recording.flagged_for_review else 'Flag for review' }}"
-    aria-pressed="{{ 'true' if recording.flagged_for_review else 'false' }}"
-  >{{ "🚩" if recording.flagged_for_review else "⚑" }}</button>
+  {# One right-aligned group, not four separate flex items -- `.panel-header`'s
+     `justify-content: space-between` across the title, this link, and both
+     toggle buttons individually spread them across the whole row instead of
+     clustering the actions together. Flag left of favourite, favourite
+     always right-most: the project-wide placement decided in
+     docs/style-guide.md's ".entity-header"/".panel-header" section (Janna,
+     2026-09-11) -- recording_details.html's full-page header follows the
+     same order. #}
+  <div class="panel-header-actions">
+    <a class="details-link" href="/recordings/{{ recording.audio_hash }}?return_to=/?{{ filter_qs }}">Full page</a>
+    <button
+      type="button"
+      class="flag-toggle"
+      hx-post="/recordings/{{ recording.audio_hash }}/flag-for-review?{{ filter_qs }}"
+      hx-target="#drawer-body"
+      aria-label="{{ 'Unflag for review' if recording.flagged_for_review else 'Flag for review' }}"
+      aria-pressed="{{ 'true' if recording.flagged_for_review else 'false' }}"
+    >{{ "⚑" if recording.flagged_for_review else "⚐" }}</button>
+    <button
+      type="button"
+      class="favourite-toggle"
+      hx-post="/recordings/{{ recording.audio_hash }}/favourite?{{ filter_qs }}"
+      hx-target="#drawer-body"
+      aria-label="{{ 'Remove from favourites' if recording.favourite else 'Add to favourites' }}"
+      aria-pressed="{{ 'true' if recording.favourite else 'false' }}"
+    >{{ "★" if recording.favourite else "☆" }}</button>
+  </div>
 </div>
 
 {% if recording.flagged_for_review or reasons %}
@@ -125,12 +135,20 @@
     {% else %}
     <p>No location data</p>
     {% endif %}
-    {% if previous %}
-    <button type="button" hx-get="/recordings/{{ previous.audio_hash }}/panel?{{ filter_qs }}" hx-target="#drawer-body">← Previous</button>
-    {% endif %}
-    {% if next %}
-    <button type="button" hx-get="/recordings/{{ next.audio_hash }}/panel?{{ filter_qs }}" hx-target="#drawer-body">Next →</button>
-    {% endif %}
+    {# Both always render -- disabled via the native `disabled` attribute (a real
+       `<button>`, unlike the review banner's `<a>` links) rather than omitted, so
+       "Next" doesn't jump position depending on whether "Previous" exists next to
+       it (style guide's disable-don't-hide rule; Obsidian backlog, 2026-09-10:
+       previously this box showed only "← Previous" with no "Next" at all when at
+       the end of the filtered set). #}
+    <button
+      type="button"
+      {% if previous %}hx-get="/recordings/{{ previous.audio_hash }}/panel?{{ filter_qs }}" hx-target="#drawer-body"{% else %}disabled{% endif %}
+    >← Previous</button>
+    <button
+      type="button"
+      {% if next %}hx-get="/recordings/{{ next.audio_hash }}/panel?{{ filter_qs }}" hx-target="#drawer-body"{% else %}disabled{% endif %}
+    >Next →</button>
   </div>
 </div>
 {% endif %}

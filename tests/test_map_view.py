@@ -582,6 +582,42 @@ def test_recording_panel_shows_prev_next_within_filters(
     assert f"/recordings/{'c' * 64}/panel" in html
 
 
+def test_recording_panel_shows_a_disabled_next_button_at_the_end_of_the_filtered_set(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """Both Previous/Next always render, disabled (not omitted) when absent --
+    otherwise "Next" would be missing entirely at the end of the set rather
+    than visibly present-but-unavailable (Obsidian backlog, 2026-09-10)."""
+    with OrmSession(engine) as session:
+        early = Recording(
+            audio_hash="a" * 64,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, 20, 0, tzinfo=UTC),
+        )
+        late = Recording(
+            audio_hash="c" * 64,
+            path="c.wav",
+            recorded_at=datetime(2026, 8, 25, 22, 0, tzinfo=UTC),
+        )
+        session.add_all([early, late])
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    html = (
+        app.test_client()
+        .get(f"/recordings/{'c' * 64}/panel?verdict=all")
+        .get_data(as_text=True)
+    )
+
+    assert "← Previous" in html
+    assert "Next →" in html
+    assert f"/recordings/{'a' * 64}/panel" in html  # Previous still links back
+    # Next has no recording to link to, so it's rendered disabled rather than
+    # omitted -- exactly one disabled button on this page.
+    assert html.count("disabled") == 1
+
+
 def test_recording_panel_shows_the_favourite_toggle_unstarred_by_default(
     engine: Engine,
     tmp_path: Path,
@@ -603,7 +639,7 @@ def test_recording_panel_shows_the_favourite_toggle_unstarred_by_default(
         .get_data(as_text=True)
     )
 
-    assert '<button\n    type="button"\n    class="favourite-toggle"' in html
+    assert 'type="button"\n      class="favourite-toggle"' in html
     assert 'aria-pressed="false"' in html
     assert "☆" in html
     assert "★" not in html

@@ -973,7 +973,13 @@ def test_details_page_shows_review_snapshot_prevnext_and_banner(
     assert "Reviewing flagged recordings" in html
     assert "1 of 2" in html
     assert f"/recordings/{'b3' * 32}?review={first_id},{second_id}" in html
-    assert "Previous" not in html  # at the start of the snapshot
+    # "Previous" still renders at the start of the snapshot -- disabled, not
+    # absent, so "Next" never jumps position depending on whether a
+    # "Previous" link exists next to it (style guide's disable-don't-hide
+    # rule).
+    assert "← Previous" in html
+    assert html.count('class="is-disabled"') == 1
+    assert 'href="#"' in html
 
 
 def test_details_page_review_snapshot_ignores_the_current_review_status(
@@ -1009,7 +1015,11 @@ def test_details_page_review_snapshot_ignores_the_current_review_status(
     assert "2 of 2" in html
     assert f"/recordings/{'b4' * 32}?review={first_id},{second_id}" in html
     assert "← Previous" in html  # a real prior item still exists
-    assert "Next →" not in html  # at the end
+    # "Next" still renders at the end -- disabled, not absent (see the
+    # "1 of 2" test above for why).
+    assert "Next →" in html
+    assert html.count('class="is-disabled"') == 1
+    assert 'href="#"' in html
     # Landing on the last item of a real multi-item snapshot must still show
     # the "no more flagged recordings" note -- previously this only rendered
     # when BOTH previous and next were absent (i.e. only for a one-item
@@ -1039,6 +1049,64 @@ def test_details_page_no_more_flagged_recordings_note_at_the_end(
     html = response.get_data(as_text=True)
     assert "No more flagged recordings" in html
     assert 'href="/reviews"' in html
+
+
+def test_details_page_hides_back_to_map_during_a_review_session(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """ "Exit review" (in the review banner) is the correct way out of a
+    review session -- a second, differently-worded "Back to map" link right
+    above it is confusing, not merely redundant (Janna, 2026-09-11)."""
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="b8" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+        recording_id = session.scalars(select(Recording)).one().id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+
+    outside_review = app.test_client().get(f"/recordings/{'b8' * 32}")
+    assert "← Back to map" in outside_review.get_data(as_text=True)
+
+    during_review = app.test_client().get(
+        f"/recordings/{'b8' * 32}?review={recording_id}",
+    )
+    html = during_review.get_data(as_text=True)
+    assert "← Back to map" not in html
+    assert "Exit review" in html
+
+
+def test_details_page_header_actions_order_is_flag_then_favourite_rightmost(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """Project-wide placement decided in docs/style-guide.md's
+    ".entity-header"/".panel-header" section (Janna, 2026-09-11): both
+    toggles sit to the right of the page's own action links (Show on map,
+    Session), flag before favourite, favourite always right-most."""
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="b9" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    html = app.test_client().get(f"/recordings/{'b9' * 32}").get_data(as_text=True)
+
+    show_on_map = html.index("Show on map")
+    flag_button = html.index('class="flag-toggle"')
+    favourite_button = html.index('class="favourite-toggle"')
+    assert show_on_map < flag_button < favourite_button
 
 
 def test_details_page_review_param_not_containing_current_recording_is_ignored(

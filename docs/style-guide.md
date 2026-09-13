@@ -8,6 +8,17 @@ no new spacing/type scale, no CSS framework, no build step. See
 `docs/superpowers/specs/2026-08-27-fledermap-style-guide-design.md` for the reasoning behind
 that scope.
 
+**This guide must be updated in the same change that makes the decision it documents** (Janna,
+2026-09-11) — a new shared class, a promoted rule, a placement call for a recurring element, a
+scope note like the "Sample data" or "Migrations" sections elsewhere in this repo's other docs.
+The "Standing rule: sweep on new rule" and "decide element placement once, project-wide" sections
+below already assume this (they describe *writing the rule down*, not just following it once);
+this note makes it explicit as its own standing rule so a decision doesn't ship only as a code
+comment or a commit message and quietly go undocumented here. If a decision is close enough to an
+existing section to extend rather than duplicate, extend that section (as the placement decision
+under `.entity-header`/`.panel-header` below does) rather than adding a new one that could drift
+from it.
+
 ## Color tokens
 
 Defined in `app.css`'s `:root`:
@@ -194,6 +205,23 @@ favourite button floated next to `<h1>` with the rest of the actions buried in a
 </div>
 <p class="entity-header-subtitle">{{ subtitle line: counts, admin path, common names, ... }}</p>
 ```
+
+**Placement decision (Janna, 2026-09-11): a recording's flag-for-review and favourite toggles
+sit inside the same right-aligned actions row as the page's own action links, in that row's own
+order — never before the title.** Concretely: `...`/`Full page` (drawer only), then the flag
+toggle, then the favourite toggle last, so favourite is always the row's right-most element.
+`recording_details.html` passes both buttons as `header_extra` (rendered after `actions` in
+`.entity-header-actions`); `_recording_panel.html`'s drawer-scale `.panel-header` groups its
+"Full page" link and both toggles into a single `.panel-header-actions` child instead of leaving
+them as separate flex items of `.panel-header` itself — `.panel-header`'s own
+`justify-content: space-between` only ever has two children (the `<h2>` and this one actions
+group) to space apart; with the toggles as separate top-level children it spaced all four
+individually across the row, which read as an unintentional centering effect rather than one
+clustered group of actions. Previously the two toggles lived to the *left* of the title
+(`recording_details.html`) or scattered as loose siblings after "Full page"
+(`_recording_panel.html`) — this is the standing "decide element placement once, project-wide"
+rule (below) resolving that drift; if either toggle appears on a future entity page, keep this
+same order and grouping rather than re-deciding per page.
 
 **Interlinking, two general principles** (Janna 2026-09-09) — the rest of this subsection is a
 specific instance of these:

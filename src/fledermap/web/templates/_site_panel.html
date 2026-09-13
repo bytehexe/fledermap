@@ -5,8 +5,15 @@
 {% else %}
 <div class="panel-header">
   <h2>{{ label }}</h2>
-  <button type="button" onclick="fledermapFilterBySite({{ detail.site.id }})">Show only this site</button>
-  <a href="/sites/{{ detail.site.id }}">Full page</a>
+  {# Same `.panel-header-actions` grouping as `_recording_panel.html` -- without it,
+     `.panel-header`'s `justify-content: space-between` across 3+ top-level children
+     centers "Show only this site" between the title and "Full page" instead of
+     grouping both actions together on the right (Obsidian backlog, 2026-09-10;
+     fixed alongside the same bug on the recording drawer, Janna 2026-09-11). #}
+  <div class="panel-header-actions">
+    <button type="button" onclick="fledermapFilterBySite({{ detail.site.id }})">Show only this site</button>
+    <a href="/sites/{{ detail.site.id }}">Full page</a>
+  </div>
 </div>
 
 <div class="panel-columns">

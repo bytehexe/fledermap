@@ -3,24 +3,30 @@
    ".entity-header" section. Included `with context` by each page, which sets:
      - back_url, back_label: the page's resolved back link (web/params.py's
        is_safe_relative_path-driven return_to handling)
+     - show_back_link (optional, default true): set false to omit the back link
+       entirely -- recording_details.html does this during a review session, where
+       "Exit review" (the review banner's own link) is the correct way back and a
+       second, differently-worded exit would confuse which one to use
      - title: plain text, the page's own h1
-     - title_prefix (optional): pre-rendered safe HTML placed before the title on the
-       same line (recording_details.html's favourite-toggle button)
      - subtitle (optional): pre-rendered safe HTML, one line under the header row
        (recording metadata, common names, site stats -- whatever the page's own
        equivalent used to render as loose <p> tags before this existed)
-     - actions: a list of {label, href} dicts, right-aligned on the header row #}
+     - actions: a list of {label, href} dicts, right-aligned on the header row
+     - header_extra (optional): pre-rendered safe HTML appended after `actions`
+       in that same right-aligned row -- recording_details.html's flag/favourite
+       toggle buttons. Always last in the row, so the favourite button (last of
+       the two) stays the row's right-most element project-wide. #}
+{% if show_back_link | default(true) %}
 <p><a href="{{ back_url }}">← {{ back_label }}</a></p>
+{% endif %}
 <div class="entity-header">
-  <h1>
-    {%- if title_prefix %}{{ title_prefix }} {% endif -%}
-    {{ title }}
-  </h1>
-  {% if actions %}
+  <h1>{{ title }}</h1>
+  {% if actions or header_extra %}
   <div class="entity-header-actions">
     {% for action in actions %}
     <a href="{{ action.href }}">{{ action.label }}</a>
     {% endfor %}
+    {% if header_extra %}{{ header_extra }}{% endif %}
   </div>
   {% endif %}
 </div>

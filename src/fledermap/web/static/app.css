@@ -252,6 +252,11 @@ button:disabled { cursor: default; opacity: 0.5; }
 .button-link {
   display: inline-block;
   text-decoration: none;
+  /* Without this, a direct child of `.main-content`'s flex column (see
+     above) is stretched full-width by that flex container's default
+     `align-items: stretch` -- the Reviews page's "Start reviewing" button
+     shipped exactly that way, reading as a banner rather than a button. */
+  align-self: flex-start;
 }
 
 /* Style guide: promoted on second use -- .classifier-chip below shares the pill
@@ -352,7 +357,13 @@ button:disabled { cursor: default; opacity: 0.5; }
 .entity-header h1 { margin: 1rem 0 0.25rem; }
 .panel-header button, .entity-header button { flex-shrink: 0; white-space: nowrap; }
 .panel-header a, .entity-header a { flex-shrink: 0; white-space: nowrap; }
-.entity-header-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; flex-shrink: 0; }
+.entity-header-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; flex-shrink: 0; align-items: center; }
+/* Drawer-scale equivalent of `.entity-header-actions` -- groups "Full page"
+   plus the flag/favourite toggles into one flex item so `.panel-header`'s
+   `justify-content: space-between` spaces title-vs-actions, not every
+   action individually across the row (Janna 2026-09-11: the individually
+   spread items read as unintentional centering). */
+.panel-header-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; flex-shrink: 0; align-items: center; }
 .entity-header-subtitle { color: var(--color-muted); margin: 0 0 0.75rem; }
 .favourite-toggle {
   font-size: 1.1rem;
@@ -390,14 +401,19 @@ button:disabled { cursor: default; opacity: 0.5; }
   border-radius: 6px;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.75rem;
 }
-.detail-prevnext {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  margin: 0.5rem 0 0.75rem;
-}
+/* Previous/Next live inside `.review-banner` (moved there from a standalone
+   nav, Janna 2026-09-11 -- putting them in the same box as "Reviewing
+   flagged recordings" makes clear what they cycle through). Both links
+   always render, greyed via `.is-disabled` rather than omitted when there's
+   no previous/next -- otherwise "Next" jumps from a lone left-aligned link
+   on the first recording to the right side of a two-link row on every
+   later one (the disable-don't-hide rule, style guide's "Interaction &
+   data-safety rules"). */
+.detail-prevnext { display: flex; gap: 0.75rem; }
+.review-banner-note { color: var(--color-muted); font-size: 0.85rem; margin: 0 0 0.75rem; }
 
 /* Waveform + spectrogram, sharing a time axis and a left-hand column
    reserved for the spectrogram's frequency-axis labels (design decision:

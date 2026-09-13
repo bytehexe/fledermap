@@ -26,32 +26,26 @@ from fledermap.store.models import Identification, Recording, Site, Taxon
 def test_rarity_reason_none_when_common() -> None:
     dataset_counts = {1: 50}
     site_counts = {(10, 1): 20}
-    assert (
-        _rarity_reason(dataset_counts, site_counts, 10, 1, "Pipistrellus pipistrellus")
-        is None
-    )
+    assert _rarity_reason(dataset_counts, site_counts, 10, 1) is None
 
 
 def test_rarity_reason_fires_at_site_threshold() -> None:
     dataset_counts = {1: 50}
     site_counts = {(10, 1): 2}
-    reason = _rarity_reason(
-        dataset_counts, site_counts, 10, 1, "Pipistrellus pipistrellus"
-    )
+    reason = _rarity_reason(dataset_counts, site_counts, 10, 1)
     assert reason is not None
-    assert "2" in reason and "site" in reason and "Pipistrellus pipistrellus" in reason
+    # Deliberately doesn't name the species -- every caller already shows
+    # it right next to this reason (recording-detail title, Reviews table's
+    # Species column).
+    assert "2" in reason and "site" in reason
 
 
 def test_rarity_reason_fires_at_dataset_threshold() -> None:
     dataset_counts = {1: 5}
     site_counts = {(10, 1): 30}
-    reason = _rarity_reason(
-        dataset_counts, site_counts, 10, 1, "Pipistrellus pipistrellus"
-    )
+    reason = _rarity_reason(dataset_counts, site_counts, 10, 1)
     assert reason is not None
-    assert (
-        "5" in reason and "dataset" in reason and "Pipistrellus pipistrellus" in reason
-    )
+    assert "5" in reason and "dataset" in reason
 
 
 def test_rarity_reason_handles_no_site() -> None:
@@ -59,40 +53,30 @@ def test_rarity_reason_handles_no_site() -> None:
     # back to the dataset-wide check.
     dataset_counts = {1: 3}
     site_counts: dict[tuple[int, int], int] = {}
-    reason = _rarity_reason(
-        dataset_counts, site_counts, None, 1, "Pipistrellus pipistrellus"
-    )
+    reason = _rarity_reason(dataset_counts, site_counts, None, 1)
     assert reason is not None
 
 
 def test_misattribution_reason_none_below_minimum_count() -> None:
     rates = {(IdSource.EMT_GUANO, 1): (2, 2)}  # 2/2 wrong, but under the min. of 3
-    assert (
-        _misattribution_reason(rates, IdSource.EMT_GUANO, 1, "Myotis daubentonii")
-        is None
-    )
+    assert _misattribution_reason(rates, IdSource.EMT_GUANO, 1) is None
 
 
 def test_misattribution_reason_none_below_majority() -> None:
     rates = {(IdSource.EMT_GUANO, 1): (3, 7)}  # 3/7 wrong -- not a majority
-    assert (
-        _misattribution_reason(rates, IdSource.EMT_GUANO, 1, "Myotis daubentonii")
-        is None
-    )
+    assert _misattribution_reason(rates, IdSource.EMT_GUANO, 1) is None
 
 
 def test_misattribution_reason_fires_at_majority_and_minimum() -> None:
     rates = {(IdSource.EMT_GUANO, 1): (3, 5)}  # 3/5 wrong, >=3 disagreements
-    reason = _misattribution_reason(rates, IdSource.EMT_GUANO, 1, "Myotis daubentonii")
+    reason = _misattribution_reason(rates, IdSource.EMT_GUANO, 1)
     assert reason is not None
-    assert "Myotis daubentonii" in reason
+    # Deliberately doesn't name the species -- see the rarity-reason test above.
     assert IdSource.EMT_GUANO.value in reason
 
 
 def test_misattribution_reason_absent_pair_is_none() -> None:
-    assert (
-        _misattribution_reason({}, IdSource.EMT_GUANO, 1, "Myotis daubentonii") is None
-    )
+    assert _misattribution_reason({}, IdSource.EMT_GUANO, 1) is None
 
 
 # DB-marked tests follow
@@ -403,7 +387,7 @@ def test_review_reasons_includes_rarity_match(engine: Engine) -> None:
         reasons = review_reasons(r, context)
 
     assert len(reasons) == 1
-    assert "Pipistrellus pipistrellus" in reasons[0]
+    assert "Rare species" in reasons[0]
 
 
 class _FakeRecording:

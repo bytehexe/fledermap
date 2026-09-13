@@ -12,16 +12,41 @@
   {% include "_nav.html" %}
   <main class="main-content" id="recording-detail">
     {% set title = recording_headline(taxon, best) %}
-    {% set title_prefix %}{% include "_detail_favourite_button.html" %}{% include "_detail_flag_button.html" %}{% endset %}
     {% set actions = [{"label": "Show on map", "href": "/?recording=" ~ recording.audio_hash}] %}
     {% if recording_session %}
     {% set actions = actions + [{"label": "Session", "href": "/sessions/" ~ recording_session.id}] %}
     {% endif %}
+    {# Flag left of favourite, favourite always right-most -- the project-wide
+       placement decided in docs/style-guide.md's ".entity-header"/".panel-header"
+       section (Janna, 2026-09-11); `_recording_panel.html`'s drawer header
+       follows the same order. #}
+    {% set header_extra %}{% include "_detail_flag_button.html" %}{% include "_detail_favourite_button.html" %}{% endset %}
     {% set subtitle %}
       {{ recording.recorded_at.isoformat() }} — {{ recording.make }} {{ recording.model }}
       {%- if site %} — Site: <a href="/sites/{{ site.id }}?return_to=/recordings/{{ recording.audio_hash }}">{{ site_label }}</a>{% elif recording.geom is not none %} — No site (outlier){% else %} — No location data{% endif -%}
     {% endset %}
+    {% set show_back_link = not is_review_session %}
     {% include "_entity_header.html" %}
+    {% if is_review_session %}
+    <div class="review-banner">
+      <strong>Reviewing flagged recordings</strong>
+      <span>{{ review_position[0] }} of {{ review_position[1] }}</span>
+      <nav class="detail-prevnext">
+        <a
+          href="{{ '/recordings/' ~ previous.audio_hash ~ '?review=' ~ review_qs if previous else '#' }}"
+          {% if not previous %}class="is-disabled" aria-disabled="true"{% endif %}
+        >← Previous</a>
+        <a
+          href="{{ '/recordings/' ~ next.audio_hash ~ '?review=' ~ review_qs if next else '#' }}"
+          {% if not next %}class="is-disabled" aria-disabled="true"{% endif %}
+        >Next →</a>
+      </nav>
+      <a href="/reviews">Exit review</a>
+    </div>
+    {% if not next %}
+    <p class="review-banner-note">No more flagged recordings after this one.</p>
+    {% endif %}
+    {% endif %}
     {% if recording.flagged_for_review or reasons %}
     <div class="review-reasons">
       <strong>Flagged for review</strong>
@@ -33,26 +58,6 @@
       </ul>
       {% endif %}
     </div>
-    {% endif %}
-    {% if is_review_session %}
-    <div class="review-banner">
-      <strong>Reviewing flagged recordings</strong>
-      <span>{{ review_position[0] }} of {{ review_position[1] }}</span>
-      <a href="/reviews">Exit review</a>
-    </div>
-    {% if previous or next %}
-    <nav class="detail-prevnext">
-      {% if previous %}
-      <a href="/recordings/{{ previous.audio_hash }}?review={{ review_qs }}">← Previous</a>
-      {% endif %}
-      {% if next %}
-      <a href="/recordings/{{ next.audio_hash }}?review={{ review_qs }}">Next →</a>
-      {% endif %}
-    </nav>
-    {% endif %}
-    {% if not next %}
-    <p class="review-banner">No more flagged recordings. <a href="/reviews">Back to Reviews</a></p>
-    {% endif %}
     {% endif %}
     {% if params %}
     <h2>Audio</h2>

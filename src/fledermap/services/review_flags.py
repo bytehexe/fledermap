@@ -60,21 +60,25 @@ def _rarity_reason(
     site_counts: dict[tuple[int, int], int],
     site_id: int | None,
     taxon_id: int,
-    taxon_label: str,
 ) -> str | None:
     """Either threshold is enough to flag -- a species can be locally rare at
     one site while common dataset-wide (or vice versa for a site with very
     little coverage), and both are independently interesting to a
-    reviewer."""
+    reviewer.
+
+    Deliberately says "Rare species", not the species' own name: every
+    caller already shows that name right next to this reason (the
+    recording-detail page's own title, the Reviews table's Species column),
+    so repeating it here read as redundant (Janna, 2026-09-11)."""
     if site_id is not None:
         site_count = site_counts.get((site_id, taxon_id), 0)
         if site_count <= SITE_RARITY_MAX:
             plural = "" if site_count == 1 else "s"
-            return f"{taxon_label}: rare ({site_count} recording{plural} at this site)"
+            return f"Rare species ({site_count} recording{plural} at this site)"
     dataset_count = dataset_counts.get(taxon_id, 0)
     if dataset_count <= DATASET_RARITY_MAX:
         plural = "" if dataset_count == 1 else "s"
-        return f"{taxon_label}: rare ({dataset_count} recording{plural} dataset-wide)"
+        return f"Rare species ({dataset_count} recording{plural} dataset-wide)"
     return None
 
 
@@ -138,11 +142,13 @@ def _misattribution_reason(
     rates: dict[tuple[IdSource, int], tuple[int, int]],
     source: IdSource,
     taxon_id: int,
-    taxon_label: str,
 ) -> str | None:
+    """Same "don't repeat the species name" call as `_rarity_reason` above --
+    the species is already shown right next to this reason wherever it's
+    rendered."""
     disagreements, total = rates.get((source, taxon_id), (0, 0))
     if disagreements >= MISATTRIBUTION_MIN_DISAGREEMENTS and disagreements * 2 > total:
-        return f"{source.value} is often wrong about {taxon_label}"
+        return f"{source.value} is often wrong about this species"
     return None
 
 
@@ -190,15 +196,11 @@ def review_reasons(recording: Recording, context: ReviewContext) -> list[str]:
     for claim in best.claims:
         if claim.taxon_id is None:
             continue
-        label = (
-            claim.taxon.scientific_name if claim.taxon else f"taxon #{claim.taxon_id}"
-        )
         rarity = _rarity_reason(
             context.dataset_counts,
             context.site_counts,
             recording.site_id,
             claim.taxon_id,
-            label,
         )
         if rarity is not None:
             reasons.append(rarity)
@@ -206,7 +208,6 @@ def review_reasons(recording: Recording, context: ReviewContext) -> list[str]:
             context.misattribution_rates,
             claim.source,
             claim.taxon_id,
-            label,
         )
         if misattribution is not None:
             reasons.append(misattribution)
