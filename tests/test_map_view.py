@@ -20,6 +20,32 @@ from fledermap.web.app import create_app
 pytestmark = pytest.mark.db
 
 
+def _write_icon_svg(vendor_dir: Path, style: str, name: str) -> None:
+    """Task 4 is the first to render `icon()` calls through a real page template (rather than
+    unit-testing `make_icon_global` directly, as `test_web_icons.py` does) -- so every test here
+    that exercises a template with a flag/star icon needs the file `icon()` reads to actually
+    exist under `tmp_path / "static"`, which is otherwise empty (nothing in this test suite ever
+    calls `services/vendor_assets.py`'s network-fetching `ensure_vendor_assets`, by design -- see
+    `tests/test_cli.py`'s `_populate_vendor_cache`). Mimics the real Tabler markup's class
+    convention (`icons.py`'s own docstring) closely enough for this file's `assert 'icons-tabler-
+    ...' in html` checks to mean something, without needing real network access."""
+    dest = vendor_dir / "icons" / style / f"{name}.svg"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" '
+        f'class="icon icon-tabler icons-tabler-{style} icon-tabler-{name}">'
+        f"<title>{name}</title></svg>",
+    )
+
+
+@pytest.fixture(autouse=True)
+def _vendor_icons(tmp_path: Path) -> None:
+    vendor_dir = tmp_path / "static" / "vendor"
+    for style in ("outline", "filled"):
+        for name in ("flag", "star"):
+            _write_icon_svg(vendor_dir, style, name)
+
+
 def test_map_page_renders_the_leaflet_shell(engine: Engine, tmp_path: Path) -> None:
     app = create_app(engine, tmp_path / "static", tmp_path / "media")
     client = app.test_client()
@@ -641,8 +667,8 @@ def test_recording_panel_shows_the_favourite_toggle_unstarred_by_default(
 
     assert 'type="button"\n      class="favourite-toggle"' in html
     assert 'aria-pressed="false"' in html
-    assert "☆" in html
-    assert "★" not in html
+    assert "icons-tabler-outline icon-tabler-star" in html
+    assert "icons-tabler-filled icon-tabler-star" not in html
 
 
 def test_recording_panel_shows_the_favourite_toggle_starred(
@@ -668,7 +694,7 @@ def test_recording_panel_shows_the_favourite_toggle_starred(
     )
 
     assert 'aria-pressed="true"' in html
-    assert "★" in html
+    assert "icons-tabler-filled icon-tabler-star" in html
 
 
 def test_toggle_favourite_flips_it_on_then_off(

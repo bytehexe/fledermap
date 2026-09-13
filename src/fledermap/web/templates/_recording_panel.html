@@ -21,7 +21,7 @@
       hx-target="#drawer-body"
       aria-label="{{ 'Unflag for review' if recording.flagged_for_review else 'Flag for review' }}"
       aria-pressed="{{ 'true' if recording.flagged_for_review else 'false' }}"
-    >{{ "⚑" if recording.flagged_for_review else "⚐" }}</button>
+    >{{ icon("flag", filled=recording.flagged_for_review) }}</button>
     <button
       type="button"
       class="favourite-toggle"
@@ -29,7 +29,7 @@
       hx-target="#drawer-body"
       aria-label="{{ 'Remove from favourites' if recording.favourite else 'Add to favourites' }}"
       aria-pressed="{{ 'true' if recording.favourite else 'false' }}"
-    >{{ "★" if recording.favourite else "☆" }}</button>
+    >{{ icon("star", filled=recording.favourite) }}</button>
   </div>
 </div>
 

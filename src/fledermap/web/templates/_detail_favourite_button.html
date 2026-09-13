@@ -12,4 +12,4 @@
   hx-swap="outerHTML"
   aria-label="{{ 'Remove from favourites' if recording.favourite else 'Add to favourites' }}"
   aria-pressed="{{ 'true' if recording.favourite else 'false' }}"
->{{ "★" if recording.favourite else "☆" }}</button>
+>{{ icon("star", filled=recording.favourite) }}</button>

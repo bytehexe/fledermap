@@ -3,16 +3,10 @@
    fragment, same pattern as _detail_favourite_button.html, so
    toggle_flag_for_review's `?panel=detail` branch can swap just this button.
 
-   ⚐/⚑ (U+2690/U+2691, hollow/solid flag) rather than the old ⚑/🚩 pair:
-   same hollow-vs-solid convention _detail_favourite_button.html's ☆/★
-   already uses, and both are plain monochrome glyphs (unlike 🚩, a color
-   emoji) so they take `color: var(--color-warning)` the same way ☆/★ take
-   `--color-accent`. The old pairing had ⚑ (already solid) for the
-   UNFLAGGED state, which read as flagged, and 🚩 for FLAGGED, which
-   didn't match the icon's own outline-vs-solid theme (Janna, 2026-09-11).
-   A real icon set (Iconoir was suggested) is a separate, larger,
-   all-of-the-app decision -- not a per-icon swap -- tracked in the
-   Obsidian backlog rather than done here. #}
+   Uses the `flag` icon from Tabler Icons (design spec
+   docs/superpowers/specs/2026-09-13-fledermap-icon-set-design.md), outline for UNFLAGGED and
+   filled for FLAGGED -- both take `color: var(--color-warning)` via `currentColor`, the same
+   `.favourite-toggle`/`--color-accent` pattern `_detail_favourite_button.html` uses. #}
 <button
   type="button"
   id="detail-flag"
@@ -22,4 +16,4 @@
   hx-swap="outerHTML"
   aria-label="{{ 'Unflag for review' if recording.flagged_for_review else 'Flag for review' }}"
   aria-pressed="{{ 'true' if recording.flagged_for_review else 'false' }}"
->{{ "⚑" if recording.flagged_for_review else "⚐" }}</button>
+>{{ icon("flag", filled=recording.flagged_for_review) }}</button>

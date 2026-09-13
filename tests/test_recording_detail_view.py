@@ -18,6 +18,28 @@ from fledermap.web.app import create_app
 pytestmark = pytest.mark.db
 
 
+def _write_icon_svg(vendor_dir: Path, style: str, name: str) -> None:
+    """See the identical helper in `tests/test_map_view.py` -- same reason: Task 4 is the first
+    to render `icon()` calls through a real page template, and `tmp_path / "static"` starts
+    empty in every test here (nothing in this suite calls the network-fetching
+    `ensure_vendor_assets`)."""
+    dest = vendor_dir / "icons" / style / f"{name}.svg"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" '
+        f'class="icon icon-tabler icons-tabler-{style} icon-tabler-{name}">'
+        f"<title>{name}</title></svg>",
+    )
+
+
+@pytest.fixture(autouse=True)
+def _vendor_icons(tmp_path: Path) -> None:
+    vendor_dir = tmp_path / "static" / "vendor"
+    for style in ("outline", "filled"):
+        for name in ("flag", "star"):
+            _write_icon_svg(vendor_dir, style, name)
+
+
 def test_recording_details_page_404s_for_an_unknown_hash(
     engine: Engine,
     tmp_path: Path,
@@ -515,7 +537,7 @@ def test_recording_details_page_shows_the_favourite_toggle_unstarred_by_default(
     html = response.get_data(as_text=True)
     assert 'id="detail-favourite"' in html
     assert 'aria-pressed="false"' in html
-    assert "☆" in html
+    assert "icons-tabler-outline icon-tabler-star" in html
 
 
 def test_recording_details_page_shows_the_favourite_toggle_starred(
@@ -540,7 +562,7 @@ def test_recording_details_page_shows_the_favourite_toggle_starred(
 
     html = response.get_data(as_text=True)
     assert 'aria-pressed="true"' in html
-    assert "★" in html
+    assert "icons-tabler-filled icon-tabler-star" in html
 
 
 def test_recording_details_page_loads_htmx(
@@ -593,7 +615,7 @@ def test_toggle_favourite_with_panel_detail_returns_just_the_button_fragment(
     html = response.get_data(as_text=True)
     assert 'id="detail-favourite"' in html
     assert 'aria-pressed="true"' in html
-    assert "★" in html
+    assert "icons-tabler-filled icon-tabler-star" in html
     # Only the button, not the rest of the drawer panel fragment.
     assert "panel-header" not in html
     assert "waveform-grid" not in html

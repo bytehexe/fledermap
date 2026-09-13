@@ -55,16 +55,15 @@
       </label>
       <label>
         <input type="checkbox" name="favourite_only" value="1" x-model="favourite_only">
-        ★ Favourites only
+        {# Colored to match `.favourite-toggle`'s own --color-accent (design spec 2026-09-13:
+           "those filter checkboxes could actually even get the same colors as we usually use
+           them" -- they didn't before, plain text color). #}
+        <span style="color: var(--color-accent)">{{ icon("star", filled=True) }}</span> Favourites only
       </label>
       <label>
         <input type="checkbox" name="needs_review_only" value="1" x-model="needs_review_only">
-        {# ⚑ (U+2691, solid flag) -- matches the flagged state's own glyph everywhere else
-           (_detail_flag_button.html, the recording-panel/site-panel flag toggles), not the old
-           🚩 color emoji this checkbox was still using (Janna, 2026-09-13: "still uses the
-           wrong flag emoji - should align with the filled flag emoji that we use when
-           flagged"). Same convention "★ Favourites only" above already follows. #}
-        ⚑ Needs review
+        {# Colored to match `.flag-toggle`'s own --color-warning, same reasoning as above. #}
+        <span style="color: var(--color-warning)">{{ icon("flag", filled=True) }}</span> Needs review
       </label>
       <input type="hidden" name="site" x-model="site">
     </form>
