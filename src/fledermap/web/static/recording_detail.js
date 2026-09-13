@@ -144,16 +144,32 @@ document.addEventListener("DOMContentLoaded", () => {
   // positioning elsewhere on the page keeps working normally.
   let currentScale = 1;
 
+  // A comfortable maximum display height for the spectrogram, independent of
+  // both the viewport-fit shrink below and the recording's own locked-scale
+  // render resolution (DETAIL_PX_PER_KHZ in services/recording_detail.py).
+  // That resolution stays deliberately fixed -- a precise 1:1 STFT-column-
+  // to-pixel mapping the Ruler tool's math and a consistent pan scale
+  // across recordings both depend on -- it was never meant as "always
+  // display at 100% of this." Roughly the size Janna preferred seeing
+  // (Obsidian backlog screenshot, 2026-09-11 -- 2026-09-13: that size had
+  // been a coincidental side effect of the pre-fix whole-page shrink
+  // algorithm below, not a deliberate target; made explicit here instead
+  // of relying on the Identifications/classifier boxes happening to force
+  // the same shrink).
+  const MAX_SPECTROGRAM_HEIGHT_PX = 370;
+
   function fitDetailHeight() {
     // Measure natural (unzoomed) heights first -- clearing any previous zoom before measuring,
     // since already-shrunk wraps would otherwise make `mainContent` look like it has no
     // overflow even though the true unscaled content still would.
     oscillogramWrap.style.zoom = "";
     wrap.style.zoom = "";
-    const shrinkableHeight =
-      oscillogramWrap.getBoundingClientRect().height + wrap.getBoundingClientRect().height;
-    // Overflow relative to the audio view's OWN chrome fitting the viewport --
-    // top of the page down through .audio-row -- not the whole page (Janna,
+    const oscillogramHeight = oscillogramWrap.getBoundingClientRect().height;
+    const spectrogramHeight = wrap.getBoundingClientRect().height;
+    const shrinkableHeight = oscillogramHeight + spectrogramHeight;
+
+    // Constraint 1: fit the audio view's OWN chrome (top of the page down
+    // through .audio-row) within the viewport -- not the whole page (Janna,
     // 2026-09-11: "It's ok to make it smaller if it does not fit on the
     // screen, together with its buttons above and below. We should not make
     // it smaller though, just to accommodate other elements of the page (we
@@ -171,32 +187,36 @@ document.addEventListener("DOMContentLoaded", () => {
     const neededHeight =
       audioRow.getBoundingClientRect().bottom - mainContent.getBoundingClientRect().top;
     const overflow = neededHeight - mainContent.clientHeight;
-    if (overflow <= 0 || shrinkableHeight <= 0) {
+    // No readability floor on this constraint (Janna, 2026-09-05): an earlier
+    // `Math.max(0.2, scale)` clamp meant any window small enough to need more
+    // than a 5x shrink stopped shrinking and fell back to `main.main-content`
+    // scrolling vertically -- reintroducing exactly the scrollbar this
+    // function exists to eliminate for the audio view's OWN chrome (a
+    // scrollbar to reach the Identifications/classifier boxes below is fine
+    // now -- see the comment above -- this floor is specifically about the
+    // audio view itself never needing one). `0.001` is not a readability
+    // floor, just the minimum needed to keep `zoom` a valid positive CSS
+    // value; only reachable in the degenerate case where `overflow` alone
+    // (from the OTHER, unzoomed chrome: nav, header, toolbar, both axes,
+    // audio row) already exceeds `shrinkableHeight`.
+    const viewportFitScale =
+      overflow > 0 && shrinkableHeight > 0
+        ? Math.max(0.001, (shrinkableHeight - overflow) / shrinkableHeight)
+        : 1;
+
+    // Constraint 2: never display the spectrogram taller than
+    // MAX_SPECTROGRAM_HEIGHT_PX, regardless of how much viewport room is
+    // available -- independent of constraint 1 above.
+    const comfortScale =
+      spectrogramHeight > MAX_SPECTROGRAM_HEIGHT_PX
+        ? MAX_SPECTROGRAM_HEIGHT_PX / spectrogramHeight
+        : 1;
+
+    currentScale = Math.min(viewportFitScale, comfortScale);
+    if (currentScale >= 1) {
       currentScale = 1;
       return;
     }
-    // How far the two wraps alone need to shrink to remove exactly that much overflow --
-    // everything else on the page (nav, header, toolbar, both axes, audio row) keeps its own
-    // natural height untouched, which is exact here (not an approximation): they're the only
-    // things being resized, so their combined height is the only variable in the equation.
-    const availableHeight = shrinkableHeight - overflow;
-    const scale = availableHeight / shrinkableHeight;
-    if (scale >= 1) {
-      currentScale = 1;
-      return;
-    }
-    // No readability floor here (Janna, 2026-09-05): an earlier `Math.max(0.2, scale)` clamp
-    // meant any window small enough to need more than a 5x shrink stopped shrinking and fell
-    // back to `main.main-content` scrolling vertically -- reintroducing exactly the scrollbar
-    // this function exists to eliminate for the audio view's OWN chrome (a scrollbar to reach
-    // the Identifications/classifier boxes below is fine now -- see the comment above -- this
-    // one is specifically about the audio view itself never needing one). `0.001` is not a
-    // readability floor, just the minimum needed to keep `zoom` a valid positive CSS value;
-    // it's only reachable in the degenerate case where `overflow` alone (from the OTHER,
-    // unzoomed chrome: nav, header, toolbar, both axes, audio row) already exceeds
-    // `shrinkableHeight`, at which point shrinking the images to nothing still wouldn't remove
-    // all overflow and a scrollbar is genuinely unavoidable.
-    currentScale = Math.max(0.001, scale);
     const zoomValue = String(currentScale);
     oscillogramWrap.style.zoom = zoomValue;
     wrap.style.zoom = zoomValue;
