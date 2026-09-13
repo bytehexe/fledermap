@@ -1,5 +1,7 @@
-{# src/fledermap/web/templates/_nav.html -- included by map.html,
-   sessions_list.html, session_detail.html. Design spec section 8:
+{# src/fledermap/web/templates/_nav.html -- included by _layout.html, so every
+   page gets it (2026-09-13; before that refactor this comment's original
+   "included by map.html, sessions_list.html, session_detail.html" was
+   accurate, and the other pages had no nav at all). Design spec section 8:
    expanded by default at normal widths (this is the app's only standing
    nav, so hiding it by default would just make /sessions harder to find);
    auto-collapses below a responsive breakpoint, matching the "columns

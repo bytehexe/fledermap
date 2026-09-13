@@ -22,7 +22,32 @@
 
    Also adds a <meta name="viewport"> tag, present on NO page before this
    refactor (same sweep) -- needed for a real mobile browser to render at
-   device width instead of shrinking a desktop-width layout down. #}
+   device width instead of shrinking a desktop-width layout down.
+
+   alpine.min.js (2026-09-13): _nav.html's dark-mode toggle/sidebar-collapse
+   are both `x-data`/`x-cloak` -- Alpine features that render as permanently
+   invisible (`[x-cloak] { display: none !important; }`) until Alpine.js
+   actually initializes. _nav.html is included by EVERY page via this
+   template, but before this fix, only the 4 pages that happened to need
+   Alpine for their OWN content (map.html, recording_details.html,
+   session_detail.html, sessions_list.html) actually loaded it -- so the
+   other 8 (statistics/species/sites/reviews pages) had a real, permanently
+   hidden dark-mode button, not merely a theoretical risk (found live,
+   2026-09-13: "Map -> has the dark mode button; Statistics -> no darkmode
+   button" -- an actual instance of the exact bug this refactor's own sweep
+   set out to make structurally impossible, missed because the sweep
+   checked markup, not this runtime Alpine-hydration dependency). `defer`
+   here behaves the same as the old per-page placement (further down,
+   also `defer`) -- a deferred script always runs after the document
+   finishes parsing regardless of where in the document it sits, so this
+   doesn't change execution order relative to any page's own inline
+   `alpine:init` listener (app.js's, registered by a plain non-deferred
+   `<script>` that runs during parsing, i.e. before any deferred script).
+   Loading it here, unconditionally, removes the possibility of a page
+   forgetting it the same way _layout.html itself removed the possibility
+   of a page forgetting the nav -- the per-page duplicate `<script ...
+   alpine.min.js ...>` tags are removed from those 4 pages' own `scripts`
+   blocks accordingly. #}
 <!doctype html>
 <html lang="en">
 <head>
@@ -33,6 +58,7 @@
   <title>{% block title %}Fledermap{% endblock %}</title>
   {% block extra_head %}{% endblock %}
   <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+  <script src="{{ url_for('vendor.static', filename='alpine.min.js') }}" defer></script>
 </head>
 <body{% block body_attrs %}{% endblock %}>
   {% include "_nav.html" %}
