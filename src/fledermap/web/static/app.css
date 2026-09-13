@@ -738,11 +738,17 @@ button:disabled { cursor: default; opacity: 0.5; }
    stays white -- inconsistent-looking only on the pressed button, since an
    unpressed one has no special background for the generic rule to fight with
    (Janna, live, 2026-09-13: "some of the buttons have a weird hover color").
-   Restating the active look at :hover ((0,3,0)) keeps it stable. */
+   Restating the active look at :hover ((0,3,0)) keeps it stable -- `opacity:
+   0.9`, the same subtle cue `.button-primary:hover` above already uses for
+   this same accent-background language, rather than literally no visible
+   change on hover (Janna, live: "Save button has a light hover, while
+   Default and HET do not? Still inconsistent" -- an exact restate of the
+   resting style was itself a second inconsistency). */
 .tool-button[aria-pressed="true"]:hover {
   background: var(--color-accent);
   color: var(--color-bg);
   border-color: var(--color-accent);
+  opacity: 0.9;
 }
 /* Same active-state look as `.tool-button[aria-pressed="true"]` -- not the
    same class, since Lock is an independent toggle (design decision
@@ -754,11 +760,13 @@ button:disabled { cursor: default; opacity: 0.5; }
   color: var(--color-bg);
   border-color: var(--color-accent);
 }
-/* Same generic-hover-rule-beats-us fix as `.tool-button[aria-pressed="true"]:hover` above. */
+/* Same generic-hover-rule-beats-us fix, and the same `opacity: 0.9` hover cue, as
+   `.tool-button[aria-pressed="true"]:hover` above. */
 #view-lock-toggle[aria-pressed="true"]:hover {
   background: var(--color-accent);
   color: var(--color-bg);
   border-color: var(--color-accent);
+  opacity: 0.9;
 }
 /* Locking no longer switches `overflow-x` to `hidden` (Janna, 2026-09-04: "disable the
    scrollbar instead of removing it -- noisy UI") -- doing so made the scrollbar itself vanish
