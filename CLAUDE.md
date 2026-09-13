@@ -254,6 +254,24 @@ it needs nothing installed beyond `node` itself, which this project already assu
 
 ## Database
 
+- **Every call that takes a `session: OrmSession` must stay nested inside the `with
+  OrmSession(engine) as session:` block that owns it — never issued once execution has
+  dedented past that block's `with`, even though `session` is still a live Python name there.**
+  SQLAlchemy does not raise on this: a query issued after the block exits silently reopens a
+  fresh connection/transaction (session `.close()` doesn't prevent reuse), and since nothing
+  ever commits or rolls it back, that connection sits `idle in transaction` holding a share lock
+  until the `Session` object is garbage-collected — no error, no test failure at the call site
+  itself. Found 2026-09-13: `tests/test_map_query.py`'s
+  `test_needs_review_keeps_computed_rarity_matches` called `filtered_recordings(session, ...)`
+  after its `with` block had already exited; the leaked idle-in-transaction connection then
+  blocked the *next* test's `Base.metadata.drop_all(eng)` (needs an `AccessExclusiveLock` on
+  `recording`, conflicting with the leaked session's `AccessShareLock`) indefinitely — surfaced
+  as `hatch test` hanging with near-zero CPU, no explicit error. An AST sweep across `tests/` and
+  `src/fledermap` at the time found this exact shape only in that one spot; `src/fledermap`'s own
+  service/view/CLI/job code was already clean. This is a general SQLAlchemy footgun with no type-
+  system guard, not something structurally prevented — worth resweeping if a future hang shows
+  the same signature (`hatch test` stalls, CPU flat, `pg_stat_activity` shows an `idle in
+  transaction` session blocking another's DDL).
 - **Back up `bats_db` before any schema change (migration), or any other operation that risks
   data loss, with `scripts/db-backup.sh`.** We develop against live data (not optimal, but this
   isn't a company), so this is the one thing that mitigates a big accidental loss. Dev-only

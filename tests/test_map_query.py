@@ -712,13 +712,13 @@ def test_needs_review_keeps_computed_rarity_matches(engine: Engine) -> None:
         session.commit()
 
         results = filtered_recordings(session, needs_review=True)
+        result_ids = {r.id for r in results}
+        # the common taxon's 10 recordings must NOT show up as needing review
+        common_ids = {
+            r.id for r in filtered_recordings(session, verdict="all") if r.id != rare.id
+        }
 
-    result_ids = {r.id for r in results}
     assert rare.id in result_ids
-    # the common taxon's 10 recordings must NOT show up as needing review
-    common_ids = {
-        r.id for r in filtered_recordings(session, verdict="all") if r.id != rare.id
-    }
     assert result_ids.isdisjoint(common_ids)
 
 
