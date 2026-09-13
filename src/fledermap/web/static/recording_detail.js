@@ -51,6 +51,11 @@ document.addEventListener("DOMContentLoaded", () => {
   const timeAxis = document.getElementById("detail-axis-time");
   const freqAxis = document.getElementById("detail-axis-freq");
   const mainContent = document.querySelector("main.main-content");
+  // Always present whenever oscillogramWrap/wrap are (both live inside the
+  // same `{% if params %}` block in recording_details.html) -- the audio
+  // view's own last piece of chrome, used by fitDetailHeight below to scope
+  // what "fits the viewport" means.
+  const audioRow = document.querySelector(".audio-row");
   const rulerReadout = document.getElementById("ruler-readout");
 
   // Reveal-on-load (design spec section 3): every tile in a row must load before that row's
@@ -147,7 +152,25 @@ document.addEventListener("DOMContentLoaded", () => {
     wrap.style.zoom = "";
     const shrinkableHeight =
       oscillogramWrap.getBoundingClientRect().height + wrap.getBoundingClientRect().height;
-    const overflow = mainContent.scrollHeight - mainContent.clientHeight;
+    // Overflow relative to the audio view's OWN chrome fitting the viewport --
+    // top of the page down through .audio-row -- not the whole page (Janna,
+    // 2026-09-11: "It's ok to make it smaller if it does not fit on the
+    // screen, together with its buttons above and below. We should not make
+    // it smaller though, just to accommodate other elements of the page (we
+    // can scroll)."). Previously this read `mainContent.scrollHeight -
+    // mainContent.clientHeight`, which counted the Identifications/classifier
+    // boxes below the audio view too -- shrinking the spectrogram/
+    // oscillogram to make THOSE fit on screen as well, when the actual
+    // audio view alone would easily have fit at full size. `.getBoundingClientRect()`
+    // positions are viewport-relative and would normally be scroll-position-
+    // dependent, but subtracting `mainContent`'s own top from `audioRow`'s
+    // bottom cancels that out -- both shift by the same amount on scroll --
+    // leaving a scroll-position-independent "natural height needed from the
+    // top of the page through the end of the audio view" measurement, the
+    // same invariant `scrollHeight - clientHeight` gave for the whole page.
+    const neededHeight =
+      audioRow.getBoundingClientRect().bottom - mainContent.getBoundingClientRect().top;
+    const overflow = neededHeight - mainContent.clientHeight;
     if (overflow <= 0 || shrinkableHeight <= 0) {
       currentScale = 1;
       return;
@@ -165,11 +188,14 @@ document.addEventListener("DOMContentLoaded", () => {
     // No readability floor here (Janna, 2026-09-05): an earlier `Math.max(0.2, scale)` clamp
     // meant any window small enough to need more than a 5x shrink stopped shrinking and fell
     // back to `main.main-content` scrolling vertically -- reintroducing exactly the scrollbar
-    // this function exists to eliminate. `0.001` is not a readability floor, just the minimum
-    // needed to keep `zoom` a valid positive CSS value; it's only reachable in the degenerate
-    // case where `overflow` alone (from the OTHER, unzoomed chrome: nav, header, toolbar, both
-    // axes, audio row) already exceeds `shrinkableHeight`, at which point shrinking the images
-    // to nothing still wouldn't remove all overflow and a scrollbar is genuinely unavoidable.
+    // this function exists to eliminate for the audio view's OWN chrome (a scrollbar to reach
+    // the Identifications/classifier boxes below is fine now -- see the comment above -- this
+    // one is specifically about the audio view itself never needing one). `0.001` is not a
+    // readability floor, just the minimum needed to keep `zoom` a valid positive CSS value;
+    // it's only reachable in the degenerate case where `overflow` alone (from the OTHER,
+    // unzoomed chrome: nav, header, toolbar, both axes, audio row) already exceeds
+    // `shrinkableHeight`, at which point shrinking the images to nothing still wouldn't remove
+    // all overflow and a scrollbar is genuinely unavoidable.
     currentScale = Math.max(0.001, scale);
     const zoomValue = String(currentScale);
     oscillogramWrap.style.zoom = zoomValue;

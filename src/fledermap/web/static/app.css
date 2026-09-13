@@ -676,10 +676,12 @@ button:disabled { cursor: default; opacity: 0.5; }
      instead of its content size (Flexbox spec section 4.5), so under space
      pressure the flex algorithm crushes it toward zero height instead of
      leaving it at its natural content height. `fitDetailHeight` depends on
-     `.detail-scroll` reporting its TRUE natural height (it reads
-     `main.main-content`'s scrollHeight/clientHeight to measure overflow) --
-     without this, that measurement is corrupted by the crush, computing a
-     wrong (and visibly broken) scale. `flex-shrink: 0` opts out of flex
+     `.detail-scroll` reporting its TRUE natural height (it measures from
+     `main.main-content`'s own top through `.audio-row`'s bottom, against
+     `main.main-content`'s clientHeight, to compute overflow scoped to the
+     audio view itself -- not the whole page) -- without this, that
+     measurement is corrupted by the crush, computing a wrong (and visibly
+     broken) scale. `flex-shrink: 0` opts out of flex
      shrinking entirely, so this box always sizes to its real content;
      `fitDetailHeight`'s zoom is the only thing that ever actually shrinks
      it now. */
