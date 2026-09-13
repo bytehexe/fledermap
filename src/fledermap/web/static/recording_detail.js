@@ -275,14 +275,21 @@ document.addEventListener("DOMContentLoaded", () => {
     timeAxis.innerHTML = "";
     const totalMs = durationS * 1000;
     const tickMs = adaptiveTickInterval(TIME_TICK_MS, pxPerMs);
-    // The mirror image of the ms===0 case below: the LAST tick drawn is `tickMs`-aligned, so it
-    // lands a few ms (and therefore a few px) short of the recording's true end -- close enough
-    // that a centered label's bled-right half can still stick out past the actual rendered
-    // image content on the right, widening `.detail-scroll`'s scrollable range with a sliver of
-    // empty background past the real content (found 2026-09-03 on a real recording, visible
-    // once the sticky freq axis fix above let scrolling reach all the way to the end).
+    // The LAST tick drawn is `tickMs`-aligned, so it lands a few ms (and therefore a few px)
+    // short of the recording's true end. Previously this tick was right-aligned instead of
+    // centered like every other one, specifically so its bled-right half wouldn't stick out
+    // past the actual rendered image content, into that small gap (found 2026-09-03) -- but a
+    // right-aligned label bleeds ONLY left, so it lost the half-gap a centered neighbour would
+    // normally have shared with it, and collided with the previous tick's own right-bled half
+    // instead (found live 2026-09-13: "14.96s"/"14.98s" ran together with no gap). Simpler
+    // fix (Janna, 2026-09-13): drop the special alignment entirely -- every tick is centered,
+    // same as the rest, and the last one just isn't drawn at all when there isn't room for it
+    // to bleed right without crossing the true content edge.
     const lastMs = Math.floor(totalMs / tickMs) * tickMs;
+    const trailingGapPx = (totalMs - lastMs) * pxPerMs * currentScale;
+    const showLastTick = lastMs === 0 || trailingGapPx >= MIN_LABEL_SPACING_PX / 2;
     for (let ms = 0; ms <= totalMs; ms += tickMs) {
+      if (ms === lastMs && ms !== 0 && !showLastTick) continue;
       const tick = document.createElement("span");
       tick.className = "detail-axis-tick detail-axis-tick-time";
       // `ms * pxPerMs` is the tick's NATIVE (unzoomed) pixel position -- `* currentScale`
@@ -290,16 +297,14 @@ document.addEventListener("DOMContentLoaded", () => {
       // needs (its own font-size is never zoomed, so its position can't rely on an ancestor's
       // `zoom` to place it the way `.detail-axis-freq`'s old zoomed ticks used to).
       tick.style.left = `${ms * pxPerMs * currentScale}px`;
-      // Every other tick is centered on its mark via `.detail-axis-tick-time`'s
-      // `transform: translateX(-50%)`, which is fine -- adjacent labels' bled-over halves
-      // just share the empty gap between marks. The 0ms tick sits at `left: 0`, so centering
-      // it would bleed its left half into negative-x territory -- exactly where the sticky,
-      // opaque `.detail-axis-freq` column sits, hiding half the label under it. Left-align
-      // this one tick instead: it also reads as more correct for an origin label, which has
-      // nothing to its left to straddle. The LAST tick gets the same treatment mirrored --
-      // right-align it (bleed left, into existing content, never past the real right edge).
+      // Every tick is centered on its mark via `.detail-axis-tick-time`'s own
+      // `transform: translateX(-50%)` (CSS default), which is fine -- adjacent labels' bled-
+      // over halves just share the empty gap between marks. The 0ms tick sits at `left: 0`,
+      // so centering it would bleed its left half into negative-x territory -- exactly where
+      // the sticky, opaque `.detail-axis-freq` column sits, hiding half the label under it.
+      // Left-align this one tick instead: it also reads as more correct for an origin label,
+      // which has nothing to its left to straddle.
       if (ms === 0) tick.style.transform = "translateX(0)";
-      else if (ms === lastMs) tick.style.transform = "translateX(-100%)";
       tick.textContent = `${(ms / 1000).toFixed(2)}s`;
       timeAxis.appendChild(tick);
     }

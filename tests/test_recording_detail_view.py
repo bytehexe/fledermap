@@ -206,7 +206,7 @@ def test_recording_details_page_reserves_the_final_wrap_sizes_up_front(
     # sizes can never disagree).
     zoom = 300 / 564
     assert (
-        f'style="width: 2207px; height: 48px; zoom: {zoom};"' in html
+        f'style="width: 2207px; height: 58px; zoom: {zoom};"' in html
     )  # oscillogram wrap
     assert (
         f'style="width: 2207px; height: 564px; zoom: {zoom};"' in html

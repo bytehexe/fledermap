@@ -73,6 +73,13 @@ DETAIL_MAX_TILE_WIDTH_PX = 8000
 # script ran).
 DETAIL_COMFORT_MAX_HEIGHT_PX = 300
 
+# Detail-page-only, deliberately independent of OscillogramParams's own `height_px` default
+# (48px) that the drawer/overview's cached renders use -- Janna, 2026-09-13 (live, found hard to
+# read): 120% of that default, rounded (48 * 1.2 = 57.6 -> 58). Bumping this only changes the
+# detail page's own render (a different params_hash / cache entry, via detail_oscillogram's own
+# route) -- it never touches the drawer's separately-cached DEFAULT_OSCILLOGRAM_PARAMS renders.
+DETAIL_OSCILLOGRAM_HEIGHT_PX = 58
+
 
 @dataclass(frozen=True)
 class DetailTile:
@@ -127,7 +134,9 @@ def detail_params(duration_s: float, samplerate_hz: float) -> DetailParams:
         window_ms=DETAIL_WINDOW_MS,
         overlap=DETAIL_OVERLAP,
     )
-    oscillogram = OscillogramParams(width_px=width_px)
+    oscillogram = OscillogramParams(
+        width_px=width_px, height_px=DETAIL_OSCILLOGRAM_HEIGHT_PX
+    )
     # Only the comfort cap, never the viewport-fit shrink -- the server has
     # no way to know the client's actual window size at request time, so
     # this is deliberately just a best-effort initial guess for the common
