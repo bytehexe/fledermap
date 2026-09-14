@@ -653,7 +653,9 @@ def test_het_preview_supports_range_requests(
     monkeypatch.setattr(
         media_view,
         "render_heterodyne_preview",
-        lambda wav_path, out_path, *, tune_freq_hz: out_path.write_bytes(fixed_bytes),
+        lambda wav_path, out_path, *, tune_freq_hz, denoise=False: out_path.write_bytes(
+            fixed_bytes
+        ),
     )
 
     archive_root = tmp_path / "archive"
@@ -863,4 +865,103 @@ def test_peak_frequency_404s_for_an_unknown_hash(
     app = create_app(engine, tmp_path / "static", tmp_path / "media")
     response = app.test_client().get(f"/recordings/{'h7' * 32}/peak-frequency")
 
+    assert response.status_code == 404
+
+
+def test_detail_spectrogram_denoise_true_differs_from_default(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    archive_root.mkdir()
+    _write_wav(archive_root / "a.wav", duration_s=0.05)
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="d1" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                duration_s=0.05,
+                samplerate_hz=256_000,
+            ),
+        )
+        session.commit()
+
+    app = create_app(
+        engine, tmp_path / "static", tmp_path / "media", archive_roots=(archive_root,)
+    )
+    client = app.test_client()
+    plain = client.get(f"/recordings/{'d1' * 32}/detail-spectrogram/0.webp")
+    denoised = client.get(
+        f"/recordings/{'d1' * 32}/detail-spectrogram/0.webp?denoise=true"
+    )
+
+    assert plain.status_code == 200
+    assert denoised.status_code == 200
+    assert plain.data != denoised.data
+
+
+def test_het_preview_denoise_true_differs_from_default(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    archive_root.mkdir()
+    _write_wav(archive_root / "a.wav", duration_s=0.05)
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="d2" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+    app = create_app(
+        engine, tmp_path / "static", tmp_path / "media", archive_roots=(archive_root,)
+    )
+    client = app.test_client()
+    plain = client.get(f"/recordings/{'d2' * 32}/het-preview.opus?freq_hz=40000")
+    denoised = client.get(
+        f"/recordings/{'d2' * 32}/het-preview.opus?freq_hz=40000&denoise=true"
+    )
+
+    assert plain.status_code == 200
+    assert denoised.status_code == 200
+    assert plain.data != denoised.data
+
+
+def test_detail_preview_serves_opus(engine: Engine, tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    archive_root.mkdir()
+    _write_wav(archive_root / "a.wav", duration_s=0.05)
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="d3" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+    app = create_app(
+        engine, tmp_path / "static", tmp_path / "media", archive_roots=(archive_root,)
+    )
+    client = app.test_client()
+    plain = client.get(f"/recordings/{'d3' * 32}/detail-preview.opus")
+    denoised = client.get(f"/recordings/{'d3' * 32}/detail-preview.opus?denoise=true")
+
+    assert plain.status_code == 200
+    assert plain.mimetype == "audio/ogg"
+    assert denoised.status_code == 200
+    assert plain.data != denoised.data
+
+
+def test_detail_preview_404s_for_an_unknown_hash(
+    engine: Engine, tmp_path: Path
+) -> None:
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/recordings/{'f1' * 32}/detail-preview.opus")
     assert response.status_code == 404

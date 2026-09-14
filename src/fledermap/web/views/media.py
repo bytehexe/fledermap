@@ -32,6 +32,7 @@ from fledermap.media.heterodyne import (
 )
 from fledermap.media.oscillogram import OscillogramParams, render_oscillogram
 from fledermap.media.paths import oscillogram_path, preview_path, spectrogram_path
+from fledermap.media.preview import make_preview
 from fledermap.media.render_cache import SpectrogramImageCache
 from fledermap.media.spectrogram import (
     SpectrogramParams,
@@ -46,6 +47,7 @@ from fledermap.services.recording_detail import (
     detail_params,
 )
 from fledermap.store.models import Recording
+from fledermap.web.params import parse_bool
 
 media_bp = flask.Blueprint("media", __name__)
 
@@ -77,6 +79,8 @@ def _spectrogram_image_cache_key(
         params.max_freq_hz,
         params.dynamic_range_db,
         params.palette,
+        params.cutoff_hz,
+        params.denoise,
     )
 
 
@@ -221,6 +225,8 @@ def detail_spectrogram(audio_hash: str, tile_index: int) -> ResponseReturnValue:
         tile.start_px / DETAIL_PX_PER_MS / 1000,
         (tile.start_px + tile.width_px) / DETAIL_PX_PER_MS / 1000,
     )
+    denoise = parse_bool(flask.request.args.get("denoise"))
+    spectrogram_params = dataclasses.replace(spectrogram_params, denoise=denoise)
     tile_params = dataclasses.replace(spectrogram_params, width_px=tile.width_px)
     try:
         # Render-cost optimization (v1 backlog "render-cost optimization for tiled long
@@ -258,6 +264,8 @@ def detail_oscillogram(audio_hash: str, tile_index: int) -> ResponseReturnValue:
         tile.start_px / DETAIL_PX_PER_MS / 1000,
         (tile.start_px + tile.width_px) / DETAIL_PX_PER_MS / 1000,
     )
+    denoise = parse_bool(flask.request.args.get("denoise"))
+    oscillogram_params = dataclasses.replace(oscillogram_params, denoise=denoise)
     tile_params = dataclasses.replace(oscillogram_params, width_px=tile.width_px)
     try:
         return _serve_temp_render(
@@ -311,16 +319,40 @@ def het_preview(audio_hash: str) -> ResponseReturnValue:
     if not math.isfinite(freq_hz):
         flask.abort(400)
 
+    denoise = parse_bool(flask.request.args.get("denoise"))
     wav_path = _resolve_wav_path_or_404(audio_hash)
     try:
         return _serve_temp_render(
-            lambda out: render_heterodyne_preview(wav_path, out, tune_freq_hz=freq_hz),
+            lambda out: render_heterodyne_preview(
+                wav_path,
+                out,
+                tune_freq_hz=freq_hz,
+                denoise=denoise,
+            ),
             suffix=".opus",
             mimetype="audio/ogg",
         )
     except UnreadableWavError as exc:
         logger.warning("unreadable source WAV for %s: %s", audio_hash, exc)
         flask.abort(404)
+
+
+@media_bp.get("/recordings/<audio_hash>/detail-preview.opus")
+def detail_preview(audio_hash: str) -> ResponseReturnValue:
+    """Details-page-only, live-rendered TE preview -- deliberately NOT the
+    shared, job-queued, disk-cached `preview` route above (that route has
+    no per-render params dimension; see design spec's TE/HET section for
+    why a new caching dimension there would be real new infrastructure for
+    a feature most recordings will never have toggled). The details page
+    keeps using the cached `preview` route when denoise is off; this route
+    is only ever hit once a user actually turns the toggle on."""
+    denoise = parse_bool(flask.request.args.get("denoise"))
+    wav_path = _resolve_wav_path_or_404(audio_hash)
+    return _serve_temp_render(
+        lambda out: make_preview(wav_path, out, denoise=denoise),
+        suffix=".opus",
+        mimetype="audio/ogg",
+    )
 
 
 @media_bp.get("/recordings/<audio_hash>/peak-frequency")
