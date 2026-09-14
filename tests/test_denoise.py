@@ -5,6 +5,7 @@ import numpy as np
 from fledermap.media.denoise import (
     DEFAULT_CUTOFF_HZ,
     highpass_filter,
+    spectral_gate,
     subtract_background_noise,
 )
 
@@ -94,3 +95,84 @@ def test_subtract_background_noise_default_over_subtracts_more_than_the_floor() 
     # Over-subtracting (factor=2.0) must zero out substantially more of the row
     # than subtracting exactly the median once (factor=1.0).
     assert (over_subtracted == 0).sum() > (floor_only == 0).sum()
+
+
+def _pulsed_tone_with_noise(
+    rng: np.random.Generator,
+    *,
+    samplerate: int = 256_000,
+    duration_s: float = 0.05,
+    tone_freq_hz: float = 45_000.0,
+    tone_amplitude: float = 20_000.0,
+    noise_std: float = 3_000.0,
+) -> tuple[np.ndarray, int, int]:
+    """A short, loud tone pulse in the middle third of an otherwise-silent
+    signal, plus white noise everywhere -- the same "mostly quiet, one real
+    call" shape `subtract_background_noise`'s own tests already use, not a
+    sustained tone (see `spectral_gate`'s docstring for why a continuous tone
+    is the wrong shape to test this technique against). Returns
+    (samples, pulse_start_idx, pulse_end_idx)."""
+    n = int(samplerate * duration_s)
+    t = np.arange(n) / samplerate
+    pulse_start, pulse_end = int(n * 0.4), int(n * 0.6)
+    clean = np.zeros(n)
+    clean[pulse_start:pulse_end] = tone_amplitude * np.sin(
+        2 * np.pi * tone_freq_hz * t[pulse_start:pulse_end]
+    )
+    noise = rng.normal(0, noise_std, n)
+    return clean + noise, pulse_start, pulse_end
+
+
+def test_spectral_gate_reduces_noise_outside_the_call() -> None:
+    rng = np.random.default_rng(1)
+    samples, pulse_start, _pulse_end = _pulsed_tone_with_noise(rng)
+
+    gated = spectral_gate(samples, samplerate_hz=256_000)
+
+    rms_before = np.sqrt(np.mean(samples[:pulse_start] ** 2))
+    rms_after = np.sqrt(np.mean(gated[:pulse_start] ** 2))
+    # Noise-only region must be meaningfully quieter after gating.
+    assert rms_after < rms_before * 0.6
+
+
+def test_spectral_gate_preserves_the_call_pulse() -> None:
+    rng = np.random.default_rng(1)
+    samples, pulse_start, pulse_end = _pulsed_tone_with_noise(rng)
+
+    gated = spectral_gate(samples, samplerate_hz=256_000)
+
+    peak_before = np.max(np.abs(samples[pulse_start:pulse_end]))
+    peak_after = np.max(np.abs(gated[pulse_start:pulse_end]))
+    # The real call's peak amplitude must largely survive -- this is what
+    # distinguishes gating from just re-running the highpass filter.
+    assert peak_after > peak_before * 0.6
+
+
+def test_spectral_gate_output_length_matches_input() -> None:
+    rng = np.random.default_rng(2)
+    samples, _start, _end = _pulsed_tone_with_noise(rng)
+
+    gated = spectral_gate(samples, samplerate_hz=256_000)
+
+    assert len(gated) == len(samples)
+
+
+def test_spectral_gate_handles_silence_without_crashing() -> None:
+    silence = np.zeros(12_800)
+
+    gated = spectral_gate(silence, samplerate_hz=256_000)
+
+    assert len(gated) == len(silence)
+    assert np.max(np.abs(gated)) == 0.0
+
+
+def test_spectral_gate_handles_a_signal_shorter_than_one_window() -> None:
+    # 3 samples, far fewer than any reasonable STFT window -- mirrors
+    # render_full_spectrogram_image's nperseg-clamp test coverage for the
+    # same "very short/truncated recording" shape.
+    rng = np.random.default_rng(3)
+    tiny = rng.normal(0, 100, 3)
+
+    gated = spectral_gate(tiny, samplerate_hz=256_000)
+
+    assert len(gated) == 3

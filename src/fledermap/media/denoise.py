@@ -95,3 +95,68 @@ def subtract_background_noise(
         subtracted > preserve_threshold * smoothed, subtracted, smoothed
     )
     return result
+
+
+# Own STFT window for the gate, independent of SpectrogramParams.window_ms -- that value is
+# tuned for the spectrogram's visual time/frequency tradeoff, not for gating accuracy or clean
+# reconstruction, and the two purposes aren't guaranteed to want the same window size (design
+# spec's "Algorithm" section). Hann window + exactly 50% overlap (noverlap = nperseg // 2) is a
+# COLA-satisfying combination, which is what makes istft's reconstruction exact on unmodified
+# bins -- the actual hard part naive spectral subtraction struggles with.
+_GATE_WINDOW_MS = 4.0
+# Noise floor = each frequency bin's own 20th-percentile magnitude across every time frame in the
+# recording -- low enough that a genuine transient call (present in only a few frames) doesn't
+# drag its own bin's floor estimate upward, matching subtract_background_noise's percentile-based
+# per-bin idiom, just applied to STFT magnitude instead of the power spectrogram.
+_GATE_PERCENTILE = 20.0
+# Gain never drops below this, even for a bin that's pure noise floor -- the standard fix for
+# "musical noise" (an isolated bin snapping fully to zero and back between frames, heard as
+# chirping artifacts) that a hard gate (gain_floor=0) would produce.
+_GATE_GAIN_FLOOR = 0.1
+# Exponent applied to the clipped linear gain -- steepens the transition between "clearly noise"
+# and "clearly signal" beyond what the raw soft-threshold ratio gives alone.
+_GATE_EXPONENT = 1.5
+
+
+def spectral_gate(samples: np.ndarray, samplerate_hz: float) -> np.ndarray:
+    """Phase-coherent spectral-gating denoise: STFT, a soft per-bin gain derived from each bin's
+    own noise-floor estimate, then `istft` reconstruction -- unlike `subtract_background_noise`
+    (which discards phase and is never reconstructed back to audio), this function's whole job is
+    producing real, listenable denoised audio.
+
+    Expects a signal shaped like a real bat-call recording: mostly quiet, with the actual call(s)
+    as brief, louder transients -- NOT a sustained/continuous tone. A per-bin percentile treats
+    whatever a bin does MOST of the time as its own noise floor; a transient call's bin is mostly
+    silent so its floor stays low and the call passes through close to unchanged, but a bin that's
+    continuously loud (a long constant-frequency call, or a test signal that's just a sustained
+    tone) looks exactly like its own noise floor and gets suppressed along with it. This is the
+    same fundamental tradeoff `subtract_background_noise` already accepts for the same reason
+    (spec's "why highpass and background-subtraction use different techniques"), now inherited by
+    the audio-domain version -- worth specifically checking during live listening QA against a
+    real constant-frequency-call recording if one is available (e.g. a Rhinolophus species)."""
+    nperseg = min(max(int(samplerate_hz * _GATE_WINDOW_MS / 1000), 8), len(samples))
+    noverlap = nperseg // 2
+    _freqs, _times, stft = signal.stft(
+        samples, fs=samplerate_hz, window="hann", nperseg=nperseg, noverlap=noverlap
+    )
+    magnitude = np.abs(stft)
+    noise_floor = np.percentile(magnitude, _GATE_PERCENTILE, axis=1, keepdims=True)
+    ratio = np.divide(
+        noise_floor,
+        magnitude,
+        out=np.zeros_like(magnitude),
+        where=magnitude > 0,
+    )
+    gain = np.clip(1.0 - ratio, _GATE_GAIN_FLOOR, 1.0) ** _GATE_EXPONENT
+    gated = stft * gain
+    _, reconstructed = signal.istft(
+        gated, fs=samplerate_hz, window="hann", nperseg=nperseg, noverlap=noverlap
+    )
+    # istft can return a handful more or fewer samples than the original signal depending on how
+    # the window tiles across its length -- trim or zero-pad back to the exact input length so
+    # every caller can treat this as a drop-in replacement for its input samples array, the same
+    # contract highpass_filter already has.
+    result: np.ndarray = reconstructed[: len(samples)]
+    if len(result) < len(samples):
+        result = np.pad(result, (0, len(samples) - len(result)))
+    return result
