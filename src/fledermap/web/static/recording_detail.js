@@ -35,16 +35,27 @@ document.addEventListener("DOMContentLoaded", () => {
   // spectrogram/oscillogram viewer still needs regardless of preview readiness) never has to
   // null-check `audio` itself, only skip wiring real playback controls to it.
   const audio = document.getElementById("detail-audio") || document.createElement("audio");
+  const denoiseToggle = document.getElementById("denoise-toggle");
+  const previewUrl = audioControlsEl ? audioControlsEl.dataset.previewUrl : null;
+  const detailPreviewUrl = audioControlsEl ? audioControlsEl.dataset.detailPreviewUrl : null;
+  let denoiseOn = false;
   // `getSeekFloorS`/`getSeekCeilingS` are read lazily (only when a button is
   // actually clicked), so it's safe to reference `viewLocked`/`lockedStartS`
   // (a `let`) and `currentViewEndTimeS` (a hoisted function declaration)
   // here even though neither is declared until further down this same
   // function -- by the time a click can happen, DOMContentLoaded has
-  // finished running and both are ready.
+  // finished running and both are ready. `getPreviewUrl`/`getHetExtraQuery`
+  // are different: `initAudioControls` calls `switchToTe()`/`switchToHet()`
+  // synchronously as part of THIS call, which invokes them immediately -- so
+  // `denoiseOn`/`previewUrl`/`detailPreviewUrl` must already be declared
+  // above this point, not further down like `viewLocked` gets away with.
   const audioControls = audioControlsEl
     ? initAudioControls(audioControlsEl, audio, {
         getSeekFloorS: () => (viewLocked && lockedStartS !== null ? lockedStartS : 0),
         getSeekCeilingS: () => (viewLocked ? currentViewEndTimeS() : null),
+        getPreviewUrl: () =>
+          denoiseOn ? withQueryParam(detailPreviewUrl, "denoise", "true") : previewUrl,
+        getHetExtraQuery: () => (denoiseOn ? "&denoise=true" : ""),
       })
     : { getTimeExpansionFactor: () => 1 };
   const scrollEl = document.getElementById("detail-scroll");
@@ -102,6 +113,36 @@ document.addEventListener("DOMContentLoaded", () => {
         img.dataset.failed = "true";
         settle();
       });
+    });
+  }
+
+  function reloadTilesWithDenoise() {
+    spectrogramLoading.hidden = false;
+    oscillogramLoading.hidden = false;
+    spectrogramTiles.forEach((t) => {
+      t.hidden = true;
+      delete t.dataset.failed;
+      t.src = withQueryParam(t.src, "denoise", denoiseOn ? "true" : "false");
+    });
+    oscillogramTiles.forEach((t) => {
+      t.hidden = true;
+      delete t.dataset.failed;
+      t.src = withQueryParam(t.src, "denoise", denoiseOn ? "true" : "false");
+    });
+    revealWhenAllLoaded(spectrogramTiles, spectrogramLoading);
+    revealWhenAllLoaded(oscillogramTiles, oscillogramLoading);
+  }
+
+  if (denoiseToggle) {
+    const filterIconOutline = denoiseToggle.querySelector(".filter-icon-outline");
+    const filterIconFilled = denoiseToggle.querySelector(".filter-icon-filled");
+    denoiseToggle.addEventListener("click", () => {
+      denoiseOn = !denoiseOn;
+      denoiseToggle.setAttribute("aria-pressed", denoiseOn ? "true" : "false");
+      filterIconOutline.hidden = denoiseOn;
+      filterIconFilled.hidden = !denoiseOn;
+      reloadTilesWithDenoise();
+      audioControls.refreshSource();
     });
   }
 
