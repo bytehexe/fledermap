@@ -801,7 +801,14 @@ document.addEventListener("DOMContentLoaded", () => {
     // Locked: never auto-scroll to follow the cursor -- that would defeat "no scrolling any
     // more". The playback-stop check above already prevents the cursor from ever needing to
     // scroll into view in the first place (it can't play past the visible right edge).
-    if (!viewLocked && (visualXPx < visibleLeft || visualXPx > visibleRight)) {
+    //
+    // `!audio.paused`: auto-follow only makes sense while something is actually playing.
+    // `setSource` (denoise toggle, TE/HET switch, Lock View) always pauses before swapping
+    // source, then restores the previous position once metadata loads -- that restore fires
+    // its own `timeupdate` (the correctly-restored one, past `isRestoringPosition`'s guard
+    // above), and without this check it would snap the view to wherever the cursor happens to
+    // sit even though the user had deliberately scrolled elsewhere and nothing is playing.
+    if (!audio.paused && !viewLocked && (visualXPx < visibleLeft || visualXPx > visibleRight)) {
       scrollEl.scrollLeft = Math.max(0, visualXPx - scrollEl.clientWidth / 2);
     }
   });
