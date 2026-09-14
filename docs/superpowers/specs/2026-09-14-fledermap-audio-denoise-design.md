@@ -1,7 +1,25 @@
 # Fledermap Audio-Domain Denoise — Design
 
-**Status:** draft
+**Status:** shipped 2026-09-14
 **Date:** 2026-09-14
+
+**Shipped:** `spectral_gate()` implemented and wired into all four call sites exactly as designed
+(highpass → gate, order preserved throughout). Verified against a real field recording
+(`EPTNIL_20260906_203804.wav`) rather than only synthetic test signals: RMS dropped ~74% in quiet
+regions while the call's peak amplitude survived at ~68% of its original value, and a frame-to-frame
+spectral-flatness-variance check (a proxy for "musical noise" artifacts) showed *lower* variance
+after gating, not higher — no sign of the chirping-artifact failure mode. The one open design
+question — the image-domain median filter's fate — resolved to **skip it**: measured at <1%
+contribution to background speckle once spectral gating already runs upstream, no longer worth its
+known call-smudging tradeoff (`spectrogram.py`'s `subtract_background_noise` call site now passes
+`median_size=(1, 1)`; the function's own general-purpose default is untouched for other callers).
+Full listening confirmation (are there audible artifacts a numeric proxy can't catch) is still
+Janna's to do — nothing here substitutes for it. The implementation's own SDD workspace (deleted
+once this branch merges) is not a place to leave that evidence; regenerate the comparison
+previews with `make_preview(wav_path, out_path, denoise=True/False)` /
+`render_heterodyne_preview(wav_path, out_path, tune_freq_hz=compute_peak_frequency_hz(wav_path), denoise=True/False)`
+against any real recording, e.g. via `fledermap serve` and the recording-details page's own
+Denoise toggle on real ingested data.
 
 ## Problem
 
