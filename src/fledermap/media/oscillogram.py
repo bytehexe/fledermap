@@ -20,6 +20,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+from fledermap.media.denoise import DEFAULT_CUTOFF_HZ, highpass_filter
 from fledermap.media.wav_pcm import read_pcm
 
 
@@ -35,6 +36,11 @@ class OscillogramParams:
     height_px: int = 48
     line_color: tuple[int, int, int] = (0, 0, 0)
     background_color: tuple[int, int, int] = (255, 255, 255)
+
+    # Same shared cutoff/denoise fields as SpectrogramParams -- see that module's
+    # docstring for why both are real dataclass fields, not bare constants.
+    cutoff_hz: float = DEFAULT_CUTOFF_HZ
+    denoise: bool = False
 
     @property
     def params_hash(self) -> str:
@@ -77,6 +83,10 @@ def render_oscillogram(
     `spectrogram.py`'s own write path.
     """
     samples, samplerate = read_pcm(wav_path)
+
+    if params.denoise:
+        samples = highpass_filter(samples, samplerate, params.cutoff_hz)
+
     width, height = params.width_px, params.height_px
 
     peak = np.abs(samples).max() if samples.size else 0.0

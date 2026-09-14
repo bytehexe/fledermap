@@ -273,3 +273,30 @@ def test_render_oscillogram_time_range_normalizes_to_the_whole_file_peak(
     # more background (light) pixels remain, so mean brightness is HIGHER than the same quiet
     # content normalized to its own (equally quiet) peak.
     assert sliced_pixels.mean() > standalone_pixels.mean()
+
+
+def test_params_hash_changes_when_cutoff_hz_changes() -> None:
+    base = OscillogramParams()
+    changed = OscillogramParams(cutoff_hz=base.cutoff_hz + 1)
+    assert base.params_hash != changed.params_hash
+
+
+def test_params_hash_changes_when_denoise_changes() -> None:
+    base = OscillogramParams()
+    changed = OscillogramParams(denoise=not base.denoise)
+    assert base.params_hash != changed.params_hash
+
+
+def test_denoise_true_changes_oscillogram_pixels(tmp_path: Path) -> None:
+    wav_path = tmp_path / "call.wav"
+    _sine_wav(
+        wav_path, freq_hz=2_000.0
+    )  # below the 5kHz cutoff -- should be visibly attenuated
+    plain_out = tmp_path / "plain.webp"
+    denoised_out = tmp_path / "denoised.webp"
+
+    render_oscillogram(wav_path, plain_out, params=OscillogramParams(denoise=False))
+    render_oscillogram(wav_path, denoised_out, params=OscillogramParams(denoise=True))
+
+    with Image.open(plain_out) as a, Image.open(denoised_out) as b:
+        assert list(a.get_flattened_data()) != list(b.get_flattened_data())
