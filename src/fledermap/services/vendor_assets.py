@@ -128,16 +128,14 @@ ASSETS: tuple[VendorAsset, ...] = (
         relative_path="icons/outline/flag-cog.svg",
     ),
     # The Denoise toggle's icon (design spec
-    # docs/superpowers/specs/2026-09-14-fledermap-denoise-highpass-design.md).
+    # docs/superpowers/specs/2026-09-14-fledermap-denoise-highpass-design.md) -- no filled
+    # variant exists in Tabler's set, so the pressed (ON) state is signalled by CSS alone
+    # (the button's own background/color change), the same way the toolbar's other
+    # icon-less toggle buttons (Default/Ruler/TE/HET) already work.
     VendorAsset(
-        url="https://unpkg.com/@tabler/icons@3.46.0/icons/outline/filter.svg",
-        sha256="eb4cf4b099901c28fab2e13a70c52e3318cee10e918bd99c39373c2b19085deb",
-        relative_path="icons/outline/filter.svg",
-    ),
-    VendorAsset(
-        url="https://unpkg.com/@tabler/icons@3.46.0/icons/filled/filter.svg",
-        sha256="eb1d37c40010e56b214e30f72d0c79dcc109bab4c8495a0d3c1b2e747258f943",
-        relative_path="icons/filled/filter.svg",
+        url="https://unpkg.com/@tabler/icons@3.46.0/icons/outline/noise-reduction.svg",
+        sha256="a1f2f9e11fb95a640691786c54041bf65e3d9a181280bbd18440b48589a52151",
+        relative_path="icons/outline/noise-reduction.svg",
     ),
     VendorAsset(
         url="https://unpkg.com/@tabler/icons@3.46.0/icons/outline/star.svg",

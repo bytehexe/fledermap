@@ -64,9 +64,8 @@
         <span class="lock-icon-locked" hidden>{{ icon("lock", filled=True) }}</span>
         <span class="lock-label">Lock view</span>
       </button>
-      <button type="button" id="denoise-toggle" aria-pressed="false" title="Highpass-filter and reduce background noise below 5kHz">
-        <span class="filter-icon-outline">{{ icon("filter") }}</span>
-        <span class="filter-icon-filled" hidden>{{ icon("filter", filled=True) }}</span>
+      <button type="button" id="denoise-toggle" aria-pressed="false" title="Filter out audio below 5kHz and reduce background noise in the spectrogram">
+        {{ icon("noise-reduction") }}
         <span class="filter-label">Denoise</span>
       </button>
     </div>
