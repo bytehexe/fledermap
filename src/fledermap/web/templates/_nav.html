@@ -76,9 +76,11 @@
       <img src="{{ url_for('static', filename='favicon.png') }}" alt="" width="28" height="28">
     </a>
     <div class="sidebar-toggles">
-      <button type="button" id="sidebar-toggle" @click="collapsed = !collapsed" aria-label="Toggle navigation">☰</button>
+      <button type="button" id="sidebar-toggle" @click="collapsed = !collapsed" aria-label="Toggle navigation">{{ icon("menu-2") }}</button>
       <button type="button" id="theme-toggle" x-cloak @click="cycleTheme()" :aria-label="'Theme: ' + theme + '. Click to change.'">
-        <span x-text="theme === 'dark' ? '🌙' : (theme === 'light' ? '☀️' : '🖥️')"></span>
+        <span x-show="theme === 'light'">{{ icon("sun", filled=True) }}</span>
+        <span x-show="theme === 'dark'">{{ icon("moon", filled=True) }}</span>
+        <span x-show="theme === 'system'">{{ icon("device-desktop") }}</span>
       </button>
     </div>
   </div>

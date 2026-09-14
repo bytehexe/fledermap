@@ -12,7 +12,7 @@ from fledermap.domain.codes import IdSource, Verdict
 from fledermap.store.models import Identification, Recording, Site, Taxon, TaxonCode
 from fledermap.web.app import create_app
 
-pytestmark = pytest.mark.db
+pytestmark = [pytest.mark.db, pytest.mark.usefixtures("_vendor_icons")]
 
 
 def test_species_list_renders_a_species_row(engine: Engine, tmp_path: Path) -> None:

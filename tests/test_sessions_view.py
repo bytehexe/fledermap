@@ -13,7 +13,7 @@ from fledermap.store.models import Recording, SessionMergeProposal
 from fledermap.store.models import Session as AnnotationSession
 from fledermap.web.app import create_app
 
-pytestmark = pytest.mark.db
+pytestmark = [pytest.mark.db, pytest.mark.usefixtures("_vendor_icons")]
 
 
 def test_sessions_list_renders_a_session_row(engine: Engine, tmp_path: Path) -> None:

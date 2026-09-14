@@ -11,7 +11,7 @@ from fledermap.domain.codes import IdSource, Verdict
 from fledermap.store.models import Identification, Recording, Taxon
 from fledermap.web.app import create_app
 
-pytestmark = pytest.mark.db
+pytestmark = [pytest.mark.db, pytest.mark.usefixtures("_vendor_icons")]
 
 
 def test_reviews_page_lists_flagged_recordings(engine: Engine, tmp_path: Path) -> None:
