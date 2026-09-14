@@ -33,16 +33,17 @@
     {% for taxon in current_taxa %}
     <span class="classifier-chip" data-taxon-id="{{ taxon.id }}">
       {{ taxon.scientific_name }}
-      <button type="button" class="classifier-chip-remove" aria-label="Remove {{ taxon.scientific_name }}">×</button>
+      <button type="button" class="classifier-chip-remove" aria-label="Remove {{ taxon.scientific_name }}">{{ icon("x") }}</button>
     </span>
     {% endfor %}
     {% if manual_verdict is not none and manual_verdict.value in ("no_id", "noise") %}
     {% set sentinel_label = "No ID" if manual_verdict.value == "no_id" else "Noise" %}
     <span class="classifier-chip" data-sentinel-verdict="{{ manual_verdict.value }}">
       {{ sentinel_label }}
-      <button type="button" class="classifier-chip-remove" aria-label="Remove {{ sentinel_label }}">×</button>
+      <button type="button" class="classifier-chip-remove" aria-label="Remove {{ sentinel_label }}">{{ icon("x") }}</button>
     </span>
     {% endif %}
+    <template id="classifier-chip-remove-icon">{{ icon("x") }}</template>
   </div>
   <input
     type="text"

@@ -114,7 +114,9 @@ function initClassifierBox(box) {
     removeButton.type = "button";
     removeButton.className = "classifier-chip-remove";
     removeButton.setAttribute("aria-label", "Remove " + entry.scientific_name);
-    removeButton.textContent = "×";
+    removeButton.appendChild(
+      document.getElementById("classifier-chip-remove-icon").content.cloneNode(true),
+    );
     chip.appendChild(removeButton);
     tagsEl.appendChild(chip);
     wireRemoveButton(chip);

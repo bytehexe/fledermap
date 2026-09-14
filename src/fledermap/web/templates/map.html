@@ -69,7 +69,7 @@
     </form>
     <span id="site-filter-chip" x-show="site" x-cloak>
       Site filter active
-      <button type="button" @click="fledermapFilterBySite('')">×</button>
+      <button type="button" @click="fledermapFilterBySite('')">{{ icon("x") }}</button>
     </span>
     <!-- The GeoJSON API's own `truncated` flag (services/map_query.py's
          MAX_FEATURES cap) previously computed but never surfaced -- see
@@ -86,8 +86,8 @@
          :class="{ collapsed: $store.drawer.collapsed }">
       <div id="drawer-handle"></div>
       <div id="drawer-header">
-        <button type="button" @click="$store.drawer.collapsed = !$store.drawer.collapsed" aria-label="Collapse">▾</button>
-        <button type="button" @click="fledermapCloseDrawer()" aria-label="Close">×</button>
+        <button type="button" @click="$store.drawer.collapsed = !$store.drawer.collapsed" aria-label="Collapse">{{ icon("chevron-down") }}</button>
+        <button type="button" @click="fledermapCloseDrawer()" aria-label="Close">{{ icon("x") }}</button>
       </div>
       <div id="drawer-body"></div>
     </div>
