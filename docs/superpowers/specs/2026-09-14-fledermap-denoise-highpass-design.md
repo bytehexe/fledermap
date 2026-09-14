@@ -1,6 +1,6 @@
 # Fledermap Denoise/Highpass — Design
 
-**Status:** draft
+**Status:** shipped 2026-09-14
 **Date:** 2026-09-14
 
 ## Problem
