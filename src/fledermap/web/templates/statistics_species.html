@@ -27,12 +27,12 @@
         <div class="stats-panel">
           <div class="stats-panel-header">Recordings per month</div>
           <canvas id="month-line" data-chart="line"></canvas>
-          <div class="stats-caption">Bucketed by calendar month, server time (UTC). <details><summary>{{ icon("info-circle") }}</summary>Not adjusted to any local timezone.</details></div>
+          <div class="stats-caption">Bucketed by calendar month.</div>
         </div>
         <div class="stats-panel">
           <div class="stats-panel-header">Recordings per hour of day</div>
           <canvas id="hour-line" data-chart="line"></canvas>
-          <div class="stats-caption">Hour of day, server time (UTC). <details><summary>{{ icon("info-circle") }}</summary>Not sunset-relative (see the backlogged "H:MM before/after sunset" feature).</details></div>
+          <div class="stats-caption">Hour of day, {{ display_timezone_name }} time. <details><summary>{{ icon("info-circle") }}</summary>Not sunset-relative (see the backlogged "H:MM before/after sunset" feature).</details></div>
         </div>
       </div>
     </div>

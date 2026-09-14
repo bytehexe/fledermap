@@ -248,3 +248,82 @@ def test_statistics_global_page_donut_slices_are_click_throughs_to_species_pages
         '"statistics_url": "/statistics/species/' in html
         or '"statistics_url":"/statistics/species/' in html
     )
+
+
+def test_global_statistics_hour_caption_names_the_real_timezone(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    html = client.get("/statistics").get_data(as_text=True)
+
+    tz_name = app.config["DISPLAY_TIMEZONE_NAME"]
+    assert f"Hour of day, {tz_name} time." in html
+    assert "server time (UTC)" not in html
+
+
+def test_global_statistics_month_caption_has_no_timezone_caveat(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    html = client.get("/statistics").get_data(as_text=True)
+
+    assert "Bucketed by calendar month." in html
+    assert "Not adjusted to any local timezone" not in html
+    assert "server time (UTC)" not in html
+
+
+def test_site_statistics_hour_and_month_captions_are_fixed(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        site = Site(
+            centroid=WKTElement("POINT(10 50)", srid=4326),
+            radius_m=50.0,
+            recording_count=1,
+            first_at=datetime(2026, 8, 25, tzinfo=UTC),
+            last_at=datetime(2026, 8, 25, tzinfo=UTC),
+            name="Old Barn",
+        )
+        session.add(site)
+        session.commit()
+        site_id = site.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    html = client.get(f"/statistics/sites/{site_id}").get_data(as_text=True)
+
+    tz_name = app.config["DISPLAY_TIMEZONE_NAME"]
+    assert f"Hour of day, {tz_name} time." in html
+    assert "Bucketed by calendar month." in html
+    assert "server time (UTC)" not in html
+    assert "Not adjusted to any local timezone" not in html
+
+
+def test_species_statistics_hour_and_month_captions_are_fixed(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Eptesicus serotinus")
+        session.add(taxon)
+        session.commit()
+        taxon_id = taxon.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    html = client.get(f"/statistics/species/{taxon_id}").get_data(as_text=True)
+
+    tz_name = app.config["DISPLAY_TIMEZONE_NAME"]
+    assert f"Hour of day, {tz_name} time." in html
+    assert "Bucketed by calendar month." in html
+    assert "server time (UTC)" not in html
+    assert "Not adjusted to any local timezone" not in html

@@ -97,6 +97,7 @@ def global_statistics_page() -> flask.Response:
             least_sampled_sites=least_sampled_sites.entries,
             month=_series_json(month_series),
             hour=_series_json(hour_series),
+            display_timezone_name=flask.current_app.config["DISPLAY_TIMEZONE_NAME"],
         )
     return flask.make_response(html)
 
@@ -133,6 +134,7 @@ def species_statistics_page(taxon_id: int) -> flask.Response:
             sites=_site_breakdown_json(site_breakdown),
             month=_series_json(month_series),
             hour=_series_json(hour_series),
+            display_timezone_name=flask.current_app.config["DISPLAY_TIMEZONE_NAME"],
         )
     return flask.make_response(html)
 
@@ -164,5 +166,6 @@ def site_statistics_page(site_id: int) -> flask.Response:
             donut=_breakdown_json(donut),
             month=_series_json(month_series),
             hour=_series_json(hour_series),
+            display_timezone_name=flask.current_app.config["DISPLAY_TIMEZONE_NAME"],
         )
     return flask.make_response(html)
