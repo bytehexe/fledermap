@@ -79,8 +79,15 @@ app.config["DISPLAY_TIMEZONE"] = zoneinfo.ZoneInfo(tz_name)
 ```
 
 This is exactly the zone every `TIMESTAMPTZ` column is already being read back in — not a new
-behavior, just naming the existing one. It self-adjusts if the server's configured zone ever
-changes (a fresh deployment, a container defaulting to UTC) with no code change needed.
+behavior, just naming the existing one. What's cached here is the zone *name* (`"Europe/Berlin"`),
+not a fixed offset or abbreviation: `ZoneInfo` carries that zone's whole DST rule set, so the
+abbreviation shown for any given timestamp (§2) is computed fresh, per render, from that
+timestamp's own date — a January recording renders `CET` and a July one `CEST` in the same running
+process with no restart between them. The one thing that does need a restart is the DB server's
+configured zone actually changing (e.g. `Europe/Berlin` → `UTC` in `postgresql.conf`) — a
+deliberate reconfiguration event, not a DST transition. Re-checking `current_setting('TimeZone')`
+per-request would cover that too, but isn't worth a DB round-trip on every page load for an event
+this rare; accepted as a known limitation (D5).
 
 ### 2. Rendering: two Jinja filters
 
@@ -184,6 +191,11 @@ The month chart's caption drops its timezone sentence and `<details>` entirely, 
 - **D4 — month chart's timezone caveat is deleted, not reworded.** A timezone shift changes which
   calendar month a recording falls into only in an edge-of-month, edge-of-day case irrelevant at
   this chart's resolution — the caveat has no actionable content for a reader.
+- **D5 — the display zone *name* is discovered once at app startup, not re-checked per request.**
+  A DST transition needs no re-check (§1 — the cached `ZoneInfo` already handles it). Only an
+  actual reconfiguration of the DB server's `timezone` setting would go unnoticed until the next
+  restart; accepted as a known limitation rather than paying a `current_setting('TimeZone')`
+  round-trip on every page load for an event this rare.
 
 ## Open items
 
