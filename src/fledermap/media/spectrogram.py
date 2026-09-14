@@ -20,6 +20,11 @@ import numpy as np
 from PIL import Image
 from scipy import signal
 
+from fledermap.media.denoise import (
+    DEFAULT_CUTOFF_HZ,
+    highpass_filter,
+    subtract_background_noise,
+)
 from fledermap.media.wav_pcm import read_pcm
 
 
@@ -55,6 +60,13 @@ class SpectrogramParams:
     # process restarts) and so a future second palette is just another
     # string here, not a schema change.
     palette: str = "black_blue_rainbow_red"
+    # Low-frequency noise-band boundary (design spec
+    # docs/superpowers/specs/2026-09-14-fledermap-denoise-highpass-design.md): always excluded
+    # from the color-normalization peak below, and used as the highpass cutoff when `denoise`
+    # is on. A real dataclass field (not a bare module constant) so `params_hash` invalidates
+    # existing cached renders if this value is ever revisited.
+    cutoff_hz: float = DEFAULT_CUTOFF_HZ
+    denoise: bool = False
 
     @property
     def params_hash(self) -> str:
@@ -162,6 +174,8 @@ def render_full_spectrogram_image(
     purely an extraction, not a behavior change.
     """
     samples, samplerate = read_pcm(wav_path)
+    if params.denoise:
+        samples = highpass_filter(samples, samplerate, params.cutoff_hz)
 
     # Clamp to the signal's own length -- without this, a very short (or
     # truncated/corrupt) recording makes nperseg > len(samples), and
@@ -185,10 +199,16 @@ def render_full_spectrogram_image(
     # that doesn't exist (design spec §4).
     max_freq = effective_max_freq_hz(samplerate, params)
     keep = freqs <= max_freq
+    freqs = freqs[keep]
     sxx = sxx[keep, :]
 
-    # dB relative to this recording's own loudest bin, clipped to a fixed
-    # dynamic-range window and normalised to [0, 1] -- NOT `log1p` on raw
+    if params.denoise:
+        sxx = subtract_background_noise(sxx)
+
+    # dB relative to this recording's own loudest bin ABOVE the low-frequency noise-band
+    # boundary (never the low band itself, which can otherwise dominate and darken the whole
+    # image -- design spec's peak-exclusion fix, unconditional, not gated by `denoise`), clipped
+    # to a fixed dynamic-range window and normalised to [0, 1] -- NOT `log1p` on raw
     # power. Bat-call power spectra are almost entirely background well
     # below 1.0 in scipy's PSD units; `log1p(x) ~= x` for `x << 1`, so a
     # plain `log1p` + min-max normalise barely distinguishes the noise floor
@@ -198,7 +218,11 @@ def render_full_spectrogram_image(
     # black with a few faint slivers, confirmed against real recordings
     # 2026-08-26. `10*log10` treats small values proportionally instead, the
     # same convention Audacity/batogram/Kaleidoscope's spectrogram views use.
-    peak = sxx.max()
+    peak = (
+        sxx[freqs >= params.cutoff_hz].max()
+        if (freqs >= params.cutoff_hz).any()
+        else sxx.max()
+    )
     if peak > 0:
         db = 10 * np.log10(np.maximum(sxx, 1e-300) / peak)
         clipped = np.clip(db, -params.dynamic_range_db, 0.0)

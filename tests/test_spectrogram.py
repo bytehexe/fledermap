@@ -484,3 +484,73 @@ def test_stft_hop_samples_floors_nperseg_at_8() -> None:
     assert stft_hop_samples(samplerate_hz=8_000, window_ms=0.1, overlap=0.5) == 8 - int(
         8 * 0.5
     )
+
+
+def test_params_hash_changes_when_cutoff_hz_changes() -> None:
+    base = SpectrogramParams()
+    changed = SpectrogramParams(cutoff_hz=base.cutoff_hz + 1)
+    assert base.params_hash != changed.params_hash
+
+
+def test_params_hash_changes_when_denoise_changes() -> None:
+    base = SpectrogramParams()
+    changed = SpectrogramParams(denoise=not base.denoise)
+    assert base.params_hash != changed.params_hash
+
+
+def test_peak_excludes_low_band_even_when_denoise_is_off(tmp_path: Path) -> None:
+    """A loud low-frequency noise band must not darken the rest of the
+    image by dominating the dB-normalization peak -- excluded from the
+    PEAK computation always, regardless of `denoise` (spec: "clipping in
+    that band would be acceptable")."""
+    wav_path = tmp_path / "noisy.wav"
+    samplerate = 256_000
+    duration_s = 0.05
+    n = int(samplerate * duration_s)
+    t = np.arange(n) / samplerate
+    # A LOUD 2kHz tone (below the 5kHz cutoff) plus a QUIET 45kHz call.
+    loud_low = 32000 * np.sin(2 * np.pi * 2_000 * t)
+    quiet_call = 5000 * np.sin(2 * np.pi * 45_000 * t)
+    samples = (loud_low + quiet_call).astype(np.int16)
+    pcm = samples.tobytes()
+
+    channels, bits = 1, 16
+    byte_rate = samplerate * channels * bits // 8
+    block_align = channels * bits // 8
+    fmt_payload = struct.pack(
+        "<HHIIHH", 1, channels, samplerate, byte_rate, block_align, bits
+    )
+
+    def chunk(chunk_id: bytes, payload: bytes) -> bytes:
+        out = chunk_id + struct.pack("<I", len(payload)) + payload
+        if len(payload) % 2:
+            out += b"\x00"
+        return out
+
+    body = b"WAVE" + chunk(b"fmt ", fmt_payload) + chunk(b"data", pcm)
+    wav_path.write_bytes(b"RIFF" + struct.pack("<I", len(body)) + body)
+
+    params = SpectrogramParams(cutoff_hz=5000.0)
+    full_image = render_full_spectrogram_image(wav_path, params)
+
+    # A pixel in the 45kHz call's row must be bright (not crushed to the palette floor) --
+    # if the peak were still `sxx.max()` (dominated by the loud low tone), the quiet call
+    # would normalize far below the palette's visible range.
+    freqs_axis_top_khz = min(params.max_freq_hz, samplerate / 2) / 1000
+    call_row_frac = 1 - (45.0 / freqs_axis_top_khz)  # image row 0 = top = highest freq
+    call_row = int(call_row_frac * (full_image.image.height - 1))
+    pixel = full_image.image.getpixel((full_image.image.width // 2, call_row))
+    assert pixel != (0, 0, 0)  # not the palette floor colour
+
+
+def test_denoise_true_changes_spectrogram_pixels(tmp_path: Path) -> None:
+    wav_path = tmp_path / "call.wav"
+    _sine_wav(wav_path)
+    plain_out = tmp_path / "plain.webp"
+    denoised_out = tmp_path / "denoised.webp"
+
+    render_spectrogram(wav_path, plain_out, params=SpectrogramParams(denoise=False))
+    render_spectrogram(wav_path, denoised_out, params=SpectrogramParams(denoise=True))
+
+    with Image.open(plain_out) as a, Image.open(denoised_out) as b:
+        assert a.tobytes() != b.tobytes()
