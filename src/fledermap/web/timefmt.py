@@ -18,13 +18,28 @@ from zoneinfo import ZoneInfo
 
 
 def local_datetime(dt: datetime | None, tz: ZoneInfo) -> str:
-    """'2026-09-06 20:29 CEST'. `None` (an optional column with no value,
-    e.g. a session's `weather`-adjacent nullable timestamps) renders as an
-    em dash rather than raising or printing 'None'."""
+    """'2026-09-06 20:29 CEST'. No current caller passes `None` -- every
+    template today uses this on a non-nullable timestamp -- but the `None`
+    branch exists so a future nullable timestamp column (e.g.
+    `Recording.filename_at`, `MergeProposal.resolved_at`) renders an em dash
+    through this filter rather than the literal string 'None' if one is ever
+    passed through it."""
     if dt is None:
         return "—"
     local = dt.astimezone(tz)
     return f"{local:%Y-%m-%d %H:%M %Z}"
+
+
+def local_datetime_seconds(dt: datetime | None, tz: ZoneInfo) -> str:
+    """'2026-09-06 20:29:53 CEST' -- like local_datetime but with seconds.
+    Used only where a user distinguishes one recording from a near-identical
+    neighbor recorded seconds apart (recording_details.html, the drawer
+    panel's recording metadata) -- everywhere else, minute resolution is
+    enough and local_datetime is used instead."""
+    if dt is None:
+        return "—"
+    local = dt.astimezone(tz)
+    return f"{local:%Y-%m-%d %H:%M:%S %Z}"
 
 
 def local_date(dt: datetime | None, tz: ZoneInfo) -> str:

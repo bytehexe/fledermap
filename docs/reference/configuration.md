@@ -49,6 +49,12 @@ Notes on individual settings:
   leave as-is for any deployment — the vendor JS/CSS it holds is small and
   automatically re-fetched if missing, not something you place
   deliberately.
+- **`default_timezone`** is an ingest-time fallback only, used when a recording's metadata
+  carries no offset evidence at all. It is unrelated to the UI's *display* timezone: that is
+  discovered automatically from the database server's own configured `timezone` setting at
+  startup, is not configurable via any `FLEDERMAP_*` setting, and applies to every timestamp the
+  web app renders regardless of this setting — see `docs/superpowers/specs/
+  2026-09-14-fledermap-timezone-display-design.md`.
 - Every path-typed setting (`archive_roots`, `media_root`, `static_root`,
   `FLEDERMAP_CONFIG_FILE` itself) accepts a leading `~`, expanded to the
   home directory of whichever user actually runs the command.

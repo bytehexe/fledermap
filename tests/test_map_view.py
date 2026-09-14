@@ -204,7 +204,7 @@ def test_session_filter_is_a_dropdown_labelled_by_date_range_and_detector(
     expected_end = local_datetime(ended_at, display_tz)
     assert '<select name="session"' in html
     assert (
-        f'<option value="{session_id}">{expected_start}–{expected_end} (ABC123)</option>'
+        f'<option value="{session_id}">{expected_start} – {expected_end} (ABC123)</option>'
         in html
     )
 
@@ -229,7 +229,7 @@ def test_session_option_falls_back_when_detector_key_is_missing(
     started_at = datetime(2026, 8, 1, 22, 0, tzinfo=UTC)
     ended_at = datetime(2026, 8, 1, 23, 15, tzinfo=UTC)
     expected = (
-        f"{local_datetime(started_at, display_tz)}–{local_datetime(ended_at, display_tz)} "
+        f"{local_datetime(started_at, display_tz)} – {local_datetime(ended_at, display_tz)} "
         "(unknown detector)"
     )
     assert expected in html

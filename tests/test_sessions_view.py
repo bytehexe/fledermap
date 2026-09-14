@@ -12,16 +12,19 @@ from fledermap.domain.codes import MergeResolution, VisualSighting
 from fledermap.store.models import Recording, SessionMergeProposal
 from fledermap.store.models import Session as AnnotationSession
 from fledermap.web.app import create_app
+from fledermap.web.timefmt import local_datetime
 
 pytestmark = [pytest.mark.db, pytest.mark.usefixtures("_vendor_icons")]
 
 
 def test_sessions_list_renders_a_session_row(engine: Engine, tmp_path: Path) -> None:
+    started_at = datetime(2026, 8, 21, 21, tzinfo=UTC)
+    ended_at = datetime(2026, 8, 21, 23, tzinfo=UTC)
     with OrmSession(engine) as session:
         session.add(
             AnnotationSession(
-                started_at=datetime(2026, 8, 21, 21, tzinfo=UTC),
-                ended_at=datetime(2026, 8, 21, 23, tzinfo=UTC),
+                started_at=started_at,
+                ended_at=ended_at,
                 detector_key="EMT\x1f1",
             ),
         )
@@ -36,6 +39,9 @@ def test_sessions_list_renders_a_session_row(engine: Engine, tmp_path: Path) -> 
     html = response.get_data(as_text=True)
     assert "EMT" in html
     assert "kind" not in html.lower()  # 2026-08-29: SessionKind removed entirely
+    display_tz = app.config["DISPLAY_TIMEZONE"]
+    expected_range = f"{local_datetime(started_at, display_tz)} – {local_datetime(ended_at, display_tz)}"
+    assert expected_range in html
 
 
 def test_sessions_list_filters_by_detector(engine: Engine, tmp_path: Path) -> None:

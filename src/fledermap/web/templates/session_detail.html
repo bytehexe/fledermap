@@ -50,7 +50,7 @@
       <p>
         <span style="color: var(--color-warning)">{{ icon("alert-triangle") }}</span> This session may merge with session
         <a href="/sessions/{{ op.counterpart.id }}">#{{ op.counterpart.id }}</a>
-        ({{ op.counterpart.started_at | local_datetime }}–{{ op.counterpart.ended_at | local_datetime }}).
+        ({{ op.counterpart.started_at | local_datetime }} – {{ op.counterpart.ended_at | local_datetime }}).
       </p>
       <form class="stacked-form" id="merge-resolution-form" method="post" action="/sessions/merge-proposals/{{ op.proposal.id }}/resolve">
         <label>Combined note

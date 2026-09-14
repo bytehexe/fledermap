@@ -12,7 +12,7 @@ behavior rather than introducing a new one.
 from __future__ import annotations
 
 from pathlib import Path
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import flask
 from sqlalchemy import Engine, text
@@ -22,7 +22,7 @@ from fledermap.services.current_best import identification_label, recording_head
 from fledermap.web.api.geojson import api_bp
 from fledermap.web.icons import make_icon_global
 from fledermap.web.params import detector_label
-from fledermap.web.timefmt import local_date, local_datetime
+from fledermap.web.timefmt import local_date, local_datetime, local_datetime_seconds
 from fledermap.web.views.entities import entities_bp
 from fledermap.web.views.map import views_bp
 from fledermap.web.views.media import media_bp
@@ -30,6 +30,24 @@ from fledermap.web.views.recording_detail import recording_detail_bp
 from fledermap.web.views.reviews import reviews_bp
 from fledermap.web.views.sessions import sessions_bp
 from fledermap.web.views.statistics import statistics_bp
+
+
+def _resolve_display_timezone(display_timezone_name: str) -> ZoneInfo:
+    """Wraps `ZoneInfo(...)` with an actionable error message -- pulled out of
+    `create_app` so this string-to-ZoneInfo logic (and its failure mode) can
+    be unit-tested directly against a bogus name, without needing a real
+    Postgres connection to produce one."""
+    try:
+        return ZoneInfo(display_timezone_name)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        msg = (
+            f"Postgres's configured timezone {display_timezone_name!r} "
+            "(from SELECT current_setting('TimeZone')) is not a name Python's "
+            "zoneinfo module recognizes. Check the DB server's `timezone` "
+            "setting, and that the `tzdata` package is installed if running "
+            "on a minimal/Alpine-based image."
+        )
+        raise RuntimeError(msg) from exc
 
 
 def create_app(
@@ -65,7 +83,7 @@ def create_app(
         display_timezone_name = session.execute(
             text("SELECT current_setting('TimeZone')")
         ).scalar_one()
-    display_timezone = ZoneInfo(display_timezone_name)
+    display_timezone = _resolve_display_timezone(display_timezone_name)
     app.config["DISPLAY_TIMEZONE_NAME"] = display_timezone_name
     app.config["DISPLAY_TIMEZONE"] = display_timezone
 
@@ -74,9 +92,13 @@ def create_app(
         dt, display_timezone
     )
     app.jinja_env.filters["local_date"] = lambda dt: local_date(dt, display_timezone)
+    app.jinja_env.filters["local_datetime_seconds"] = lambda dt: local_datetime_seconds(
+        dt, display_timezone
+    )
     app.jinja_env.globals["recording_headline"] = recording_headline
     app.jinja_env.globals["identification_label"] = identification_label
     app.jinja_env.globals["icon"] = make_icon_global(static_root / "vendor")
+    app.jinja_env.globals["display_timezone_name"] = display_timezone_name
 
     vendor_bp = flask.Blueprint(
         "vendor",

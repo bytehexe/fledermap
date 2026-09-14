@@ -272,6 +272,25 @@ Every drawer panel header (`.panel-header`) and every full-page `.entity-header`
 **"Full page"**, not a per-entity phrase like "Details" or "Full site page" — same role, same
 word, everywhere it appears.
 
+## Timestamp display
+
+Every displayed timestamp goes through one of three Jinja filters — never a bare
+`.strftime()`/`.isoformat()` call on a stored timestamp:
+
+- **`local_datetime`** — `YYYY-MM-DD HH:MM ZZZ` (e.g. `2026-09-06 20:29 CEST`). The default;
+  used everywhere a zone-aware minute-resolution timestamp is shown.
+- **`local_date`** — `YYYY-MM-DD`, no zone suffix. For date-only columns where a bare calendar
+  date reads fine without one and there's no room for it (`sites_list.html`'s `last_at`).
+- **`local_datetime_seconds`** — `YYYY-MM-DD HH:MM:SS ZZZ`. Only for `recording_details.html`
+  and `_recording_panel.html`'s `recorded_at` line, where a user distinguishes one recording from
+  a near-identical neighbor recorded seconds apart — everywhere else, minute resolution is enough.
+
+A start–end range renders each end independently through the same filter (never a shared,
+zone-shown-once macro), separated by a spaced en dash: ` – ` — e.g. `{{ s.started_at |
+local_datetime }} – {{ s.ended_at | local_datetime }}`. Rendering each end through the filter
+separately, rather than formatting the pair once, keeps the range consistent with every
+single-timestamp use of the same filter without a second formatting path to keep in sync.
+
 ### Back-links (`return_to`)
 
 A detail page reachable from more than one place (the map drawer, a table row on another

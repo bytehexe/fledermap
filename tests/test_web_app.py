@@ -58,3 +58,4 @@ def test_create_app_registers_local_datetime_and_local_date_filters(
 
     assert "local_datetime" in app.jinja_env.filters
     assert "local_date" in app.jinja_env.filters
+    assert "local_datetime_seconds" in app.jinja_env.filters

@@ -14,6 +14,7 @@ from fledermap.domain.codes import IdSource, Verdict
 from fledermap.store.models import Identification, Recording, Site, Taxon
 from fledermap.store.models import Session as AnnotationSession
 from fledermap.web.app import create_app
+from fledermap.web.timefmt import local_datetime_seconds
 
 pytestmark = [pytest.mark.db, pytest.mark.usefixtures("_vendor_icons")]
 
@@ -35,12 +36,13 @@ def test_recording_details_page_renders_the_recording(
     engine: Engine,
     tmp_path: Path,
 ) -> None:
+    recorded_at = datetime(2026, 8, 25, 21, 0, 0, tzinfo=UTC)
     with OrmSession(engine) as session:
         session.add(
             Recording(
                 audio_hash="f2" * 32,
                 path="a.wav",
-                recorded_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+                recorded_at=recorded_at,
                 make="Wildlife Acoustics",
                 model="Echo Meter Touch 2",
                 duration_s=0.5,
@@ -57,6 +59,8 @@ def test_recording_details_page_renders_the_recording(
     assert "Echo Meter Touch 2" in html
     assert f"/recordings/{'f2' * 32}/detail-spectrogram/0.webp" in html
     assert f"/recordings/{'f2' * 32}/detail-oscillogram/0.webp" in html
+    display_tz = app.config["DISPLAY_TIMEZONE"]
+    assert local_datetime_seconds(recorded_at, display_tz) in html
 
 
 def test_recording_details_page_explains_a_missing_site_as_an_outlier(
