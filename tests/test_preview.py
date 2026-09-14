@@ -103,3 +103,61 @@ def test_writes_atomically_leaving_no_temp_file_behind(tmp_path: Path) -> None:
 
     leftover = [p for p in tmp_path.iterdir() if p not in (wav_path, out_path)]
     assert leftover == []
+
+
+def test_denoise_true_changes_preview_output(tmp_path: Path) -> None:
+    wav_path = tmp_path / "call.wav"
+    _sine_wav(
+        wav_path, freq_hz=2_000.0
+    )  # below the 5kHz cutoff -- denoise should audibly change it
+    plain_out = tmp_path / "plain.opus"
+    denoised_out = tmp_path / "denoised.opus"
+
+    make_preview(wav_path, plain_out, denoise=False)
+    make_preview(wav_path, denoised_out, denoise=True)
+
+    assert plain_out.read_bytes() != denoised_out.read_bytes()
+
+
+def _decode_to_pcm(path: Path) -> bytes:
+    result = subprocess.run(
+        [
+            "ffmpeg",
+            "-v",
+            "quiet",
+            "-i",
+            str(path),
+            "-f",
+            "s16le",
+            "-acodec",
+            "pcm_s16le",
+            "-",
+        ],
+        capture_output=True,
+        check=True,
+    )
+    return result.stdout
+
+
+def test_denoise_false_is_byte_identical_to_no_kwarg(tmp_path: Path) -> None:
+    """Regression guard: the default/off path must be untouched -- the
+    existing raw-frame pass-through, not routed through decode/filter/
+    re-encode at all.
+
+    Compares decoded PCM samples rather than the two `.opus` files'
+    raw bytes: ffmpeg's ogg muxer embeds a randomly-generated stream
+    serial number on every invocation (confirmed by diffing two
+    denoise=False encodes of identical input -- they differ starting
+    exactly at the Ogg page header's serial-number field, while their
+    decoded audio is bit-identical), so raw-byte equality can never hold
+    across two separate `make_preview` calls regardless of correctness.
+    """
+    wav_path = tmp_path / "call.wav"
+    _sine_wav(wav_path)
+    explicit_out = tmp_path / "explicit.opus"
+    default_out = tmp_path / "default.opus"
+
+    make_preview(wav_path, explicit_out, denoise=False)
+    make_preview(wav_path, default_out)
+
+    assert _decode_to_pcm(explicit_out) == _decode_to_pcm(default_out)

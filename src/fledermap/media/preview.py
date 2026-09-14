@@ -18,6 +18,9 @@ from __future__ import annotations
 import wave
 from pathlib import Path
 
+import numpy as np
+
+from fledermap.media.denoise import DEFAULT_CUTOFF_HZ, highpass_filter
 from fledermap.media.opus_pipeline import encode_pcm_as_opus
 
 # Public: the recording details page's JS needs this to convert between the
@@ -27,11 +30,27 @@ from fledermap.media.opus_pipeline import encode_pcm_as_opus
 TIME_EXPANSION_FACTOR = 10
 
 
-def make_preview(wav_path: Path, out_path: Path) -> None:
-    """Render `wav_path`'s x10 time-expanded preview to `out_path` as Opus."""
+def make_preview(
+    wav_path: Path,
+    out_path: Path,
+    *,
+    denoise: bool = False,
+    cutoff_hz: float = DEFAULT_CUTOFF_HZ,
+) -> None:
+    """Render `wav_path`'s x10 time-expanded preview to `out_path` as Opus.
+    `denoise=False` (the default) is the exact original raw-frame pass-
+    through -- no decode, no DSP, "nearly free" as documented above. Only
+    `denoise=True` decodes to numpy, highpass-filters, and re-encodes;
+    assumes mono input, matching this project's established assumption
+    elsewhere (`wav_pcm.read_pcm` already averages multi-channel to mono)."""
     with wave.open(str(wav_path), "rb") as src:
         params = src.getparams()
         frames = src.readframes(src.getnframes())
+
+    if denoise:
+        samples = np.frombuffer(frames, dtype=np.int16).astype(np.float64)
+        filtered = highpass_filter(samples, params.framerate, cutoff_hz)
+        frames = np.clip(filtered, -32768, 32767).astype(np.int16).tobytes()
 
     slow_rate = params.framerate // TIME_EXPANSION_FACTOR
     encode_pcm_as_opus(
