@@ -330,15 +330,25 @@ document.addEventListener("DOMContentLoaded", () => {
     // the oscillogram row that now sits above the spectrogram (compact
     // strip above the main view, matching the drawer panel's convention).
     // A tick's `top` has to include all of that offset or it aligns
-    // against the wrong origin. `oscillogramWrap.offsetHeight` is safe to
-    // read here even before its tiles load: the template reserves its
-    // real final height inline (`style="height: ...px"`, from the same
-    // server-known number the tiles themselves use), so it doesn't
-    // collapse to 0 while its images are still `hidden` the way it would
-    // without that reservation. It's already zoomed by `fitDetailHeight`
-    // (a real rendered/layout size, not a native one), so it needs no
-    // further scaling here -- only the native `pxPerKhz` term below does.
-    const spectrogramTop = timeAxis.offsetHeight + oscillogramWrap.offsetHeight;
+    // against the wrong origin. `oscillogramWrap`'s real ON-SCREEN height
+    // must come from `getBoundingClientRect().height`, NOT `.offsetHeight`
+    // -- confirmed live (Obsidian: "axis labels ... completely off for
+    // kHz"): `oscillogramWrap` is zoomed by `fitDetailHeight` via CSS
+    // `zoom`, and Chromium's `offsetHeight` on a zoomed element reports its
+    // PRE-zoom/native size, not the rendered one -- the opposite of what
+    // the removed comment here used to assume. That silently added the
+    // FULL native oscillogram height instead of its shrunk on-screen
+    // height, pushing every freq tick down by the difference (native minus
+    // scaled) -- 27px too low at this page's typical zoom, confirmed by
+    // comparing tick screen position against the spectrogram image's own
+    // `getBoundingClientRect()`. `timeAxis` is never zoomed, so its
+    // `offsetHeight` was never wrong, but it's read the same way here for
+    // consistency with the same reasoning. `oscillogramWrap`'s template-
+    // reserved inline height (`style="height: ...px"`, so it doesn't
+    // collapse to 0 before its tiles load) is what `getBoundingClientRect()`
+    // measures too, so this still reads correctly pre-load.
+    const spectrogramTop =
+      timeAxis.getBoundingClientRect().height + oscillogramWrap.getBoundingClientRect().height;
     for (let khz = 0; khz <= maxFreqKhz; khz += tickKhz) {
       const tick = document.createElement("span");
       tick.className = "detail-axis-tick detail-axis-tick-freq";
