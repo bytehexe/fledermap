@@ -34,7 +34,7 @@
     <h3>Sessions</h3>
     <ul>
       {% for s in detail.sessions %}
-      <li><a href="/sessions/{{ s.id }}">{{ s.started_at.strftime('%Y-%m-%d %H:%M') }}–{{ s.ended_at.strftime('%H:%M') }}</a></li>
+      <li><a href="/sessions/{{ s.id }}">{{ s.started_at | local_datetime }}–{{ s.ended_at | local_datetime }}</a></li>
       {% endfor %}
     </ul>
   </div>

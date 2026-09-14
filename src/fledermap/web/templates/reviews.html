@@ -19,7 +19,7 @@
         {% for row in rows %}
         <tr>
           <td>{{ row.site_label or "No site" }}</td>
-          <td>{{ row.recorded_at.strftime('%Y-%m-%d %H:%M') }}</td>
+          <td>{{ row.recorded_at | local_datetime }}</td>
           <td><a href="/recordings/{{ row.audio_hash }}?review={{ review_qs }}">{{ row.species_label }}</a></td>
           <td>{{ row.reasons | join(", ") }}</td>
         </tr>

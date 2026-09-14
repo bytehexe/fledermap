@@ -50,7 +50,7 @@
       <tbody>
         {% for recording in detail.recent_recordings %}
         <tr>
-          <td><a href="/recordings/{{ recording.audio_hash }}?return_to=/species/{{ detail.taxon.id }}">{{ recording.recorded_at.strftime('%Y-%m-%d %H:%M') }}</a></td>
+          <td><a href="/recordings/{{ recording.audio_hash }}?return_to=/species/{{ detail.taxon.id }}">{{ recording.recorded_at | local_datetime }}</a></td>
         </tr>
         {% else %}
         <tr><td>No recordings yet.</td></tr>

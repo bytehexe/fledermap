@@ -54,7 +54,7 @@
       <tbody>
         {% for s in detail.sessions %}
         <tr>
-          <td><a href="/sessions/{{ s.id }}">{{ s.started_at.strftime('%Y-%m-%d %H:%M') }}–{{ s.ended_at.strftime('%H:%M') }}</a></td>
+          <td><a href="/sessions/{{ s.id }}">{{ s.started_at | local_datetime }}–{{ s.ended_at | local_datetime }}</a></td>
           <td>{{ s.detector_key | detector_label }}</td>
         </tr>
         {% else %}

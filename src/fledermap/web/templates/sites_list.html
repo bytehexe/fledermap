@@ -18,7 +18,7 @@
           <td><a href="/sites/{{ site.id }}">{{ label }}</a></td>
           <td>{{ site.admin_path or "" }}</td>
           <td>{{ site.recording_count }}</td>
-          <td>{{ site.last_at.strftime('%Y-%m-%d') }}</td>
+          <td>{{ site.last_at | local_date }}</td>
         </tr>
         {% else %}
         <tr><td colspan="4">No sites derived yet.</td></tr>

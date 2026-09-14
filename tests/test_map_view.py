@@ -16,6 +16,7 @@ from fledermap.services.map_query import filtered_recordings
 from fledermap.store.models import Identification, Recording, Site, Taxon
 from fledermap.store.models import Session as AnnotationSession
 from fledermap.web.app import create_app
+from fledermap.web.timefmt import local_datetime
 
 pytestmark = [pytest.mark.db, pytest.mark.usefixtures("_vendor_icons")]
 
@@ -182,10 +183,12 @@ def test_session_filter_is_a_dropdown_labelled_by_date_range_and_detector(
     engine: Engine,
     tmp_path: Path,
 ) -> None:
+    started_at = datetime(2026, 8, 1, 22, 0, tzinfo=UTC)
+    ended_at = datetime(2026, 8, 1, 23, 15, tzinfo=UTC)
     with OrmSession(engine) as session:
         annotation_session = AnnotationSession(
-            started_at=datetime(2026, 8, 1, 22, 0, tzinfo=UTC),
-            ended_at=datetime(2026, 8, 1, 23, 15, tzinfo=UTC),
+            started_at=started_at,
+            ended_at=ended_at,
             detector_key="ABC123",
         )
         session.add(annotation_session)
@@ -196,9 +199,13 @@ def test_session_filter_is_a_dropdown_labelled_by_date_range_and_detector(
     client = app.test_client()
 
     html = client.get("/").get_data(as_text=True)
+    display_tz = app.config["DISPLAY_TIMEZONE"]
+    expected_start = local_datetime(started_at, display_tz)
+    expected_end = local_datetime(ended_at, display_tz)
     assert '<select name="session"' in html
     assert (
-        f'<option value="{session_id}">2026-08-01 22:00–23:15 (ABC123)</option>' in html
+        f'<option value="{session_id}">{expected_start}–{expected_end} (ABC123)</option>'
+        in html
     )
 
 
@@ -218,7 +225,14 @@ def test_session_option_falls_back_when_detector_key_is_missing(
     client = app.test_client()
 
     html = client.get("/").get_data(as_text=True)
-    assert "2026-08-01 22:00–23:15 (unknown detector)" in html
+    display_tz = app.config["DISPLAY_TIMEZONE"]
+    started_at = datetime(2026, 8, 1, 22, 0, tzinfo=UTC)
+    ended_at = datetime(2026, 8, 1, 23, 15, tzinfo=UTC)
+    expected = (
+        f"{local_datetime(started_at, display_tz)}–{local_datetime(ended_at, display_tz)} "
+        "(unknown detector)"
+    )
+    assert expected in html
 
 
 def test_recording_panel_renders_identification_and_metadata(

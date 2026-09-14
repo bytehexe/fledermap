@@ -7,7 +7,7 @@
   <main class="main-content" id="session-detail">
     <a href="/sessions">{{ icon("chevron-left") }} Back to sessions</a>
     <h1>
-      Session: {{ detail.session.started_at.strftime('%Y-%m-%d %H:%M') }} – {{ detail.session.ended_at.strftime('%H:%M') }}
+      Session: {{ detail.session.started_at | local_datetime }} – {{ detail.session.ended_at | local_datetime }}
     </h1>
     <p class="detail-meta">Detector: {{ detail.session.detector_key | detector_label }}</p>
     {% if detail.sites %}
@@ -50,7 +50,7 @@
       <p>
         <span style="color: var(--color-warning)">{{ icon("alert-triangle") }}</span> This session may merge with session
         <a href="/sessions/{{ op.counterpart.id }}">#{{ op.counterpart.id }}</a>
-        ({{ op.counterpart.started_at.strftime('%Y-%m-%d %H:%M') }}–{{ op.counterpart.ended_at.strftime('%H:%M') }}).
+        ({{ op.counterpart.started_at | local_datetime }}–{{ op.counterpart.ended_at | local_datetime }}).
       </p>
       <form class="stacked-form" id="merge-resolution-form" method="post" action="/sessions/merge-proposals/{{ op.proposal.id }}/resolve">
         <label>Combined note
@@ -81,7 +81,7 @@
       <tbody>
         {% for recording, best, taxon in recordings_with_id %}
         <tr>
-          <td><a href="/recordings/{{ recording.audio_hash }}?return_to=/sessions/{{ detail.session.id }}">{{ recording.recorded_at.strftime('%Y-%m-%d %H:%M') }}</a></td>
+          <td><a href="/recordings/{{ recording.audio_hash }}?return_to=/sessions/{{ detail.session.id }}">{{ recording.recorded_at | local_datetime }}</a></td>
           <td>{{ recording_headline(taxon, best) }}</td>
         </tr>
         {% else %}
