@@ -564,29 +564,40 @@ document.addEventListener("DOMContentLoaded", () => {
   // same event, so all three now reveal the target marker's cluster the
   // same way, not just the initial click.
   //
-  // Pan to the exact coordinate FIRST, before calling zoomToShowLayer --
-  // not the other way round. zoomToShowLayer only moves the map when it
-  // decides the marker isn't already visible; panning to the marker's
-  // real lat/lng first means that check already finds it in view for the
-  // common case (already unclustered, or clustered but not requiring a
-  // zoom change), so zoomToShowLayer does nothing but spiderfy in place --
-  // ONE motion, not our own pan and then a second, separately-aimed one
-  // from the plugin landing a moment later (previously both "roughly
-  // correct" but visibly sequential/competing). When a zoom change genuinely
-  // is needed (still clustered at the current zoom), zoomToShowLayer's own
-  // zoom-in happens around the point we already centered on, rather than
-  // ALSO panning sideways to get there.
+  // When the marker is already loaded, let zoomToShowLayer own ALL of the
+  // movement -- don't also panTo the coordinate ourselves first. zoomToShowLayer
+  // decides for itself whether it needs to pan, zoom, or do nothing, and
+  // when it does move, it targets the marker's own position directly
+  // (`e.getLatLng()`, or its cluster's bounds). An earlier version of this
+  // handler called `map.panTo([latitude, longitude])` first "so
+  // zoomToShowLayer finds it already in view and does nothing but spiderfy
+  // in place" -- but that assumed zoomToShowLayer's own "already visible,
+  // don't move at all" fast path can actually take. It can't, for any
+  // marker here: that fast path is gated on `e._icon`
+  // (leaflet.markercluster's zoomToShowLayer, vendored source), a property
+  // only icon-based L.Marker has -- every recording marker is an
+  // L.circleMarker (a vector Path, with `_path`, never `_icon`). So
+  // zoomToShowLayer ALWAYS did its own separate pan or zoomToBounds
+  // afterward regardless, targeting the marker's own stored lat/lng --
+  // which isn't bit-identical to the server-decoded point our panTo just
+  // used, so the two independently-aimed movements visibly landed a beat
+  // apart. Confirmed live via headless Chrome: re-clicking an
+  // already-selected, already-centered marker at max zoom still panned
+  // away from it and back. Dropping our own panTo removes the second,
+  // redundant movement entirely rather than trying to keep both perfectly
+  // in sync.
   //
   // Bug (Obsidian, 2026-09): a revealed marker would blink back into its
   // cluster a moment after appearing, and separately (root-caused
   // 2026-09-13, see revealInFlight's own comment) could get stuck
   // permanently unrevealed when the reveal needed a real intermediate zoom
-  // change. Both are the same underlying cause: panTo and zoomToShowLayer
-  // below fire moveend/zoomend, which the debounced viewport refresh above
-  // (300ms) would otherwise pick up and rebuild the ENTIRE recordings layer
-  // from a fresh fetch via clearLayers()+re-add mid-reveal. revealInFlight
-  // marks the whole reveal (not just a single zoom-unchanged step) so
-  // scheduleViewportRefresh skips every moveend/zoomend this reveal itself causes.
+  // change. Both trace to the same underlying cause: any movement
+  // zoomToShowLayer causes fires moveend/zoomend, which the debounced
+  // viewport refresh above (300ms) would otherwise pick up and rebuild the
+  // ENTIRE recordings layer from a fresh fetch via clearLayers()+re-add
+  // mid-reveal. revealInFlight marks the whole reveal (not just a single
+  // zoom-unchanged step) so scheduleViewportRefresh skips every
+  // moveend/zoomend this reveal itself causes.
   document.body.addEventListener("recording-selected", (event) => {
     const { latitude, longitude, hash } = event.detail;
     const marker = recordingLayersByHash.get(hash);
@@ -599,44 +610,25 @@ document.addEventListener("DOMContentLoaded", () => {
       startReveal();
     }
 
-    // Reveal the marker (zoomToShowLayer, or just highlight if it isn't
-    // loaded) only AFTER panTo's own pan animation has genuinely finished
-    // -- not issued back-to-back with it. panTo is itself asynchronous/
-    // animated; calling zoomToShowLayer immediately after only sequences
-    // the two CALLS, not their completions, so zoomToShowLayer could
-    // decide the marker's already visible (its real lat/lng doesn't
-    // depend on the pan animation having visually caught up) and fire its
-    // OWN completion callback -- clearing revealInFlight -- while panTo's
-    // pan was still mid-animation. That pan's own later, independent
-    // moveend then arrived AFTER the guard had already cleared, and
-    // scheduleViewportRefresh's debounce (armed by that trailing moveend)
-    // went on to do a real refresh: confirmed live via headless Chrome,
-    // both as the reported bug (reclustering + dropped highlight a moment
-    // after a marker click) and, in one run, as an outright crash in
-    // leaflet.markercluster's own zoomToShowLayer (clearLayers() detached
-    // a marker its still-pending internal completion listener needed).
-    // Waiting for panTo's moveend first removes the unsequenced animation
-    // entirely, rather than trying to out-guess its timing.
-    function revealMarker() {
-      if (marker) {
-        recordingsLayer.zoomToShowLayer(marker, () => {
-          endReveal();
-          highlightRecording(hash);
-        });
-      } else {
-        // No marker (e.g. a stale hash after a filter change rebuilt the
-        // layer) -- just highlight, same graceful no-op highlightRecording
-        // already falls back to.
+    if (marker) {
+      recordingsLayer.zoomToShowLayer(marker, () => {
         endReveal();
         highlightRecording(hash);
-      }
-    }
-
-    if (latitude != null && longitude != null) {
-      map.once("moveend", revealMarker);
+      });
+    } else if (latitude != null && longitude != null) {
+      // No marker loaded yet (e.g. a stale hash after a filter change
+      // rebuilt the layer) -- there's no cluster-group object to hand the
+      // movement off to, so pan to the point ourselves; highlightRecording's
+      // own no-op fallback covers the missing highlight.
+      map.once("moveend", () => {
+        endReveal();
+        highlightRecording(hash);
+      });
       map.panTo([latitude, longitude]);
     } else {
-      revealMarker();
+      endReveal(); // nothing moved -- startReveal() was never called
+                    // above either, but keep this call for symmetry.
+      highlightRecording(hash);
     }
 
     // prev/next inside the drawer swaps which recording's panel is showing
