@@ -15,29 +15,10 @@ from fledermap.store.models import Identification, Recording, Site, Taxon
 from fledermap.store.models import Session as AnnotationSession
 from fledermap.web.app import create_app
 
-pytestmark = pytest.mark.db
+pytestmark = [pytest.mark.db, pytest.mark.usefixtures("_vendor_icons")]
 
-
-def _write_icon_svg(vendor_dir: Path, style: str, name: str) -> None:
-    """See the identical helper in `tests/test_map_view.py` -- same reason: Task 4 is the first
-    to render `icon()` calls through a real page template, and `tmp_path / "static"` starts
-    empty in every test here (nothing in this suite calls the network-fetching
-    `ensure_vendor_assets`)."""
-    dest = vendor_dir / "icons" / style / f"{name}.svg"
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(
-        '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" '
-        f'class="icon icon-tabler icons-tabler-{style} icon-tabler-{name}">'
-        f"<title>{name}</title></svg>",
-    )
-
-
-@pytest.fixture(autouse=True)
-def _vendor_icons(tmp_path: Path) -> None:
-    vendor_dir = tmp_path / "static" / "vendor"
-    for style in ("outline", "filled"):
-        for name in ("flag", "star"):
-            _write_icon_svg(vendor_dir, style, name)
+# Vendor icon SVGs (needed by any template calling `icon()`) are written by the centralized
+# `_vendor_icons` autouse fixture in `tests/conftest.py` -- see its docstring.
 
 
 def test_recording_details_page_404s_for_an_unknown_hash(

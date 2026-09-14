@@ -9,9 +9,50 @@ from sqlalchemy import Engine, text
 from testcontainers.community.postgres import PostgresContainer
 
 from fledermap.config import ENV_CONFIG_FILE
+from fledermap.services.vendor_assets import ASSETS
 from fledermap.store import db
 from fledermap.store.db import make_engine
 from fledermap.store.models import Base
+
+
+@pytest.fixture
+def _vendor_icons(tmp_path: Path) -> None:
+    """Every view test builds `create_app(engine, tmp_path / "static", ...)` against a fresh,
+    empty `tmp_path` -- nothing in this suite calls the network-fetching `ensure_vendor_assets`
+    (see `tests/test_cli.py`'s `_populate_vendor_cache`, which writes empty placeholder bytes,
+    not real content). That's fine for JS/CSS, which no test reads the content of, but
+    `web/icons.py`'s `icon()` Jinja global reads a real SVG file off disk and raises
+    `IconNotFoundError` loudly if it's missing -- so any test that renders a template calling
+    `icon()` needs one there first.
+
+    Centralized here (2026-09-13, Task 4 of the icon-set migration) rather than duplicated per
+    test file: writes a minimal but real-Tabler-shaped SVG (same `class="icon icon-tabler
+    icons-tabler-<style> icon-tabler-<name>"` convention `web/icons.py` documents) for every
+    icon `vendor_assets.ASSETS` entry, derived from `relative_path` so this can't silently drift
+    from the actual pinned inventory. Non-icon assets (leaflet.js, chart.js, ...) are skipped --
+    nothing reads their content in tests, only whether the file exists, and nothing here writes
+    those anyway.
+
+    **Not autouse** -- deliberately opt-in via `pytestmark = pytest.mark.usefixtures("_vendor_icons")`
+    in whichever test files actually build a Flask app and render icon-bearing templates. An
+    earlier version of this fixture was autouse across the whole suite and broke every
+    unrelated test that asserts nothing extra landed in its own `tmp_path` (e.g.
+    `test_oscillogram.py`'s/`test_preview.py`'s/`test_spectrogram.py`'s/`test_opus_pipeline.py`'s
+    "writes atomically, no leftover temp file" tests) -- caught the same day."""
+    vendor_dir = tmp_path / "static" / "vendor"
+    for asset in ASSETS:
+        if not asset.relative_path.startswith("icons/"):
+            continue
+        style, name = (
+            asset.relative_path.removeprefix("icons/").removesuffix(".svg").split("/")
+        )
+        dest = vendor_dir / "icons" / style / f"{name}.svg"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" '
+            f'viewBox="0 0 24 24" class="icon icon-tabler icons-tabler-{style} '
+            f'icon-tabler-{name}"><title>{name}</title></svg>',
+        )
 
 
 @pytest.fixture(autouse=True)
