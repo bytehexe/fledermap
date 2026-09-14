@@ -64,6 +64,11 @@
         <span class="lock-icon-locked" hidden>{{ icon("lock", filled=True) }}</span>
         <span class="lock-label">Lock view</span>
       </button>
+      <button type="button" id="denoise-toggle" aria-pressed="false" title="Highpass-filter and reduce background noise below 5kHz">
+        <span class="filter-icon-outline">{{ icon("filter") }}</span>
+        <span class="filter-icon-filled" hidden>{{ icon("filter", filled=True) }}</span>
+        <span class="filter-label">Denoise</span>
+      </button>
     </div>
     <div class="detail-scroll" id="detail-scroll">
       <div class="detail-body" id="detail-body">
@@ -141,6 +146,7 @@
         data-preview-url="{{ url_for('media.preview', audio_hash=recording.audio_hash) }}"
         data-het-preview-url-template="{{ url_for('media.het_preview', audio_hash=recording.audio_hash) }}?freq_hz=FREQ_HZ"
         data-peak-frequency-url="{{ url_for('media.peak_frequency', audio_hash=recording.audio_hash) }}"
+        data-detail-preview-url="{{ url_for('media.detail_preview', audio_hash=recording.audio_hash) }}"
         data-time-expansion-factor="{{ time_expansion_factor }}"
       >
         <button class="tool-button" data-mode="expanded" aria-pressed="true" title="Time Expansion (×10)">TE</button>
