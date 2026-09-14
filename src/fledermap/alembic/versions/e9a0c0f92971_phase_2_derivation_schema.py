@@ -105,7 +105,7 @@ def upgrade() -> None:
     # drops _type_bound constraints from its comparison (see
     # tests/test_migrations.py's `_enum_check_constraints`), so the CHECK a
     # non-native `Enum` with `create_constraint=True` adds is invisible to the
-    # diff on an *existing* column. Added here by hand; phase-2 fix, task 5.
+    # diff on an *existing* column. Added here by hand.
     op.create_check_constraint(
         "sessionkind", "session", "kind IN ('stationary', 'transect')"
     )

@@ -133,8 +133,8 @@ document.addEventListener("DOMContentLoaded", () => {
   // horizontal scrollbar is the intended way to navigate a long recording, this only ever fixes
   // the VERTICAL scrollbar.
   //
-  // CSS `zoom`, not `transform: scale()` -- code review (2026-09-04) caught two real bugs with
-  // `transform`: it's paint-only, so a transformed ancestor's scrollable-container descendants
+  // CSS `zoom`, not `transform: scale()` -- `transform` has two real bugs here:
+  // it's paint-only, so a transformed ancestor's scrollable-container descendants
   // desync their native scrollWidth/scrollHeight from the visually-shrunk content (allowing
   // overscroll into blank space), and a transformed ancestor is documented to break
   // `position: sticky` on a scrolling descendant in Chromium/Firefox (w3c/csswg-drafts#3186),
@@ -160,11 +160,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const MAX_SPECTROGRAM_HEIGHT_PX = parseFloat(wrap.dataset.comfortMaxHeightPx);
 
   // Below this, the spectrogram is unreadable regardless of what's causing
-  // the shrink -- hide it and say so rather than rendering something
-  // useless (Janna, 2026-09-13: "below a certain size... we can simply
-  // refuse to display something there and say that this screen size is
-  // unsupported"). 76px = 2cm at 96dpi (the CSS reference pixel), the exact
-  // cutoff she chose. Client-only, unlike MAX_SPECTROGRAM_HEIGHT_PX above --
+  // the shrink -- hide it and say so (unsupported screen size) rather than
+  // rendering something useless. 76px = 2cm at 96dpi (the CSS reference
+  // pixel). Client-only, unlike MAX_SPECTROGRAM_HEIGHT_PX above --
   // this decision depends on the real browser viewport, which the server
   // can't know at request time, so there's no server-side counterpart to
   // keep in sync with.
@@ -211,7 +209,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const neededHeight =
       audioRow.getBoundingClientRect().bottom - mainContent.getBoundingClientRect().top;
     const overflow = neededHeight - mainContent.clientHeight;
-    // No readability floor on this constraint (Janna, 2026-09-05): an earlier
+    // No readability floor on this constraint: an earlier
     // `Math.max(0.2, scale)` clamp meant any window small enough to need more
     // than a 5x shrink stopped shrinking and fell back to `main.main-content`
     // scrolling vertically -- reintroducing exactly the scrollbar this
@@ -364,11 +362,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const canBuildTimeAxis = timeAxis && !Number.isNaN(durationS) && !Number.isNaN(pxPerMs);
   const canBuildFreqAxis = freqAxis && !Number.isNaN(maxFreqKhz) && !Number.isNaN(pxPerKhz);
 
-  // View lock (Janna, 2026-09-04: "a tool that locks the current field of view: no scrolling
-  // any more; also limits playback to that field of view -- stops playing at the end of the
-  // view"). An independent toggle, not a third exclusive tool alongside Default/Ruler -- both
-  // stay usable while locked (design decision 2026-09-04), only scrolling and the playback
-  // boundary are affected.
+  // View lock: locks the current field of view -- no scrolling, and playback is limited to
+  // that field of view, stopping at its end. An independent toggle, not a third exclusive
+  // tool alongside Default/Ruler -- both stay usable while locked, only scrolling and the
+  // playback boundary are affected.
   //
   // The locked LEFT edge is stored as an absolute spectrogram TIME (`lockedStartS`), not a raw
   // scrollLeft pixel value -- `currentScale` (the vertical shrink-to-fit zoom `fitDetailHeight`
@@ -727,13 +724,11 @@ document.addEventListener("DOMContentLoaded", () => {
     //
     // `displayTimeS` clamps the DRAWN position to that edge on this exact tick, rather than
     // drawing the raw (past-the-edge) `spectrogramTimeS` or skipping the draw outright. Skipping
-    // it (an earlier version of this code did, via an early `return` here before ever reaching
-    // the cursor-drawing lines below) left the cursor visually frozen at wherever the PREVIOUS
-    // tick had drawn it -- up to one `timeupdate` interval's worth of playback short of the true
-    // edge, which on a narrow locked view can be a large fraction of what's even on screen
-    // (Janna, 2026-09-04, live use: "playback ... visually seems to stop waaay before the end of
-    // the current view"). Clamping instead means the very last frame drawn is always the edge
-    // itself, matching where playback actually stopped.
+    // it (via an early `return` here before ever reaching the cursor-drawing lines below) would
+    // instead leave the cursor visually frozen at wherever the PREVIOUS tick had drawn it -- up
+    // to one `timeupdate` interval's worth of playback short of the true edge, which on a narrow
+    // locked view can be a large fraction of what's even on screen. Clamping instead means the
+    // very last frame drawn is always the edge itself, matching where playback actually stopped.
     const locked = viewLocked;
     const viewEndS = locked ? currentViewEndTimeS() : null;
     const pastEdge = locked && viewEndS !== null && spectrogramTimeS >= viewEndS;

@@ -17,9 +17,9 @@ Also deduplicates by the NEW, narrower (recording_id, source, taxon_id) key
 before creating the plain unique constraint on it. The old key was five
 columns wide (recording_id, source, source_version, raw_label, taxon_id), so
 two rows that differ only in source_version/raw_label were legally distinct
-under it -- a real pre-Task-11 defect shape produced exactly this for
-IdSource.MANUAL claims that both resolved to taxon_id IS NULL with different
-raw_labels. Narrowing the key without deduplicating first would make
+under it -- a real defect produced exactly this for IdSource.MANUAL claims
+that both resolved to taxon_id IS NULL with different raw_labels. Narrowing
+the key without deduplicating first would make
 op.create_unique_constraint below abort the whole migration with an opaque
 UniqueViolation on any database carrying such a pair. The dedup keeps the
 highest-id row per colliding key (the most recently inserted, i.e. the most

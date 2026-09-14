@@ -118,9 +118,8 @@ function initAudioControls(container, audioEl, options = {}) {
   // caller) once the new source has metadata to seek against -- switching
   // source/frequency previously always reset to 0, silently dragging the
   // page's cursor and scrolled-into-view position back to the start on
-  // every mode or frequency change (Janna, 2026-09-04: "must keep the
-  // cursor and ... the current view"). Undefined on initial page load,
-  // where `audioEl.currentTime` is already 0 and there's nothing to restore.
+  // every mode or frequency change. Undefined on initial page load, where
+  // `audioEl.currentTime` is already 0 and there's nothing to restore.
   function setSource(url, restoreRealTimeS) {
     audioEl.pause();
     audioEl.src = url;
@@ -207,12 +206,10 @@ function initAudioControls(container, audioEl, options = {}) {
   toggleButton.addEventListener("click", () => {
     if (audioEl.paused) {
       // The HTMLMediaElement spec resets `currentTime` to 0 as part of
-      // `play()` itself whenever `ended` is true (Janna, 2026-09-04: "once
-      // the cursor reaches the end of the file, click to play ... always
-      // plays from the start") -- observed live: playing a recording to
-      // its natural end, then clicking ▶ again, silently jumped to 0
-      // instead of resuming (there's nothing to resume TO once truly
-      // ended, but jumping to absolute 0 ignores a locked view's floor).
+      // `play()` itself whenever `ended` is true -- observed live: playing
+      // a recording to its natural end, then clicking ▶ again, silently
+      // jumped to 0 instead of resuming (there's nothing to resume TO once
+      // truly ended, but jumping to absolute 0 ignores a locked view's floor).
       // Seeking off the exact end position first -- to the same floor
       // `getSeekFloorS` already defines for rewind -- clears `ended`
       // before `play()` ever sees it, so this situation never reaches

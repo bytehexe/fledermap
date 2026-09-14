@@ -10,6 +10,53 @@ Authoritative domain sources — species codes, names, file formats — live in
 @docs/references.md. Check there before hand-entering a code or a chunk layout, and add
 to it when you find a new source.
 
+## Writing code comments
+
+A comment earns its place by explaining something the code itself can't: **why** this
+approach and not the obvious alternative, an invariant the reader can't see locally, a
+constraint from outside this file (a library bug, a browser quirk, a spec section). A
+comment that only restates *what* the next line does is dead weight. This project's
+"why not X" style — describing a rejected alternative and the concrete failure it caused —
+is worth keeping; it's what makes the reasoning legible without external context, and a
+future editor is far less likely to reintroduce the same mistake with it than without it.
+
+What does **not** belong in a comment, because nothing reading the file later can use it:
+
+- **A citation to an internal, ephemeral artifact** — a plan task number, a fix-round/
+  priority label, "code review finding", "final review caught…". These name *where* a
+  decision came from, not what the decision is or why it's right. `.superpowers/sdd/*/
+  progress.md` is gitignored and the task numbers it defines don't outlive the branch that
+  used them; a comment that depends on that ledger to make sense is already broken for
+  anyone reading the file after it's gone. State the reasoning directly instead of pointing
+  at the ledger entry that once contained it.
+- **A quoted fragment of conversation** — `(Janna, 2026-09-04: "does not look greyed out or
+  something")`. Paraphrase the requirement or the observed bug into the comment's own
+  words; the quote marks and the attribution add nothing a plain description doesn't.
+- **A comment that narrates a comment's own history** — "an earlier version of this
+  comment described an abandoned scheme, corrected on \<date\>". If the earlier version
+  was wrong, delete it; don't keep a fossil record of the comment text itself. (Narrating
+  a rejected *implementation* is different and often valuable — see "why not X" above —
+  the test is whether the narration explains the *code*, not the *comment*.)
+- **A pure changelog entry with no bearing on the current code** — "X was renamed to Y on
+  \<date\>" with no explanation of why that matters to a reader today. If a comment needs a
+  history lesson to be useful (e.g. a column keeps an old name a search might target), say
+  so explicitly; otherwise cut it.
+
+A reference to a *persistent, durable, in-repo* document — a design spec's numbered
+decision (`spec D9`, `spec section 6`), an ADR, `docs/references.md` — is not in this
+category and should stay: those are versioned alongside the code, so they remain readable
+(and their history diffable) long after the branch that added the comment is gone, unlike
+a session's own progress ledger or its transcript. The Obsidian backlog does NOT qualify
+for this even though it's long-lived: it's unversioned and lives outside the repo, so a
+comment that depends on it is trusting a document this codebase has no control over and
+whose current content a reader here can't check. It's fine as the *destination* for a
+follow-up ("logged to the backlog for a future decision"), never as the explanation itself
+— the reasoning has to live in the comment.
+
+When in doubt: could someone with no memory of this project's chat history, one year from
+now, get everything they need from the code plus this comment alone? If a clause only
+serves someone who was in the room when the comment was written, cut that clause.
+
 ## Commands
 
 All Python execution goes through `hatch` (see "Python tooling — hatch" below) — never bare

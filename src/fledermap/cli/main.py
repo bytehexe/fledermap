@@ -70,7 +70,7 @@ logger = logging.getLogger(__name__)
 # or monitoring script should be able to notice without parsing stdout, so it
 # gets its own nonzero exit code rather than folding into exit 0. Stated in
 # `ingest`'s docstring too, so it surfaces in `--help` rather than living only
-# in this comment. See task-13 report, judgement call, for the full reasoning.
+# in this comment.
 EXIT_SWEEP_REFUSED = 3
 
 

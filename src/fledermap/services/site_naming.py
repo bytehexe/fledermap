@@ -46,8 +46,8 @@ def _poiidx_connection_kwargs(database_url: str) -> dict[str, Any]:
     separately -- confirmed against poiidx's own README and example.py, not
     a single connection-string argument.
 
-    Error messages never include the parsed URL itself (final review,
-    2026-08-28): it may carry a password, and this function's errors
+    Error messages never include the parsed URL itself: it may carry a
+    password, and this function's errors
     propagate into name_site_task, where Procrastinate logs the full
     traceback on every retry. Every other config error in this codebase
     reports the env-var label, not the value -- this matches that."""
@@ -204,14 +204,14 @@ def _select_best_poi(
     return min(pois, key=sort_key)
 
 
-# Bucket width for _cache_key's radius component. An earlier version of this
-# (2026-09-01) bucketed by _target_rank(site_radius_m) instead -- wrong,
-# caught by code review the same day: _target_rank clips to _MAX_RANK for
-# essentially every radius under ~250m, so two real sites of very different
-# scale (a 10m stationary site and a 200m one, say) collided into the exact
-# same bucket despite _select_best_poi's intersects margin genuinely
-# depending on the raw, un-bucketed radius. Bucketing site_radius_m directly
-# tracks the continuous quantity that actually matters.
+# Bucket width for _cache_key's radius component. Buckets site_radius_m
+# directly rather than _target_rank(site_radius_m): _target_rank clips to
+# _MAX_RANK for essentially every radius under ~250m, which would collide
+# two real sites of very different scale (a 10m stationary site and a 200m
+# one, say) into the exact same bucket despite _select_best_poi's intersects
+# margin genuinely depending on the raw, un-bucketed radius. Bucketing
+# site_radius_m directly tracks the continuous quantity that actually
+# matters.
 _CACHE_RADIUS_BUCKET_M = 10.0
 # A multiple of the bucket width, so rounding can never push the result past
 # 5 digits -- keeps the worst-case key length within SiteNameCache.geohash's
@@ -234,8 +234,7 @@ def _cache_key(lon: float, lat: float, site_radius_m: float) -> str:
     on a later derive_sites rebuild still hits the same cache entry, fine
     enough not to conflate two genuinely different nearby sites.
 
-    The `_radius_bucket(site_radius_m)` suffix (added 2026-09-01, alongside
-    SN-7's fix; bucketing scheme corrected same day, see _CACHE_RADIUS_BUCKET_M)
+    The `_radius_bucket(site_radius_m)` suffix (see `_CACHE_RADIUS_BUCKET_M`)
     exists because the resolved name now depends on the querying site's own
     radius, not just its coordinate: two Sites landing in the same
     rounded-coordinate bucket but at very different scales (a small
@@ -251,9 +250,7 @@ def _cache_key(lon: float, lat: float, site_radius_m: float) -> str:
     bucket width can rule out every collision without keying on the exact
     radius and defeating caching's whole point (reusing a resolution across
     ordinary derive_sites recompute noise). A worse-than-ideal cached name
-    for a rare colliding pair is the accepted cost (code review finding,
-    2026-09-01 -- corrected from an earlier version of this docstring that
-    overclaimed the bucket eliminated conflation outright)."""
+    for a rare colliding pair is the accepted cost."""
     return f"{lat:.3f},{lon:.3f},{_radius_bucket(site_radius_m)}"
 
 
@@ -309,10 +306,8 @@ def name_site(
     # is a property, not a method -- calling it with () invokes whatever
     # geometry it returns as if THAT were callable, raising
     # "TypeError: 'Point' object is not callable" on every call, for any
-    # buffer value. Confirmed 2026-09-01 against the real package, not
-    # mocked: an earlier version of this code passed buffer and broke every
-    # name_site_task run in production the moment it merged. Tracked as a
-    # poiidx bug in docs/references.md -- revisit once fixed upstream.
+    # buffer value. Confirmed against the real package, not mocked. Tracked
+    # as a poiidx bug in docs/references.md -- revisit once fixed upstream.
     pois = poiidx.get_nearest_pois(
         point,
         max_distance=search_radius_m,

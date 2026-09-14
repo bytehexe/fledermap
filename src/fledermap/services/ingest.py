@@ -1,9 +1,9 @@
 """Resolve scanned files against the database. See spec section 6.
 
 Idempotent by construction: identity is `audio_hash`, so re-running ingest over
-an unchanged archive produces no writes. See the task-11 report for how each
-field is guarded against a spurious write (the geography column in particular
-does not get this for free from SQLAlchemy the way a JSONB column does).
+an unchanged archive produces no writes. Each field is individually guarded
+against a spurious write (the geography column in particular does not get
+this for free from SQLAlchemy the way a JSONB column does).
 """
 
 from __future__ import annotations
@@ -37,25 +37,25 @@ from fledermap.store.seed import resolve_code
 # Deliberately EXCLUDES `MANUAL`: a manual identification entered later through
 # fledermap itself (not embedded in the file) would never appear in `parsed`,
 # and including it here would silently supersede it on the next re-scan of the
-# same file. See task-11 report. INCLUDES `EMT_MANUAL` (task-11 fix round 1,
-# priority 4): the on-device manual correction IS re-derived from the file on
-# every scan, so when the operator changes it on the EMT the stale claim must
-# be superseded — unlike `MANUAL`, which is never re-derived.
+# same file. INCLUDES `EMT_MANUAL`: the on-device manual correction IS
+# re-derived from the file on every scan, so when the operator changes it on
+# the EMT the stale claim must be superseded — unlike `MANUAL`, which is
+# never re-derived.
 _EMT_SOURCES = frozenset(
     {IdSource.EMT_GUANO, IdSource.EMT_WAMD, IdSource.EMT_FILENAME, IdSource.EMT_MANUAL},
 )
 
 # Sources that use the Wildlife Acoustics code vocabulary for taxon resolution.
-# Manual IDs entered on the EMT itself use the same codes as its auto-ID
-# (task-11 amendments, defect 5) — a different concern from `_EMT_SOURCES`
-# above, which is about supersession, not vocabulary.
+# Manual IDs entered on the EMT itself use the same codes as its auto-ID —
+# a different concern from `_EMT_SOURCES` above, which is about supersession,
+# not vocabulary.
 _EMT_VOCABULARY_SOURCES = _EMT_SOURCES | {IdSource.MANUAL}
 
 # Fields `RecordingMetadata` and `Recording` share by name. Comparing (and only
 # writing) through one list means a field added to both later is covered by
-# construction rather than needing two lists kept in sync (task-11 amendments,
-# defect 4). `guano_raw` (needs a fresh dict) and the position (needs geometry
-# decoding) are handled separately below.
+# construction rather than needing two lists kept in sync. `guano_raw` (needs
+# a fresh dict) and the position (needs geometry decoding) are handled
+# separately below.
 _METADATA_FIELDS = (
     "recorded_at",
     "filename_at",
@@ -94,13 +94,13 @@ class IngestReport:
     # session) the operator should see, not something silently absorbed into
     # `unchanged`. Does NOT participate in `total`: a duplicate sighting isn't
     # one of the five (hash, path) outcomes above, it's a second sighting of
-    # one that already got one (task-11 fix round 1, priority 3).
+    # one that already got one.
     duplicates: int = 0
     # Orthogonal to the five outcomes above (in particular to MOVED, which by
     # spec section 6 stays a single outcome keyed on (hash, path) and does not
     # get its own MOVED_AND_UPDATED variant): how many identification claims
     # changed, independent of whether the file also moved. Both are computed
-    # inside `_apply_identifications` (task-11 fix round 1, priority 5).
+    # inside `_apply_identifications`.
     identifications_added: int = 0
     identifications_updated: int = 0
     identifications_removed: int = 0
@@ -112,10 +112,10 @@ class IngestReport:
     # rendered for it exactly as never as CREATED's — the old row at that path
     # survives untouched (spec section 6), it doesn't inherit the new row's
     # media. MOVED/UPDATED/UNCHANGED reuse an existing row whose hash was
-    # already seen by an earlier scan, so they're excluded. Task 8
-    # (cli/main.py) needs exactly this set to know which recordings are new
-    # enough to need media (spectrograms, waveforms) generated for them;
-    # `created` (the count) can't answer that, only this list of hashes can.
+    # already seen by an earlier scan, so they're excluded. `cli/main.py`
+    # needs exactly this set to know which recordings are new enough to need
+    # media (spectrograms, waveforms) generated for them; `created` (the
+    # count) can't answer that, only this list of hashes can.
     created_hashes: list[str] = field(default_factory=list)
 
     def record(self, outcome: IngestOutcome, *, audio_hash: str) -> None:
@@ -123,7 +123,7 @@ class IngestReport:
         # setattr form only works because every enum value happens to equal a
         # field name, with nothing enforcing that stays true. `assert_never`
         # makes mypy flag it if a new `IngestOutcome` member is ever added
-        # without a matching counter (task-11 amendments, judgement calls).
+        # without a matching counter.
         #
         # `audio_hash` is required, not defaulted to `None`, so that a call
         # site added for a non-CREATED outcome without a hash in scope fails
@@ -153,7 +153,7 @@ class IngestReport:
         # site alongside the enum, `record`'s match statement, and (soon) a
         # test — adding a member here is covered automatically as long as its
         # `.value` names a field on this dataclass, same as `record` already
-        # requires via `assert_never` (task-11 fix round 1, priority 6).
+        # requires via `assert_never`.
         return sum(getattr(self, outcome.value) for outcome in IngestOutcome)
 
 
@@ -164,8 +164,7 @@ def _relative(path: Path, archive_root: Path) -> str:
     called with mismatched roots — a configuration or wiring bug, not a
     situation ingest should paper over. Falling back to an absolute path would
     silently violate the stored-paths-are-relative invariant the rest of the
-    system relies on, so this raises instead (task-11 amendments, judgement
-    calls).
+    system relies on, so this raises instead.
     """
     try:
         return str(path.relative_to(archive_root))
@@ -285,7 +284,7 @@ def _position_changed(recording: Recording, m: RecordingMetadata) -> bool:
     # must not erase a real recorded position. Every other field writes
     # `None` over a prior value because for those fields "disappeared from
     # this scan" and "genuinely absent" are the same fact; for position they
-    # are not (task-11 fix round 1, priority 6).
+    # are not.
     if m.latitude is None or m.longitude is None:
         return False
     return decode_point(recording.geom) != (m.longitude, m.latitude)
@@ -299,7 +298,7 @@ def _apply_metadata(recording: Recording, scanned: ScannedFile) -> bool:
     nothing to flush. This can't be left to SQLAlchemy's own equal-value
     suppression: that suppression exists and does cover `guano_raw` (a fresh
     but equal dict reassigned to a JSONB column emits no UPDATE, confirmed
-    empirically for the task-11 report), but NOT `geom` — a freshly built
+    empirically), but NOT `geom` — a freshly built
     `WKTElement` never compares equal to the `WKBElement` already loaded from
     the database, even encoding the identical point, so reassigning it
     unconditionally emits a real UPDATE on every single scan (also confirmed
@@ -392,7 +391,7 @@ def commit_scan(
     # sees a different path, and gets reported (and written) as MOVED — which
     # then flips back on every subsequent scan as the two paths alternate
     # being "current". First path sighted wins; every later sighting in this
-    # call is a duplicate, not a move (task-11 fix round 1, priority 3).
+    # call is a duplicate, not a move.
     seen_hashes: set[str] = set()
 
     for item, root_index in scanned:
@@ -417,8 +416,7 @@ def commit_scan(
             # Filtering on `missing_since.is_(None)` restores that invariant;
             # `order_by`+`limit(1)` is only there so a corrupted state (which
             # should be unreachable given the filter) degrades to one
-            # deterministic row instead of aborting the whole ingest
-            # (task-11 fix round 1, priority 2).
+            # deterministic row instead of aborting the whole ingest.
             #
             # Accepted consequence: a file already swept to `missing_since`
             # and later succeeded by a *different* file at the same path now

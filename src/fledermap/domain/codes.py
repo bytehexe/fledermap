@@ -49,9 +49,8 @@ class IdSource(StrEnum):
     EMT_FILENAME = "emt.filename"
     # The on-device manual correction (GUANO/wamd `manual_id`), re-derived from
     # the file on every scan — distinct from `MANUAL` below so it can be
-    # superseded like the other EMT-derived claims (task-11 fix round 1,
-    # priority 4). Uses the same Wildlife Acoustics code vocabulary as the
-    # EMT's auto-ID sources.
+    # superseded like the other EMT-derived claims. Uses the same Wildlife
+    # Acoustics code vocabulary as the EMT's auto-ID sources.
     EMT_MANUAL = "emt.manual"
     BATDETECT2 = "batdetect2"
     BATTYBIRDNET = "battybirdnet"

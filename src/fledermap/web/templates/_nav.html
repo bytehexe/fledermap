@@ -24,7 +24,7 @@
    here is the one source of truth for what state to display, whether or
    not an override is currently active.
 
-   localStorage access is guarded with try/catch (final review, 2026-08-28):
+   localStorage access is guarded with try/catch:
    getItem/setItem/removeItem throw SecurityError when site data is blocked
    (private browsing settings, some enterprise policies), which would
    otherwise take out this entire x-data scope -- including the unrelated
@@ -68,10 +68,10 @@
      :class="{ collapsed: collapsed }">
   <div class="sidebar-header">
     {# Bonus shortcut to the map, not the only way there -- "Map" stays a
-       plain entry in the link list below (Janna, 2026-09-13: "not 100% clear
-       that it exists otherwise" if the logo were the only way in). Hidden
-       entirely when collapsed (`#sidebar.collapsed .sidebar-logo`, app.css)
-       -- 48px has no room for it next to the two toggle buttons. #}
+       plain entry in the link list below, since the logo alone would not
+       be obviously clickable. Hidden entirely when collapsed
+       (`#sidebar.collapsed .sidebar-logo`, app.css) -- 48px has no room
+       for it next to the two toggle buttons. #}
     <a class="sidebar-logo" href="/" aria-label="Fledermap home">
       <img src="{{ url_for('static', filename='favicon.png') }}" alt="" width="28" height="28">
     </a>

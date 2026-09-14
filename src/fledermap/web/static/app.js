@@ -152,12 +152,11 @@ document.addEventListener("DOMContentLoaded", () => {
   // never fires, so this can't get stuck true forever and silently disable
   // every future viewport refresh.
   //
-  // An earlier version of this flag compared `map.getZoom()` against the
-  // zoom recorded at reveal-start instead ("unchanged" == "still just this
-  // reveal, not a real navigation"), rejected as racing spiderfy's own
-  // variable-duration animation. That comparison had a second, worse
-  // problem found 2026-09-13 via a live headless-Chrome repro: a reveal
-  // starting from the map's default zoom (e.g. the "Show on map" link from
+  // Comparing `map.getZoom()` against the zoom recorded at reveal-start
+  // instead ("unchanged" == "still just this reveal, not a real navigation")
+  // was tried and rejected: it races spiderfy's own variable-duration
+  // animation, and has a second, worse problem -- a reveal starting from the
+  // map's default zoom (e.g. the "Show on map" link from
   // the recording-details page) genuinely NEEDS an intermediate real zoom
   // change as ONE step of zoomToShowLayer's own multi-step process (pan,
   // then zoomToBounds, then spiderfy -- see the vendored

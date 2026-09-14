@@ -98,7 +98,7 @@ body { display: flex; flex-direction: row; }
 .sidebar-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
 /* `flex: 1` claims the row's leftover width (the header row is only as wide
    as the sidebar minus the button stack), then centers the logo within it --
-   both axes deliberate (Janna, live mockup review, 2026-09-13): horizontally
+   both axes deliberate: horizontally
    centered in its own space rather than flush against the sidebar's left
    edge, and vertically centered against the two-button stack via this row's
    own `align-items: center`. */
@@ -107,8 +107,7 @@ body { display: flex; flex-direction: row; }
 .sidebar-toggles { display: flex; flex-direction: column; gap: 0.25rem; }
 /* Previously `align-self: flex-end` on each button individually -- shrink-
    to-fit, so ☰ and the theme icon (different natural widths) ended up
-   different sizes, most visible when the sidebar is narrow/collapsed
-   (Janna, live, 2026-09-13: "the buttons do not have the same width").
+   different sizes, most visible when the sidebar is narrow/collapsed.
    A fixed equal box with a centered icon fixes both buttons at once. */
 #sidebar-toggle, #theme-toggle {
   width: 2rem;
@@ -141,11 +140,11 @@ main.main-content h1 { margin-top: 1rem; }
    merge-banner's counterpart link -- without also reaching sessions_list.html's
    own table-row links, which share the main.main-content tag+class but must
    stay out of scope here. (Originally scoped to `main.main-content >
-   a:first-child`, coloring only the back-link -- final review caught that
-   this left the page's other two links at browser-default blue, a new
-   inconsistency worse than the uniform unstyled state before Task 3; also
-   fixes that selector's fragility, since :first-child silently breaks if
-   anything is ever inserted above the link.) The detector line keeps its own
+   a:first-child`, coloring only the back-link -- that left the page's other
+   two links at browser-default blue, a new inconsistency worse than the
+   uniform unstyled state before; also fixes that selector's fragility, since
+   :first-child silently breaks if anything is ever inserted above the
+   link.) The detector line keeps its own
    .detail-meta class rather than a bare `p` selector because #session-detail
    also contains the merge-banner's alert <p>, which must stay full-weight,
    not fade to muted text alongside it. */
@@ -776,14 +775,13 @@ button:disabled { cursor: default; opacity: 0.5; }
    --color-bg-subtle background) otherwise beats this one ((0,2,0)) on hover,
    washing an ACTIVE tool button's blue background out to gray while its text
    stays white -- inconsistent-looking only on the pressed button, since an
-   unpressed one has no special background for the generic rule to fight with
-   (Janna, live, 2026-09-13: "some of the buttons have a weird hover color").
+   unpressed one has no special background for the generic rule to fight with.
    Restating the active look at :hover ((0,3,0)) keeps it stable -- `opacity:
    0.9`, the same subtle cue `.button-primary:hover` above already uses for
    this same accent-background language, rather than literally no visible
-   change on hover (Janna, live: "Save button has a light hover, while
-   Default and HET do not? Still inconsistent" -- an exact restate of the
-   resting style was itself a second inconsistency). */
+   change on hover (an exact restate of the resting style was itself a
+   second inconsistency, making some tool buttons look different from
+   others on hover). */
 .tool-button[aria-pressed="true"]:hover {
   background: var(--color-accent);
   color: var(--color-bg);
@@ -808,10 +806,10 @@ button:disabled { cursor: default; opacity: 0.5; }
   border-color: var(--color-accent);
   opacity: 0.9;
 }
-/* Locking no longer switches `overflow-x` to `hidden` (Janna, 2026-09-04: "disable the
-   scrollbar instead of removing it -- noisy UI") -- doing so made the scrollbar itself vanish
-   and reflow the layout by its height on every lock/unlock, which read as UI churn rather than
-   a state change. `overflow-x: auto` (the unlocked value, see `.detail-scroll` above) stays in
+/* Locking no longer switches `overflow-x` to `hidden` -- doing so made the scrollbar itself
+   vanish and reflow the layout by its height on every lock/unlock, which read as UI churn
+   rather than a state change (the goal is to disable the scrollbar, not remove it).
+   `overflow-x: auto` (the unlocked value, see `.detail-scroll` above) stays in
    effect at all times now; the scrollbar track stays visibly present and the layout never
    shifts. Prevention is entirely JS-driven while locked (recording_detail.js): a `wheel`
    listener blocks the scroll before it happens, and a `scroll` listener snaps `scrollLeft`
@@ -820,14 +818,14 @@ button:disabled { cursor: default; opacity: 0.5; }
    back" rather than not responding at all, which is the disabled look being asked for.
 
    The scrollbar itself also needs to visually READ as disabled, not just behave that way --
-   Janna, 2026-09-04, after the JS-only fix above: "does not look greyed out or something".
-   Native scrollbars have no standard disabled state to opt into, so this recolors it by hand
+   the JS-only fix above left it looking fully active. Native scrollbars have no standard
+   disabled state to opt into, so this recolors it by hand
    with the muted/border tokens (never the default track/thumb colors) whenever `.view-locked`
    is present -- Firefox via `scrollbar-color`, Chrome/Safari via the `::-webkit-scrollbar-*`
    pseudo-elements (only styling the thumb/track colors, not `::-webkit-scrollbar` itself, so
    the scrollbar's actual size stays whatever the browser default already is). The `:hover`/
-   `:active` thumb variants need their OWN rule at the same color (Janna, 2026-09-04: "keep the
-   hovered variant ... light/disabled looking") -- Chrome's UA stylesheet darkens
+   `:active` thumb variants need their OWN rule at the same color, so the hovered/dragged
+   variant still reads as light/disabled -- Chrome's UA stylesheet darkens
    `::-webkit-scrollbar-thumb` on hover/drag by default, and that default beats a plain
    `-thumb` rule regardless of source order, since `:hover`/`:active` add specificity the plain
    selector doesn't have. */

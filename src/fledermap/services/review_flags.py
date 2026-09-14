@@ -69,7 +69,7 @@ def _rarity_reason(
     Deliberately says "Rare species", not the species' own name: every
     caller already shows that name right next to this reason (the
     recording-detail page's own title, the Reviews table's Species column),
-    so repeating it here read as redundant (Janna, 2026-09-11)."""
+    so repeating it here read as redundant."""
     if site_id is not None:
         site_count = site_counts.get((site_id, taxon_id), 0)
         if site_count <= SITE_RARITY_MAX:

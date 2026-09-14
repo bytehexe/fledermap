@@ -50,7 +50,7 @@ app = make_job_app()
 logger = logging.getLogger(__name__)
 
 # Shared by both scheduling paths onto the SAME job -- the periodic
-# registration below, and Task 4's event-triggered `defer_async()` -- so
+# registration below, and the event-triggered `defer_async()` -- so
 # `queueing_lock` coalesces a burst of either kind into at most one pending
 # run, and `lock` keeps that run from ever overlapping one already executing
 # (design spec §5, Global Constraints above).

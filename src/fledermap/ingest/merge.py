@@ -80,8 +80,8 @@ def _borrow_offset(
     comparison is unconditionally unequal (`!=` is always `True`, never
     raises). Leaving either field naive here would therefore make every
     change-detection comparison in `_apply_metadata` report a difference on
-    every scan, forever, which is exactly the idempotency defect this fixes
-    (task-11 fix round 1, priority 1). So the ambiguity is resolved here,
+    every scan, forever, which is exactly the idempotency defect this fixes.
+    So the ambiguity is resolved here,
     deliberately, the same way `recorded_at` resolves it below: borrow the
     other source's offset when it has one, and fall back to
     `default_timezone` only when NEITHER source carries any offset evidence
@@ -150,8 +150,7 @@ def _identifications(
                     # Re-derived from the file on every scan, so it must be
                     # superseded like the EMT's other claims when the operator
                     # changes it on the device — `IdSource.MANUAL` is reserved
-                    # for a future UI entry that is never re-derived (task-11
-                    # fix round 1, priority 4).
+                    # for a future UI entry that is never re-derived.
                     source=IdSource.EMT_MANUAL,
                     source_version=None,
                     verdict=verdict,
@@ -180,8 +179,7 @@ def merge_metadata(
     carries an offset — i.e. there is no evidence at all for what the offset
     should be, so it is a documented fabrication, not a derived value.
     Whenever the other candidate DOES carry an offset, that offset is
-    borrowed instead. See `_borrow_offset` for the full reasoning (task-11 fix
-    round 1, priority 1).
+    borrowed instead. See `_borrow_offset` for the full reasoning.
     """
     try:
         source = TimestampSource(timestamp_source)
@@ -194,8 +192,8 @@ def merge_metadata(
         getattr(wamd, "timestamp", None),
     )
 
-    # Both stored columns are timezone-aware (task-11 fix round 1, priority 1):
-    # make each candidate aware here, borrowing from the OTHER RAW candidate
+    # Both stored columns are timezone-aware: make each candidate aware here,
+    # borrowing from the OTHER RAW candidate
     # (before either has been touched) so neither borrow can pick up an offset
     # the other only has because it was itself just fabricated.
     filename_at = _borrow_offset(raw_filename_at, raw_metadata_at, default_timezone)

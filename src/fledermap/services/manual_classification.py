@@ -60,8 +60,8 @@ def set_manual_classification(
 def current_manual_state(recording: Recording) -> tuple[Verdict | None, frozenset[int]]:
     """The classifier box's own displayed/edited state -- deliberately
     independent of `current_best_identification`'s cross-source precedence
-    walk (Task 5 review finding, 2026-09-05). The box must reflect and edit
-    ONLY the recording's own standing MANUAL claims:
+    walk. The box must reflect and edit ONLY the recording's own standing
+    MANUAL claims:
 
     - If it read `best` instead, an automatic classifier's winning SPECIES
       claim would render as editable manual chips -- adding one more chip

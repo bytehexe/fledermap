@@ -22,12 +22,10 @@ def upgrade() -> None:
     """Upgrade schema.
 
     String(16) -> String(24). `_cache_key` now folds in a radius bucket
-    alongside the rounded coordinate (services/site_naming.py, SN-7 fix,
-    2026-09-01, `_radius_bucket`) -- worst case "-90.000,-180.000,99990" is
-    22 characters, String(16) had zero headroom to begin with. Existing rows
-    are untouched; a widen never truncates. (Corrected 2026-09-01, code
-    review: an earlier version of this docstring described an abandoned
-    target-rank-bucket scheme with a shorter, no longer accurate worst case.)
+    alongside the rounded coordinate (services/site_naming.py's
+    `_radius_bucket`) -- worst case "-90.000,-180.000,99990" is 22
+    characters, String(16) had zero headroom to begin with. Existing rows
+    are untouched; a widen never truncates.
     """
     op.alter_column(
         "site_name_cache",
