@@ -20,7 +20,7 @@ from pathlib import Path
 
 import numpy as np
 
-from fledermap.media.denoise import DEFAULT_CUTOFF_HZ, highpass_filter
+from fledermap.media.denoise import DEFAULT_CUTOFF_HZ, highpass_filter, spectral_gate
 from fledermap.media.opus_pipeline import encode_pcm_as_opus
 
 # Public: the recording details page's JS needs this to convert between the
@@ -50,7 +50,8 @@ def make_preview(
     if denoise:
         samples = np.frombuffer(frames, dtype=np.int16).astype(np.float64)
         filtered = highpass_filter(samples, params.framerate, cutoff_hz)
-        frames = np.clip(filtered, -32768, 32767).astype(np.int16).tobytes()
+        gated = spectral_gate(filtered, params.framerate)
+        frames = np.clip(gated, -32768, 32767).astype(np.int16).tobytes()
 
     slow_rate = params.framerate // TIME_EXPANSION_FACTOR
     encode_pcm_as_opus(

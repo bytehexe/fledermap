@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 from scipy import signal
 
-from fledermap.media.denoise import DEFAULT_CUTOFF_HZ, highpass_filter
+from fledermap.media.denoise import DEFAULT_CUTOFF_HZ, highpass_filter, spectral_gate
 from fledermap.media.opus_pipeline import encode_pcm_as_opus
 from fledermap.media.wav_pcm import UnreadableWavError, read_pcm
 
@@ -99,6 +99,7 @@ def render_heterodyne_preview(
     samples, samplerate = read_pcm(wav_path)
     if denoise:
         samples = highpass_filter(samples, samplerate, cutoff_hz)
+        samples = spectral_gate(samples, samplerate)
     if samplerate <= 2 * _LOWPASS_CUTOFF_HZ:
         raise UnreadableWavError(
             f"cannot render heterodyne preview for {wav_path}: samplerate "
