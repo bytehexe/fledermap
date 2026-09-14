@@ -1043,6 +1043,115 @@ def test_detail_preview_serves_opus(engine: Engine, tmp_path: Path) -> None:
     assert plain.data != denoised.data
 
 
+def test_detail_preview_two_requests_return_byte_identical_content(
+    engine: Engine, tmp_path: Path
+) -> None:
+    """Regression test for a real 2026-09-14 playback bug: `detail-preview.opus` used to
+    re-render from scratch on every request (`_serve_temp_render`), and `ffmpeg`'s Ogg muxer
+    picks a new random stream serial number on every invocation -- confirmed live, two
+    independent renders of the identical input are never byte-identical. A browser fetches TE
+    preview audio via several sequential requests over one playback session (an initial fetch
+    plus `Range` sub-requests as it buffers/seeks), so a second request landing on a freshly
+    re-rendered, differently-serialed file silently corrupted playback. `_serve_cached_render`
+    fixes this by serving the SAME cached render across requests -- assert that directly, not
+    just "some bytes came back" (which the un-fixed code also satisfied on any single request)."""
+    archive_root = tmp_path / "archive"
+    archive_root.mkdir()
+    _write_wav(archive_root / "a.wav", duration_s=0.05)
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="d4" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+    app = create_app(
+        engine, tmp_path / "static", tmp_path / "media", archive_roots=(archive_root,)
+    )
+    client = app.test_client()
+    first = client.get(f"/recordings/{'d4' * 32}/detail-preview.opus?denoise=true")
+    second = client.get(f"/recordings/{'d4' * 32}/detail-preview.opus?denoise=true")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.data == second.data
+    assert first.headers.get("ETag") is not None
+    assert first.headers.get("ETag") == second.headers.get("ETag")
+
+
+def test_detail_preview_range_request_is_consistent_with_the_earlier_full_response(
+    engine: Engine, tmp_path: Path
+) -> None:
+    """The actual failure mode: a `Range` request issued AFTER an earlier full fetch must slice
+    the SAME underlying bytes that full fetch already returned, not a freshly (and differently)
+    re-rendered file -- otherwise the two responses splice together fragments of two logically
+    different Ogg streams, which is what silently broke real playback."""
+    archive_root = tmp_path / "archive"
+    archive_root.mkdir()
+    _write_wav(archive_root / "a.wav", duration_s=0.05)
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="d5" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+    app = create_app(
+        engine, tmp_path / "static", tmp_path / "media", archive_roots=(archive_root,)
+    )
+    client = app.test_client()
+    full = client.get(f"/recordings/{'d5' * 32}/detail-preview.opus?denoise=true")
+    ranged = client.get(
+        f"/recordings/{'d5' * 32}/detail-preview.opus?denoise=true",
+        headers={"Range": "bytes=100-199"},
+    )
+
+    assert full.status_code == 200
+    assert ranged.status_code == 206
+    assert ranged.data == full.data[100:200]
+
+
+def test_het_preview_two_requests_return_byte_identical_content(
+    engine: Engine, tmp_path: Path
+) -> None:
+    """Same regression as `test_detail_preview_two_requests_return_byte_identical_content`,
+    for HET -- `het_preview` shared the same `_serve_temp_render`-per-request bug, just less
+    likely to surface in practice since HET plays at real length (fewer buffered requests per
+    session) rather than TE's 10x-expanded, much longer playback."""
+    archive_root = tmp_path / "archive"
+    archive_root.mkdir()
+    _write_wav(archive_root / "a.wav", duration_s=0.05)
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="d6" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+    app = create_app(
+        engine, tmp_path / "static", tmp_path / "media", archive_roots=(archive_root,)
+    )
+    client = app.test_client()
+    url = f"/recordings/{'d6' * 32}/het-preview.opus?freq_hz=40000&denoise=true"
+    first = client.get(url)
+    second = client.get(url)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.data == second.data
+    assert first.headers.get("ETag") is not None
+    assert first.headers.get("ETag") == second.headers.get("ETag")
+
+
 def test_detail_preview_404s_for_an_unknown_hash(
     engine: Engine, tmp_path: Path
 ) -> None:

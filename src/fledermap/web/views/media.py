@@ -17,7 +17,7 @@ import logging
 import math
 import os
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Hashable
 from pathlib import Path
 
 import flask
@@ -33,8 +33,9 @@ from fledermap.media.heterodyne import (
 from fledermap.media.oscillogram import OscillogramParams, render_oscillogram
 from fledermap.media.paths import oscillogram_path, preview_path, spectrogram_path
 from fledermap.media.preview import make_preview
-from fledermap.media.render_cache import SpectrogramImageCache
+from fledermap.media.render_cache import RenderCache
 from fledermap.media.spectrogram import (
+    FullSpectrogramImage,
     SpectrogramParams,
     render_full_spectrogram_image,
     render_spectrogram,
@@ -57,7 +58,18 @@ logger = logging.getLogger(__name__)
 # module docstring) -- reused across every tile of a recording-detail page load so
 # `detail_spectrogram` below computes the shared STFT/palette image once per view instead of
 # once per tile.
-_spectrogram_image_cache = SpectrogramImageCache()
+_spectrogram_image_cache: RenderCache[FullSpectrogramImage] = RenderCache()
+
+# A second, separate cache instance for the TE/HET preview-audio routes below -- deliberately
+# not sharing `_spectrogram_image_cache`'s instance (different value type, different size
+# needs: cached files here are small, hundreds of KB, not the multi-hundred-MB in-memory arrays
+# the spectrogram cache holds, so a more generous `max_size` costs little). `on_evict` deletes
+# the cached render's backing temp file -- without this, an evicted entry would leak its file on
+# disk forever, since nothing else ever unlinks it once `_serve_cached_render` stops doing so
+# after every single response (see that function's docstring for why it stopped).
+_preview_render_cache: RenderCache[Path] = RenderCache(
+    max_size=8, on_evict=lambda path: path.unlink(missing_ok=True)
+)
 
 
 def _spectrogram_image_cache_key(
@@ -215,6 +227,54 @@ def _serve_temp_render(
     return flask.send_file(tmp_path, mimetype=mimetype, conditional=True)
 
 
+def _serve_cached_render(
+    cache_key: Hashable,
+    make: Callable[[Path], None],
+    *,
+    suffix: str,
+    mimetype: str,
+) -> ResponseReturnValue:
+    """Like `_serve_temp_render`, but for the TE/HET preview-audio routes below, which need a
+    DIFFERENT contract: `_serve_temp_render` deletes its temp file after every single response,
+    which is correct for the tile routes (each tile request is genuinely independent) but was
+    the root cause of a real playback bug for audio (design spec
+    docs/superpowers/specs/2026-09-14-fledermap-audio-denoise-design.md's follow-up fix). A
+    browser doesn't fetch preview audio in one request -- it buffers ahead and seeks via several
+    `Range` sub-requests over the course of one playback session, and `ffmpeg`'s Ogg muxer picks
+    a new random stream serial number on every invocation: two independent renders of identical
+    audio are never byte-identical. Re-rendering fresh (and deleting) on every request meant a
+    browser's second Range request could land on a DIFFERENT re-render than its first, splicing
+    together fragments of two logically different Ogg streams -- silently corrupting playback,
+    observed live as it stopping partway through, never at the file's real end, at a different
+    point each time depending on when the next request happened to fire.
+
+    The fix: render ONCE per `cache_key` via `_preview_render_cache`
+    (`media/render_cache.py`'s sliding-TTL, `on_evict`-cleaned-up cache) and keep serving that
+    SAME file for as long as it stays cached -- every request within one active playback session
+    lands on identical bytes. `send_file(path, conditional=True)` against that stable file also
+    gets a real ETag/Last-Modified for free (Werkzeug derives both from the file's own stat
+    info), which is a second, independent line of defense: if the cache entry does eventually
+    expire and a later request re-renders (a genuinely new file, new mtime, new ETag), a
+    browser's `If-Range` validation correctly sees the mismatch and falls back to a full 200
+    instead of continuing to splice against stale Range offsets."""
+    path = _preview_render_cache.get_or_compute(
+        cache_key, lambda: _render_to_temp_file(make, suffix)
+    )
+    return flask.send_file(path, mimetype=mimetype, conditional=True)
+
+
+def _render_to_temp_file(make: Callable[[Path], None], suffix: str) -> Path:
+    fd, tmp_name = tempfile.mkstemp(suffix=suffix)
+    os.close(fd)
+    tmp_path = Path(tmp_name)
+    try:
+        make(tmp_path)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
+    return tmp_path
+
+
 @media_bp.get("/recordings/<audio_hash>/detail-spectrogram/<int:tile_index>.webp")
 def detail_spectrogram(audio_hash: str, tile_index: int) -> ResponseReturnValue:
     context = _detail_tile_context(audio_hash, tile_index)
@@ -321,8 +381,10 @@ def het_preview(audio_hash: str) -> ResponseReturnValue:
 
     denoise = parse_bool(flask.request.args.get("denoise"))
     wav_path = _resolve_wav_path_or_404(audio_hash)
+    cache_key = ("het", str(wav_path), wav_path.stat().st_mtime_ns, freq_hz, denoise)
     try:
-        return _serve_temp_render(
+        return _serve_cached_render(
+            cache_key,
             lambda out: render_heterodyne_preview(
                 wav_path,
                 out,
@@ -345,10 +407,16 @@ def detail_preview(audio_hash: str) -> ResponseReturnValue:
     why a new caching dimension there would be real new infrastructure for
     a feature most recordings will never have toggled). The details page
     keeps using the cached `preview` route when denoise is off; this route
-    is only ever hit once a user actually turns the toggle on."""
+    is only ever hit once a user actually turns the toggle on.
+
+    Served via `_serve_cached_render`'s short-lived, sliding-TTL cache, not
+    `_serve_temp_render` -- see that function's docstring for why a
+    request-scoped render broke real playback here specifically."""
     denoise = parse_bool(flask.request.args.get("denoise"))
     wav_path = _resolve_wav_path_or_404(audio_hash)
-    return _serve_temp_render(
+    cache_key = ("te", str(wav_path), wav_path.stat().st_mtime_ns, denoise)
+    return _serve_cached_render(
+        cache_key,
         lambda out: make_preview(wav_path, out, denoise=denoise),
         suffix=".opus",
         mimetype="audio/ogg",
