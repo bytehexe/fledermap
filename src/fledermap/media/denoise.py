@@ -39,3 +39,15 @@ def highpass_filter(
     )
     result: np.ndarray = signal.sosfiltfilt(sos, samples)
     return result
+
+
+def subtract_background_noise(sxx: np.ndarray, percentile: float = 10.0) -> np.ndarray:
+    """Per frequency-bin (per row) background-noise subtraction: estimate
+    each bin's noise floor as its own `percentile`-th percentile power
+    across all time columns, subtract it from every column in that row,
+    clamp at zero. Operates on the STFT's linear power matrix, before any
+    dB conversion -- spectrogram-image-only (see the design spec's "Why
+    highpass and background-subtraction use different techniques": this
+    is not reconstructed back to audio, so no phase/COLA concern applies)."""
+    noise_floor = np.percentile(sxx, percentile, axis=1, keepdims=True)
+    return np.maximum(sxx - noise_floor, 0.0)

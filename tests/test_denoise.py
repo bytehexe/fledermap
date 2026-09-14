@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import numpy as np
 
-from fledermap.media.denoise import DEFAULT_CUTOFF_HZ, highpass_filter
+from fledermap.media.denoise import (
+    DEFAULT_CUTOFF_HZ,
+    highpass_filter,
+    subtract_background_noise,
+)
 
 
 def test_default_cutoff_is_five_khz() -> None:
@@ -41,3 +45,29 @@ def test_highpass_filter_is_zero_phase_no_time_shift() -> None:
     # The impulse's peak must still be at (or immediately adjacent to) index 500 --
     # a causal (non-zero-phase) filter would shift it later in time.
     assert abs(int(np.argmax(np.abs(filtered))) - 500) <= 2
+
+
+def test_subtract_background_noise_removes_a_flat_noise_floor() -> None:
+    # 3 frequency bins x 10 time columns. Bin 0: constant noise floor of 2.0.
+    # Bin 1: a real "call" -- mostly silent, one loud spike of 100.0.
+    # Bin 2: all zero (silence).
+    sxx = np.zeros((3, 10))
+    sxx[0, :] = 2.0
+    sxx[1, :] = 0.1
+    sxx[1, 5] = 100.0
+    sxx[2, :] = 0.0
+
+    result = subtract_background_noise(sxx, percentile=10.0)
+
+    # The flat noise floor drops to (near) zero everywhere.
+    assert result[0].max() < 0.5
+    # The call's loud spike survives, clearly distinguishable from its own row's floor.
+    assert result[1, 5] > 90.0
+    # Never negative (clamped at zero).
+    assert (result >= 0).all()
+
+
+def test_subtract_background_noise_preserves_shape() -> None:
+    sxx = np.random.default_rng(0).random((5, 20))
+    result = subtract_background_noise(sxx)
+    assert result.shape == sxx.shape
