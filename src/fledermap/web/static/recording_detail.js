@@ -57,7 +57,7 @@ document.addEventListener("DOMContentLoaded", () => {
           denoiseOn ? withQueryParam(detailPreviewUrl, "denoise", "true") : previewUrl,
         getHetExtraQuery: () => (denoiseOn ? "&denoise=true" : ""),
       })
-    : { getTimeExpansionFactor: () => 1, refreshSource: () => {} };
+    : { getTimeExpansionFactor: () => 1, refreshSource: () => {}, isRestoringPosition: () => false };
   const scrollEl = document.getElementById("detail-scroll");
   const timeAxis = document.getElementById("detail-axis-time");
   const freqAxis = document.getElementById("detail-axis-freq");
@@ -138,13 +138,9 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   if (denoiseToggle) {
-    const filterIconOutline = denoiseToggle.querySelector(".filter-icon-outline");
-    const filterIconFilled = denoiseToggle.querySelector(".filter-icon-filled");
     denoiseToggle.addEventListener("click", () => {
       denoiseOn = !denoiseOn;
       denoiseToggle.setAttribute("aria-pressed", denoiseOn ? "true" : "false");
-      filterIconOutline.hidden = denoiseOn;
-      filterIconFilled.hidden = !denoiseOn;
       reloadTilesWithDenoise();
       audioControls.refreshSource();
     });
@@ -761,6 +757,12 @@ document.addEventListener("DOMContentLoaded", () => {
   // <audio>'s currentTime, snaps the scroll container into view only when
   // the cursor goes off-screen -- no continuous auto-follow by default.
   audio.addEventListener("timeupdate", () => {
+    // Ignore the spurious zero-position tick a source change (mode switch, denoise toggle)
+    // fires before its real position restore has landed -- see the `pendingRestore` comment
+    // in audio_controls.js's `setSource`. Reacting to it here would auto-scroll the cursor
+    // into view at the wrong (start-of-file) spot before it gets corrected.
+    if (audioControls.isRestoringPosition()) return;
+
     const spectrogramTimeS = audio.currentTime / audioControls.getTimeExpansionFactor();
 
     // Checked before the cursor is drawn, using whatever the view currently shows (see the

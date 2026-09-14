@@ -126,19 +126,37 @@ function initAudioControls(container, audioEl, options = {}) {
   // page's cursor and scrolled-into-view position back to the start on
   // every mode or frequency change. Undefined on initial page load, where
   // `audioEl.currentTime` is already 0 and there's nothing to restore.
+  //
+  // Assigning `audioEl.src` resets `currentTime` to 0 and can fire a spurious
+  // `timeupdate` for that reset before `loadedmetadata` (and this restore)
+  // ever runs. A page-level `timeupdate` listener that auto-scrolls the
+  // cursor into view (recording_detail.js) would otherwise act on that
+  // spurious zero and snap the scrolled-into-view position back to the
+  // start, which the later, correctly-restored `timeupdate` doesn't undo
+  // (the cursor is already "in view" at the wrong spot by then). `pendingRestore`
+  // lets such a listener ignore ticks until the real restore has happened,
+  // via `isRestoringPosition()` below.
+  let pendingRestore = false;
+
   function setSource(url, restoreRealTimeS) {
     audioEl.pause();
     audioEl.src = url;
     syncToggleIcon();
     if (restoreRealTimeS !== undefined) {
+      pendingRestore = true;
       audioEl.addEventListener(
         "loadedmetadata",
         () => {
           audioEl.currentTime = restoreRealTimeS * effectiveFactor();
+          pendingRestore = false;
         },
         { once: true },
       );
     }
+  }
+
+  function isRestoringPosition() {
+    return pendingRestore;
   }
 
   function hetUrlForFreq(freqKhz) {
@@ -276,5 +294,6 @@ function initAudioControls(container, audioEl, options = {}) {
   return {
     getTimeExpansionFactor: effectiveFactor,
     refreshSource,
+    isRestoringPosition,
   };
 }
