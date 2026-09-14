@@ -1,19 +1,28 @@
 """Flask app factory (design spec section 3/4). `web/api` and `web/views`
 both call `services/`, never `store/` directly -- the SPA-migration escape
 hatch the parent spec's section 4 documents depends on that boundary holding.
+
+Also discovers the display timezone once at startup from Postgres's own
+`current_setting('TimeZone')` (docs/superpowers/specs/
+2026-09-14-fledermap-timezone-display-design.md) -- every `DateTime(timezone=True)`
+column is already read back in that zone, so this names the existing
+behavior rather than introducing a new one.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import flask
-from sqlalchemy import Engine
+from sqlalchemy import Engine, text
+from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.services.current_best import identification_label, recording_headline
 from fledermap.web.api.geojson import api_bp
 from fledermap.web.icons import make_icon_global
 from fledermap.web.params import detector_label
+from fledermap.web.timefmt import local_date, local_datetime
 from fledermap.web.views.entities import entities_bp
 from fledermap.web.views.map import views_bp
 from fledermap.web.views.media import media_bp
@@ -51,7 +60,20 @@ def create_app(
     app.config["ENGINE"] = engine
     app.config["MEDIA_ROOT"] = media_root
     app.config["ARCHIVE_ROOTS"] = archive_roots
+
+    with OrmSession(engine) as session:
+        display_timezone_name = session.execute(
+            text("SELECT current_setting('TimeZone')")
+        ).scalar_one()
+    display_timezone = ZoneInfo(display_timezone_name)
+    app.config["DISPLAY_TIMEZONE_NAME"] = display_timezone_name
+    app.config["DISPLAY_TIMEZONE"] = display_timezone
+
     app.jinja_env.filters["detector_label"] = detector_label
+    app.jinja_env.filters["local_datetime"] = lambda dt: local_datetime(
+        dt, display_timezone
+    )
+    app.jinja_env.filters["local_date"] = lambda dt: local_date(dt, display_timezone)
     app.jinja_env.globals["recording_headline"] = recording_headline
     app.jinja_env.globals["identification_label"] = identification_label
     app.jinja_env.globals["icon"] = make_icon_global(static_root / "vendor")
