@@ -119,6 +119,22 @@ New module `media/denoise.py`, pure (no DB/queue awareness, matching every other
   (`PIPPIP_20260826_221352.wav`) through several percentile/factor combinations side-by-side —
   it visibly cleaned the background while leaving real calls' shape and brightness intact, where
   weaker settings (e.g. percentile=75, factor=1.2) left visibly more residual noise texture.
+  **Second deviation (2026-09-14, same day):** over-subtraction alone still left substantial
+  per-pixel speckle — a single STFT frame's power estimate has high variance regardless of the
+  true noise floor, and subtracting a scalar shifts brightness down without touching that
+  per-pixel randomness. A plain 2D median filter removes the speckle but is edge-blind: it
+  smooths a call's thin sweep the same as a noise pixel, visibly smudging call shape even at a
+  small (3×3) kernel. The fix, added as a second step inside `subtract_background_noise`
+  (`median_size: tuple[int, int] = (7, 7)`, `preserve_threshold: float = 2.0`): use the
+  median-filtered estimate only where a pixel actually agrees with it (real background); anywhere
+  a pixel stands out well above its own smoothed neighborhood — what a call pixel does — the
+  original, unsmoothed value passes through untouched
+  (`where(subtracted > preserve_threshold * smoothed, subtracted, smoothed)`). Chosen by
+  rendering several kernel sizes and thresholds against the same real recording side by side;
+  pushing the kernel to 21×21 and the threshold to 6.0 produced no further visible improvement,
+  confirming this isn't a compromise short of a better result further out — it's close to this
+  technique's practical ceiling on real recordings. Still `scipy` only (`scipy.ndimage`), no new
+  dependency.
 
 ## Where each piece plugs in
 

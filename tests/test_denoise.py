@@ -78,14 +78,18 @@ def test_subtract_background_noise_default_over_subtracts_more_than_the_floor() 
     MORE than just each row's own noise floor -- confirmed necessary 2026-09-14
     against a real field recording, where subtracting exactly the (10th-
     percentile) floor left the noise floor's own variance, which is what
-    actually reads as visual "noise", almost entirely untouched."""
+    actually reads as visual "noise", almost entirely untouched. `median_size=1`
+    disables the selective-median step (a 1x1 "neighborhood" is just the pixel
+    itself) so this test isolates the over-subtraction behavior alone."""
     # A row whose values cluster around 1.0 with real variance (not a flat floor) --
     # closer to what an actual noise floor's spread looks like than a constant.
     rng = np.random.default_rng(1)
     sxx = np.abs(rng.normal(loc=1.0, scale=0.3, size=(1, 200)))
 
-    over_subtracted = subtract_background_noise(sxx)
-    floor_only = subtract_background_noise(sxx, percentile=50.0, factor=1.0)
+    over_subtracted = subtract_background_noise(sxx, median_size=(1, 1))
+    floor_only = subtract_background_noise(
+        sxx, percentile=50.0, factor=1.0, median_size=(1, 1)
+    )
 
     # Over-subtracting (factor=2.0) must zero out substantially more of the row
     # than subtracting exactly the median once (factor=1.0).

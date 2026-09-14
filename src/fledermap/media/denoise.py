@@ -10,7 +10,7 @@ cutoff can't drift between callers."""
 from __future__ import annotations
 
 import numpy as np
-from scipy import signal
+from scipy import ndimage, signal
 
 DEFAULT_CUTOFF_HZ = 5000.0
 
@@ -42,17 +42,23 @@ def highpass_filter(
 
 
 def subtract_background_noise(
-    sxx: np.ndarray, percentile: float = 50.0, factor: float = 2.0
+    sxx: np.ndarray,
+    percentile: float = 50.0,
+    factor: float = 2.0,
+    median_size: tuple[int, int] = (7, 7),
+    preserve_threshold: float = 2.0,
 ) -> np.ndarray:
     """Per frequency-bin (per row) background-noise subtraction (the classic
-    "over-subtraction" spectral-subtraction idiom): estimate each bin's noise
-    floor as its own `percentile`-th percentile power across all time
-    columns, subtract `factor` times that floor from every column in that
-    row, clamp at zero. Operates on the STFT's linear power matrix, before
-    any dB conversion -- spectrogram-image-only (see the design spec's "Why
-    highpass and background-subtraction use different techniques": this is
-    not reconstructed back to audio, so no phase/COLA concern applies).
+    "over-subtraction" spectral-subtraction idiom), followed by a selective
+    (edge-preserving) 2D median filter. Operates on the STFT's linear power
+    matrix, before any dB conversion -- spectrogram-image-only (see the
+    design spec's "Why highpass and background-subtraction use different
+    techniques": this is not reconstructed back to audio, so no phase/COLA
+    concern applies).
 
+    Step 1, over-subtraction: estimate each bin's noise floor as its own
+    `percentile`-th percentile power across all time columns, subtract
+    `factor` times that floor from every column in that row, clamp at zero.
     `factor=1.0` (subtracting exactly the floor) only zeroes the bottom
     `percentile`% of pixels in each row -- the noise floor's own variance,
     which is what actually reads as visual "noise" and sits well above that
@@ -62,6 +68,30 @@ def subtract_background_noise(
     whole variance band down towards zero too, at the cost of also eating
     into weak real signal close to the floor -- percentile=50 (the row's
     median) + factor=2.0 visibly cleaned the background while leaving actual
-    calls' shape and brightness intact in that same comparison."""
+    calls' shape and brightness intact in that same comparison.
+
+    Step 2, selective median filter: over-subtraction alone still leaves
+    substantial per-pixel speckle (a single STFT frame's power estimate has
+    high variance regardless of the true noise floor -- subtracting a
+    scalar shifts brightness down but doesn't reduce that per-pixel
+    randomness). A plain 2D median filter removes the speckle but is
+    edge-blind: it smooths a call's thin sweep the same as a noise pixel,
+    visibly smudging call shape even at a small kernel size -- confirmed
+    live 2026-09-14, 7x7 got the background very quiet but blobbed every
+    call. The fix is to use the median-filtered estimate only where a pixel
+    actually agrees with it (real background); anywhere a pixel stands out
+    well above its own smoothed neighborhood -- which is exactly what a
+    call pixel does -- the original, unsmoothed value passes through
+    untouched. `median_size=(7, 7)` and `preserve_threshold=2.0` were
+    chosen by rendering several kernel sizes and thresholds against a real
+    field recording side by side; pushing the kernel up to 21x21 and the
+    threshold up to 6.0 produced no further visible improvement, so this
+    isn't a compromise short of a better result further out -- it's close
+    to this technique's practical ceiling on real recordings."""
     noise_floor = np.percentile(sxx, percentile, axis=1, keepdims=True)
-    return np.maximum(sxx - factor * noise_floor, 0.0)
+    subtracted = np.maximum(sxx - factor * noise_floor, 0.0)
+    smoothed = ndimage.median_filter(subtracted, size=median_size)
+    result: np.ndarray = np.where(
+        subtracted > preserve_threshold * smoothed, subtracted, smoothed
+    )
+    return result
