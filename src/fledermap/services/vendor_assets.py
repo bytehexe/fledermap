@@ -127,6 +127,18 @@ ASSETS: tuple[VendorAsset, ...] = (
         sha256="8093c597fcdc8667bca441c622d8c8e82b976595586e5c7871f2563b5b98a196",
         relative_path="icons/outline/flag-cog.svg",
     ),
+    # The Denoise toggle's icon (design spec
+    # docs/superpowers/specs/2026-09-14-fledermap-denoise-highpass-design.md).
+    VendorAsset(
+        url="https://unpkg.com/@tabler/icons@3.46.0/icons/outline/filter.svg",
+        sha256="eb4cf4b099901c28fab2e13a70c52e3318cee10e918bd99c39373c2b19085deb",
+        relative_path="icons/outline/filter.svg",
+    ),
+    VendorAsset(
+        url="https://unpkg.com/@tabler/icons@3.46.0/icons/filled/filter.svg",
+        sha256="eb1d37c40010e56b214e30f72d0c79dcc109bab4c8495a0d3c1b2e747258f943",
+        relative_path="icons/filled/filter.svg",
+    ),
     VendorAsset(
         url="https://unpkg.com/@tabler/icons@3.46.0/icons/outline/star.svg",
         sha256="9903f4359966f48225710d78088db8fdfbc30eb82596a4bb28bc49b56399465d",
