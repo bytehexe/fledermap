@@ -41,7 +41,8 @@ add it to `:root` and document it here in the same change.
 ## Dark mode
 
 System preference by default (`prefers-color-scheme: dark`), with a three-state manual override
-(system → light → dark → system) via the 🖥️/☀️/🌙 button in the sidebar (`_nav.html`), persisted
+(system → light → dark → system) via the sidebar's theme-toggle button (`_nav.html`, three
+sibling `device-desktop`/`sun`/`moon` icons swapped via `x-show` -- see "Icons" below), persisted
 in `localStorage` under the key `fledermap-theme`. The override is applied via a `data-theme`
 attribute on `<html>`, set by a small inline script (`_theme_init.html`, included immediately
 after `<meta charset>`, before everything else in every page's `<head>`) *before* first paint, so
@@ -71,6 +72,21 @@ The `@media (prefers-color-scheme: dark)` block and the `:root[data-theme="dark"
 `app.css` duplicate the same declarations — a media-query rule and a plain attribute-selector
 rule can't be merged — so changing a dark-mode token value means editing it in *both* blocks, or
 a future edit will drift between "system-driven dark" and "explicit dark override".
+
+### No emoji or Unicode dingbats in the UI
+
+Every icon goes through the `icon()` Jinja global (`web/icons.py`) — inline Tabler Icons SVGs,
+never a raw emoji or dingbat character typed into a template or JS string. This replaced the
+app's previous mix of Unicode glyphs (design spec
+`docs/superpowers/specs/2026-09-13-fledermap-icon-set-design.md`), which repeatedly drifted
+(mismatched glyphs across files, no real hollow/solid pair for an arbitrary concept, inconsistent
+cross-platform rendering). A JS-driven icon swap (a toggle between two states) renders both as
+sibling `<svg>`s and toggles the `hidden` attribute — never rewrites `.textContent`/`.innerHTML`
+with a new glyph. A JS-created element that needs an icon (built via `document.createElement`,
+with no way to call `icon()` itself) clones it from a hidden `<template>` the enclosing Jinja
+template renders once, rather than duplicating the SVG string in JS where it could drift from the
+vendored file (`_classifier_box.html`'s `#classifier-chip-remove-icon` template, cloned by
+`classifier_box.js`, is the current example).
 
 ## Spacing rhythm
 

@@ -73,7 +73,9 @@ Roughly a pipeline, each stage its own top-level package under `src/fledermap/`:
   of these, nothing to catch it) was real, and the same sweep found no `<meta name="viewport">`
   on any page at all — `_layout.html` adds it. A page overrides `title`/`extra_head`/`body_attrs`
   (raw `<body>` attributes, e.g. `map.html`'s `x-data`)/`content`/`scripts` as needed; see
-  `_layout.html`'s own docstring for each block's contract.
+  `_layout.html`'s own docstring for each block's contract. Icons are inline Tabler SVGs via the
+  `icon()` Jinja global (`web/icons.py`) -- see `docs/style-guide.md`'s "No emoji or Unicode
+  dingbats in the UI" rule.
 - **`cli/main.py`** — the `fledermap` entry point tying the above together into the commands
   listed above.
 
