@@ -213,6 +213,16 @@ No sweep-conflict found elsewhere: no other page has an equivalent toolbar (the 
 
 No migration (no schema change). Existing cached spectrogram/oscillogram files are naturally
 invalidated by the `params_hash` change (new fields) the first time this ships — old files are
-simply never matched again and get re-rendered on next request/backfill, no explicit cleanup
-needed (same pattern `PREVIEW_VERSION` bumps use for preview.opus, minus the explicit version
-string since this goes through real dataclass fields instead).
+simply never matched again, no explicit cleanup needed (same pattern `PREVIEW_VERSION` bumps use
+for preview.opus, minus the explicit version string since this goes through real dataclass fields
+instead).
+
+**This does NOT mean existing recordings' drawer media re-renders on its own.** Checked against
+`services/media.py`: `run_ingest_cycle` (the worker's cron/startup job) only calls `enqueue_media`
+for *newly*-ingested recordings; backfilling already-ingested recordings' missing/stale media
+(`backfill_media`) only runs via the explicit `fledermap enqueue-media` CLI command — nothing
+schedules it automatically. Unlike the details page (which live-renders on every request, so it
+just works), the drawer's `spectrogram`/`oscillogram` routes 404 rather than rendering on demand.
+So every already-ingested recording's drawer spectrogram/oscillogram will show "not processed yet"
+after this ships, until `fledermap enqueue-media` is run once. **Deployment step:** run
+`fledermap enqueue-media` after deploying this change.
