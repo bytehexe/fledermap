@@ -806,6 +806,20 @@ button:disabled { cursor: default; opacity: 0.5; }
   border-color: var(--color-accent);
   opacity: 0.9;
 }
+/* Same active-state look as `#view-lock-toggle[aria-pressed="true"]` above -- Denoise is
+   built the same way as the Lock toggle (design spec), including this pressed-state styling
+   so the ON state isn't signalled by the icon swap alone. */
+#denoise-toggle[aria-pressed="true"] {
+  background: var(--color-accent);
+  color: var(--color-bg);
+  border-color: var(--color-accent);
+}
+#denoise-toggle[aria-pressed="true"]:hover {
+  background: var(--color-accent);
+  color: var(--color-bg);
+  border-color: var(--color-accent);
+  opacity: 0.9;
+}
 /* Locking no longer switches `overflow-x` to `hidden` -- doing so made the scrollbar itself
    vanish and reflow the layout by its height on every lock/unlock, which read as UI churn
    rather than a state change (the goal is to disable the scrollbar, not remove it).

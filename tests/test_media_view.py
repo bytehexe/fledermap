@@ -901,6 +901,90 @@ def test_detail_spectrogram_denoise_true_differs_from_default(
     assert plain.data != denoised.data
 
 
+def test_detail_spectrogram_denoise_false_or_empty_matches_default(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """Regression for the JS bug where the toggle's OFF click sent the literal string
+    `denoise=false`. `parse_bool` is presence-based (any non-empty string, including
+    the literal text "false", reads as True) and is deliberately not changed here --
+    so `?denoise=false` still renders denoised, same as `?denoise=true`, and does NOT
+    match the default/absent case. That's exactly why the fixed JS now sends an EMPTY
+    string for the OFF state instead: `?denoise=` (present but empty) is the only
+    query form `parse_bool` reads as False, matching plain `parse_bool`'s own
+    documented contract."""
+    archive_root = tmp_path / "archive"
+    archive_root.mkdir()
+    _write_wav(archive_root / "a.wav", duration_s=0.05)
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="d4" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                duration_s=0.05,
+                samplerate_hz=256_000,
+            ),
+        )
+        session.commit()
+
+    app = create_app(
+        engine, tmp_path / "static", tmp_path / "media", archive_roots=(archive_root,)
+    )
+    client = app.test_client()
+    default = client.get(f"/recordings/{'d4' * 32}/detail-spectrogram/0.webp")
+    literal_false = client.get(
+        f"/recordings/{'d4' * 32}/detail-spectrogram/0.webp?denoise=false"
+    )
+    empty = client.get(f"/recordings/{'d4' * 32}/detail-spectrogram/0.webp?denoise=")
+
+    assert default.status_code == 200
+    assert literal_false.status_code == 200
+    assert empty.status_code == 200
+    # The literal string "false" is non-empty, so parse_bool reads it as True -- this
+    # is why the JS fix must never send it. Only the empty-string form matches default.
+    assert literal_false.data != default.data
+    assert empty.data == default.data
+
+
+def test_detail_oscillogram_denoise_false_or_empty_matches_default(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    archive_root.mkdir()
+    _write_wav(archive_root / "a.wav", duration_s=0.05)
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="d5" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                duration_s=0.05,
+                samplerate_hz=256_000,
+            ),
+        )
+        session.commit()
+
+    app = create_app(
+        engine, tmp_path / "static", tmp_path / "media", archive_roots=(archive_root,)
+    )
+    client = app.test_client()
+    default = client.get(f"/recordings/{'d5' * 32}/detail-oscillogram/0.webp")
+    literal_false = client.get(
+        f"/recordings/{'d5' * 32}/detail-oscillogram/0.webp?denoise=false"
+    )
+    empty = client.get(f"/recordings/{'d5' * 32}/detail-oscillogram/0.webp?denoise=")
+
+    assert default.status_code == 200
+    assert literal_false.status_code == 200
+    assert empty.status_code == 200
+    # Same parse_bool quirk as the spectrogram test above: "false" is non-empty and
+    # reads as True, so only the empty-string form matches default.
+    assert literal_false.data != default.data
+    assert empty.data == default.data
+
+
 def test_het_preview_denoise_true_differs_from_default(
     engine: Engine,
     tmp_path: Path,

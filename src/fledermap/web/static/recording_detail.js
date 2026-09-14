@@ -57,7 +57,7 @@ document.addEventListener("DOMContentLoaded", () => {
           denoiseOn ? withQueryParam(detailPreviewUrl, "denoise", "true") : previewUrl,
         getHetExtraQuery: () => (denoiseOn ? "&denoise=true" : ""),
       })
-    : { getTimeExpansionFactor: () => 1 };
+    : { getTimeExpansionFactor: () => 1, refreshSource: () => {} };
   const scrollEl = document.getElementById("detail-scroll");
   const timeAxis = document.getElementById("detail-axis-time");
   const freqAxis = document.getElementById("detail-axis-freq");
@@ -122,12 +122,16 @@ document.addEventListener("DOMContentLoaded", () => {
     spectrogramTiles.forEach((t) => {
       t.hidden = true;
       delete t.dataset.failed;
-      t.src = withQueryParam(t.src, "denoise", denoiseOn ? "true" : "false");
+      // An empty string (not the literal "false") -- `parse_bool` on the server is
+      // presence-based, so the literal string "false" is still non-empty and reads as
+      // True. `URLSearchParams` renders an empty value as `denoise=` (present but
+      // empty), which `parse_bool` correctly reads as False.
+      t.src = withQueryParam(t.src, "denoise", denoiseOn ? "true" : "");
     });
     oscillogramTiles.forEach((t) => {
       t.hidden = true;
       delete t.dataset.failed;
-      t.src = withQueryParam(t.src, "denoise", denoiseOn ? "true" : "false");
+      t.src = withQueryParam(t.src, "denoise", denoiseOn ? "true" : "");
     });
     revealWhenAllLoaded(spectrogramTiles, spectrogramLoading);
     revealWhenAllLoaded(oscillogramTiles, oscillogramLoading);
