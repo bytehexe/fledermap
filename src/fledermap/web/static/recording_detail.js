@@ -549,10 +549,13 @@ document.addEventListener("DOMContentLoaded", () => {
   setActiveTool("default");
 
   const viewLockToggle = document.getElementById("view-lock-toggle");
+  const lockIconUnlocked = viewLockToggle.querySelector(".lock-icon-unlocked");
+  const lockIconLocked = viewLockToggle.querySelector(".lock-icon-locked");
   viewLockToggle.addEventListener("click", () => {
     viewLocked = !viewLocked;
     viewLockToggle.setAttribute("aria-pressed", viewLocked ? "true" : "false");
-    viewLockToggle.textContent = viewLocked ? "🔒 Lock view" : "🔓 Lock view";
+    lockIconUnlocked.hidden = viewLocked;
+    lockIconLocked.hidden = !viewLocked;
     scrollEl.classList.toggle("view-locked", viewLocked);
     if (viewLocked) {
       lockedStartS = nativeXPxToTimeS(scrollEl.scrollLeft / currentScale);

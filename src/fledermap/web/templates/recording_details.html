@@ -56,7 +56,14 @@
     <div class="detail-toolbar" id="detail-toolbar">
       <button type="button" class="tool-button" data-tool="default" aria-pressed="true">Default</button>
       <button type="button" class="tool-button" data-tool="ruler" aria-pressed="false">Ruler</button>
-      <button type="button" id="view-lock-toggle" aria-pressed="false" title="Lock the current view: no scrolling, playback stops at the right edge">🔓 Lock view</button>
+      {# recording_detail.js toggles `hidden` on the two icon spans -- it never rewrites
+         .textContent here any more (that couldn't carry SVG markup anyway), and the label
+         text is now static, never touched by JS at all. #}
+      <button type="button" id="view-lock-toggle" aria-pressed="false" title="Lock the current view: no scrolling, playback stops at the right edge">
+        <span class="lock-icon-unlocked">{{ icon("lock") }}</span>
+        <span class="lock-icon-locked" hidden>{{ icon("lock", filled=True) }}</span>
+        <span class="lock-label">Lock view</span>
+      </button>
     </div>
     <div class="detail-scroll" id="detail-scroll">
       <div class="detail-body" id="detail-body">
