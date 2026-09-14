@@ -213,10 +213,10 @@ def test_sessions_list_pagination_buttons_disabled_at_start(
     html = response.get_data(as_text=True)
 
     assert '<div class="pagination" id="sessions-pagination">' in html
-    # At offset 0 there's no earlier page -- "← Newer" is disabled
-    # regardless of how much data exists (has_more, which gates "Older →",
+    # At offset 0 there's no earlier page -- "Newer" is disabled
+    # regardless of how much data exists (has_more, which gates "Older",
     # is covered separately by the offset test below).
-    assert re.search(r"disabled[^>]*>← Newer</button>", html, re.DOTALL)
+    assert re.search(r"disabled[^>]*>.*?chevron-left.*?Newer</button>", html, re.DOTALL)
 
 
 def test_sessions_list_offset_shows_the_next_page(

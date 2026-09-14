@@ -613,8 +613,10 @@ def test_recording_panel_shows_a_disabled_next_button_at_the_end_of_the_filtered
         .get_data(as_text=True)
     )
 
-    assert "← Previous" in html
-    assert "Next →" in html
+    assert "icons-tabler-outline icon-tabler-chevron-left" in html
+    assert "Previous" in html
+    assert "icons-tabler-outline icon-tabler-chevron-right" in html
+    assert "Next" in html
     assert f"/recordings/{'a' * 64}/panel" in html  # Previous still links back
     # Next has no recording to link to, so it's rendered disabled rather than
     # omitted -- exactly one disabled button on this page.

@@ -77,7 +77,7 @@
           hx-target="#sessions-table-wrapper"
           hx-select="#sessions-table-wrapper"
           hx-push-url="true"
-        >← Newer</button>
+        >{{ icon("chevron-left") }} Newer</button>
         <button
           type="button"
           {% if not has_more %}disabled{% endif %}
@@ -85,7 +85,7 @@
           hx-target="#sessions-table-wrapper"
           hx-select="#sessions-table-wrapper"
           hx-push-url="true"
-        >Older →</button>
+        >Older {{ icon("chevron-right") }}</button>
       </div>
     </div>
   </main>

@@ -2,7 +2,7 @@
 {% block title %}Fledermap — {{ label }} statistics{% endblock %}
 {% block content %}
   <main class="main-content">
-    <p><a href="/sites/{{ site.id }}">← {{ label }}</a></p>
+    <p><a href="/sites/{{ site.id }}">{{ icon("chevron-left") }} {{ label }}</a></p>
     <h1>{{ label }} — Statistics</h1>
 
     <div class="stats-band">

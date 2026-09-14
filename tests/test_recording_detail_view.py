@@ -295,7 +295,9 @@ def test_recording_details_page_defaults_the_back_link_to_the_map(
     response = app.test_client().get(f"/recordings/{'f8' * 32}")
 
     html = response.get_data(as_text=True)
-    assert '<a href="/">← Back to map</a>' in html
+    assert '<a href="/">' in html
+    assert "icons-tabler-outline icon-tabler-chevron-left" in html
+    assert "Back to map</a>" in html
 
 
 def test_recording_details_page_honours_a_return_to_query_param(
@@ -320,7 +322,9 @@ def test_recording_details_page_honours_a_return_to_query_param(
     )
 
     html = response.get_data(as_text=True)
-    assert '<a href="/sessions/7">← Back to sessions</a>' in html
+    assert '<a href="/sessions/7">' in html
+    assert "icons-tabler-outline icon-tabler-chevron-left" in html
+    assert "Back to sessions</a>" in html
 
 
 def test_recording_details_page_explains_missing_metadata(
@@ -953,7 +957,7 @@ def test_details_page_has_no_prevnext_with_no_review_param(
 
     html = response.get_data(as_text=True)
     assert "Previous" not in html
-    assert "Next →" not in html
+    assert "Next" not in html
     assert "Reviewing flagged recordings" not in html
 
 
@@ -989,7 +993,8 @@ def test_details_page_shows_review_snapshot_prevnext_and_banner(
     # absent, so "Next" never jumps position depending on whether a
     # "Previous" link exists next to it (style guide's disable-don't-hide
     # rule).
-    assert "← Previous" in html
+    assert "icons-tabler-outline icon-tabler-chevron-left" in html
+    assert "Previous" in html
     assert html.count('class="is-disabled"') == 1
     assert 'href="#"' in html
 
@@ -1026,10 +1031,12 @@ def test_details_page_review_snapshot_ignores_the_current_review_status(
     html = response.get_data(as_text=True)
     assert "2 of 2" in html
     assert f"/recordings/{'b4' * 32}?review={first_id},{second_id}" in html
-    assert "← Previous" in html  # a real prior item still exists
+    assert "icons-tabler-outline icon-tabler-chevron-left" in html
+    assert "Previous" in html  # a real prior item still exists
     # "Next" still renders at the end -- disabled, not absent (see the
     # "1 of 2" test above for why).
-    assert "Next →" in html
+    assert "icons-tabler-outline icon-tabler-chevron-right" in html
+    assert "Next" in html
     assert html.count('class="is-disabled"') == 1
     assert 'href="#"' in html
     # Landing on the last item of a real multi-item snapshot must still show
@@ -1084,13 +1091,13 @@ def test_details_page_hides_back_to_map_during_a_review_session(
     app = create_app(engine, tmp_path / "static", tmp_path / "media")
 
     outside_review = app.test_client().get(f"/recordings/{'b8' * 32}")
-    assert "← Back to map" in outside_review.get_data(as_text=True)
+    assert "Back to map" in outside_review.get_data(as_text=True)
 
     during_review = app.test_client().get(
         f"/recordings/{'b8' * 32}?review={recording_id}",
     )
     html = during_review.get_data(as_text=True)
-    assert "← Back to map" not in html
+    assert "Back to map" not in html
     assert "Exit review" in html
 
 

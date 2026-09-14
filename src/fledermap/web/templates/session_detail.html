@@ -5,7 +5,7 @@
 {% endblock %}
 {% block content %}
   <main class="main-content" id="session-detail">
-    <a href="/sessions">← Back to sessions</a>
+    <a href="/sessions">{{ icon("chevron-left") }} Back to sessions</a>
     <h1>
       Session: {{ detail.session.started_at.strftime('%Y-%m-%d %H:%M') }} – {{ detail.session.ended_at.strftime('%H:%M') }}
     </h1>

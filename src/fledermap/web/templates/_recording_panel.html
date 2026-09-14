@@ -147,11 +147,11 @@
     <button
       type="button"
       {% if previous %}hx-get="/recordings/{{ previous.audio_hash }}/panel?{{ filter_qs }}" hx-target="#drawer-body"{% else %}disabled{% endif %}
-    >← Previous</button>
+    >{{ icon("chevron-left") }} Previous</button>
     <button
       type="button"
       {% if next %}hx-get="/recordings/{{ next.audio_hash }}/panel?{{ filter_qs }}" hx-target="#drawer-body"{% else %}disabled{% endif %}
-    >Next →</button>
+    >Next {{ icon("chevron-right") }}</button>
   </div>
 </div>
 {% endif %}

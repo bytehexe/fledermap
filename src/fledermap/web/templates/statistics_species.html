@@ -2,7 +2,7 @@
 {% block title %}Fledermap — {{ taxon.scientific_name }} statistics{% endblock %}
 {% block content %}
   <main class="main-content">
-    <p><a href="/species/{{ taxon.id }}">← {{ taxon.scientific_name }}</a></p>
+    <p><a href="/species/{{ taxon.id }}">{{ icon("chevron-left") }} {{ taxon.scientific_name }}</a></p>
     <h1>{{ taxon.scientific_name }} — Statistics</h1>
 
     <div class="stats-band">

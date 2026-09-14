@@ -27,11 +27,11 @@
         <a
           href="{{ '/recordings/' ~ previous.audio_hash ~ '?review=' ~ review_qs if previous else '#' }}"
           {% if not previous %}class="is-disabled" aria-disabled="true"{% endif %}
-        >← Previous</a>
+        >{{ icon("chevron-left") }} Previous</a>
         <a
           href="{{ '/recordings/' ~ next.audio_hash ~ '?review=' ~ review_qs if next else '#' }}"
           {% if not next %}class="is-disabled" aria-disabled="true"{% endif %}
-        >Next →</a>
+        >Next {{ icon("chevron-right") }}</a>
       </nav>
       <a href="/reviews">Exit review</a>
     </div>

@@ -17,7 +17,7 @@
        toggle buttons. Always last in the row, so the favourite button (last of
        the two) stays the row's right-most element project-wide. #}
 {% if show_back_link | default(true) %}
-<p><a href="{{ back_url }}">← {{ back_label }}</a></p>
+<p><a href="{{ back_url }}">{{ icon("chevron-left") }} {{ back_label }}</a></p>
 {% endif %}
 <div class="entity-header">
   <h1>{{ title }}</h1>

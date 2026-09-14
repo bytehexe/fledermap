@@ -293,13 +293,15 @@ def test_species_detail_page_back_link_honours_return_to(
     client = app.test_client()
 
     default_html = client.get(f"/species/{taxon_id}").get_data(as_text=True)
-    assert "← All species" in default_html
+    assert "icons-tabler-outline icon-tabler-chevron-left" in default_html
+    assert "All species" in default_html
     assert 'href="/species"' in default_html
 
     returned_html = client.get(
         f"/species/{taxon_id}?return_to=/%3Fsite%3D3",
     ).get_data(as_text=True)
-    assert "← Back to map" in returned_html
+    assert "icons-tabler-outline icon-tabler-chevron-left" in returned_html
+    assert "Back to map" in returned_html
     assert 'href="/?site=3"' in returned_html
 
 
@@ -323,9 +325,10 @@ def test_site_detail_page_back_link_honours_return_to(
     client = app.test_client()
 
     default_html = client.get(f"/sites/{site_id}").get_data(as_text=True)
-    assert "← All sites" in default_html
+    assert "icons-tabler-outline icon-tabler-chevron-left" in default_html
+    assert "All sites" in default_html
 
     unsafe_html = client.get(
         f"/sites/{site_id}?return_to=//evil.example",
     ).get_data(as_text=True)
-    assert "← All sites" in unsafe_html  # unsafe return_to rejected, falls back
+    assert "All sites" in unsafe_html  # unsafe return_to rejected, falls back
