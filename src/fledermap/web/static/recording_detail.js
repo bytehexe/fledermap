@@ -116,25 +116,53 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  function reloadTilesWithDenoise() {
-    spectrogramLoading.hidden = false;
-    oscillogramLoading.hidden = false;
-    spectrogramTiles.forEach((t) => {
-      t.hidden = true;
+  // Unlike `revealWhenAllLoaded` (initial page load: tiles start hidden behind a
+  // "Rendering…" placeholder, revealed together once every tile has a real image),
+  // a denoise-toggle reload swaps already-visible tiles -- hiding them first would
+  // blank the whole view to that placeholder for the length of the re-render, losing
+  // the reader's place (Janna, 2026-09-14: keep the previous image, don't go grey).
+  // Assigning a new `src` does NOT itself clear what's on screen -- browsers keep
+  // painting the last successfully decoded frame until the new one is ready, so
+  // simply never touching `hidden` here is enough to get the "swap in place" effect.
+  function reloadTilesInPlace(tiles, loadingEl) {
+    let remaining = tiles.length;
+    let hadError = false;
+
+    function settle() {
+      remaining -= 1;
+      if (remaining === 0) {
+        if (hadError) {
+          loadingEl.textContent = "Some tiles failed to render.";
+          loadingEl.hidden = false;
+        } else {
+          loadingEl.hidden = true;
+        }
+      }
+    }
+
+    tiles.forEach((t) => {
       delete t.dataset.failed;
+      t.addEventListener("load", settle, { once: true });
+      t.addEventListener(
+        "error",
+        () => {
+          hadError = true;
+          t.dataset.failed = "true";
+          settle();
+        },
+        { once: true },
+      );
       // An empty string (not the literal "false") -- `parse_bool` on the server is
       // presence-based, so the literal string "false" is still non-empty and reads as
       // True. `URLSearchParams` renders an empty value as `denoise=` (present but
       // empty), which `parse_bool` correctly reads as False.
       t.src = withQueryParam(t.src, "denoise", denoiseOn ? "true" : "");
     });
-    oscillogramTiles.forEach((t) => {
-      t.hidden = true;
-      delete t.dataset.failed;
-      t.src = withQueryParam(t.src, "denoise", denoiseOn ? "true" : "");
-    });
-    revealWhenAllLoaded(spectrogramTiles, spectrogramLoading);
-    revealWhenAllLoaded(oscillogramTiles, oscillogramLoading);
+  }
+
+  function reloadTilesWithDenoise() {
+    reloadTilesInPlace(spectrogramTiles, spectrogramLoading);
+    reloadTilesInPlace(oscillogramTiles, oscillogramLoading);
   }
 
   if (denoiseToggle) {
