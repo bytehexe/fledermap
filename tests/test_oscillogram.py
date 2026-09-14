@@ -300,3 +300,56 @@ def test_denoise_true_changes_oscillogram_pixels(tmp_path: Path) -> None:
 
     with Image.open(plain_out) as a, Image.open(denoised_out) as b:
         assert list(a.get_flattened_data()) != list(b.get_flattened_data())
+
+
+def test_denoise_reduces_envelope_outside_the_call(tmp_path: Path) -> None:
+    """Distinguishes spectral gating from the highpass filter alone: the
+    peak-envelope amplitude in a quiet region, well above the 5kHz highpass
+    cutoff, must shrink with denoise=True vs denoise=False."""
+    wav_path = tmp_path / "call.wav"
+    samplerate = 256_000
+    duration_s = 0.05
+    n = int(samplerate * duration_s)
+    t = np.arange(n) / samplerate
+    pulse_start, pulse_end = int(n * 0.4), int(n * 0.6)
+    rng = np.random.default_rng(1)
+    clean = np.zeros(n)
+    clean[pulse_start:pulse_end] = 20000 * np.sin(
+        2 * np.pi * 45_000 * t[pulse_start:pulse_end]
+    )
+    noise = rng.normal(0, 3000, n)
+    samples = (clean + noise).astype(np.int16)
+
+    wav_path.write_bytes(
+        build_wav(
+            [
+                (b"fmt ", fmt_payload(samplerate)),
+                (b"data", samples.tobytes()),
+            ]
+        )
+    )
+
+    plain_out = tmp_path / "plain.webp"
+    denoised_out = tmp_path / "denoised.webp"
+    render_oscillogram(wav_path, plain_out, params=OscillogramParams(denoise=False))
+    render_oscillogram(wav_path, denoised_out, params=OscillogramParams(denoise=True))
+
+    with Image.open(plain_out) as plain_img, Image.open(denoised_out) as denoised_img:
+        # Count non-background pixels over a whole quiet region (columns
+        # before the pulse, which starts at 40% width), not a single column --
+        # a single column's envelope height is noisy enough to go either way
+        # even when the region as a whole is clearly quieter (spiked
+        # 2026-09-14: a per-column version of this assertion was flaky the
+        # same way a single-pixel spectrogram check was).
+        plain_arr = np.array(plain_img)
+        denoised_arr = np.array(denoised_img)
+        background = np.array(OscillogramParams().background_color)
+        col_end = int(0.3 * plain_arr.shape[1])
+
+        def _nonbackground_pixel_count(arr: np.ndarray) -> int:
+            region = arr[:, :col_end]
+            return int((~np.all(region == background, axis=-1)).sum())
+
+        plain_count = _nonbackground_pixel_count(plain_arr)
+        denoised_count = _nonbackground_pixel_count(denoised_arr)
+        assert denoised_count < plain_count * 0.85

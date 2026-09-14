@@ -23,6 +23,7 @@ from scipy import signal
 from fledermap.media.denoise import (
     DEFAULT_CUTOFF_HZ,
     highpass_filter,
+    spectral_gate,
     subtract_background_noise,
 )
 from fledermap.media.wav_pcm import read_pcm
@@ -176,6 +177,7 @@ def render_full_spectrogram_image(
     samples, samplerate = read_pcm(wav_path)
     if params.denoise:
         samples = highpass_filter(samples, samplerate, params.cutoff_hz)
+        samples = spectral_gate(samples, samplerate)
 
     # Clamp to the signal's own length -- without this, a very short (or
     # truncated/corrupt) recording makes nperseg > len(samples), and

@@ -20,7 +20,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from fledermap.media.denoise import DEFAULT_CUTOFF_HZ, highpass_filter
+from fledermap.media.denoise import DEFAULT_CUTOFF_HZ, highpass_filter, spectral_gate
 from fledermap.media.wav_pcm import read_pcm
 
 
@@ -86,6 +86,7 @@ def render_oscillogram(
 
     if params.denoise:
         samples = highpass_filter(samples, samplerate, params.cutoff_hz)
+        samples = spectral_gate(samples, samplerate)
 
     width, height = params.width_px, params.height_px
 
