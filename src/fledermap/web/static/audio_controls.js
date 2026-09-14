@@ -45,6 +45,12 @@ function initAudioControls(container, audioEl, options = {}) {
   // Checked at the moment ▶ is clicked, so a still-valid (not past the
   // ceiling) resume position is left completely alone.
   const getSeekCeilingS = options.getSeekCeilingS || (() => null);
+  // Optional hooks so a page with its own denoise-toggle concept (the recording detail page's
+  // recording_detail.js) can make the TE/HET source reflect current toggle state. Default to
+  // the original static dataset-driven behavior -- the drawer panel (app.js) never passes
+  // these, so it's completely unaffected.
+  const getPreviewUrl = options.getPreviewUrl || (() => previewUrl);
+  const getHetExtraQuery = options.getHetExtraQuery || (() => "");
   const previewUrl = container.dataset.previewUrl;
   const hetPreviewUrlTemplate = container.dataset.hetPreviewUrlTemplate;
   const peakFrequencyUrl = container.dataset.peakFrequencyUrl;
@@ -136,7 +142,7 @@ function initAudioControls(container, audioEl, options = {}) {
   }
 
   function hetUrlForFreq(freqKhz) {
-    return hetPreviewUrlTemplate.replace("FREQ_HZ", String(freqKhz * 1000));
+    return hetPreviewUrlTemplate.replace("FREQ_HZ", String(freqKhz * 1000)) + getHetExtraQuery();
   }
 
   function switchToTe() {
@@ -146,7 +152,7 @@ function initAudioControls(container, audioEl, options = {}) {
     teButton.setAttribute("aria-pressed", "true");
     hetButton.setAttribute("aria-pressed", "false");
     freqControl.hidden = true;
-    setSource(previewUrl, restoreRealTimeS);
+    setSource(getPreviewUrl(), restoreRealTimeS);
   }
 
   function switchToHet() {
@@ -255,7 +261,20 @@ function initAudioControls(container, audioEl, options = {}) {
     switchToTe();
   }
 
+  // Re-applies whichever source the CURRENT mode should be playing, recomputed from
+  // getPreviewUrl()/getHetExtraQuery() -- for an external toggle (the denoise toggle) to call
+  // after it changes state, without duplicating switchToTe/switchToHet's own logic.
+  function refreshSource() {
+    const restoreRealTimeS = currentRealTimeS();
+    if (mode === "expanded") {
+      setSource(getPreviewUrl(), restoreRealTimeS);
+    } else {
+      setSource(hetUrlForFreq(freqInput.value), restoreRealTimeS);
+    }
+  }
+
   return {
     getTimeExpansionFactor: effectiveFactor,
+    refreshSource,
   };
 }
