@@ -690,6 +690,115 @@ def test_recording_panel_shows_the_favourite_toggle_starred(
     assert "icons-tabler-filled icon-tabler-star" in html
 
 
+def test_recording_panel_never_shows_the_flagged_for_review_section(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """The full "Flagged for review" text/reasons list is details-only now
+    (Obsidian backlog: "too much there" for the drawer overview) -- even a
+    manually-flagged, reasons-bearing recording must not render it in the
+    panel. `recording_details.html` still shows the equivalent section; see
+    test_recording_detail_view.py."""
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Rare species")
+        session.add(taxon)
+        session.flush()
+        recording = Recording(
+            audio_hash="a" * 64,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+            flagged_for_review=True,
+        )
+        session.add(recording)
+        session.flush()
+        session.add(
+            Identification(
+                recording_id=recording.id,
+                source=IdSource.EMT_GUANO,
+                verdict=Verdict.SPECIES,
+                taxon_id=taxon.id,
+                first_seen_at=recording.recorded_at,
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    html = (
+        app.test_client()
+        .get(f"/recordings/{'a' * 64}/panel?verdict=all")
+        .get_data(as_text=True)
+    )
+
+    assert "Flagged for review" not in html
+    assert "review-reasons" not in html
+
+
+def test_recording_panel_flag_icon_states(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """Three states for the drawer's flag button: plain outline flag when
+    neither manually nor auto-flagged; flag-cog when auto-flagged (a
+    computed review_flags reason) but not manually flagged; filled flag
+    once manually flagged, regardless of auto status."""
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Rare species")
+        session.add(taxon)
+        session.flush()
+        plain = Recording(
+            audio_hash="a" * 64,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+        )
+        auto_flagged = Recording(
+            audio_hash="b" * 64,
+            path="b.wav",
+            recorded_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+        )
+        manually_flagged = Recording(
+            audio_hash="c" * 64,
+            path="c.wav",
+            recorded_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+            flagged_for_review=True,
+        )
+        session.add_all([plain, auto_flagged, manually_flagged])
+        session.flush()
+        for r in (auto_flagged, manually_flagged):
+            session.add(
+                Identification(
+                    recording_id=r.id,
+                    source=IdSource.EMT_GUANO,
+                    verdict=Verdict.SPECIES,
+                    taxon_id=taxon.id,
+                    first_seen_at=r.recorded_at,
+                ),
+            )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    plain_html = client.get(f"/recordings/{'a' * 64}/panel?verdict=all").get_data(
+        as_text=True,
+    )
+    assert "icons-tabler-outline icon-tabler-flag" in plain_html
+    assert "icon-tabler-flag-cog" not in plain_html
+    assert 'aria-pressed="false"' in plain_html
+
+    auto_html = client.get(f"/recordings/{'b' * 64}/panel?verdict=all").get_data(
+        as_text=True,
+    )
+    assert "icons-tabler-outline icon-tabler-flag-cog" in auto_html
+    assert 'aria-pressed="false"' in auto_html
+
+    manual_html = client.get(f"/recordings/{'c' * 64}/panel?verdict=all").get_data(
+        as_text=True,
+    )
+    assert "icons-tabler-filled icon-tabler-flag" in manual_html
+    assert "icon-tabler-flag-cog" not in manual_html
+    assert 'aria-pressed="true"' in manual_html
+
+
 def test_toggle_favourite_flips_it_on_then_off(
     engine: Engine,
     tmp_path: Path,

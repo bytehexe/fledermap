@@ -119,6 +119,14 @@ ASSETS: tuple[VendorAsset, ...] = (
         sha256="012892f51a80299cff80e2ac96a8e64adebb72027e7614b86839c9f098971791",
         relative_path="icons/filled/flag.svg",
     ),
+    # Shown instead of the outline flag when a recording is auto-flagged (a computed
+    # review_flags reason) but not manually flagged -- no filled variant needed, since a
+    # manual flag always wins and renders the filled flag icon regardless of auto status.
+    VendorAsset(
+        url="https://unpkg.com/@tabler/icons@3.46.0/icons/outline/flag-cog.svg",
+        sha256="8093c597fcdc8667bca441c622d8c8e82b976595586e5c7871f2563b5b98a196",
+        relative_path="icons/outline/flag-cog.svg",
+    ),
     VendorAsset(
         url="https://unpkg.com/@tabler/icons@3.46.0/icons/outline/star.svg",
         sha256="9903f4359966f48225710d78088db8fdfbc30eb82596a4bb28bc49b56399465d",

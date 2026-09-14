@@ -14,6 +14,10 @@
      same order. #}
   <div class="panel-header-actions">
     <a class="details-link" href="/recordings/{{ recording.audio_hash }}?return_to=/?{{ filter_qs }}">Full page</a>
+    {# flag-cog stands in for the outline flag when nobody flagged this by hand but
+       review_reasons found something anyway -- the manual toggle itself still only
+       ever reads/writes recording.flagged_for_review; see docs/style-guide.md's
+       drawer/detail parity note -- _detail_flag_button.html mirrors this. #}
     <button
       type="button"
       class="flag-toggle"
@@ -21,7 +25,7 @@
       hx-target="#drawer-body"
       aria-label="{{ 'Unflag for review' if recording.flagged_for_review else 'Flag for review' }}"
       aria-pressed="{{ 'true' if recording.flagged_for_review else 'false' }}"
-    >{{ icon("flag", filled=recording.flagged_for_review) }}</button>
+    >{{ icon("flag-cog" if (reasons and not recording.flagged_for_review) else "flag", filled=recording.flagged_for_review) }}</button>
     <button
       type="button"
       class="favourite-toggle"
@@ -32,19 +36,6 @@
     >{{ icon("star", filled=recording.favourite) }}</button>
   </div>
 </div>
-
-{% if recording.flagged_for_review or reasons %}
-<div class="review-reasons">
-  <strong>Flagged for review</strong>
-  {% if reasons %}
-  <ul>
-    {% for reason in reasons %}
-    <li>{{ reason }}</li>
-    {% endfor %}
-  </ul>
-  {% endif %}
-</div>
-{% endif %}
 
 <div class="waveform-grid">
   <div class="axis-spacer"></div>

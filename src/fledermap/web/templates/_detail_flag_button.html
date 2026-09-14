@@ -6,7 +6,12 @@
    Uses the `flag` icon from Tabler Icons (design spec
    docs/superpowers/specs/2026-09-13-fledermap-icon-set-design.md), outline for UNFLAGGED and
    filled for FLAGGED -- both take `color: var(--color-warning)` via `currentColor`, the same
-   `.favourite-toggle`/`--color-accent` pattern `_detail_favourite_button.html` uses. #}
+   `.favourite-toggle`/`--color-accent` pattern `_detail_favourite_button.html` uses.
+
+   `flag-cog` stands in for the outline flag when nobody flagged this by hand but
+   `reasons` (review_flags.review_reasons) found something anyway -- the toggle itself still
+   only ever reads/writes recording.flagged_for_review; mirrors `_recording_panel.html`'s
+   drawer flag button (docs/style-guide.md's drawer/detail parity). #}
 <button
   type="button"
   id="detail-flag"
@@ -16,4 +21,4 @@
   hx-swap="outerHTML"
   aria-label="{{ 'Unflag for review' if recording.flagged_for_review else 'Flag for review' }}"
   aria-pressed="{{ 'true' if recording.flagged_for_review else 'false' }}"
->{{ icon("flag", filled=recording.flagged_for_review) }}</button>
+>{{ icon("flag-cog" if (reasons and not recording.flagged_for_review) else "flag", filled=recording.flagged_for_review) }}</button>

@@ -232,9 +232,11 @@ def toggle_flag_for_review(audio_hash: str) -> flask.Response:
         session.commit()
 
         if flask.request.args.get("panel") == "detail":
+            reasons = review_reasons(recording, ReviewContext.build(session))
             html = flask.render_template(
                 "_detail_flag_button.html",
                 recording=recording,
+                reasons=reasons,
             )
             return flask.make_response(html)
 

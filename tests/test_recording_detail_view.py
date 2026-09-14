@@ -1152,3 +1152,136 @@ def test_details_page_review_param_not_containing_current_recording_is_ignored(
     html = response.get_data(as_text=True)
     assert "Reviewing flagged recordings" not in html
     assert "Previous" not in html
+
+
+def test_details_page_still_shows_the_flagged_for_review_section(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """Unlike the drawer panel (see test_map_view.py's
+    test_recording_panel_never_shows_the_flagged_for_review_section), the
+    full-page details view keeps the complete "Flagged for review" section
+    with its reasons list -- Obsidian backlog: removed from the overview
+    for being "too much there", explicitly kept here."""
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Rare species")
+        session.add(taxon)
+        session.flush()
+        recording = Recording(
+            audio_hash="d1" * 32,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+        )
+        session.add(recording)
+        session.flush()
+        session.add(
+            Identification(
+                recording_id=recording.id,
+                source=IdSource.EMT_GUANO,
+                verdict=Verdict.SPECIES,
+                taxon_id=taxon.id,
+                first_seen_at=recording.recorded_at,
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    html = app.test_client().get(f"/recordings/{'d1' * 32}").get_data(as_text=True)
+
+    assert "Flagged for review" in html
+    assert "Rare species" in html or "review-reasons" in html
+
+
+def test_details_page_flag_button_states(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """Same three-state icon logic as the drawer panel's flag button
+    (docs/style-guide.md's drawer/detail parity)."""
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Rare species")
+        session.add(taxon)
+        session.flush()
+        plain = Recording(
+            audio_hash="d2" * 32,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+        )
+        auto_flagged = Recording(
+            audio_hash="d3" * 32,
+            path="b.wav",
+            recorded_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+        )
+        manually_flagged = Recording(
+            audio_hash="d4" * 32,
+            path="c.wav",
+            recorded_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+            flagged_for_review=True,
+        )
+        session.add_all([plain, auto_flagged, manually_flagged])
+        session.flush()
+        for r in (auto_flagged, manually_flagged):
+            session.add(
+                Identification(
+                    recording_id=r.id,
+                    source=IdSource.EMT_GUANO,
+                    verdict=Verdict.SPECIES,
+                    taxon_id=taxon.id,
+                    first_seen_at=r.recorded_at,
+                ),
+            )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    plain_html = client.get(f"/recordings/{'d2' * 32}").get_data(as_text=True)
+    assert "icons-tabler-outline icon-tabler-flag" in plain_html
+    assert "icon-tabler-flag-cog" not in plain_html
+
+    auto_html = client.get(f"/recordings/{'d3' * 32}").get_data(as_text=True)
+    assert "icons-tabler-outline icon-tabler-flag-cog" in auto_html
+
+    manual_html = client.get(f"/recordings/{'d4' * 32}").get_data(as_text=True)
+    assert "icons-tabler-filled icon-tabler-flag" in manual_html
+    assert "icon-tabler-flag-cog" not in manual_html
+
+
+def test_toggle_flag_for_review_detail_panel_shows_flag_cog_after_unflagging_while_still_auto_flagged(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """The `panel=detail` POST branch (web/views/map.py's
+    toggle_flag_for_review) must compute `reasons` itself -- it renders only
+    `_detail_flag_button.html`, not the whole page, so nothing else would
+    supply it."""
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Rare species")
+        session.add(taxon)
+        session.flush()
+        recording = Recording(
+            audio_hash="d5" * 32,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+            flagged_for_review=True,
+        )
+        session.add(recording)
+        session.flush()
+        session.add(
+            Identification(
+                recording_id=recording.id,
+                source=IdSource.EMT_GUANO,
+                verdict=Verdict.SPECIES,
+                taxon_id=taxon.id,
+                first_seen_at=recording.recorded_at,
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().post(
+        f"/recordings/{'d5' * 32}/flag-for-review?panel=detail",
+    )
+
+    html = response.get_data(as_text=True)
+    assert "icons-tabler-outline icon-tabler-flag-cog" in html
