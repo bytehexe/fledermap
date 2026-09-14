@@ -254,3 +254,15 @@ def test_render_heterodyne_preview_raises_for_a_samplerate_too_low_for_the_lowpa
 
     with pytest.raises(UnreadableWavError):
         render_heterodyne_preview(wav_path, out_path, tune_freq_hz=1_000.0)
+
+
+def test_denoise_true_changes_heterodyne_output(tmp_path: Path) -> None:
+    wav_path = tmp_path / "call.wav"
+    _sine_wav(wav_path, freq_hz=40_000.0)
+    plain_out = tmp_path / "plain.opus"
+    denoised_out = tmp_path / "denoised.opus"
+
+    render_heterodyne_preview(wav_path, plain_out, tune_freq_hz=40_000, denoise=False)
+    render_heterodyne_preview(wav_path, denoised_out, tune_freq_hz=40_000, denoise=True)
+
+    assert plain_out.read_bytes() != denoised_out.read_bytes()

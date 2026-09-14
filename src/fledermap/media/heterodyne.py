@@ -11,6 +11,7 @@ from pathlib import Path
 import numpy as np
 from scipy import signal
 
+from fledermap.media.denoise import DEFAULT_CUTOFF_HZ, highpass_filter
 from fledermap.media.opus_pipeline import encode_pcm_as_opus
 from fledermap.media.wav_pcm import UnreadableWavError, read_pcm
 
@@ -87,10 +88,17 @@ def render_heterodyne_preview(
     out_path: Path,
     *,
     tune_freq_hz: float,
+    denoise: bool = False,
+    cutoff_hz: float = DEFAULT_CUTOFF_HZ,
 ) -> None:
     """Mix `wav_path`'s audio down to audible range around `tune_freq_hz`
-    (classic heterodyne technique) and render it to `out_path` as Opus."""
+    (classic heterodyne technique) and render it to `out_path` as Opus.
+    `denoise`, if set, highpass-filters the raw samples first (before
+    mixing) -- filtering after mixing would operate in the shifted
+    frequency space, the wrong cutoff entirely."""
     samples, samplerate = read_pcm(wav_path)
+    if denoise:
+        samples = highpass_filter(samples, samplerate, cutoff_hz)
     if samplerate <= 2 * _LOWPASS_CUTOFF_HZ:
         raise UnreadableWavError(
             f"cannot render heterodyne preview for {wav_path}: samplerate "
