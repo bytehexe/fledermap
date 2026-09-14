@@ -8,8 +8,13 @@ import pytest
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session as OrmSession
 
-from fledermap.domain.codes import MergeResolution, VisualSighting
-from fledermap.store.models import Recording, SessionMergeProposal
+from fledermap.domain.codes import IdSource, MergeResolution, Verdict, VisualSighting
+from fledermap.store.models import (
+    Identification,
+    Recording,
+    SessionMergeProposal,
+    Taxon,
+)
 from fledermap.store.models import Session as AnnotationSession
 from fledermap.web.app import create_app
 from fledermap.web.timefmt import local_datetime
@@ -501,6 +506,48 @@ def test_session_detail_recording_rows_link_to_the_recording_details_page(
 
     html = response.get_data(as_text=True)
     assert f'href="/recordings/{audio_hash}' in html
+
+
+def test_session_detail_recording_rows_link_their_species(
+    engine: Engine, tmp_path: Path
+) -> None:
+    """docs/style-guide.md's "an entity's name always links to its own page"
+    rule -- confirmed missing here 2026-09-10 (session_detail.html rendered
+    the species via recording_headline() with no <a> wrapper even though
+    taxon was already in scope in the loop)."""
+    with OrmSession(engine) as session:
+        s = AnnotationSession(
+            started_at=datetime(2026, 8, 21, tzinfo=UTC),
+            ended_at=datetime(2026, 8, 21, tzinfo=UTC),
+            detector_key="EMT\x1f1",
+        )
+        session.add(s)
+        taxon = Taxon(rank="species", scientific_name="Eptesicus serotinus")
+        session.add(taxon)
+        session.flush()
+        recording = Recording(
+            audio_hash="a".rjust(64, "0"),
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 21, 21, tzinfo=UTC),
+            session_id=s.id,
+        )
+        recording.identifications = [
+            Identification(
+                source=IdSource.EMT_WAMD,
+                verdict=Verdict.SPECIES,
+                taxon_id=taxon.id,
+            ),
+        ]
+        session.add(recording)
+        session.commit()
+        session_id = s.id
+        taxon_id = taxon.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/sessions/{session_id}")
+
+    html = response.get_data(as_text=True)
+    assert f'href="/species/{taxon_id}"' in html
 
 
 def test_session_detail_no_merge_banner_when_no_open_proposal(

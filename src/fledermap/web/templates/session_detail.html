@@ -82,7 +82,7 @@
         {% for recording, best, taxon in recordings_with_id %}
         <tr>
           <td><a href="/recordings/{{ recording.audio_hash }}?return_to=/sessions/{{ detail.session.id }}">{{ recording.recorded_at | local_datetime }}</a></td>
-          <td>{{ recording_headline(taxon, best) }}</td>
+          <td>{% if taxon %}<a href="/species/{{ taxon.id }}">{{ recording_headline(taxon, best) }}</a>{% else %}{{ recording_headline(taxon, best) }}{% endif %}</td>
         </tr>
         {% else %}
         <tr><td colspan="2">No recordings yet.</td></tr>
