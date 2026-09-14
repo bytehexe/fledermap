@@ -196,16 +196,19 @@ def _serve_temp_render(
     `send_file` (not a raw `flask.Response(data, ...)`, the previous approach
     here) matters for more than convenience: it's what gives `_serve_derived`
     above `Accept-Ranges`/`Range`-request support (`conditional=True`, Flask's
-    own default) for free. Without it, HET playback -- the only caller that
-    streams audio through this path -- broke real seeking: a raw `Response`
-    body always returns the full 200 content regardless of an incoming
-    `Range` header, and Chrome's `<audio>` element responds to a backward
-    seek issued mid-playback against a resource that never signals range
-    support by silently resetting `currentTime` to 0 instead of actually
-    seeking there (Janna, 2026-09-04, live use -- confirmed live: the TE
-    preview, served via `send_file` all along through `_serve_derived`, never
-    showed this with the exact same click sequence, and HET, the only
-    `_serve_temp_render` audio caller, always did). The temp file has to
+    own default) for free. Without it, HET playback -- which streamed audio
+    through this path before moving to `_serve_cached_render` -- broke real
+    seeking: a raw `Response` body always returns the full 200 content
+    regardless of an incoming `Range` header, and Chrome's `<audio>` element
+    responds to a backward seek issued mid-playback against a resource that
+    never signals range support by silently resetting `currentTime` to 0
+    instead of actually seeking there (Janna, 2026-09-04, live use --
+    confirmed live: the TE preview, served via `send_file` all along through
+    `_serve_derived`, never showed this with the exact same click sequence,
+    and HET, at the time still a `_serve_temp_render` audio caller, always
+    did). The current callers of this function serve WebP tile images, not
+    audio, but the same `Range`-support argument applies to any caller. The
+    temp file has to
     still exist when `send_file` actually reads it to build a `Range`
     response, so cleanup is deferred to `after_this_request` rather than the
     `finally` block this replaced, which deleted the file before the

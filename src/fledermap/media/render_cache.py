@@ -170,9 +170,3 @@ class RenderCache(Generic[T]):
         while True:
             time.sleep(self._purge_interval_s)
             self.purge()
-
-
-# Backward-compatible alias -- this class was originally named for its one-time-only caller
-# (the spectrogram image render). Kept as an alias, not removed, since the name still reads
-# fine at that one call site and a rename-only diff at that site has no behavioral point.
-SpectrogramImageCache = RenderCache
