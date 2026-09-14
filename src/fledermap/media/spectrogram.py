@@ -206,13 +206,15 @@ def render_full_spectrogram_image(
 
     if params.denoise:
         # `median_size=(1, 1)` disables the selective edge-preserving median-filter step (see
-        # subtract_background_noise's own docstring) -- kept enabled by default for OTHER
-        # callers, but measured 2026-09-14 against a real field recording (audio-domain
-        # spectral_gate now runs upstream of this, see media/denoise.py) as contributing a <1%
-        # change in background speckle (std 55.77 without the median step vs 56.27 with it, over
-        # a representative quiet region) once the audio itself is already gated -- the median
-        # filter's own known tradeoff (still-visible call smudging) is no longer worth paying for
-        # here. The over-subtraction step above it still runs and still does the real cleanup.
+        # subtract_background_noise's own docstring). Measured 2026-09-14 against a real field
+        # recording (audio-domain spectral_gate now runs upstream of this, see media/denoise.py)
+        # as contributing a <1% change in background speckle (std 55.77 without the median step
+        # vs 56.27 with it, over a representative quiet region) once the audio itself is already
+        # gated -- the median filter's own known tradeoff (still-visible call smudging) is no
+        # longer worth paying for here. The over-subtraction step above it still runs and still
+        # does the real cleanup. `subtract_background_noise`'s default (7, 7) is left as-is
+        # rather than changed here: it's a one-line revert if this call site's own tuning turns
+        # out wrong, or if a future caller needs the median step's stronger speckle removal.
         sxx = subtract_background_noise(sxx, median_size=(1, 1))
 
     # dB relative to this recording's own loudest bin ABOVE the low-frequency noise-band

@@ -40,9 +40,10 @@ def make_preview(
     """Render `wav_path`'s x10 time-expanded preview to `out_path` as Opus.
     `denoise=False` (the default) is the exact original raw-frame pass-
     through -- no decode, no DSP, "nearly free" as documented above. Only
-    `denoise=True` decodes to numpy, highpass-filters, and re-encodes;
-    assumes mono input, matching this project's established assumption
-    elsewhere (`wav_pcm.read_pcm` already averages multi-channel to mono)."""
+    `denoise=True` decodes to numpy, highpass-filters, applies spectral
+    gating, and re-encodes; assumes mono input, matching this project's
+    established assumption elsewhere (`wav_pcm.read_pcm` already averages
+    multi-channel to mono)."""
     with wave.open(str(wav_path), "rb") as src:
         params = src.getparams()
         frames = src.readframes(src.getnframes())
