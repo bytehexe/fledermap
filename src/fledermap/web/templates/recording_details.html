@@ -147,7 +147,7 @@
         <button class="tool-button" data-mode="het" aria-pressed="false">HET</button>
         <span class="het-freq-control" hidden>
           <input type="number" class="het-freq-input" step="1" inputmode="decimal"> kHz
-          <button type="button" class="het-freq-reset" title="Reset to auto-tuned frequency">⟲</button>
+          <button type="button" class="het-freq-reset" title="Reset to auto-tuned frequency">{{ icon("rotate") }}</button>
         </span>
         <button type="button" class="playback-rewind" aria-label="Rewind to start">{{ icon("player-skip-back", filled=True) }}</button>
         {# audio_controls.js's syncToggleIcon() toggles `hidden` on these two spans -- it never
