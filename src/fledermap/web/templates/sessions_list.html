@@ -55,7 +55,7 @@
             </td>
             <td>{{ row.session.detector_key | detector_label }}</td>
             <td>{{ row.recording_count }}</td>
-            <td>{% if row.session.id in open_ids %}<a class="merge-badge" href="/sessions/{{ row.session.id }}">⚠ merge proposal</a>{% endif %}</td>
+            <td>{% if row.session.id in open_ids %}<a class="merge-badge" href="/sessions/{{ row.session.id }}">{{ icon("alert-triangle") }} merge proposal</a>{% endif %}</td>
           </tr>
           {% else %}
           <tr><td colspan="4">No sessions match these filters.</td></tr>

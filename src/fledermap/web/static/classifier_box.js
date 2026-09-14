@@ -179,7 +179,7 @@ function initClassifierBox(box) {
 
 // A successful save swaps in a freshly server-rendered box (see
 // initClassifierBox's own comment above) whose confirmation span always
-// starts `hidden` -- so the "✓ Saved" flash has to be triggered here, after
+// starts `hidden` -- so the "Saved" flash has to be triggered here, after
 // the swap, rather than living inside save() where the old box is already
 // gone.
 const SAVE_CONFIRMATION_MS = 2000;

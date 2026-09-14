@@ -14,7 +14,7 @@
         <div class="stats-tile"><div class="num">{{ "%.1f"|format(diversity.estimated_richness) }}</div><div class="label">Est. true richness</div></div>
         <div class="stats-tile"><div class="num">{{ "%.0f"|format(diversity.sample_coverage * 100) }}%</div><div class="label">Sample coverage</div></div>
       </div>
-      <div class="stats-caption">Estimated richness projects how many species likely occur here in total, beyond what's been detected so far. <details><summary>ⓘ</summary>Chao1 asymptotic estimator; sample coverage (Good-Turing) is the estimated fraction of that total already represented in this site's recordings -- both computed from the same species-detection counts as the tiles above.</details></div>
+      <div class="stats-caption">Estimated richness projects how many species likely occur here in total, beyond what's been detected so far. <details><summary>{{ icon("info-circle") }}</summary>Chao1 asymptotic estimator; sample coverage (Good-Turing) is the estimated fraction of that total already represented in this site's recordings -- both computed from the same species-detection counts as the tiles above.</details></div>
     </div>
 
     <div class="stats-band">
@@ -22,7 +22,7 @@
       <div class="stats-solo-chart">
         <canvas id="species-donut" data-chart="donut"></canvas>
       </div>
-      <div class="stats-caption">Only recordings with a species-level result are counted. <details><summary>ⓘ</summary>Noise/no-ID/unidentified recordings are excluded.</details></div>
+      <div class="stats-caption">Only recordings with a species-level result are counted. <details><summary>{{ icon("info-circle") }}</summary>Noise/no-ID/unidentified recordings are excluded.</details></div>
     </div>
 
     <div class="stats-band">
@@ -31,12 +31,12 @@
         <div class="stats-panel">
           <div class="stats-panel-header">Recordings per month</div>
           <canvas id="month-line" data-chart="line"></canvas>
-          <div class="stats-caption">Bucketed by calendar month, server time (UTC). <details><summary>ⓘ</summary>Not adjusted to any local timezone.</details></div>
+          <div class="stats-caption">Bucketed by calendar month, server time (UTC). <details><summary>{{ icon("info-circle") }}</summary>Not adjusted to any local timezone.</details></div>
         </div>
         <div class="stats-panel">
           <div class="stats-panel-header">Recordings per hour of day</div>
           <canvas id="hour-line" data-chart="line"></canvas>
-          <div class="stats-caption">Hour of day, server time (UTC). <details><summary>ⓘ</summary>Not sunset-relative (see the backlogged "H:MM before/after sunset" feature).</details></div>
+          <div class="stats-caption">Hour of day, server time (UTC). <details><summary>{{ icon("info-circle") }}</summary>Not sunset-relative (see the backlogged "H:MM before/after sunset" feature).</details></div>
         </div>
       </div>
     </div>

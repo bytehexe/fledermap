@@ -19,7 +19,7 @@
         <div class="stats-panel">
           <div class="stats-panel-header">Species composition</div>
           <canvas id="species-donut" data-chart="donut"></canvas>
-          <div class="stats-caption">Only recordings with a species-level result are counted. <details><summary>ⓘ</summary>Noise/no-ID/unidentified recordings are excluded, so this doesn't sum to the total recordings tile above.</details></div>
+          <div class="stats-caption">Only recordings with a species-level result are counted. <details><summary>{{ icon("info-circle") }}</summary>Noise/no-ID/unidentified recordings are excluded, so this doesn't sum to the total recordings tile above.</details></div>
         </div>
         <div class="stats-panel">
           <div class="stats-panel-header">Rarest species</div>
@@ -74,7 +74,7 @@
               {% endfor %}
             </tbody>
           </table>
-          <div class="stats-caption">Ranked by Chao1 estimated true richness. <details><summary>ⓘ</summary>Estimates how many species likely occur at each site in total, including ones not yet detected -- doesn't always match the "Most species-rich sites" order, since a site with fewer observed species but more singleton/doubleton detections can rank higher here. See "Least-sampled sites" for how much to trust the observed counts behind the estimate.</details></div>
+          <div class="stats-caption">Ranked by Chao1 estimated true richness. <details><summary>{{ icon("info-circle") }}</summary>Estimates how many species likely occur at each site in total, including ones not yet detected -- doesn't always match the "Most species-rich sites" order, since a site with fewer observed species but more singleton/doubleton detections can rank higher here. See "Least-sampled sites" for how much to trust the observed counts behind the estimate.</details></div>
         </div>
         <div class="stats-panel">
           <div class="stats-panel-header">Most diverse sites (Shannon H)</div>
@@ -99,7 +99,7 @@
               {% endfor %}
             </tbody>
           </table>
-          <div class="stats-caption">Lowest estimated sample coverage first -- where the observed species counts are least likely to be complete. <details><summary>ⓘ</summary>Coverage estimates the fraction of each site's true species composition already represented in its recordings (Good-Turing estimator); a low value means more undetected species likely remain.</details></div>
+          <div class="stats-caption">Lowest estimated sample coverage first -- where the observed species counts are least likely to be complete. <details><summary>{{ icon("info-circle") }}</summary>Coverage estimates the fraction of each site's true species composition already represented in its recordings (Good-Turing estimator); a low value means more undetected species likely remain.</details></div>
         </div>
       </div>
     </div>
@@ -110,12 +110,12 @@
         <div class="stats-panel">
           <div class="stats-panel-header">Recordings per month</div>
           <canvas id="month-line" data-chart="line"></canvas>
-          <div class="stats-caption">Bucketed by calendar month, server time (UTC). <details><summary>ⓘ</summary>Not adjusted to any local timezone.</details></div>
+          <div class="stats-caption">Bucketed by calendar month, server time (UTC). <details><summary>{{ icon("info-circle") }}</summary>Not adjusted to any local timezone.</details></div>
         </div>
         <div class="stats-panel">
           <div class="stats-panel-header">Recordings per hour of day</div>
           <canvas id="hour-line" data-chart="line"></canvas>
-          <div class="stats-caption">Hour of day, server time (UTC). <details><summary>ⓘ</summary>Not sunset-relative (see the backlogged "H:MM before/after sunset" feature).</details></div>
+          <div class="stats-caption">Hour of day, server time (UTC). <details><summary>{{ icon("info-circle") }}</summary>Not sunset-relative (see the backlogged "H:MM before/after sunset" feature).</details></div>
         </div>
       </div>
     </div>

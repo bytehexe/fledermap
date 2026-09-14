@@ -39,7 +39,7 @@
           </label>
           <button type="submit" class="button-primary">Save</button>
           {% if request.args.get('saved') %}
-          <span class="save-confirmation">✓ Saved</span>
+          <span class="save-confirmation">{{ icon("check") }} Saved</span>
           {% endif %}
         </form>
       </div>
@@ -48,7 +48,7 @@
     {% for op in detail.open_proposals %}
     <div class="merge-banner">
       <p>
-        ⚠ This session may merge with session
+        <span style="color: var(--color-warning)">{{ icon("alert-triangle") }}</span> This session may merge with session
         <a href="/sessions/{{ op.counterpart.id }}">#{{ op.counterpart.id }}</a>
         ({{ op.counterpart.started_at.strftime('%Y-%m-%d %H:%M') }}–{{ op.counterpart.ended_at.strftime('%H:%M') }}).
       </p>

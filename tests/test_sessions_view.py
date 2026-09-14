@@ -580,7 +580,8 @@ def test_session_detail_page_shows_a_save_confirmation_after_saving(
     assert "Saved" not in plain_html
 
     saved_html = client.get(f"/sessions/{session_id}?saved=1").get_data(as_text=True)
-    assert "✓ Saved" in saved_html
+    assert "icons-tabler-outline icon-tabler-check" in saved_html
+    assert "Saved" in saved_html
 
 
 def test_save_session_invalid_seen_visually_returns_400(
