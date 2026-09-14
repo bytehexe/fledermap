@@ -41,13 +41,27 @@ def highpass_filter(
     return result
 
 
-def subtract_background_noise(sxx: np.ndarray, percentile: float = 10.0) -> np.ndarray:
-    """Per frequency-bin (per row) background-noise subtraction: estimate
-    each bin's noise floor as its own `percentile`-th percentile power
-    across all time columns, subtract it from every column in that row,
-    clamp at zero. Operates on the STFT's linear power matrix, before any
-    dB conversion -- spectrogram-image-only (see the design spec's "Why
-    highpass and background-subtraction use different techniques": this
-    is not reconstructed back to audio, so no phase/COLA concern applies)."""
+def subtract_background_noise(
+    sxx: np.ndarray, percentile: float = 50.0, factor: float = 2.0
+) -> np.ndarray:
+    """Per frequency-bin (per row) background-noise subtraction (the classic
+    "over-subtraction" spectral-subtraction idiom): estimate each bin's noise
+    floor as its own `percentile`-th percentile power across all time
+    columns, subtract `factor` times that floor from every column in that
+    row, clamp at zero. Operates on the STFT's linear power matrix, before
+    any dB conversion -- spectrogram-image-only (see the design spec's "Why
+    highpass and background-subtraction use different techniques": this is
+    not reconstructed back to audio, so no phase/COLA concern applies).
+
+    `factor=1.0` (subtracting exactly the floor) only zeroes the bottom
+    `percentile`% of pixels in each row -- the noise floor's own variance,
+    which is what actually reads as visual "noise" and sits well above that
+    single percentile, survives untouched. Confirmed visually 2026-09-14
+    against a real field recording (percentile=10, factor=1.0 was barely
+    distinguishable from no denoising at all). Over-subtracting pushes that
+    whole variance band down towards zero too, at the cost of also eating
+    into weak real signal close to the floor -- percentile=50 (the row's
+    median) + factor=2.0 visibly cleaned the background while leaving actual
+    calls' shape and brightness intact in that same comparison."""
     noise_floor = np.percentile(sxx, percentile, axis=1, keepdims=True)
-    return np.maximum(sxx - noise_floor, 0.0)
+    return np.maximum(sxx - factor * noise_floor, 0.0)

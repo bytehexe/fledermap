@@ -57,7 +57,7 @@ def test_subtract_background_noise_removes_a_flat_noise_floor() -> None:
     sxx[1, 5] = 100.0
     sxx[2, :] = 0.0
 
-    result = subtract_background_noise(sxx, percentile=10.0)
+    result = subtract_background_noise(sxx, percentile=10.0, factor=1.0)
 
     # The flat noise floor drops to (near) zero everywhere.
     assert result[0].max() < 0.5
@@ -71,3 +71,22 @@ def test_subtract_background_noise_preserves_shape() -> None:
     sxx = np.random.default_rng(0).random((5, 20))
     result = subtract_background_noise(sxx)
     assert result.shape == sxx.shape
+
+
+def test_subtract_background_noise_default_over_subtracts_more_than_the_floor() -> None:
+    """The default percentile (50, the row's median) + factor (2.0) must remove
+    MORE than just each row's own noise floor -- confirmed necessary 2026-09-14
+    against a real field recording, where subtracting exactly the (10th-
+    percentile) floor left the noise floor's own variance, which is what
+    actually reads as visual "noise", almost entirely untouched."""
+    # A row whose values cluster around 1.0 with real variance (not a flat floor) --
+    # closer to what an actual noise floor's spread looks like than a constant.
+    rng = np.random.default_rng(1)
+    sxx = np.abs(rng.normal(loc=1.0, scale=0.3, size=(1, 200)))
+
+    over_subtracted = subtract_background_noise(sxx)
+    floor_only = subtract_background_noise(sxx, percentile=50.0, factor=1.0)
+
+    # Over-subtracting (factor=2.0) must zero out substantially more of the row
+    # than subtracting exactly the median once (factor=1.0).
+    assert (over_subtracted == 0).sum() > (floor_only == 0).sum()

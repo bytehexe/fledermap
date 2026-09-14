@@ -103,12 +103,22 @@ New module `media/denoise.py`, pure (no DB/queue awareness, matching every other
   a Butterworth highpass (`scipy.signal.butter`, SOS form) applied via `scipy.signal.sosfiltfilt`
   for zero-phase output (no time-shift/click artifact). Order 4, a conventional choice balancing
   rolloff steepness against filter-design edge cases at low cutoff-to-Nyquist ratios.
-- `subtract_background_noise(sxx: np.ndarray, percentile: float = 10.0) -> np.ndarray`: per
-  frequency-bin (per row), estimate the noise floor as that bin's `percentile`-th percentile power
-  across all time columns, subtract it from every column in that row, clamp at zero. Operates on
-  the STFT's linear power matrix — the same `sxx` `render_full_spectrogram_image` already computes
-  — before the existing dB-relative-to-peak normalization, so that normalization code doesn't
-  change at all, it just receives cleaner input.
+- `subtract_background_noise(sxx: np.ndarray, percentile: float = 50.0, factor: float = 2.0) ->
+  np.ndarray`: per frequency-bin (per row), estimate the noise floor as that bin's `percentile`-th
+  percentile power across all time columns, subtract `factor` times that floor from every column
+  in that row, clamp at zero. Operates on the STFT's linear power matrix — the same `sxx`
+  `render_full_spectrogram_image` already computes — before the existing dB-relative-to-peak
+  normalization, so that normalization code doesn't change at all, it just receives cleaner input.
+  **Deviation (2026-09-14, found live after shipping):** the plan's original `percentile=10.0,
+  factor=1.0` (subtract exactly the 10th-percentile floor) shipped and was confirmed live against
+  a real field recording to be barely visually distinguishable from no denoising at all — it only
+  zeroes the bottom 10% of pixels per row, leaving the noise floor's own variance (what actually
+  reads as visual "noise", and sits well above any single low percentile) fully intact. Classic
+  spectral-subtraction "over-subtraction" (subtract more than one floor's worth) fixes this:
+  percentile=50 (the row's median) + factor=2.0 was chosen by rendering a real field recording
+  (`PIPPIP_20260826_221352.wav`) through several percentile/factor combinations side-by-side —
+  it visibly cleaned the background while leaving real calls' shape and brightness intact, where
+  weaker settings (e.g. percentile=75, factor=1.2) left visibly more residual noise texture.
 
 ## Where each piece plugs in
 
