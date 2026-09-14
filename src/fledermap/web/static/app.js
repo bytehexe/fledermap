@@ -145,7 +145,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let highlightedRecordingLayer = null;
 
   // Whether a recording-selected reveal (panTo + zoomToShowLayer) is
-  // currently under way -- see refreshViewport and that handler below.
+  // currently under way -- see scheduleViewportRefresh and that handler below.
   // Cleared by zoomToShowLayer's OWN completion callback (the library's
   // real, authoritative "done" signal -- not a guessed duration), plus a
   // generous timeout as a pure safety net in case that callback somehow
@@ -173,17 +173,43 @@ document.addEventListener("DOMContentLoaded", () => {
   // reveal itself causes -- pan, intermediate zoom, spiderfy -- is skipped
   // the same way, and only a genuinely independent user pan/zoom (which
   // can't happen mid-reveal on a single-threaded UI anyway, but a fast
-  // drag right after one completes could) reaches refreshViewport's real
+  // drag right after one completes could) reaches scheduleViewportRefresh's real
   // refresh.
   let revealInFlight = false;
   let revealInFlightTimeout = null;
 
+  // Clearing revealInFlight is delayed past scheduleViewportRefresh's own
+  // 300ms debounce window, rather than dropped the instant zoomToShowLayer's
+  // completion callback runs. That callback isn't a reliable "every
+  // moveend/zoomend this reveal will ever cause has already fired" signal --
+  // confirmed live via headless Chrome two different ways: (1) clicking an
+  // already-spiderfied marker needs only a plain panTo, whose single moveend
+  // both ends the reveal AND is the exact event scheduleViewportRefresh's
+  // debounce was armed by, so an immediate clear made the debounce's later
+  // check read revealInFlight as already-false; (2) on a fresh page load,
+  // the "no marker yet" fallback branch below ends the reveal on the FIRST
+  // moveend it sees, but zoomToShowLayer's own zoom-in can still be
+  // under way and fire further moveend/zoomend afterward -- an immediate
+  // clear there let scheduleViewportRefresh's debounce fire (and
+  // clearLayers()) while zoomToShowLayer's own internal completion
+  // listener was still pending, crashing it (`hasLayer` on a
+  // since-cleared marker's now-undefined `__parent`,
+  // `leaflet.markercluster.js`'s zoomToShowLayer). Keeping revealInFlight
+  // true for a bit past the last such event -- long enough for
+  // scheduleViewportRefresh's own debounce to have already fired and found
+  // it still true, exactly as before this delay was added -- covers both:
+  // every further moveend/zoomend the reveal itself causes re-arms this
+  // same delay (see the "moveend zoomend" listener below, which restarts
+  // it), so it only actually elapses once the map has been quiet for a
+  // beat with no reveal-owned movement left to protect.
+  const REVEAL_SETTLE_MS = 350;
+
   function endReveal() {
-    revealInFlight = false;
-    if (revealInFlightTimeout !== null) {
-      clearTimeout(revealInFlightTimeout);
+    if (revealInFlightTimeout !== null) clearTimeout(revealInFlightTimeout);
+    revealInFlightTimeout = setTimeout(() => {
+      revealInFlight = false;
       revealInFlightTimeout = null;
-    }
+    }, REVEAL_SETTLE_MS);
   }
 
   function startReveal() {
@@ -232,7 +258,23 @@ document.addEventListener("DOMContentLoaded", () => {
         const marker = L.circleMarker(latlng, {
           color: colorForFeature(feature.properties),
           weight: 1,
-        }).on("click", () => openRecordingPanel(feature.properties.audio_hash, params));
+        }).on("click", (e) => {
+          // CircleMarker (like every Path) has bubblingMouseEvents: true by
+          // default -- an unstopped click forwards to the map itself right
+          // after this handler runs. MarkerClusterGroup listens for exactly
+          // that map-level click to unspiderfy (leaflet.markercluster's
+          // _spiderfierOnAdd binds `_map.on("click", this._unspiderfyWrapper)`),
+          // so clicking a marker that's currently a spiderfied cluster leg
+          // immediately collapsed the cluster back and dropped its
+          // highlight right after openRecordingPanel's reveal had just set
+          // it -- confirmed live via headless Chrome: the collapse traced
+          // to this exact map click firing a beat after the marker's own.
+          // Stopping propagation here is Leaflet's own documented fix for
+          // this class of bug (Popup.js does the same for non-Path
+          // sources, via `source.on("preclick", DomEvent.stopPropagation)`).
+          L.DomEvent.stopPropagation(e);
+          openRecordingPanel(feature.properties.audio_hash, params);
+        });
         recordingLayersByHash.set(feature.properties.audio_hash, marker);
         return marker;
       },
@@ -282,7 +324,13 @@ document.addEventListener("DOMContentLoaded", () => {
     L.geoJSON(sitesData, {
       pointToLayer: (feature, latlng) =>
         L.circle(latlng, { radius: feature.properties.radius_m, color: "blue" })
-          .on("click", () => openSitePanel(feature.properties.id)),
+          // Same bubbling-click-unspiderfies-the-recordings-cluster issue as
+          // the recordings marker's own click handler above -- a site
+          // circle's click bubbles to the map exactly the same way.
+          .on("click", (e) => {
+            L.DomEvent.stopPropagation(e);
+            openSitePanel(feature.properties.id);
+          }),
     }).eachLayer((layer) => sitesLayer.addLayer(layer));
   }
 
@@ -369,19 +417,17 @@ document.addEventListener("DOMContentLoaded", () => {
   // "filter change" worth a back-button stop) or fitToVisible() (that
   // would fight the user's own just-made pan/zoom, and could also loop:
   // fitBounds() itself fires moveend).
-  const refreshViewport = debounce(() => {
-    // A reveal in flight (see recording-selected below and revealInFlight's
-    // own comment) owns every moveend/zoomend it causes -- pan,
-    // intermediate zoomToBounds, spiderfy alike. Rebuilding the recordings
-    // layer from a fresh fetch mid-reveal would destroy the exact
-    // marker/cluster objects Leaflet.markercluster's own zoomToShowLayer is
-    // still tracking, stalling it. Skip entirely while one is in flight;
-    // its own completion (or the safety-net timeout) lets a later, genuine
-    // viewport change refresh normally.
+  const scheduleViewportRefresh = debounce(() => {
+    // See REVEAL_SETTLE_MS's comment above for why this check -- run here,
+    // 300ms after the last moveend/zoomend rather than synchronously as
+    // each one fires -- is the one that needs to stay reliable: every
+    // event in a reveal re-arms this same debounce (unconditionally, not
+    // gated on revealInFlight), so the timer only actually fires once the
+    // map has been quiet for 300ms with nothing left to coalesce.
     if (revealInFlight) return;
     void refreshLayers(withViewportBbox(query()));
   }, 300);
-  map.on("moveend zoomend", refreshViewport);
+  map.on("moveend zoomend", scheduleViewportRefresh);
 
   const drawer = document.getElementById("drawer");
   const mapEl = document.getElementById("map");
@@ -540,41 +586,57 @@ document.addEventListener("DOMContentLoaded", () => {
   // (300ms) would otherwise pick up and rebuild the ENTIRE recordings layer
   // from a fresh fetch via clearLayers()+re-add mid-reveal. revealInFlight
   // marks the whole reveal (not just a single zoom-unchanged step) so
-  // refreshViewport skips every moveend/zoomend this reveal itself causes.
+  // scheduleViewportRefresh skips every moveend/zoomend this reveal itself causes.
   document.body.addEventListener("recording-selected", (event) => {
     const { latitude, longitude, hash } = event.detail;
     const marker = recordingLayersByHash.get(hash);
 
     // Only when this reveal will actually move/re-cluster the map -- when
     // neither branch below runs (no coordinates AND no loaded marker),
-    // nothing moves, so there's no moveend/zoomend for refreshViewport to
+    // nothing moves, so there's no moveend/zoomend for scheduleViewportRefresh to
     // even consult this against.
     if ((latitude != null && longitude != null) || marker) {
       startReveal();
     }
 
-    if (latitude != null && longitude != null) {
-      map.panTo([latitude, longitude]);
-    }
-
-    // No marker (e.g. a stale hash after a filter change rebuilt the
-    // layer) -- just highlight, same graceful no-op highlightRecording
-    // already falls back to. panTo alone has no completion callback, so
-    // wait for its own single moveend instead -- still needs to be skipped
-    // by refreshViewport the same as a zoomToShowLayer reveal would be.
-    if (marker) {
-      recordingsLayer.zoomToShowLayer(marker, () => {
+    // Reveal the marker (zoomToShowLayer, or just highlight if it isn't
+    // loaded) only AFTER panTo's own pan animation has genuinely finished
+    // -- not issued back-to-back with it. panTo is itself asynchronous/
+    // animated; calling zoomToShowLayer immediately after only sequences
+    // the two CALLS, not their completions, so zoomToShowLayer could
+    // decide the marker's already visible (its real lat/lng doesn't
+    // depend on the pan animation having visually caught up) and fire its
+    // OWN completion callback -- clearing revealInFlight -- while panTo's
+    // pan was still mid-animation. That pan's own later, independent
+    // moveend then arrived AFTER the guard had already cleared, and
+    // scheduleViewportRefresh's debounce (armed by that trailing moveend)
+    // went on to do a real refresh: confirmed live via headless Chrome,
+    // both as the reported bug (reclustering + dropped highlight a moment
+    // after a marker click) and, in one run, as an outright crash in
+    // leaflet.markercluster's own zoomToShowLayer (clearLayers() detached
+    // a marker its still-pending internal completion listener needed).
+    // Waiting for panTo's moveend first removes the unsequenced animation
+    // entirely, rather than trying to out-guess its timing.
+    function revealMarker() {
+      if (marker) {
+        recordingsLayer.zoomToShowLayer(marker, () => {
+          endReveal();
+          highlightRecording(hash);
+        });
+      } else {
+        // No marker (e.g. a stale hash after a filter change rebuilt the
+        // layer) -- just highlight, same graceful no-op highlightRecording
+        // already falls back to.
         endReveal();
         highlightRecording(hash);
-      });
-    } else {
-      if (latitude != null && longitude != null) {
-        map.once("moveend", endReveal);
-      } else {
-        endReveal(); // nothing moved -- startReveal() was never called
-                      // above either, but keep this call for symmetry.
       }
-      highlightRecording(hash);
+    }
+
+    if (latitude != null && longitude != null) {
+      map.once("moveend", revealMarker);
+      map.panTo([latitude, longitude]);
+    } else {
+      revealMarker();
     }
 
     // prev/next inside the drawer swaps which recording's panel is showing
