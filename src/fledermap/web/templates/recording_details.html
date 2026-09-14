@@ -149,8 +149,13 @@
           <input type="number" class="het-freq-input" step="1" inputmode="decimal"> kHz
           <button type="button" class="het-freq-reset" title="Reset to auto-tuned frequency">⟲</button>
         </span>
-        <button type="button" class="playback-rewind" aria-label="Rewind to start">⏮</button>
-        <button type="button" class="playback-toggle" aria-label="Play">▶</button>
+        <button type="button" class="playback-rewind" aria-label="Rewind to start">{{ icon("player-skip-back", filled=True) }}</button>
+        {# audio_controls.js's syncToggleIcon() toggles `hidden` on these two spans -- it never
+           rewrites .textContent here any more. #}
+        <button type="button" class="playback-toggle" aria-label="Play">
+          <span class="play-icon">{{ icon("player-play", filled=True) }}</span>
+          <span class="pause-icon" hidden>{{ icon("player-pause", filled=True) }}</span>
+        </button>
         <audio hidden id="detail-audio"></audio>
       </div>
       {% else %}

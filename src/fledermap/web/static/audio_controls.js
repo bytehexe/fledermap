@@ -87,12 +87,17 @@ function initAudioControls(container, audioEl, options = {}) {
   // "playing" after a pause that genuinely happened. Called both from the
   // real audio events below AND explicitly wherever this module itself
   // changes play state, so the icon can never drift from reality.
+  const playIcon = toggleButton.querySelector(".play-icon");
+  const pauseIcon = toggleButton.querySelector(".pause-icon");
+
   function syncToggleIcon() {
     if (audioEl.paused) {
-      toggleButton.textContent = "▶"; // play icon
+      playIcon.hidden = false;
+      pauseIcon.hidden = true;
       toggleButton.setAttribute("aria-label", "Play");
     } else {
-      toggleButton.textContent = "⏸"; // pause icon
+      playIcon.hidden = true;
+      pauseIcon.hidden = false;
       toggleButton.setAttribute("aria-label", "Pause");
     }
   }
