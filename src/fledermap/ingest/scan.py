@@ -27,7 +27,9 @@ from fledermap.ingest.riff import (
     read_chunk,
     read_format,
 )
+from fledermap.ingest.snr import compute_snr_db
 from fledermap.ingest.wamd import parse_wamd
+from fledermap.media.wav_pcm import UnreadableWavError, read_pcm
 
 logger = logging.getLogger(__name__)
 
@@ -150,10 +152,19 @@ def _scan_one(
         return SkipReason.UNREADABLE
     except (NotARiffFileError, MissingAudioChunkError):
         return SkipReason.NOT_A_WAV
+    try:
+        samples, samplerate_hz = read_pcm(path)
+        snr_db = compute_snr_db(samples, samplerate_hz)
+    except OSError:
+        return SkipReason.UNREADABLE
+    except UnreadableWavError:
+        snr_db = None
+
     metadata = replace(
         metadata,
         samplerate_hz=metadata.samplerate_hz or fmt.samplerate_hz,
         duration_s=fmt.duration_s,
+        snr_db=snr_db,
     )
 
     return ScannedFile(audio_hash=digest, path=path, metadata=metadata)

@@ -63,6 +63,51 @@ def test_recording_details_page_renders_the_recording(
     assert local_datetime_seconds(recorded_at, display_tz) in html
 
 
+def test_recording_details_page_shows_snr_when_computed(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="f3" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, 21, 0, 0, tzinfo=UTC),
+                duration_s=0.5,
+                samplerate_hz=256_000,
+                snr_db=12.34,
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    html = app.test_client().get(f"/recordings/{'f3' * 32}").get_data(as_text=True)
+
+    assert "SNR: 12.3 dB" in html
+
+
+def test_recording_details_page_shows_snr_not_yet_computed(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="f4" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, 21, 0, 0, tzinfo=UTC),
+                duration_s=0.5,
+                samplerate_hz=256_000,
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    html = app.test_client().get(f"/recordings/{'f4' * 32}").get_data(as_text=True)
+
+    assert "SNR: not yet computed" in html
+
+
 def test_recording_details_page_explains_a_missing_site_as_an_outlier(
     engine: Engine,
     tmp_path: Path,

@@ -116,6 +116,7 @@
     <h3>Recording</h3>
     <p>{{ recording.recorded_at | local_datetime_seconds }}</p>
     <p>{{ recording.make }} {{ recording.model }}</p>
+    <p>{% if recording.snr_db is not none %}SNR: {{ "%.1f"|format(recording.snr_db) }} dB{% else %}SNR: not yet computed{% endif %}</p>
   </div>
   <div class="col context">
     <h3>Context</h3>

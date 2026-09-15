@@ -41,6 +41,7 @@ from fledermap.services.ingest import (
 )
 from fledermap.services.media import backfill_media, clean_media, enqueue_media
 from fledermap.services.site_naming import enqueue_site_naming
+from fledermap.services.snr import backfill_snr
 from fledermap.services.systemd_install import render_unit_files, systemd_user_dir
 from fledermap.services.vendor_assets import (
     ASSETS,
@@ -545,6 +546,25 @@ def backfill_site_names_command(force: bool) -> None:
         session.commit()
 
     click.echo(f"enqueued {count}")
+
+
+@cli.command(name="backfill-snr")
+def backfill_snr_command() -> None:
+    """Compute `snr_db` for any recording that doesn't already have one --
+    for recordings ingested before SNR computation shipped."""
+    try:
+        config = Config.from_env()
+    except ConfigError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    engine = make_engine(config.database_url)
+    _run_migrations(config.database_url)
+
+    with OrmSession(engine) as session:
+        count = backfill_snr(session, config.archive_roots)
+        session.commit()
+
+    click.echo(f"updated {count}")
 
 
 @cli.command()

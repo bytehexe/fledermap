@@ -65,6 +65,7 @@ _METADATA_FIELDS = (
     "loc_accuracy_m",
     "samplerate_hz",
     "duration_s",
+    "snr_db",
     "te_factor",
     "make",
     "model",

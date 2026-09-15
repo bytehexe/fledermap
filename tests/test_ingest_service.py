@@ -42,6 +42,7 @@ def _scanned(
     device: str | None = None,
     note: str | None = None,
     duration_s: float | None = None,
+    snr_db: float | None = None,
     identifications: tuple[ParsedIdentification, ...] | None = None,
 ) -> ScannedFile:
     return ScannedFile(
@@ -70,6 +71,7 @@ def _scanned(
             device=device,
             note=note,
             duration_s=duration_s,
+            snr_db=snr_db,
             identifications=(
                 identifications
                 if identifications is not None
@@ -277,6 +279,16 @@ def test_note_change_without_move_is_reported_as_updated(engine: Engine) -> None
         rec = session.scalars(select(Recording)).one()
         assert rec.note == "heard a dog bark"
         assert rec.duration_s == 2.5
+
+
+def test_snr_db_round_trips(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        commit_scan(session, [(_scanned(snr_db=12.3), 0)], archive_roots=(ROOT,))
+        session.commit()
+
+        rec = session.scalars(select(Recording)).one()
+        assert rec.snr_db == 12.3
 
 
 def test_device_field_round_trips(engine: Engine) -> None:

@@ -92,6 +92,7 @@ def test_scan_populates_hash_and_metadata(tmp_path: Path) -> None:
     assert result.metadata.latitude == 42.346973
     assert result.metadata.samplerate_hz == 256000
     assert result.metadata.duration_s is not None
+    assert result.metadata.snr_db is not None
 
 
 def test_scan_does_not_modify_the_archive(tmp_path: Path) -> None:

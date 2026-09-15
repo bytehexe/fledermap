@@ -28,6 +28,7 @@ dependencies = [
   "pyproj",
   "scipy",
   "scikit-learn",
+  "scikit-maad",
   "platformdirs",
   "pillow",
   "flask",
@@ -141,6 +142,12 @@ build = "mkdocs build --strict"
 # above — this one blind-spots exactly one package, named explicitly.
 [[tool.mypy.overrides]]
 module = "sklearn.*"
+ignore_missing_imports = true
+
+# scikit-maad ships no `py.typed` marker and there is no stub package for it
+# either -- same scoped-override reasoning as sklearn.* above.
+[[tool.mypy.overrides]]
+module = "maad.*"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

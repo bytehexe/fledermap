@@ -288,6 +288,55 @@ def test_recording_panel_renders_identification_and_metadata(
     assert trigger["recording-selected"]["hash"] == "a" * 64
 
 
+def test_recording_panel_shows_snr_when_computed(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="b" * 64,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+                snr_db=12.34,
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    html = (
+        app.test_client()
+        .get(f"/recordings/{'b' * 64}/panel?verdict=all")
+        .get_data(as_text=True)
+    )
+
+    assert "SNR: 12.3 dB" in html
+
+
+def test_recording_panel_shows_snr_not_yet_computed(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="c" * 64,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    html = (
+        app.test_client()
+        .get(f"/recordings/{'c' * 64}/panel?verdict=all")
+        .get_data(as_text=True)
+    )
+
+    assert "SNR: not yet computed" in html
+
+
 def test_recording_panel_renders_identification_list_content(
     engine: Engine,
     tmp_path: Path,

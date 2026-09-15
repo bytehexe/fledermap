@@ -957,6 +957,65 @@ def test_backfill_site_names_command_force_flag_reaches_enqueue_site_naming(
     assert captured["force"] is True
 
 
+def test_backfill_snr_command_reports_zero_with_no_recordings(
+    clean_database_url: str,
+    tmp_path: Path,
+) -> None:
+    env = {
+        "FLEDERMAP_DATABASE_URL": clean_database_url,
+        "FLEDERMAP_ARCHIVE_ROOTS": str(tmp_path / "archive"),
+    }
+    runner = CliRunner()
+
+    result = runner.invoke(cli, ["backfill-snr"], env=env)
+
+    assert result.exit_code == 0, result.output
+    assert "updated 0" in result.output
+
+
+def test_backfill_snr_command_fills_in_a_missing_value(
+    clean_database_url: str,
+    tmp_path: Path,
+) -> None:
+    archive_root = tmp_path / "archive"
+    archive_root.mkdir()
+    (archive_root / "rec.wav").write_bytes(
+        build_wav([(b"fmt ", fmt_payload(256000)), (b"data", bytes(2 * 25_600))]),
+    )
+
+    engine = make_engine(clean_database_url)
+    _run_migrations(clean_database_url)
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="a" * 64,
+                path="rec.wav",
+                archive_root_index=0,
+                recorded_at=datetime(2015, 6, 10, 21, 54, 46, tzinfo=UTC),
+                samplerate_hz=256000,
+            ),
+        )
+        session.commit()
+    engine.dispose()
+
+    env = {
+        "FLEDERMAP_DATABASE_URL": clean_database_url,
+        "FLEDERMAP_ARCHIVE_ROOTS": str(archive_root),
+    }
+    runner = CliRunner()
+
+    result = runner.invoke(cli, ["backfill-snr"], env=env)
+
+    assert result.exit_code == 0, result.output
+    assert "updated 1" in result.output
+
+    engine = make_engine(clean_database_url)
+    with OrmSession(engine) as session:
+        rec = session.scalars(select(Recording)).one()
+        assert rec.snr_db is not None
+    engine.dispose()
+
+
 def test_derive_command_force_flag_reaches_enqueue_site_naming(
     clean_database_url: str,
     tmp_path: Path,

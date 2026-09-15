@@ -67,6 +67,7 @@ class Recording(Base):
 
     samplerate_hz: Mapped[int | None] = mapped_column(Integer)
     duration_s: Mapped[float | None] = mapped_column(Float)
+    snr_db: Mapped[float | None] = mapped_column(Float)
     te_factor: Mapped[int | None] = mapped_column(Integer)
 
     make: Mapped[str | None] = mapped_column(String(128))

@@ -33,6 +33,7 @@ class RecordingMetadata:
     loc_accuracy_m: float | None = None
     samplerate_hz: int | None = None
     duration_s: float | None = None
+    snr_db: float | None = None
     te_factor: int | None = None
     make: str | None = None
     model: str | None = None
