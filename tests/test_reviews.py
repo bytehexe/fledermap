@@ -55,6 +55,28 @@ def test_reviews_page_lists_flagged_recordings(engine: Engine, tmp_path: Path) -
     assert f"review={recording_id}" in html
 
 
+def test_reviews_page_recording_column_is_first(engine: Engine, tmp_path: Path) -> None:
+    with OrmSession(engine) as session:
+        r = Recording(
+            audio_hash="a" * 64,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            flagged_for_review=True,
+        )
+        session.add(r)
+        session.commit()
+
+    html = app_client(engine, tmp_path).get("/reviews").get_data(as_text=True)
+
+    assert (
+        "<tr><th>Recording</th><th>Species</th><th>Site</th><th>Reasons</th></tr>"
+        in html
+    )
+    row_start = html.index("<tbody>")
+    row = html[row_start : html.index("</tr>", row_start)]
+    assert row.index(f"/recordings/{'a' * 64}") < row.index("<td>unidentified</td>")
+
+
 def test_reviews_page_species_column_links_to_the_species_page(
     engine: Engine,
     tmp_path: Path,
@@ -87,7 +109,7 @@ def test_reviews_page_species_column_links_to_the_species_page(
     assert f'href="/species/{taxon_id}"' in html
 
 
-def test_reviews_page_time_column_links_to_the_recording(
+def test_reviews_page_recording_column_links_to_the_recording(
     engine: Engine,
     tmp_path: Path,
 ) -> None:
