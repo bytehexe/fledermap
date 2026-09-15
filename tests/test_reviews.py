@@ -4,14 +4,20 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from flask.testing import FlaskClient
+from geoalchemy2.elements import WKTElement
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import IdSource, Verdict
-from fledermap.store.models import Identification, Recording, Taxon
+from fledermap.store.models import Identification, Recording, Site, Taxon
 from fledermap.web.app import create_app
 
 pytestmark = [pytest.mark.db, pytest.mark.usefixtures("_vendor_icons")]
+
+
+def app_client(engine: Engine, tmp_path: Path) -> FlaskClient:
+    return create_app(engine, tmp_path / "static", tmp_path / "media").test_client()
 
 
 def test_reviews_page_lists_flagged_recordings(engine: Engine, tmp_path: Path) -> None:
@@ -47,6 +53,111 @@ def test_reviews_page_lists_flagged_recordings(engine: Engine, tmp_path: Path) -
     assert "a" * 64 in html
     assert "1 recording flagged for review" in html
     assert f"review={recording_id}" in html
+
+
+def test_reviews_page_species_column_links_to_the_species_page(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
+        session.add(taxon)
+        session.flush()
+        r = Recording(
+            audio_hash="a" * 64,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add(r)
+        session.flush()
+        session.add(
+            Identification(
+                recording_id=r.id,
+                source=IdSource.EMT_GUANO,
+                verdict=Verdict.SPECIES,
+                taxon_id=taxon.id,
+                first_seen_at=datetime(2026, 8, 25, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+        taxon_id = taxon.id
+
+    html = app_client(engine, tmp_path).get("/reviews").get_data(as_text=True)
+
+    assert f'href="/species/{taxon_id}"' in html
+
+
+def test_reviews_page_time_column_links_to_the_recording(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        r = Recording(
+            audio_hash="a" * 64,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            flagged_for_review=True,
+        )
+        session.add(r)
+        session.commit()
+        recording_id = r.id
+
+    html = app_client(engine, tmp_path).get("/reviews").get_data(as_text=True)
+
+    # The date text itself must be inside the anchor -- not just the href
+    # existing anywhere on the page (e.g. on a differently-purposed Species
+    # column link).
+    assert f'<a href="/recordings/{"a" * 64}?review={recording_id}">2026-08-25' in html
+
+
+def test_reviews_page_site_column_links_to_the_site_page(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        site = Site(
+            centroid=WKTElement("POINT(10 50)", srid=4326),
+            radius_m=50.0,
+            recording_count=1,
+            first_at=datetime(2026, 8, 25, tzinfo=UTC),
+            last_at=datetime(2026, 8, 25, tzinfo=UTC),
+            name="Behind the barn",
+        )
+        session.add(site)
+        session.flush()
+        r = Recording(
+            audio_hash="a" * 64,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            site_id=site.id,
+            flagged_for_review=True,
+        )
+        session.add(r)
+        session.commit()
+        site_id = site.id
+
+    html = app_client(engine, tmp_path).get("/reviews").get_data(as_text=True)
+
+    assert f'href="/sites/{site_id}?return_to=/reviews"' in html
+
+
+def test_reviews_page_unidentified_species_cell_has_no_link(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        r = Recording(
+            audio_hash="a" * 64,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            flagged_for_review=True,
+        )
+        session.add(r)
+        session.commit()
+
+    html = app_client(engine, tmp_path).get("/reviews").get_data(as_text=True)
+
+    assert "<td>unidentified</td>" in html
 
 
 def test_reviews_page_zero_flagged(engine: Engine, tmp_path: Path) -> None:

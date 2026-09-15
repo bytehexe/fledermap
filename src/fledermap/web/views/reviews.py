@@ -63,9 +63,11 @@ def reviews_page() -> flask.Response:
             rows.append(
                 {
                     "audio_hash": r.audio_hash,
+                    "site_id": r.site_id,
                     "site_label": site_label,
                     "recorded_at": r.recorded_at,
                     "species_label": species_label,
+                    "taxon_id": taxon.id if taxon is not None else None,
                     "reasons": reasons,
                 },
             )

@@ -18,9 +18,9 @@
       <tbody>
         {% for row in rows %}
         <tr>
-          <td>{{ row.site_label or "No site" }}</td>
-          <td>{{ row.recorded_at | local_datetime }}</td>
-          <td><a href="/recordings/{{ row.audio_hash }}?review={{ review_qs }}">{{ row.species_label }}</a></td>
+          <td>{% if row.site_id %}<a href="/sites/{{ row.site_id }}?return_to=/reviews">{{ row.site_label }}</a>{% else %}{{ row.site_label or "No site" }}{% endif %}</td>
+          <td><a href="/recordings/{{ row.audio_hash }}?review={{ review_qs }}">{{ row.recorded_at | local_datetime }}</a></td>
+          <td>{% if row.taxon_id %}<a href="/species/{{ row.taxon_id }}">{{ row.species_label }}</a>{% else %}{{ row.species_label }}{% endif %}</td>
           <td>{{ row.reasons | join(", ") }}</td>
         </tr>
         {% endfor %}
