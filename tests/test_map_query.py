@@ -13,7 +13,7 @@ from fledermap.services.map_query import (
     filtered_recordings,
     filtered_sites,
     has_unmapped_species,
-    list_sessions,
+    latest_session_id,
     list_taxa,
     neighbor_recordings,
     site_detail,
@@ -401,7 +401,9 @@ def test_has_unmapped_species_false_when_none_exist(engine: Engine) -> None:
         assert has_unmapped_species(session) is False
 
 
-def test_list_sessions_orders_most_recent_first(engine: Engine) -> None:
+def test_latest_session_id_returns_the_most_recently_started_session(
+    engine: Engine,
+) -> None:
     with OrmSession(engine) as session:
         older = AnnotationSession(
             started_at=datetime(2026, 1, 1, tzinfo=UTC),
@@ -414,9 +416,17 @@ def test_list_sessions_orders_most_recent_first(engine: Engine) -> None:
         session.add_all([older, newer])
         session.commit()
 
-        results = list_sessions(session)
+        result = latest_session_id(session)
+        newer_id = newer.id
 
-    assert [s.id for s in results] == [newer.id, older.id]
+    assert result == newer_id
+
+
+def test_latest_session_id_is_none_when_no_sessions_exist(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        result = latest_session_id(session)
+
+    assert result is None
 
 
 def test_filtered_recordings_by_site(engine: Engine) -> None:

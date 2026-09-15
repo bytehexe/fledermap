@@ -147,8 +147,8 @@ def species_detail(session: OrmSession, taxon_id: int) -> SpeciesDetail | None:
 
 
 def list_sites(session: OrmSession) -> Sequence[Site]:
-    """Every derived site, most recently active first -- same convention
-    list_sessions already uses (filtering/browsing is almost always about
-    recent fieldwork, not the oldest deployment on record)."""
+    """Every derived site, most recently active first -- filtering/browsing
+    is almost always about recent fieldwork, not the oldest deployment on
+    record (the same reasoning `map_query.latest_session_id` orders by)."""
     stmt = select(Site).order_by(Site.last_at.desc())
     return list(session.scalars(stmt).all())

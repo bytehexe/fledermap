@@ -28,7 +28,7 @@ from fledermap.services.map_query import (
     MAX_FEATURES,
     filtered_recordings,
     has_unmapped_species,
-    list_sessions,
+    latest_session_id,
     list_taxa,
     neighbor_recordings,
     site_detail,
@@ -57,7 +57,7 @@ def map_page() -> str:
         return flask.render_template(
             "map.html",
             taxa=list_taxa(session),
-            sessions=list_sessions(session),
+            latest_session_id=latest_session_id(session),
             has_unmapped_species=has_unmapped_species(session),
             max_features=MAX_FEATURES,
         )

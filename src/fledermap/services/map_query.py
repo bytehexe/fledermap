@@ -259,17 +259,18 @@ def has_unmapped_species(session: OrmSession) -> bool:
     return session.scalars(stmt.limit(1)).first() is not None
 
 
-def list_sessions(session: OrmSession) -> Sequence[AnnotationSession]:
-    """Every session, for the map's session filter dropdown. Unlike Taxon,
-    a session has no natural name -- the dropdown falls back to labelling by
-    date range and detector (design spec section 7's `detector_key`) -- and
-    no cap on how many can accumulate over time, unlike Taxon's small, fixed
-    set. Most recent first: filtering by session is almost always about
-    recent fieldwork, not the oldest deployment on record. Revisit with a
-    search/pagination UI if this list grows large enough that "most recent
-    first" stops being enough on its own."""
-    stmt = select(AnnotationSession).order_by(AnnotationSession.started_at.desc())
-    return list(session.scalars(stmt).all())
+def latest_session_id(session: OrmSession) -> int | None:
+    """The most recently started session's id, or None if no session exists yet -- for the
+    map's "Latest session only" filter checkbox (v1 backlog "session filter dropdown ->
+    site-style mechanism"). `limit(1)` rather than fetching every session just to take the
+    first: unlike Taxon's small, fixed set, sessions have no cap on how many can accumulate
+    over time."""
+    stmt = (
+        select(AnnotationSession.id)
+        .order_by(AnnotationSession.started_at.desc())
+        .limit(1)
+    )
+    return session.scalars(stmt).first()
 
 
 @dataclass(frozen=True)

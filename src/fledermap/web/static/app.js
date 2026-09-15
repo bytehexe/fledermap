@@ -24,6 +24,11 @@ function filterForm() {
     taxon: params.get("taxon") || "",
     taxon_exclude: params.get("taxon_exclude") === "1",
     session: params.get("session") || "",
+    // Read once from the server-rendered `#filters` form (services/map_query.py's
+    // `latest_session_id`) rather than fetched separately -- the "Latest session only"
+    // checkbox's :checked/@change both compare/assign against this same value, so it must
+    // match `session`'s own string type (a bare id, not e.g. an integer).
+    latestSessionId: document.getElementById("filters").dataset.latestSessionId || null,
     source: params.get("source") || "",
     verdict: params.get("verdict") || "",
     site: params.get("site") || "",
@@ -37,11 +42,21 @@ document.addEventListener("alpine:init", () => {
   Alpine.store("drawer", { open: false, collapsed: false });
 });
 
-// Step 3: Add the site-filter bridge function
-window.fledermapFilterBySite = function (siteId) {
-  const input = document.querySelector('#filters [name="site"]');
-  input.value = siteId;
+// Step 3: Add the site/session-filter bridge functions. Both filters share the same
+// hidden-input + chip mechanism (v1 backlog "session filter dropdown -> site-style
+// mechanism"), so both go through this one generic setter.
+window.fledermapSetFilter = function (name, value) {
+  const input = document.querySelector(`#filters [name="${name}"]`);
+  input.value = value;
   input.dispatchEvent(new Event("input", { bubbles: true }));
+};
+
+window.fledermapFilterBySite = function (siteId) {
+  window.fledermapSetFilter("site", siteId);
+};
+
+window.fledermapFilterBySession = function (sessionId) {
+  window.fledermapSetFilter("session", sessionId);
 };
 
 document.addEventListener("DOMContentLoaded", () => {

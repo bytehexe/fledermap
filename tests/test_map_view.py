@@ -16,7 +16,6 @@ from fledermap.services.map_query import filtered_recordings
 from fledermap.store.models import Identification, Recording, Site, Taxon
 from fledermap.store.models import Session as AnnotationSession
 from fledermap.web.app import create_app
-from fledermap.web.timefmt import local_datetime
 
 pytestmark = [pytest.mark.db, pytest.mark.usefixtures("_vendor_icons")]
 
@@ -66,7 +65,10 @@ def test_taxon_filter_is_a_dropdown_of_real_taxa(
 ) -> None:
     """A numeric ID input is not something a person can use -- feedback on
     the first UI pass. Taxon has a small, fixed set of real names, so it
-    becomes a <select>, unlike Session below."""
+    becomes a <select> -- unlike Session, which uses the site-filter's
+    hidden-input+chip mechanism instead (v1 backlog "session filter dropdown
+    -> site-style mechanism": no natural upper bound on how many sessions
+    accumulate, so a <select> stops scaling the way it does for Taxon)."""
     with OrmSession(engine) as session:
         taxon = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
         session.add(taxon)
@@ -179,60 +181,72 @@ def test_taxon_option_includes_common_name_when_present(
     assert "Eptesicus serotinus — Serotine bat" in html
 
 
-def test_session_filter_is_a_dropdown_labelled_by_date_range_and_detector(
+def test_session_filter_is_a_hidden_input_not_a_dropdown(
     engine: Engine,
     tmp_path: Path,
 ) -> None:
-    started_at = datetime(2026, 8, 1, 22, 0, tzinfo=UTC)
-    ended_at = datetime(2026, 8, 1, 23, 15, tzinfo=UTC)
+    """v1 backlog "session filter dropdown -> site-style mechanism": the map's own filter
+    form must carry `session` as a hidden input (set via a chip/URL param, like `site`), not
+    render every session as a <select> option -- a session dropdown has no natural cap on how
+    many accumulate, unlike Taxon above."""
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    html = client.get("/").get_data(as_text=True)
+
+    assert '<input type="hidden" name="session"' in html
+    assert '<select name="session"' not in html
+
+
+def test_session_filter_chip_shows_only_when_a_session_is_active(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    html = client.get("/").get_data(as_text=True)
+
+    assert 'id="session-filter-chip"' in html
+
+
+def test_latest_session_checkbox_carries_the_latest_session_id(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
     with OrmSession(engine) as session:
-        annotation_session = AnnotationSession(
-            started_at=started_at,
-            ended_at=ended_at,
-            detector_key="ABC123",
+        older = AnnotationSession(
+            started_at=datetime(2026, 1, 1, tzinfo=UTC),
+            ended_at=datetime(2026, 1, 2, tzinfo=UTC),
         )
-        session.add(annotation_session)
+        newer = AnnotationSession(
+            started_at=datetime(2026, 6, 1, tzinfo=UTC),
+            ended_at=datetime(2026, 6, 2, tzinfo=UTC),
+        )
+        session.add_all([older, newer])
         session.commit()
-        session_id = annotation_session.id
+        newer_id = newer.id
 
     app = create_app(engine, tmp_path / "static", tmp_path / "media")
     client = app.test_client()
 
     html = client.get("/").get_data(as_text=True)
-    display_tz = app.config["DISPLAY_TIMEZONE"]
-    expected_start = local_datetime(started_at, display_tz)
-    expected_end = local_datetime(ended_at, display_tz)
-    assert '<select name="session"' in html
-    assert (
-        f'<option value="{session_id}">{expected_start} – {expected_end} (ABC123)</option>'
-        in html
-    )
+
+    assert 'name="latest_session_only"' in html
+    assert f'data-latest-session-id="{newer_id}"' in html
 
 
-def test_session_option_falls_back_when_detector_key_is_missing(
+def test_latest_session_checkbox_data_attribute_is_empty_when_no_sessions_exist(
     engine: Engine,
     tmp_path: Path,
 ) -> None:
-    with OrmSession(engine) as session:
-        annotation_session = AnnotationSession(
-            started_at=datetime(2026, 8, 1, 22, 0, tzinfo=UTC),
-            ended_at=datetime(2026, 8, 1, 23, 15, tzinfo=UTC),
-        )
-        session.add(annotation_session)
-        session.commit()
-
     app = create_app(engine, tmp_path / "static", tmp_path / "media")
     client = app.test_client()
 
     html = client.get("/").get_data(as_text=True)
-    display_tz = app.config["DISPLAY_TIMEZONE"]
-    started_at = datetime(2026, 8, 1, 22, 0, tzinfo=UTC)
-    ended_at = datetime(2026, 8, 1, 23, 15, tzinfo=UTC)
-    expected = (
-        f"{local_datetime(started_at, display_tz)} – {local_datetime(ended_at, display_tz)} "
-        "(unknown detector)"
-    )
-    assert expected in html
+
+    assert 'name="latest_session_only"' in html
+    assert 'data-latest-session-id=""' in html
 
 
 def test_recording_panel_renders_identification_and_metadata(

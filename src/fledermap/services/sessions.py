@@ -73,9 +73,9 @@ def count_open_proposals(db_session: OrmSession) -> int:
 
 def list_detectors(db_session: OrmSession) -> Sequence[str]:
     """Every distinct `detector_key` currently in use, for the sessions
-    list's Detector filter dropdown -- mirrors `map_query.list_taxa`/
-    `list_sessions`'s "a numeric/opaque value is not something a person can
-    filter by, so build the dropdown from real data" convention.
+    list's Detector filter dropdown -- mirrors `map_query.list_taxa`'s "a
+    numeric/opaque value is not something a person can filter by, so build
+    the dropdown from real data" convention.
     `detector_key` is never NULL (`derive.sessions._detector_key` always
     returns `f"{make or ''}\\x1f{serial or ''}"`), but an all-blank one
     (bare `"\\x1f"`) has nothing a person could recognise or choose, so it's

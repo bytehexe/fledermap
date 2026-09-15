@@ -8,7 +8,7 @@
 {% block body_attrs %} x-data="filterForm()"{% endblock %}
 {% block content %}
   <div class="main-content" id="page-content">
-    <form id="filters" class="filter-bar">
+    <form id="filters" class="filter-bar" data-latest-session-id="{{ latest_session_id if latest_session_id is not none else '' }}">
       <label>From <input type="date" name="from" x-model="from"></label>
       <label>To <input type="date" name="to" x-model="to"></label>
       <span class="taxon-group">
@@ -27,13 +27,12 @@
           not
         </label>
       </span>
-      <label>Session
-        <select name="session" x-model="session">
-          <option value="">Any</option>
-          {% for item in sessions %}
-          <option value="{{ item.id }}">{{ item.started_at | local_datetime }} – {{ item.ended_at | local_datetime }} ({{ item.detector_key | detector_label }})</option>
-          {% endfor %}
-        </select>
+      <input type="hidden" name="session" x-model="session">
+      <label>
+        <input type="checkbox" name="latest_session_only"
+               :checked="session === latestSessionId" :disabled="!latestSessionId"
+               @change="session = $event.target.checked ? latestSessionId : ''">
+        Latest session only
       </label>
       <label>Source
         <select name="source" x-model="source">
@@ -70,6 +69,10 @@
     <span id="site-filter-chip" x-show="site" x-cloak>
       Site filter active
       <button type="button" @click="fledermapFilterBySite('')">{{ icon("x") }}</button>
+    </span>
+    <span id="session-filter-chip" x-show="session" x-cloak>
+      Session filter active
+      <button type="button" @click="fledermapFilterBySession('')">{{ icon("x") }}</button>
     </span>
     <!-- The GeoJSON API's own `truncated` flag (services/map_query.py's
          MAX_FEATURES cap) previously computed but never surfaced -- see
