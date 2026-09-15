@@ -45,6 +45,44 @@ function mountDonut(canvasId, dataId) {
             const entry = raw.entries[index];
             return entry ? `/species/${entry.taxon.id}` : null;
           }),
+          // Chart.js draws the legend text on the canvas itself, so a long
+          // label just gets hard-clipped at the canvas edge -- no ellipsis,
+          // no DOM node for a `title=` attribute. Truncate what's drawn
+          // (against the legend's own actual pixel width, measured via the
+          // canvas's own text metrics -- see truncateLegendLabelToWidth's
+          // comment for why a fixed character count doesn't work) and
+          // surface the full name as the canvas's native hover tooltip
+          // instead.
+          labels: {
+            generateLabels(chart) {
+              const defaultItems = Chart.overrides.doughnut.plugins.legend.labels.generateLabels(chart);
+              const legend = chart.legend;
+              const labelOpts = legend?.options?.labels ?? {};
+              const boxWidth = labelOpts.boxWidth ?? 40;
+              const padding = labelOpts.padding ?? 10;
+              // legend.maxWidth is the box width the layout system already
+              // allotted this legend before generateLabels runs; falls back
+              // to a conservative guess on the very first layout pass, when
+              // it isn't set yet.
+              const availableTextWidth = (legend?.maxWidth ?? 130) - boxWidth - padding - 10;
+              const font = Chart.helpers.toFont(labelOpts.font ?? {});
+              const ctx = chart.ctx;
+              ctx.save();
+              ctx.font = font.string;
+              const items = defaultItems.map((item) => ({
+                ...item,
+                text: truncateLegendLabelToWidth(item.text, availableTextWidth, (s) => ctx.measureText(s).width),
+              }));
+              ctx.restore();
+              return items;
+            },
+          },
+          onHover(_event, legendItem, legend) {
+            legend.chart.canvas.title = chartData.labels[legendItem.index] ?? "";
+          },
+          onLeave(_event, _legendItem, legend) {
+            legend.chart.canvas.title = "";
+          },
         },
       },
       // A donut slice click-throughs to that taxon's own statistics

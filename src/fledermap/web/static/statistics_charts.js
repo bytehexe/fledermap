@@ -5,6 +5,35 @@
 // Loaded via its own <script> tag, before statistics.js (which mounts the
 // actual canvases) and after marker_colors.js (colorForTaxon).
 
+// Chart.js draws legend labels directly onto the <canvas>, so a long
+// scientific name just gets hard-clipped at the canvas edge with no
+// ellipsis (no DOM text node to apply CSS text-overflow to, and Chart.js's
+// legend has no built-in truncation option -- confirmed against its docs).
+// A fixed character count doesn't work here: the donut's legend column is
+// only ~80-90px of actual text width (measured live against a real
+// three-column statistics card), so this measures against real rendered
+// pixel width instead -- statistics.js's generateLabels callback supplies
+// the measuring function (canvas text metrics aren't available outside a
+// real <canvas> context, hence the injected `measureWidth` rather than this
+// file reaching for `document` itself) and pairs the result with an
+// onHover/onLeave handler that sets the canvas's native `title` to the
+// untruncated name.
+function truncateLegendLabelToWidth(text, maxWidth, measureWidth) {
+  if (measureWidth(text) <= maxWidth) return text;
+  let fits = 0;
+  let doesNotFit = text.length;
+  while (fits < doesNotFit) {
+    const mid = Math.ceil((fits + doesNotFit) / 2);
+    const candidate = `${text.slice(0, mid)}…`;
+    if (measureWidth(candidate) <= maxWidth) {
+      fits = mid;
+    } else {
+      doesNotFit = mid - 1;
+    }
+  }
+  return `${text.slice(0, fits)}…`;
+}
+
 function taxonBreakdownToChartData(breakdown, otherColor) {
   const labels = [];
   const data = [];
@@ -61,5 +90,5 @@ function seriesToChartData(series, otherColor) {
 }
 
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { taxonBreakdownToChartData, seriesToChartData };
+  module.exports = { taxonBreakdownToChartData, seriesToChartData, truncateLegendLabelToWidth };
 }

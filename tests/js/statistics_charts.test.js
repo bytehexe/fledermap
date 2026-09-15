@@ -5,7 +5,7 @@ const assert = require("node:assert/strict");
 global.colorForTaxon = require("../../src/fledermap/web/static/marker_colors.js").colorForTaxon;
 global.MULTI_SPECIES_COLOR = require("../../src/fledermap/web/static/marker_colors.js").MULTI_SPECIES_COLOR;
 
-const { taxonBreakdownToChartData, seriesToChartData } = require(
+const { taxonBreakdownToChartData, seriesToChartData, truncateLegendLabelToWidth } = require(
   "../../src/fledermap/web/static/statistics_charts.js",
 );
 
@@ -76,4 +76,30 @@ test("seriesToChartData builds a single unlabeled dataset for a single-species s
   const result = seriesToChartData(series, "#999999");
   assert.equal(result.datasets.length, 1);
   assert.deepEqual(result.datasets[0].data, [2, 0]);
+});
+
+const widthOfChars = (s) => s.length * 6; // deterministic stand-in for canvas text metrics
+
+test("truncateLegendLabelToWidth leaves labels that already fit untouched", () => {
+  assert.equal(truncateLegendLabelToWidth("Other", 100, widthOfChars), "Other");
+});
+
+test("truncateLegendLabelToWidth leaves a label exactly at the width budget untouched", () => {
+  assert.equal(truncateLegendLabelToWidth("abcde", 30, widthOfChars), "abcde");
+});
+
+test("truncateLegendLabelToWidth truncates to the longest fitting prefix plus an ellipsis", () => {
+  const result = truncateLegendLabelToWidth("Pipistrellus pipistrellus", 90, widthOfChars);
+  assert.ok(widthOfChars(result) <= 90);
+  assert.ok(result.endsWith("…"));
+  assert.ok("Pipistrellus pipistrellus".startsWith(result.slice(0, -1)));
+  // one more character wouldn't have fit -- confirms it's the longest fit, not an
+  // arbitrarily short one.
+  const oneMore = `${result.slice(0, -1)}X…`;
+  assert.ok(widthOfChars(oneMore) > 90);
+});
+
+test("truncateLegendLabelToWidth degrades to a bare ellipsis when even one character doesn't fit", () => {
+  const result = truncateLegendLabelToWidth("Pipistrellus pipistrellus", 3, widthOfChars);
+  assert.equal(result, "…");
 });
