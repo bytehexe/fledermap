@@ -59,7 +59,16 @@
         <span style="color: var(--color-warning)">{{ icon("flag", filled=True) }}</span> Needs review
       </label>
       <label>
-        <input type="checkbox" id="latest-session-only"
+        {# .stop on @input: this checkbox isn't itself a filter field (no `name`, never
+           submitted) -- the real filter change is the hidden `session` input's own
+           JS-dispatched "input" event from fledermapFilterBySession below. Without .stop,
+           the checkbox's native "input" event (which fires before "change", so `session`
+           hasn't been updated yet) also bubbles to #filters and triggers a second, stale
+           refresh() that races the correct one -- confirmed live via headless Chrome: the
+           two concurrent recordings.geojson fetches can resolve out of order, and the stale
+           (unfiltered) one landing last silently undid the filter on the map's marker
+           cluster. #}
+        <input type="checkbox" id="latest-session-only" @input.stop=""
                :checked="session === latestSessionId" :disabled="!latestSessionId"
                @change="fledermapFilterBySession($event.target.checked ? latestSessionId : '')">
         Latest session only
