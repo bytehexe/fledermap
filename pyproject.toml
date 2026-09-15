@@ -48,6 +48,15 @@ dependencies = [
   "poiidx>=0.0.9,<0.1",
 ]
 
+# CC-BY-NC-4.0-licensed, non-commercial use only (https://pypi.org/project/batdetect2/).
+# Deliberately NOT a base dependency: a plain `pip install fledermap` must never pull in a
+# restrictively-licensed model. See docs/superpowers/specs/2026-09-15-fledermap-batdetect2-
+# classifier-design.md §1. Enabling FLEDERMAP_BATDETECT2_ENABLED without this extra installed
+# fails the classification job at run time (see jobs/tasks.py's classify_batdetect2_task) --
+# it does not block the rest of the application.
+[project.optional-dependencies]
+batdetect2 = ["batdetect2"]
+
 [project.scripts]
 fledermap = "fledermap.cli.main:cli"
 
@@ -135,6 +144,9 @@ dependencies = [
 [tool.hatch.envs.mkdocs.scripts]
 serve = "mkdocs serve"
 build = "mkdocs build --strict"
+
+[tool.hatch.envs.batdetect2]
+features = ["batdetect2"]
 
 # scikit-learn ships no `py.typed` marker and there is no `types-scikit-learn`
 # stub package, so mypy cannot resolve it by any other means. A SCOPED override
