@@ -26,6 +26,19 @@ fixture). Species identification natively covers Europe and North America
 2. Sync recordings into that folder as usual — they appear on the map on
    their own, no further action needed.
 
+## Optional: BatDetect2 classifier
+
+Fledermap can optionally run a second species classifier,
+[BatDetect2](https://github.com/macaodha/batdetect2), alongside the
+detector's own on-device identification. It's off by default and never
+installed by a plain `pip install fledermap` — turning it on requires a
+separate `pip install fledermap[batdetect2]` plus setting
+`FLEDERMAP_BATDETECT2_ENABLED=true` (see
+[Configuration](docs/reference/configuration.md)). **BatDetect2's model is
+licensed CC-BY-NC-4.0, restricting it to non-commercial use** — attribution
+to the [BatDetect2 project](https://github.com/macaodha/batdetect2), whose
+model this integration runs unmodified.
+
 ## Documentation
 
 Everything past this quickstart — how-to guides, reference material, and

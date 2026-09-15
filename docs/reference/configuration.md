@@ -65,6 +65,20 @@ Notes on individual settings:
   explicit `--host`/`--port` flag on `fledermap serve` overrides both the
   env var and the config file, since a flag typed at invocation time
   should win over a standing default.
+- **`batdetect2_enabled`/`batdetect2_threshold`** turn on a second,
+  optional species classifier ([BatDetect2](https://github.com/macaodha/batdetect2))
+  run alongside the EMT's own on-device identification. `batdetect2_enabled`
+  defaults to `false`; `batdetect2_threshold` (default `0.8`, valid range
+  `0.0`–`1.0`) is the minimum detection score a call must reach to be kept,
+  re-applied to already-stored raw scores on every ingest cycle, so changing
+  it takes effect immediately with no re-classification needed.
+  **BatDetect2's model weights are licensed CC-BY-NC-4.0 — non-commercial
+  use only** — which is why it's never installed by a plain
+  `pip install fledermap`: you must separately run
+  `pip install fledermap[batdetect2]` before setting `batdetect2_enabled =
+  true`. Enabling it without that extra installed doesn't break the rest of
+  the application — it fails only the classification job itself, at run
+  time.
 
 ## Example config file
 
