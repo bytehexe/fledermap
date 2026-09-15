@@ -185,6 +185,51 @@ class Identification(Base):
     taxon: Mapped[Taxon | None] = relationship()
 
 
+class ClassifierDetection(Base):
+    """Raw classifier output, independent of the currently configured verdict
+    threshold -- the durable record of "what did the model actually say."
+    `Identification` rows are materialized from this table by filtering on the
+    current threshold and calling `services/identifications.py`'s
+    `replace_claims`; this table itself is never read by `current_best.py` or
+    any other identification consumer. See docs/superpowers/specs/2026-09-15-
+    fledermap-batdetect2-classifier-design.md §2.
+
+    `source` has no CHECK constraint, mirroring `Identification.source`
+    (spec D9): further classifiers are coming, and a CHECK would force a
+    migration per one. This table is deliberately generic (not
+    `batdetect2_detection`) so a future classifier reuses it without a new
+    migration.
+
+    Holds every candidate above a fixed, non-configurable, low sanity floor
+    (see jobs/tasks.py's `_BATDETECT2_FLOOR`) -- not the user-configured
+    verdict threshold. Exposing the floor as config would let someone set it
+    above their own threshold and silently break threshold-change recompute.
+    """
+
+    __tablename__ = "classifier_detection"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    recording_id: Mapped[int] = mapped_column(
+        ForeignKey("recording.id", ondelete="CASCADE"),
+        index=True,
+    )
+    source: Mapped[IdSource] = mapped_column(
+        SAEnum(
+            IdSource,
+            native_enum=False,
+            length=32,
+            create_constraint=False,
+            values_callable=lambda enum_cls: [e.value for e in enum_cls],
+        ),
+        index=True,
+    )
+    taxon_id: Mapped[int | None] = mapped_column(ForeignKey("taxon.id"))
+    confidence: Mapped[float] = mapped_column(Float)
+
+    recording: Mapped[Recording] = relationship()
+    taxon: Mapped[Taxon | None] = relationship()
+
+
 class Taxon(Base):
     """A species, genus, or phonic group. Not every identification is a species."""
 
