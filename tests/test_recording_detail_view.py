@@ -447,7 +447,40 @@ def test_recording_details_page_shows_a_link_to_the_map_centered_on_this_recordi
     response = app.test_client().get(f"/recordings/{'fc' * 32}")
 
     html = response.get_data(as_text=True)
-    assert f'href="/?recording={"fc" * 32}"' in html
+    assert f'href="/?recording={"fc" * 32}&amp;verdict=all"' in html
+
+
+def test_recording_details_page_map_link_shows_a_recording_the_default_verdict_filter_hides(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """The default map view only shows SPECIES-verdict recordings
+    (`_passes_verdict_filter`'s permissive default is narrower than "no filter").
+    A recording with no identification at all would 404 as "not found" on
+    a fresh `/?recording=<hash>` navigation without the `verdict=all` override
+    baked into the "Show on map" link."""
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="fe" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                duration_s=0.5,
+                samplerate_hz=256_000,
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    href = f"/?recording={'fe' * 32}&amp;verdict=all"
+    assert href in client.get(f"/recordings/{'fe' * 32}").get_data(as_text=True)
+
+    panel = client.get(f"/recordings/{'fe' * 32}/panel?verdict=all").get_data(
+        as_text=True
+    )
+    assert "Recording not found" not in panel
 
 
 def test_recording_details_page_shows_a_link_to_its_session_when_it_has_one(

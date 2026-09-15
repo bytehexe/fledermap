@@ -4,7 +4,7 @@
 {% block content %}
   <main class="main-content" id="recording-detail">
     {% set title = recording_headline(taxon, best) %}
-    {% set actions = [{"label": "Show on map", "href": "/?recording=" ~ recording.audio_hash}] %}
+    {% set actions = [{"label": "Show on map", "href": "/?recording=" ~ recording.audio_hash ~ "&verdict=all"}] %}
     {% if recording_session %}
     {% set actions = actions + [{"label": "Session", "href": "/sessions/" ~ recording_session.id}] %}
     {% endif %}
