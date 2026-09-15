@@ -44,6 +44,7 @@ def test_classify_batdetect2_task_stores_detections_above_the_floor_only(
         taxon = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
         session.add(taxon)
         session.flush()
+        taxon_id = taxon.id
         session.add(
             TaxonCode(
                 source="batdetect2",
@@ -105,5 +106,5 @@ def test_classify_batdetect2_task_stores_detections_above_the_floor_only(
         ).all()
         assert len(rows) == 1
         assert rows[0].confidence == 0.9
-        assert rows[0].taxon_id == taxon.id
+        assert rows[0].taxon_id == taxon_id
         assert rows[0].source == IdSource.BATDETECT2
