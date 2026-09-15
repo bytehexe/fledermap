@@ -28,12 +28,6 @@
         </label>
       </span>
       <input type="hidden" name="session" x-model="session">
-      <label>
-        <input type="checkbox" id="latest-session-only"
-               :checked="session === latestSessionId" :disabled="!latestSessionId"
-               @change="fledermapFilterBySession($event.target.checked ? latestSessionId : '')">
-        Latest session only
-      </label>
       <label>Source
         <select name="source" x-model="source">
           <option value="">Any</option>
@@ -63,6 +57,12 @@
         <input type="checkbox" name="needs_review_only" value="1" x-model="needs_review_only">
         {# Colored to match `.flag-toggle`'s own --color-warning, same reasoning as above. #}
         <span style="color: var(--color-warning)">{{ icon("flag", filled=True) }}</span> Needs review
+      </label>
+      <label>
+        <input type="checkbox" id="latest-session-only"
+               :checked="session === latestSessionId" :disabled="!latestSessionId"
+               @change="fledermapFilterBySession($event.target.checked ? latestSessionId : '')">
+        Latest session only
       </label>
       <input type="hidden" name="site" x-model="site">
     </form>
