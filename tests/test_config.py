@@ -13,6 +13,7 @@ from fledermap.config import (
     ENV_DEFAULT_TIMEZONE,
     ENV_HOST,
     ENV_MEDIA_ROOT,
+    ENV_NOISE_SNR_THRESHOLD_DB,
     ENV_POIIDX_DATABASE_URL,
     ENV_PORT,
     ENV_SESSION_GAP_HOURS,
@@ -278,6 +279,41 @@ def test_invalid_session_gap_raises_config_error(
     monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
     monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
     monkeypatch.setenv(ENV_SESSION_GAP_HOURS, "not-a-number")
+    with pytest.raises(ConfigError, match="not-a-number"):
+        Config.from_env()
+
+
+def test_default_noise_snr_threshold_is_two(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+    monkeypatch.delenv(ENV_NOISE_SNR_THRESHOLD_DB, raising=False)
+    config = Config.from_env()
+    assert config.noise_snr_threshold_db == 2.0
+
+
+def test_noise_snr_threshold_is_configurable(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+    monkeypatch.setenv(ENV_NOISE_SNR_THRESHOLD_DB, "3.5")
+    config = Config.from_env()
+    assert config.noise_snr_threshold_db == 3.5
+
+
+def test_invalid_noise_snr_threshold_raises_config_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.setenv(ENV_NOISE_SNR_THRESHOLD_DB, "not-a-number")
     with pytest.raises(ConfigError, match="not-a-number"):
         Config.from_env()
 

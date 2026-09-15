@@ -14,6 +14,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.config import Config
+from fledermap.domain.codes import IdSource
 from fledermap.jobs.app import (
     ensure_schema,
     make_worker_connector,
@@ -39,7 +40,7 @@ from fledermap.jobs.tasks import (
 )
 from fledermap.media.paths import spectrogram_path
 from fledermap.services import site_naming
-from fledermap.store.models import Recording, Site
+from fledermap.store.models import Identification, Recording, Site
 from fledermap.store.models import Session as SessionModel
 from tests.fixtures import build_wav, fmt_payload, wamd_payload
 
@@ -572,6 +573,14 @@ def test_run_ingest_cycle_creates_a_recording_and_derives(
             ),
         ).scalar()
     assert media_todo_count == 3
+
+    with OrmSession(engine) as session:
+        noise_claim_count = session.scalar(
+            select(func.count())
+            .select_from(Identification)
+            .where(Identification.source == IdSource.FLEDERMAP_NOISE),
+        )
+    assert noise_claim_count == 1  # classify_noise ran
 
 
 def test_run_ingest_cycle_logs_and_continues_on_incomplete_scan(

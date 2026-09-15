@@ -29,12 +29,13 @@ from fledermap.cli.main import (
     cli,
 )
 from fledermap.config import Config
+from fledermap.domain.codes import IdSource, Verdict
 from fledermap.jobs.app import ensure_schema
 from fledermap.jobs.watch import start_watching as _real_start_watching
 from fledermap.media.paths import spectrogram_path
 from fledermap.services.vendor_assets import ASSETS, IntegrityError, VendorAsset
 from fledermap.store.db import make_engine
-from fledermap.store.models import Recording, Site
+from fledermap.store.models import Identification, Recording, Site
 from tests.fixtures import build_wav, fmt_payload, wamd_payload
 
 if TYPE_CHECKING:
@@ -1013,6 +1014,61 @@ def test_backfill_snr_command_fills_in_a_missing_value(
     with OrmSession(engine) as session:
         rec = session.scalars(select(Recording)).one()
         assert rec.snr_db is not None
+    engine.dispose()
+
+
+def test_classify_noise_command_reports_zero_with_no_recordings(
+    clean_database_url: str,
+    tmp_path: Path,
+) -> None:
+    env = {
+        "FLEDERMAP_DATABASE_URL": clean_database_url,
+        "FLEDERMAP_ARCHIVE_ROOTS": str(tmp_path / "archive"),
+    }
+    runner = CliRunner()
+
+    result = runner.invoke(cli, ["classify-noise"], env=env)
+
+    assert result.exit_code == 0, result.output
+    assert "classified 0" in result.output
+
+
+def test_classify_noise_command_classifies_a_recording_with_a_known_snr(
+    clean_database_url: str,
+    tmp_path: Path,
+) -> None:
+    engine = make_engine(clean_database_url)
+    _run_migrations(clean_database_url)
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="a" * 64,
+                path="a.wav",
+                archive_root_index=0,
+                recorded_at=datetime(2015, 6, 10, 21, 54, 46, tzinfo=UTC),
+                snr_db=1.0,
+            ),
+        )
+        session.commit()
+    engine.dispose()
+
+    env = {
+        "FLEDERMAP_DATABASE_URL": clean_database_url,
+        "FLEDERMAP_ARCHIVE_ROOTS": str(tmp_path / "archive"),
+        "FLEDERMAP_NOISE_SNR_THRESHOLD_DB": "2.0",
+    }
+    runner = CliRunner()
+
+    result = runner.invoke(cli, ["classify-noise"], env=env)
+
+    assert result.exit_code == 0, result.output
+    assert "classified 1" in result.output
+
+    engine = make_engine(clean_database_url)
+    with OrmSession(engine) as session:
+        ident = session.scalars(select(Identification)).one()
+        assert ident.source == IdSource.FLEDERMAP_NOISE
+        assert ident.verdict == Verdict.NOISE
     engine.dispose()
 
 

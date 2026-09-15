@@ -59,6 +59,10 @@ class IdSource(StrEnum):
     # file — so it must never be auto-superseded by a rescan. Deliberately
     # excluded from `_EMT_SOURCES` in services/ingest.py.
     MANUAL = "manual"
+    # Only ever emits NOISE or NO_ID (services/noise.py's `classify_noise`),
+    # never SPECIES -- lowest precedence in current_best.py's `_PRECEDENCE`,
+    # so any real identification from another source always wins over it.
+    FLEDERMAP_NOISE = "fledermap.noise"
 
 
 class VisualSighting(StrEnum):

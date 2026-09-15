@@ -123,6 +123,40 @@ def test_noise_is_always_active_even_for_automatic_sources() -> None:
     assert best.verdict == Verdict.NOISE
 
 
+def test_fledermap_noise_wins_when_nothing_else_identified_the_recording() -> None:
+    r = _recording(
+        _ident(IdSource.FLEDERMAP_NOISE, verdict=Verdict.NOISE, taxon_id=None),
+    )
+
+    best = current_best_identification(r)
+
+    assert best is not None
+    assert best.primary.source == IdSource.FLEDERMAP_NOISE
+    assert best.verdict == Verdict.NOISE
+
+
+def test_fledermap_noise_loses_to_a_real_species_claim_from_any_other_source() -> None:
+    """Lowest precedence: even EMT_FILENAME, itself the lowest of the EMT
+    sources, still beats fledermap.noise."""
+    r = _recording(
+        _ident(IdSource.FLEDERMAP_NOISE, verdict=Verdict.NOISE, taxon_id=None),
+        _ident(IdSource.EMT_FILENAME, taxon_id=5),
+    )
+
+    best = current_best_identification(r)
+
+    assert best is not None
+    assert best.primary.source == IdSource.EMT_FILENAME
+
+
+def test_fledermap_noise_no_id_is_passive_like_any_other_automatic_no_id() -> None:
+    r = _recording(
+        _ident(IdSource.FLEDERMAP_NOISE, verdict=Verdict.NO_ID, taxon_id=None),
+    )
+
+    assert current_best_identification(r) is None
+
+
 def test_multiple_manual_species_claims_all_surface() -> None:
     r = _recording(
         _ident(IdSource.MANUAL, taxon_id=1),

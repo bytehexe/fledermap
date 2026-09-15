@@ -25,6 +25,7 @@ also rejected at startup rather than silently ignored.
 | Timestamp source | `timestamp_source` | `FLEDERMAP_TIMESTAMP_SOURCE` | no | `filename` |
 | Fallback timezone | `default_timezone` | `FLEDERMAP_DEFAULT_TIMEZONE` | no | `UTC` |
 | Session gap (hours) | `session_gap_hours` | `FLEDERMAP_SESSION_GAP_HOURS` | no | `6.0` |
+| Noise classifier SNR threshold (dB) | `noise_snr_threshold_db` | `FLEDERMAP_NOISE_SNR_THRESHOLD_DB` | no | `2.0` |
 | Site clustering radius (metres) | `site_eps_m` | `FLEDERMAP_SITE_EPS_M` | no | `75.0` |
 | Site minimum points | `site_min_points` | `FLEDERMAP_SITE_MIN_POINTS` | no | `3` |
 | poiidx database connection | `poiidx_database_url` | `FLEDERMAP_POIIDX_DATABASE_URL` | no | unset — site naming disabled |
@@ -77,6 +78,7 @@ archive_roots = ["/path/to/your/detector/archive"]
 # timestamp_source = "filename"       # or "metadata"
 # default_timezone = "UTC"            # any IANA zone name, e.g. "Europe/Berlin"
 # session_gap_hours = 6.0
+# noise_snr_threshold_db = 2.0
 # site_eps_m = 75.0
 # site_min_points = 3
 ```

@@ -32,6 +32,7 @@ ENV_ARCHIVE_ROOTS = "FLEDERMAP_ARCHIVE_ROOTS"
 ENV_TIMESTAMP_SOURCE = "FLEDERMAP_TIMESTAMP_SOURCE"
 ENV_DEFAULT_TIMEZONE = "FLEDERMAP_DEFAULT_TIMEZONE"
 ENV_SESSION_GAP_HOURS = "FLEDERMAP_SESSION_GAP_HOURS"
+ENV_NOISE_SNR_THRESHOLD_DB = "FLEDERMAP_NOISE_SNR_THRESHOLD_DB"
 ENV_SITE_EPS_M = "FLEDERMAP_SITE_EPS_M"
 ENV_SITE_MIN_POINTS = "FLEDERMAP_SITE_MIN_POINTS"
 ENV_POIIDX_DATABASE_URL = "FLEDERMAP_POIIDX_DATABASE_URL"
@@ -53,6 +54,7 @@ _KNOWN_FILE_KEYS = frozenset(
         "timestamp_source",
         "default_timezone",
         "session_gap_hours",
+        "noise_snr_threshold_db",
         "site_eps_m",
         "site_min_points",
         "poiidx_database_url",
@@ -254,6 +256,12 @@ class Config:
     # Spec section 7: "tuning is free" — eps, minpoints and session_gap are config,
     # and site rebuilding is idempotent.
     session_gap_hours: float = 6.0
+    # Below this broadband SNR (dB), `services/noise.py`'s `classify_noise`
+    # calls a recording NOISE rather than NO_ID (Obsidian backlog "Noise"
+    # section's own suggested default). Re-derived from each recording's
+    # already-stored `snr_db` on every ingest cycle -- changing this value
+    # takes effect automatically, no re-ingest or explicit recompute needed.
+    noise_snr_threshold_db: float = 2.0
     site_eps_m: float = 75.0
     site_min_points: int = 3
     # Optional (design spec 2026-08-28-fledermap-poiidx-site-naming-design.md,
@@ -388,6 +396,32 @@ class Config:
                 msg = f"{label}={session_gap_raw!r} is not a positive number of hours."
                 raise ConfigError(msg)
 
+        noise_snr_threshold_raw = _lookup(
+            ENV_NOISE_SNR_THRESHOLD_DB,
+            "noise_snr_threshold_db",
+            file_values,
+        )
+        if noise_snr_threshold_raw is None:
+            noise_snr_threshold_db = 2.0
+        else:
+            label = _source_label(
+                ENV_NOISE_SNR_THRESHOLD_DB,
+                "noise_snr_threshold_db",
+                config_path,
+            )
+            # bool is a subclass of int; see session_gap_hours above.
+            if isinstance(noise_snr_threshold_raw, bool):
+                msg = f"{label}={noise_snr_threshold_raw!r} is not a number of dB."
+                raise ConfigError(msg)
+            try:
+                noise_snr_threshold_db = float(noise_snr_threshold_raw)
+            except (TypeError, ValueError) as exc:
+                msg = f"{label}={noise_snr_threshold_raw!r} is not a number of dB."
+                raise ConfigError(msg) from exc
+            # No positivity check: unlike session_gap_hours/site_eps_m, a
+            # threshold in dB is meaningfully negative or zero too -- reject
+            # only non-numeric input, same as above.
+
         site_eps_raw = _lookup(ENV_SITE_EPS_M, "site_eps_m", file_values)
         if site_eps_raw is None:
             site_eps_m = 75.0
@@ -508,6 +542,7 @@ class Config:
             timestamp_source=timestamp_source,
             default_timezone=default_timezone,
             session_gap_hours=session_gap_hours,
+            noise_snr_threshold_db=noise_snr_threshold_db,
             site_eps_m=site_eps_m,
             site_min_points=site_min_points,
             poiidx_database_url=poiidx_database_url,

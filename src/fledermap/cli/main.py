@@ -40,6 +40,7 @@ from fledermap.services.ingest import (
     sweep_missing,
 )
 from fledermap.services.media import backfill_media, clean_media, enqueue_media
+from fledermap.services.noise import classify_noise
 from fledermap.services.site_naming import enqueue_site_naming
 from fledermap.services.snr import backfill_snr
 from fledermap.services.systemd_install import render_unit_files, systemd_user_dir
@@ -565,6 +566,28 @@ def backfill_snr_command() -> None:
         session.commit()
 
     click.echo(f"updated {count}")
+
+
+@cli.command(name="classify-noise")
+def classify_noise_command() -> None:
+    """Re-run the `fledermap.noise` classifier over every recording with a
+    known `snr_db`, against the currently configured
+    `noise_snr_threshold_db`. Safe to re-run at any time (idempotent) --
+    also runs automatically every ingest cycle, so this is only needed for
+    an immediate effect right after changing the threshold."""
+    try:
+        config = Config.from_env()
+    except ConfigError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    engine = make_engine(config.database_url)
+    _run_migrations(config.database_url)
+
+    with OrmSession(engine) as session:
+        report = classify_noise(session, config.noise_snr_threshold_db)
+        session.commit()
+
+    click.echo(f"classified {report.classified}")
 
 
 @cli.command()

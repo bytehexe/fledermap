@@ -41,6 +41,7 @@ from fledermap.services.ingest import (
     scan_all_roots,
     sweep_missing,
 )
+from fledermap.services.noise import classify_noise
 from fledermap.store.geo import decode_point
 from fledermap.store.models import Site
 from fledermap.store.seed import seed_taxonomy
@@ -299,6 +300,9 @@ def run_ingest_cycle(context: procrastinate.JobContext, timestamp: int) -> None:
             eps_m=config.site_eps_m,
             min_points=config.site_min_points,
         )
+        session.commit()
+
+        classify_noise(session, config.noise_snr_threshold_db)
         session.commit()
 
         from fledermap.services.site_naming import enqueue_site_naming

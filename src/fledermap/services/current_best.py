@@ -31,6 +31,7 @@ _PRECEDENCE: tuple[IdSource, ...] = (
     IdSource.EMT_GUANO,
     IdSource.EMT_WAMD,
     IdSource.EMT_FILENAME,
+    IdSource.FLEDERMAP_NOISE,
 )
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)

@@ -127,6 +127,7 @@ def upgrade() -> None:
                 "battybirdnet",
                 "kaleidoscope",
                 "manual",
+                "fledermap.noise",
                 name="idsource",
                 native_enum=False,
                 length=32,
