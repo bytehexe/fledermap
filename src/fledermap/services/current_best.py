@@ -195,8 +195,9 @@ def sort_identifications_by_precedence(
     the same thing without it.
 
     A source not yet wired into `_PRECEDENCE` (`domain.codes.IdSource` has
-    entries for classifiers not yet implemented, e.g. BATDETECT2 -- CLAUDE.md's
-    "further classifiers are coming" note) sorts last rather than raising.
+    entries for classifiers not yet implemented, e.g. BATTYBIRDNET --
+    CLAUDE.md's "further classifiers are coming" note) sorts last rather than
+    raising.
     Stable sort: multiple claims from the same source (a multi-species MANUAL
     result) keep their relative order."""
 

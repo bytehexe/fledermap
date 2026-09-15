@@ -21,7 +21,12 @@ you by whichever field happened to get read first.
 When several sources have a claim, one specific order decides which one
 you actually see: your own manual correction first, then the detector's
 on-device manual correction, then its automatic GUANO, `wamd`, and
-filename-based guesses, in that order.
+filename-based guesses. After those comes the optional BatDetect2
+classifier, if you have it enabled — the detector that actually recorded
+the call had the raw audio and its own tuning for it, so its answer is
+preferred over a second opinion computed later. Last of all comes
+Fledermap's own noise classifier, which only ever says "this isn't a bat
+call at all" and so should never displace a source that named something.
 
 There's one important exception to "the first source in that order always
 wins": an *automatic* classifier's own **No ID** is treated as if it

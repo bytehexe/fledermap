@@ -35,9 +35,10 @@ installed by a plain `pip install fledermap` — turning it on requires a
 separate `pip install fledermap[batdetect2]` plus setting
 `FLEDERMAP_BATDETECT2_ENABLED=true` (see
 [Configuration](docs/reference/configuration.md)). **BatDetect2's model is
-licensed CC-BY-NC-4.0, restricting it to non-commercial use** — attribution
-to the [BatDetect2 project](https://github.com/macaodha/batdetect2), whose
-model this integration runs unmodified.
+licensed CC-BY-NC-4.0, restricting it to non-commercial use**, and it
+requires attribution to the
+[BatDetect2 project](https://github.com/macaodha/batdetect2), whose model
+this integration runs unmodified.
 
 ## Documentation
 
