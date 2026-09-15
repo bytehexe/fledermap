@@ -446,9 +446,11 @@ migration per one), so it has no CHECK for `_comparable` to exclude and `compare
 identical `VARCHAR(32)` DDL on both sides no matter how the two enum lists disagree. This is exactly
 how `emt.manual` (added to `IdSource` in a later fix round) shipped missing from the migration's
 literal list for a while, undetected — a real instance of the drift this section warns about, caught
-by a whole-branch review rather than any single task's. `test_migration_idsource_literal_matches_the_model`
-closes it with a static `ast`-based check of the migration's literal list against `IdSource`, needing
-no database.
+by a whole-branch review rather than any single task's. `test_every_migration_idsource_literal_matches_the_model`
+closes it with a static `ast`-based check of the migrations' literal lists against `IdSource`, needing
+no database. It scans **every** file under `versions/` rather than one named migration: a second
+column using the same enum (`classifier_detection.source`) carries its own full copy of the
+vocabulary, and a per-filename check would leave every copy but the first unguarded.
 
 **`postgresql_nulls_not_distinct` on a plain `UniqueConstraint` IS visible to `compare_metadata`** — mutation-tested 2026-09-06 when `uq_identification_source_claim` went back to being a plain constraint (dropping `Identification.superseded_at` and the partial index it required — see `docs/superpowers/specs/2026-09-06-fledermap-drop-identification-supersede-design.md`): temporarily removing the flag from the migration made `test_migration_matches_the_models` fail, proving the drift comparison does see it. Unlike the old partial index's `WHERE` clause (this section's other blind-spot example), this property needed no dedicated catalog-assertion test — the standard drift comparison already catches its removal.
 

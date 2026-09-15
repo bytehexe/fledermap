@@ -290,54 +290,79 @@ def test_migrated_resolution_check_accepts_every_resolution(
     assert stored == len(MergeResolution)
 
 
-def _migration_idsource_literal() -> list[str]:
-    """The literal `source` enum values `0001_initial.py` hard-codes.
+def _migration_idsource_literals() -> list[tuple[str, list[str]]]:
+    """Every literal `idsource` enum vocabulary hard-coded anywhere under
+    `versions/`, as (filename, values) pairs.
 
-    `compare_metadata` cannot see drift here (whole-branch review, finding 2):
-    `Identification.source` is `native_enum=False, create_constraint=False`
-    (models.py), so both the model and the migration erase to a plain
-    `VARCHAR(32)` with no CHECK — there is nothing for a schema diff to
-    compare. `emt.manual` was added to `IdSource` in Task 11's fix round,
-    after this migration was written, and stayed missing from the migration
+    `compare_metadata` cannot see drift here: an `IdSource` column is
+    `native_enum=False, create_constraint=False` (models.py), so both the
+    model and the migration erase to a plain `VARCHAR(32)` with no CHECK —
+    there is nothing for a schema diff to compare. `emt.manual` was added to
+    `IdSource` after `0001_initial.py` was written and stayed missing from it
     with nothing to catch it. `verdict` has an equivalent test
     (`test_migrated_verdict_check_accepts_every_verdict`, above) because it
     DOES get a CHECK; `source` needs a different mechanism because it
     deliberately doesn't.
+
+    EVERY migration is scanned, not one named file: `classifier_detection.
+    source` uses the same enum and therefore carries its own full copy of the
+    vocabulary, so checking a single hard-coded filename would leave each
+    further copy unguarded — a new `IdSource` member could land in one and be
+    forgotten in the other with the suite still green.
 
     Read via `ast`, not by importing the migration module and calling
     `upgrade()`: the values are needed at collection time, without a
     database, and parsing avoids ever executing DDL to answer a question
     about source code.
     """
-    tree = ast.parse(
-        (_alembic_script_location() / "versions" / "0001_initial.py").read_text(),
-    )
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "Enum"
-            and any(
-                kw.arg == "name"
-                and isinstance(kw.value, ast.Constant)
-                and kw.value.value == "idsource"
-                for kw in node.keywords
-            )
-        ):
-            return [
-                arg.value
-                for arg in node.args
-                if isinstance(arg, ast.Constant) and isinstance(arg.value, str)
-            ]
-    msg = "no sa.Enum(name='idsource') call found in 0001_initial.py"
-    raise AssertionError(msg)
+    found: list[tuple[str, list[str]]] = []
+    for path in sorted((_alembic_script_location() / "versions").glob("*.py")):
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "Enum"
+                and any(
+                    kw.arg == "name"
+                    and isinstance(kw.value, ast.Constant)
+                    and kw.value.value == "idsource"
+                    for kw in node.keywords
+                )
+            ):
+                found.append(
+                    (
+                        path.name,
+                        [
+                            arg.value
+                            for arg in node.args
+                            if isinstance(arg, ast.Constant)
+                            and isinstance(arg.value, str)
+                        ],
+                    ),
+                )
+    if not found:
+        msg = "no sa.Enum(name='idsource') call found in any migration"
+        raise AssertionError(msg)
+    return found
 
 
-def test_migration_idsource_literal_matches_the_model() -> None:
-    """Static, no database: the migration's hard-coded `source` vocabulary
+def test_every_migration_idsource_literal_matches_the_model() -> None:
+    """Static, no database: every migration's hard-coded `source` vocabulary
     must list every `IdSource` member. Mutation-test this by adding a member
-    to `IdSource` without touching the migration — it must fail."""
-    assert _migration_idsource_literal() == [s.value for s in IdSource]
+    to `IdSource` without touching the migrations, or by removing one value
+    from any single migration's list — it must fail."""
+    expected = [s.value for s in IdSource]
+    literals = _migration_idsource_literals()
+    assert literals == [(name, expected) for name, _ in literals]
+
+
+def test_idsource_literal_is_checked_in_more_than_one_migration() -> None:
+    """The guard above is only worth having if it actually reaches every
+    copy. `classifier_detection.source` introduced a second one; this pins
+    that the scan is finding them rather than silently matching a single
+    file."""
+    assert len(_migration_idsource_literals()) >= 2
 
 
 def test_archive_root_index_column_is_not_null(migrated_engine: Engine) -> None:
