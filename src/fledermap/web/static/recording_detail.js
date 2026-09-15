@@ -563,7 +563,16 @@ document.addEventListener("DOMContentLoaded", () => {
     // `left`/`top`/`width`/`height` are already visually re-scaled by `wrap`'s own `zoom`, so
     // they must be set in the SAME local space or they'd be scaled twice.
     const rect = wrap.getBoundingClientRect();
-    const startX = (dragStart.x - rect.left) / currentScale;
+    // `dragStart.x/y` are viewport coords captured once at mousedown, but `rect` is
+    // re-measured fresh on every call -- if `.detail-scroll` scrolls horizontally mid-drag
+    // (mouse wheel, or the playback-cursor auto-follow while audio is playing), `rect.left`
+    // moves while `dragStart.x` doesn't, silently shifting the computed start point. Correct
+    // for it by the same horizontal distance the scroll container has moved since mousedown
+    // (`scrollLeft` is 1:1 with viewport px here -- `.detail-scroll` itself is never zoomed,
+    // only its content is, and CSS `zoom` scales `scrollWidth`/`scrollLeft` right along with
+    // layout, so a `zoom`-scaled content pixel and a `scrollLeft` pixel already agree).
+    const scrollDriftPx = scrollEl.scrollLeft - dragStart.scrollLeft;
+    const startX = (dragStart.x - scrollDriftPx - rect.left) / currentScale;
     const startY = (dragStart.y - rect.top) / currentScale;
     const curX = (event.clientX - rect.left) / currentScale;
     const curY = (event.clientY - rect.top) / currentScale;
