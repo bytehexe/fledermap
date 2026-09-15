@@ -32,6 +32,8 @@ also rejected at startup rather than silently ignored.
 | Site-naming search radius (metres) | `site_naming_radius_m` | `FLEDERMAP_SITE_NAMING_RADIUS_M` | no | `1000.0` |
 | Web server's interface | `host` | `FLEDERMAP_HOST` | no | `127.0.0.1` |
 | Web server's port | `port` | `FLEDERMAP_PORT` | no | `5000` |
+| batdetect2 classifier enabled | `batdetect2_enabled` | `FLEDERMAP_BATDETECT2_ENABLED` | no | `false` |
+| batdetect2 detection threshold | `batdetect2_threshold` | `FLEDERMAP_BATDETECT2_THRESHOLD` | no | `0.8` |
 
 Notes on individual settings:
 

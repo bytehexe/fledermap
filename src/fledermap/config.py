@@ -42,6 +42,8 @@ ENV_STATIC_ROOT = "FLEDERMAP_STATIC_ROOT"
 ENV_CONFIG_FILE = "FLEDERMAP_CONFIG_FILE"
 ENV_PORT = "FLEDERMAP_PORT"
 ENV_HOST = "FLEDERMAP_HOST"
+ENV_BATDETECT2_ENABLED = "FLEDERMAP_BATDETECT2_ENABLED"
+ENV_BATDETECT2_THRESHOLD = "FLEDERMAP_BATDETECT2_THRESHOLD"
 
 # Every key the config file is allowed to set -- one entry per `Config` field
 # that has a `FLEDERMAP_*` env var above. Checked in `_load_config_file` so a
@@ -59,6 +61,8 @@ _KNOWN_FILE_KEYS = frozenset(
         "site_min_points",
         "poiidx_database_url",
         "site_naming_radius_m",
+        "batdetect2_enabled",
+        "batdetect2_threshold",
         "media_root",
         "static_root",
         "port",
@@ -262,6 +266,16 @@ class Config:
     # already-stored `snr_db` on every ingest cycle -- changing this value
     # takes effect automatically, no re-ingest or explicit recompute needed.
     noise_snr_threshold_db: float = 2.0
+    # Off by default: batdetect2 is CC-BY-NC-4.0-licensed (non-commercial use only) and an
+    # opt-in `pyproject.toml` extra -- see docs/superpowers/specs/2026-09-15-fledermap-
+    # batdetect2-classifier-design.md §1. Enabling this without `pip install
+    # fledermap[batdetect2]` fails the classification job at run time, not at config load.
+    batdetect2_enabled: bool = False
+    # Re-applied every `run_ingest_cycle`, not baked in at classification time -- a changed
+    # threshold takes effect on stored raw scores with no model re-run needed (design spec §2.2).
+    # 0.8 is this project's own conservative starting point; batdetect2 itself documents no
+    # default for its `--detection-threshold` CLI argument.
+    batdetect2_threshold: float = 0.8
     site_eps_m: float = 75.0
     site_min_points: int = 3
     # Optional (design spec 2026-08-28-fledermap-poiidx-site-naming-design.md,
@@ -467,6 +481,59 @@ class Config:
                 msg = f"{label}={site_min_points_raw!r} is not an integer of 1 or more."
                 raise ConfigError(msg)
 
+        batdetect2_enabled_raw = _lookup(
+            ENV_BATDETECT2_ENABLED,
+            "batdetect2_enabled",
+            file_values,
+        )
+        if batdetect2_enabled_raw is None:
+            batdetect2_enabled = False
+        elif isinstance(batdetect2_enabled_raw, bool):
+            batdetect2_enabled = batdetect2_enabled_raw
+        else:
+            label = _source_label(
+                ENV_BATDETECT2_ENABLED,
+                "batdetect2_enabled",
+                config_path,
+            )
+            text = _as_str(batdetect2_enabled_raw, label).strip().lower()
+            if text in ("true", "1", "yes"):
+                batdetect2_enabled = True
+            elif text in ("false", "0", "no"):
+                batdetect2_enabled = False
+            else:
+                msg = (
+                    f"{label}={batdetect2_enabled_raw!r} is not a boolean (true/false)."
+                )
+                raise ConfigError(msg)
+
+        batdetect2_threshold_raw = _lookup(
+            ENV_BATDETECT2_THRESHOLD,
+            "batdetect2_threshold",
+            file_values,
+        )
+        if batdetect2_threshold_raw is None:
+            batdetect2_threshold = 0.8
+        else:
+            label = _source_label(
+                ENV_BATDETECT2_THRESHOLD,
+                "batdetect2_threshold",
+                config_path,
+            )
+            if isinstance(
+                batdetect2_threshold_raw, bool
+            ):  # see session_gap_hours above
+                msg = f"{label}={batdetect2_threshold_raw!r} is not a number."
+                raise ConfigError(msg)
+            try:
+                batdetect2_threshold = float(batdetect2_threshold_raw)
+            except (TypeError, ValueError) as exc:
+                msg = f"{label}={batdetect2_threshold_raw!r} is not a number."
+                raise ConfigError(msg) from exc
+            if not 0.0 <= batdetect2_threshold <= 1.0:
+                msg = f"{label}={batdetect2_threshold_raw!r} must be between 0 and 1."
+                raise ConfigError(msg)
+
         port_raw = _lookup(ENV_PORT, "port", file_values)
         if port_raw is None:
             port = 5000
@@ -543,6 +610,8 @@ class Config:
             default_timezone=default_timezone,
             session_gap_hours=session_gap_hours,
             noise_snr_threshold_db=noise_snr_threshold_db,
+            batdetect2_enabled=batdetect2_enabled,
+            batdetect2_threshold=batdetect2_threshold,
             site_eps_m=site_eps_m,
             site_min_points=site_min_points,
             poiidx_database_url=poiidx_database_url,

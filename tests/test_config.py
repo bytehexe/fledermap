@@ -8,6 +8,8 @@ import pytest
 
 from fledermap.config import (
     ENV_ARCHIVE_ROOTS,
+    ENV_BATDETECT2_ENABLED,
+    ENV_BATDETECT2_THRESHOLD,
     ENV_CONFIG_FILE,
     ENV_DATABASE_URL,
     ENV_DEFAULT_TIMEZONE,
@@ -315,6 +317,58 @@ def test_invalid_noise_snr_threshold_raises_config_error(
     monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
     monkeypatch.setenv(ENV_NOISE_SNR_THRESHOLD_DB, "not-a-number")
     with pytest.raises(ConfigError, match="not-a-number"):
+        Config.from_env()
+
+
+def test_batdetect2_defaults_to_disabled_with_threshold_point_eight(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+    monkeypatch.delenv(ENV_BATDETECT2_ENABLED, raising=False)
+    monkeypatch.delenv(ENV_BATDETECT2_THRESHOLD, raising=False)
+    config = Config.from_env()
+    assert config.batdetect2_enabled is False
+    assert config.batdetect2_threshold == 0.8
+
+
+def test_batdetect2_enabled_and_threshold_are_configurable(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+    monkeypatch.setenv(ENV_BATDETECT2_ENABLED, "true")
+    monkeypatch.setenv(ENV_BATDETECT2_THRESHOLD, "0.65")
+    config = Config.from_env()
+    assert config.batdetect2_enabled is True
+    assert config.batdetect2_threshold == 0.65
+
+
+def test_invalid_batdetect2_enabled_raises_config_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+    monkeypatch.setenv(ENV_BATDETECT2_ENABLED, "maybe")
+    with pytest.raises(ConfigError, match="not a boolean"):
+        Config.from_env()
+
+
+def test_batdetect2_threshold_out_of_range_raises_config_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+    monkeypatch.setenv(ENV_BATDETECT2_THRESHOLD, "1.5")
+    with pytest.raises(ConfigError, match="between 0 and 1"):
         Config.from_env()
 
 
