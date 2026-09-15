@@ -609,8 +609,18 @@ document.addEventListener("DOMContentLoaded", () => {
     // number readout needs to stay full-size.
     rulerReadout.textContent = `Δt: ${deltaTMs.toFixed(2)} ms (${hzText})\nΔf: ${deltaFKhz.toFixed(1)} kHz`;
     rulerReadout.style.left = `${rect.left + left * currentScale}px`;
-    rulerReadout.style.top = `${rect.top + top * currentScale}px`;
     rulerReadout.hidden = false;
+
+    // The label normally sits above the box (`.ruler-readout`'s `translateY(-100%-4px)`), but
+    // for a measurement started near the top of the spectrogram there's no room for that above
+    // `wrap`'s own top edge -- it would overlap the oscillogram strip drawn above it instead.
+    // `offsetHeight` needs the element unhidden first (just done above), before either the
+    // room check or the position it decides on.
+    const boxTopPx = rect.top + top * currentScale;
+    const boxBottomPx = rect.top + (top + height) * currentScale;
+    const hasRoomAbove = boxTopPx - rect.top >= rulerReadout.offsetHeight + 4;
+    rulerReadout.classList.toggle("ruler-readout-below", !hasRoomAbove);
+    rulerReadout.style.top = `${hasRoomAbove ? boxTopPx : boxBottomPx}px`;
   }
 
   const toolbar = document.getElementById("detail-toolbar");
