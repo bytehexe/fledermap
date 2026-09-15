@@ -54,8 +54,15 @@ dependencies = [
 # classifier-design.md §1. Enabling FLEDERMAP_BATDETECT2_ENABLED without this extra installed
 # fails the classification job at run time (see jobs/tasks.py's classify_batdetect2_task) --
 # it does not block the rest of the application.
+#
+# `audioread` is listed explicitly because batdetect2's own `types.py` imports it directly at
+# module load time, but batdetect2 never declares it as a dependency -- it relied on librosa
+# pulling it in transitively, which was true for older librosa releases but is no longer true
+# for the version pip resolves today (librosa dropped the hard `audioread` dependency). Without
+# this, `from batdetect2 import api` fails with `ModuleNotFoundError: No module named
+# 'audioread'` before any of batdetect2's own code runs.
 [project.optional-dependencies]
-batdetect2 = ["batdetect2"]
+batdetect2 = ["batdetect2", "audioread"]
 
 [project.scripts]
 fledermap = "fledermap.cli.main:cli"

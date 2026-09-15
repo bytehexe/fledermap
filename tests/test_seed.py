@@ -93,6 +93,20 @@ def test_resolves_a_known_code(engine: Engine) -> None:
         assert taxon.common_name_de == "Breitflügelfledermaus"
 
 
+def test_batdetect2_common_pipistrelle_code_resolves(engine: Engine) -> None:
+    """The batdetect2 code strings in taxa_eu.yaml are the exact class names the real
+    bundled checkpoint prints (verified by loading it, not guessed) -- this pins the
+    most-common EU species as a canary against a future edit corrupting one of them."""
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        session.commit()
+
+        taxon = resolve_code(session, "batdetect2", "Pipistrellus pipistrellus")
+
+        assert taxon is not None
+        assert taxon.scientific_name == "Pipistrellus pipistrellus"
+
+
 def test_group_and_genus_ranks_are_representable(engine: Engine) -> None:
     """Myotis is a genus, Nyctaloid is a phonic group. Neither is a species.
 
