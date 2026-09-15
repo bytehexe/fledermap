@@ -29,9 +29,9 @@
       </span>
       <input type="hidden" name="session" x-model="session">
       <label>
-        <input type="checkbox" name="latest_session_only"
+        <input type="checkbox" id="latest-session-only"
                :checked="session === latestSessionId" :disabled="!latestSessionId"
-               @change="session = $event.target.checked ? latestSessionId : ''">
+               @change="fledermapFilterBySession($event.target.checked ? latestSessionId : '')">
         Latest session only
       </label>
       <label>Source

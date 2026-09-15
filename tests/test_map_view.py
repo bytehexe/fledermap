@@ -232,7 +232,7 @@ def test_latest_session_checkbox_carries_the_latest_session_id(
 
     html = client.get("/").get_data(as_text=True)
 
-    assert 'name="latest_session_only"' in html
+    assert 'id="latest-session-only"' in html
     assert f'data-latest-session-id="{newer_id}"' in html
 
 
@@ -245,7 +245,7 @@ def test_latest_session_checkbox_data_attribute_is_empty_when_no_sessions_exist(
 
     html = client.get("/").get_data(as_text=True)
 
-    assert 'name="latest_session_only"' in html
+    assert 'id="latest-session-only"' in html
     assert 'data-latest-session-id=""' in html
 
 
