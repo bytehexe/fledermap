@@ -52,7 +52,15 @@ restrictively-licensed present in a default `pip install fledermap`.
 
 Raw model output, independent of the currently configured verdict threshold — the durable record
 of "what did the model actually say." Columns: `id`, `recording_id` (FK, cascade delete),
-`source`, `taxon_id` (FK, nullable), `confidence` (float).
+`source`, `taxon_id` (FK, nullable), `raw_label` (string, nullable), `confidence` (float).
+
+**Deviation, 2026-09-16 (implementation):** `raw_label` was not in this spec's original column
+list and was added during the branch's final review. Without it, a detection whose class name has
+no `TaxonCode` mapping could only be stored as `taxon_id NULL` with nothing to say *what* the
+model had named — indistinguishable from "the model said nothing", and so dropped at materialize
+time, leaving the recording with a confident-looking `NO_ID` (see §2.3). Keeping the label makes
+an unmapped classifier label behave like an unmapped EMT code: a real `SPECIES` claim with
+`taxon_id NULL`, visible as "unmapped species", and reconnectable later by adding the mapping.
 
 `source` is an open string/enum column with **no CHECK constraint** — identical reasoning to
 `Identification.source` (spec D9: "further classifiers are coming," a CHECK would force a
@@ -92,6 +100,20 @@ threshold"); `classifier_detection.confidence` is the source of truth for recomp
 - This automatic `NO_ID` needs no special-casing in `current_best.py`: the existing rule ("a
   source's claims are skipped when they are purely automatic `NO_ID`") already covers it, since
   batdetect2 is not `MANUAL`.
+- A detection that *does* clear the threshold but whose label has no taxon mapping is a `SPECIES`
+  claim with `taxon_id NULL` and `raw_label` set — **not** a `NO_ID`, and never dropped
+  (deviation, 2026-09-16: the first implementation filtered these out). An unmapped label is a
+  review-queue item by design (§3), and the drop was unrecoverable in practice: `NO_ID` is a
+  confident-looking answer, and the enqueue sweep never re-runs the model for a recording that
+  already has `classifier_detection` rows.
+
+**Which of batdetect2's two scores is which** (established 2026-09-16 against the real installed
+package, batdetect2 1.3.1): each annotation carries `det_prob` ("a call is present") and
+`class_prob` ("and it is this species"), with `class_prob <= det_prob`. The internal sanity floor
+(§2.1) gates on `det_prob`, matching batdetect2's own CLI `--detection-threshold`; the value
+stored in `classifier_detection.confidence`, and therefore the one the user-configured
+`FLEDERMAP_BATDETECT2_THRESHOLD` filters against, is `class_prob`, since that threshold is a
+statement about species confidence.
 
 ## 3. Species code mapping
 

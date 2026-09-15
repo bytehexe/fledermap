@@ -48,7 +48,11 @@ def test_record_detections_replaces_a_source_s_existing_rows(engine: Engine) -> 
             session,
             recording,
             IdSource.BATDETECT2,
-            [DetectionInput(taxon_id=taxon.id, confidence=0.4)],
+            [
+                DetectionInput(
+                    taxon_id=taxon.id, raw_label=taxon.scientific_name, confidence=0.4
+                )
+            ],
         )
         session.commit()
 
@@ -56,7 +60,11 @@ def test_record_detections_replaces_a_source_s_existing_rows(engine: Engine) -> 
             session,
             recording,
             IdSource.BATDETECT2,
-            [DetectionInput(taxon_id=taxon.id, confidence=0.9)],
+            [
+                DetectionInput(
+                    taxon_id=taxon.id, raw_label=taxon.scientific_name, confidence=0.9
+                )
+            ],
         )
         session.commit()
 
@@ -79,7 +87,11 @@ def test_record_detections_with_no_candidates_clears_prior_rows(engine: Engine) 
             session,
             recording,
             IdSource.BATDETECT2,
-            [DetectionInput(taxon_id=taxon.id, confidence=0.7)],
+            [
+                DetectionInput(
+                    taxon_id=taxon.id, raw_label=taxon.scientific_name, confidence=0.7
+                )
+            ],
         )
         session.commit()
 
@@ -104,7 +116,11 @@ def test_materialize_claims_writes_species_claim_above_threshold(
             session,
             recording,
             IdSource.BATDETECT2,
-            [DetectionInput(taxon_id=taxon.id, confidence=0.9)],
+            [
+                DetectionInput(
+                    taxon_id=taxon.id, raw_label=taxon.scientific_name, confidence=0.9
+                )
+            ],
         )
         session.commit()
 
@@ -123,6 +139,85 @@ def test_materialize_claims_writes_species_claim_above_threshold(
         assert idents[0].taxon_id == taxon.id
 
 
+def test_materialize_claims_writes_an_unmapped_species_claim_not_no_id(
+    engine: Engine,
+) -> None:
+    """A detection clearing the threshold whose label has no taxon mapping is
+    an "unmapped species" claim -- taxon_id None, raw_label preserved -- not a
+    NO_ID and not silently dropped. Dropping it would be unrecoverable: NO_ID
+    reads as a confident answer, and `enqueue_batdetect2` never re-runs the
+    model for a recording that already has detection rows, so nothing would
+    ever revisit it once a code mapping was added."""
+    with OrmSession(engine) as session:
+        recording = _recording(session, "j" * 64)
+        record_detections(
+            session,
+            recording,
+            IdSource.BATDETECT2,
+            [
+                DetectionInput(
+                    taxon_id=None,
+                    raw_label="Myotis alcathoe",
+                    confidence=0.9,
+                ),
+            ],
+        )
+        session.commit()
+
+        materialize_claims(session, IdSource.BATDETECT2, threshold=0.8)
+        session.commit()
+
+        ident = session.scalars(
+            select(Identification).where(
+                Identification.recording_id == recording.id,
+                Identification.source == IdSource.BATDETECT2,
+            ),
+        ).one()
+        assert ident.verdict == Verdict.SPECIES
+        assert ident.taxon_id is None
+        assert ident.raw_label == "Myotis alcathoe"
+
+
+def test_materialize_claims_keeps_the_best_label_for_competing_unmapped_ones(
+    engine: Engine,
+) -> None:
+    """Several unmapped labels can clear the threshold at once, and only one
+    row per (recording, source) may have a NULL taxon_id
+    (`uq_identification_source_claim`, `postgresql_nulls_not_distinct`). The
+    survivor is the highest-confidence one, deterministically -- not whichever
+    the row order happened to put last."""
+    with OrmSession(engine) as session:
+        recording = _recording(session, "k" * 64)
+        record_detections(
+            session,
+            recording,
+            IdSource.BATDETECT2,
+            [
+                DetectionInput(
+                    taxon_id=None, raw_label="Myotis alcathoe", confidence=0.85
+                ),
+                DetectionInput(
+                    taxon_id=None, raw_label="Myotis bechsteinii", confidence=0.95
+                ),
+                DetectionInput(
+                    taxon_id=None, raw_label="Plecotus austriacus", confidence=0.9
+                ),
+            ],
+        )
+        session.commit()
+
+        materialize_claims(session, IdSource.BATDETECT2, threshold=0.8)
+        session.commit()
+
+        ident = session.scalars(
+            select(Identification).where(
+                Identification.recording_id == recording.id,
+                Identification.source == IdSource.BATDETECT2,
+            ),
+        ).one()
+        assert ident.raw_label == "Myotis bechsteinii"
+
+
 def test_materialize_claims_writes_no_id_when_nothing_clears_threshold(
     engine: Engine,
 ) -> None:
@@ -133,7 +228,11 @@ def test_materialize_claims_writes_no_id_when_nothing_clears_threshold(
             session,
             recording,
             IdSource.BATDETECT2,
-            [DetectionInput(taxon_id=taxon.id, confidence=0.3)],
+            [
+                DetectionInput(
+                    taxon_id=taxon.id, raw_label=taxon.scientific_name, confidence=0.3
+                )
+            ],
         )
         session.commit()
 
@@ -161,7 +260,11 @@ def test_materialize_claims_is_idempotent_and_recomputes_on_threshold_change(
             session,
             recording,
             IdSource.BATDETECT2,
-            [DetectionInput(taxon_id=taxon.id, confidence=0.6)],
+            [
+                DetectionInput(
+                    taxon_id=taxon.id, raw_label=taxon.scientific_name, confidence=0.6
+                )
+            ],
         )
         session.commit()
 
@@ -201,7 +304,11 @@ def test_purge_source_removes_detections_and_identifications_for_that_source_onl
             session,
             recording,
             IdSource.BATDETECT2,
-            [DetectionInput(taxon_id=taxon.id, confidence=0.9)],
+            [
+                DetectionInput(
+                    taxon_id=taxon.id, raw_label=taxon.scientific_name, confidence=0.9
+                )
+            ],
         )
         session.commit()
         materialize_claims(session, IdSource.BATDETECT2, threshold=0.8)
@@ -259,7 +366,11 @@ def test_enqueue_batdetect2_only_enqueues_recordings_missing_a_detection_row(
             session,
             with_detections,
             IdSource.BATDETECT2,
-            [DetectionInput(taxon_id=taxon.id, confidence=0.5)],
+            [
+                DetectionInput(
+                    taxon_id=taxon.id, raw_label=taxon.scientific_name, confidence=0.5
+                )
+            ],
         )
         session.commit()
 

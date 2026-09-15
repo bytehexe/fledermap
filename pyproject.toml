@@ -61,8 +61,17 @@ dependencies = [
 # for the version pip resolves today (librosa dropped the hard `audioread` dependency). Without
 # this, `from batdetect2 import api` fails with `ModuleNotFoundError: No module named
 # 'audioread'` before any of batdetect2's own code runs.
+#
+# The upper bound is not routine caution: two separate things here are coupled to one
+# release line. The `codes.batdetect2` values in `src/fledermap/store/taxa_eu.yaml` are the
+# class-name strings of one specific model checkpoint, so a checkpoint whose vocabulary
+# differs silently resolves fewer species (or none). And `classify_batdetect2_task` parses
+# `api.process_file`'s return value structurally -- a dict with "pred_dict"."annotation",
+# each annotation carrying "class"/"class_prob"/"det_prob" -- which is not a documented,
+# stability-guaranteed API. Bumping past this bound means re-checking both against the real
+# package, the same way they were established in the first place.
 [project.optional-dependencies]
-batdetect2 = ["batdetect2", "audioread"]
+batdetect2 = ["batdetect2>=1.3,<2", "audioread"]
 
 [project.scripts]
 fledermap = "fledermap.cli.main:cli"
@@ -154,6 +163,17 @@ build = "mkdocs build --strict"
 
 [tool.hatch.envs.batdetect2]
 features = ["batdetect2"]
+# The test deps are here so `tests/test_batdetect2_real_api.py` -- the one test that
+# runs the real model instead of a mock of it -- can actually be executed somewhere:
+# `hatch run batdetect2:pytest tests/test_batdetect2_real_api.py`. It skips itself in
+# every other env (`pytest.importorskip`), and without pytest installed HERE it would
+# have no env left to run in at all. `testcontainers` is needed only because
+# `tests/conftest.py` imports it at module scope during collection; nothing in this
+# env's test starts a container.
+extra-dependencies = [
+  "pytest>=7.0.0",
+  "testcontainers>=4.15.0",
+]
 
 # scikit-learn ships no `py.typed` marker and there is no `types-scikit-learn`
 # stub package, so mypy cannot resolve it by any other means. A SCOPED override

@@ -707,7 +707,13 @@ def test_run_ingest_cycle_purges_batdetect2_rows_when_disabled(
             session,
             recording,
             IdSource.BATDETECT2,
-            [DetectionInput(taxon_id=taxon.id, confidence=0.9)],
+            [
+                DetectionInput(
+                    taxon_id=taxon.id,
+                    raw_label=taxon.scientific_name,
+                    confidence=0.9,
+                ),
+            ],
         )
         session.add(
             Identification(
@@ -751,14 +757,24 @@ def test_run_ingest_cycle_enqueues_and_materializes_batdetect2_when_enabled(
     engine: Engine,
     tmp_path: Path,
 ) -> None:
-    """`batdetect2_enabled=True` must enqueue a classify job for every
-    recording still missing a `classifier_detection` row -- proven here by
-    the deferred job landing in `procrastinate_jobs`, not by it actually
-    running (that needs the optional `batdetect2` package, out of scope for
-    this test). A recognized filename convention and a real file on disk are
-    both needed so the recording survives `sweep_missing` with
-    `missing_since IS NULL` -- `enqueue_batdetect2` filters on exactly that,
-    same as `test_run_ingest_cycle_creates_a_recording_and_derives` above."""
+    """Both halves of the cycle's batdetect2 step, since one cannot stand in
+    for the other:
+
+    *Enqueue* -- a classify job must be deferred for every recording still
+    missing a `classifier_detection` row. Proven by the job landing in
+    `procrastinate_jobs`, not by it actually running (that needs the optional
+    `batdetect2` package, out of scope here). A recognized filename convention
+    and a real file on disk are both needed so the recording survives
+    `sweep_missing` with `missing_since IS NULL` -- `enqueue_batdetect2`
+    filters on exactly that, same as
+    `test_run_ingest_cycle_creates_a_recording_and_derives` above.
+
+    *Materialize* -- a second recording is pre-seeded with a detection above
+    the configured threshold, so `materialize_claims` has something to act on
+    and its resulting `Identification` can be asserted. Without that seed the
+    materialize call would run over an empty set and dropping it entirely
+    would leave this test green.
+    """
     archive_root = tmp_path / "archive"
     path = archive_root / "EPTSER_20150610_215447.wav"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -772,6 +788,32 @@ def test_run_ingest_cycle_enqueues_and_materializes_batdetect2_when_enabled(
     )
     jobs_app.open(engine)
     ensure_schema(jobs_app, engine)
+
+    with OrmSession(engine) as session:
+        already_classified = _make_recording(
+            session,
+            audio_hash="k" * 64,
+            path="already_classified.wav",
+        )
+        taxon = _make_taxon(session, "Plecotus auritus")
+        session.commit()
+        already_classified_id = already_classified.id
+        taxon_id = taxon.id
+        record_detections(
+            session,
+            already_classified,
+            IdSource.BATDETECT2,
+            [
+                DetectionInput(
+                    taxon_id=taxon.id,
+                    raw_label=taxon.scientific_name,
+                    # Above the configured threshold, so materialize must turn
+                    # it into a SPECIES claim.
+                    confidence=config.batdetect2_threshold + 0.1,
+                ),
+            ],
+        )
+        session.commit()
 
     run_ingest_cycle.configure(
         lock=_INGEST_CYCLE_LOCK,
@@ -793,7 +835,20 @@ def test_run_ingest_cycle_enqueues_and_materializes_batdetect2_when_enabled(
                 "WHERE queue_name = 'classify' AND status = 'todo'",
             ),
         ).scalar()
+    # Only the newly ingested recording: the pre-seeded one already has a
+    # detection row and must not be re-classified.
     assert classify_todo_count == 1
+
+    with OrmSession(engine) as session:
+        idents = session.scalars(
+            select(Identification).where(
+                Identification.recording_id == already_classified_id,
+                Identification.source == IdSource.BATDETECT2,
+            ),
+        ).all()
+        assert len(idents) == 1
+        assert idents[0].verdict == Verdict.SPECIES
+        assert idents[0].taxon_id == taxon_id
 
 
 def test_run_clean_media_cycle_removes_an_orphaned_directory(

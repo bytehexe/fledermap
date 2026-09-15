@@ -224,6 +224,14 @@ class ClassifierDetection(Base):
         index=True,
     )
     taxon_id: Mapped[int | None] = mapped_column(ForeignKey("taxon.id"))
+    # The model's own label for this candidate, kept verbatim whether or not
+    # it resolved to a taxon. An unresolved label is not a failure -- it is
+    # carried into the materialized claim's `raw_label` so the recording shows
+    # as "unmapped species" and can be reconnected later by adding a code
+    # mapping, exactly like an EMT source's unmapped code. Without it, an
+    # unmapped detection would be indistinguishable from "the model said
+    # nothing", and the model is never re-run once a detection row exists.
+    raw_label: Mapped[str | None] = mapped_column(String(128))
     confidence: Mapped[float] = mapped_column(Float)
 
     recording: Mapped[Recording] = relationship()

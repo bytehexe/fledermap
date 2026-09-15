@@ -48,6 +48,7 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("taxon_id", sa.Integer(), nullable=True),
+        sa.Column("raw_label", sa.String(length=128), nullable=True),
         sa.Column("confidence", sa.Float(), nullable=False),
         sa.ForeignKeyConstraint(["recording_id"], ["recording.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["taxon_id"], ["taxon.id"]),

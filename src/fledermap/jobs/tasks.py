@@ -11,8 +11,10 @@ commands, tests) must `app.open(engine)` before deferring, or
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable, Iterable, Mapping
 from datetime import timedelta
 from pathlib import Path
+from typing import Any
 
 import procrastinate
 from sqlalchemy.orm import Session as OrmSession
@@ -33,6 +35,7 @@ from fledermap.media.paths import (
 )
 from fledermap.media.preview import make_preview
 from fledermap.media.spectrogram import DEFAULT_SPECTROGRAM_PARAMS, render_spectrogram
+from fledermap.services.batdetect2 import DetectionInput
 from fledermap.services.derive import derive_sites
 from fledermap.services.ingest import (
     IncompleteScanError,
@@ -106,7 +109,62 @@ def batdetect2_lock_key(audio_hash: str) -> str:
 # `classifier_detection` cache itself from filling up with the model's
 # near-zero noise-level scores; raising the real threshold later must not
 # require a re-run of the model, so it stays generous.
+#
+# It is compared against each annotation's `det_prob`, NOT its `class_prob`:
+# batdetect2's two scores answer different questions, and its own CLI applies
+# `--detection-threshold` to `det_prob` for exactly this gate ("is there a
+# call here at all"). `class_prob` is the species-conditional score and is
+# always the smaller of the two, so gating on it would discard real calls the
+# model was merely undecided about the species of.
 _BATDETECT2_FLOOR = 0.05
+
+
+def annotations_to_detections(
+    annotations: Iterable[Mapping[str, Any]],
+    resolve_label: Callable[[str], int | None],
+) -> list[DetectionInput]:
+    """Turn `api.process_file(...)["pred_dict"]["annotation"]` into
+    `DetectionInput`s, dropping anything below `_BATDETECT2_FLOOR`.
+
+    Separate from the task, and taking a plain label-to-taxon-id callable
+    rather than a `Session`, so this parsing can be tested directly against
+    the REAL package's output: a test can feed it a genuine `process_file`
+    result with no database anywhere in reach. The previous version of this
+    parsing read `.detections`/`.detection_score`/`.class_scores` attributes
+    that batdetect2 has never had, and a hand-written mock of that same wrong
+    shape passed happily -- the shape has to be checked against the package
+    itself or it isn't checked at all.
+    """
+    resolved: dict[str, int | None] = {}
+    detections: list[DetectionInput] = []
+    for annotation in annotations:
+        if annotation["det_prob"] < _BATDETECT2_FLOOR:
+            continue
+        raw_label = str(annotation["class"])
+        if raw_label not in resolved:
+            # One recording yields dozens of annotations drawn from a 17-class
+            # vocabulary, so the same label is looked up over and over. The
+            # cache is scoped to one call: a longer-lived one would go stale
+            # the moment a code mapping is added.
+            resolved[raw_label] = resolve_label(raw_label)
+        detections.append(
+            DetectionInput(
+                # An unmapped label is stored as a detection all the same,
+                # with taxon_id None and the label preserved -- it becomes an
+                # "unmapped species" claim rather than being discarded (see
+                # `services/batdetect2.py`'s `materialize_claims`).
+                taxon_id=resolved[raw_label],
+                raw_label=raw_label,
+                # `class_prob`, not `det_prob`: this is the number the user's
+                # FLEDERMAP_BATDETECT2_THRESHOLD is compared against, and that
+                # threshold expresses "how sure must the model be of the
+                # SPECIES before I treat this as a claim". `det_prob` only
+                # says a call is present, and has already done its job at
+                # `_BATDETECT2_FLOOR` above.
+                confidence=float(annotation["class_prob"]),
+            ),
+        )
+    return detections
 
 
 @app.task(queue="classify", pass_context=True, retry=_RETRY)
@@ -135,32 +193,39 @@ def classify_batdetect2_task(
     # contributor's `hatch run types:check` pulls in unconditionally.
     from batdetect2 import api as batdetect2_api  # type: ignore[import-not-found]
 
-    from fledermap.services.batdetect2 import DetectionInput, record_detections
+    from fledermap.services.batdetect2 import record_detections
     from fledermap.services.media import resolve_recording, resolve_wav_path
     from fledermap.store.seed import resolve_code
 
     archive_roots: tuple[Path, ...] = context.additional_context["archive_roots"]
     engine = context.additional_context["engine"]
 
+    # Three phases, and the session is deliberately CLOSED across the middle
+    # one: a torch forward pass over a full recording is slow, and holding a
+    # connection open across it leaves it `idle in transaction` for that whole
+    # time, holding locks that can block unrelated DDL indefinitely (see
+    # CLAUDE.md's Database section). The recording is re-fetched by
+    # `audio_hash` afterwards rather than carried across the gap, because the
+    # first session's instance is detached once that block exits.
     with OrmSession(engine) as session:
         recording = resolve_recording(session, audio_hash)
         wav_path = resolve_wav_path(archive_roots, recording)
 
-        result = batdetect2_api.process_file(str(wav_path))
+    # `api.process_file` returns a plain dict (a `RunResults` TypedDict), whose
+    # "pred_dict"."annotation" is a list of plain dicts -- verified against the
+    # real installed package, not assumed. Each annotation names exactly ONE
+    # class; there is no per-detection map of scores across candidate species.
+    result = batdetect2_api.process_file(str(wav_path))
+    annotations = result["pred_dict"]["annotation"]
 
-        detections: list[DetectionInput] = []
-        for detection in result.detections:
-            if detection.detection_score < _BATDETECT2_FLOOR:
-                continue
-            top_class = max(detection.class_scores, key=detection.class_scores.get)
-            taxon = resolve_code(session, "batdetect2", top_class)
-            detections.append(
-                DetectionInput(
-                    taxon_id=taxon.id if taxon is not None else None,
-                    confidence=detection.detection_score,
-                ),
-            )
+    with OrmSession(engine) as session:
+        recording = resolve_recording(session, audio_hash)
 
+        def resolve_label(label: str) -> int | None:
+            taxon = resolve_code(session, "batdetect2", label)
+            return taxon.id if taxon is not None else None
+
+        detections = annotations_to_detections(annotations, resolve_label)
         record_detections(session, recording, IdSource.BATDETECT2, detections)
         session.commit()
 

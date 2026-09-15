@@ -69,9 +69,13 @@ Notes on individual settings:
   optional species classifier ([BatDetect2](https://github.com/macaodha/batdetect2))
   run alongside the EMT's own on-device identification. `batdetect2_enabled`
   defaults to `false`; `batdetect2_threshold` (default `0.8`, valid range
-  `0.0`–`1.0`) is the minimum detection score a call must reach to be kept,
-  re-applied to already-stored raw scores on every ingest cycle, so changing
-  it takes effect immediately with no re-classification needed.
+  `0.0`–`1.0`) is how sure the model must be of the *species* before its
+  guess is kept as a claim. BatDetect2 reports two scores per call — one for
+  "there is a bat call here at all" and one for "and it is this species" —
+  and this setting is compared against the second, so raising it discards
+  uncertain species guesses rather than quiet calls. It is re-applied to the
+  already-stored raw scores on every ingest cycle, so changing it takes
+  effect immediately with no re-classification needed.
   **BatDetect2's model weights are licensed CC-BY-NC-4.0 — non-commercial
   use only** — which is why it's never installed by a plain
   `pip install fledermap`: you must separately run

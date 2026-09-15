@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import cast
 
+import procrastinate
 from sqlalchemy import CursorResult, delete, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session as OrmSession
@@ -34,9 +35,15 @@ from fledermap.store.models import ClassifierDetection, Identification, Recordin
 @dataclass(frozen=True)
 class DetectionInput:
     """One raw candidate the model emitted for a recording, before any
-    threshold filtering."""
+    threshold filtering.
+
+    `raw_label` is the model's own label for the candidate and is always set,
+    including when `taxon_id` is None because the label has no code mapping
+    yet -- see `ClassifierDetection.raw_label`.
+    """
 
     taxon_id: int | None
+    raw_label: str | None
     confidence: float
 
 
@@ -68,6 +75,7 @@ def record_detections(
                 recording_id=recording.id,
                 source=source,
                 taxon_id=detection.taxon_id,
+                raw_label=detection.raw_label,
                 confidence=detection.confidence,
             ),
         )
@@ -95,6 +103,17 @@ def materialize_claims(
     explicit NO_ID claim (not an absent claim), the same "no ID" distinction
     every other source makes -- silence would be indistinguishable from
     "never ran through this classifier at all".
+
+    A detection that clears `threshold` but whose label has no taxon mapping
+    still becomes a SPECIES claim, with `taxon_id` None and `raw_label` set --
+    NOT a NO_ID, and not dropped. An unmapped label is a review-queue item by
+    design (design spec §3, CLAUDE.md "Species codes"), and it is the same
+    shape `services/ingest.py`'s `_apply_identifications` produces for an
+    unmapped EMT code, so the existing "unmapped species" UI and
+    `reresolve_unmapped_identifications` pick it up for free once a mapping is
+    added. Dropping it instead would be unrecoverable here: `NO_ID` is a
+    confident-looking answer, and `enqueue_batdetect2` never re-runs the model
+    for a recording that already has detection rows.
     """
     recording_ids = session.scalars(
         select(ClassifierDetection.recording_id)
@@ -113,14 +132,32 @@ def materialize_claims(
                 ClassifierDetection.source == source,
             ),
         ).all()
-        passing = [
-            d
-            for d in detections
-            if d.taxon_id is not None and d.confidence >= threshold
-        ]
+        passing = [d for d in detections if d.confidence >= threshold]
+        # One claim per distinct taxon_id, keeping the highest-confidence
+        # detection's label for each. `replace_claims` keys a claim's identity
+        # on taxon_id alone, and `uq_identification_source_claim` (with
+        # `postgresql_nulls_not_distinct`) allows only one row per
+        # (recording, source, taxon_id) -- including one single NULL-taxon row
+        # -- so several detections sharing a taxon_id MUST collapse to one
+        # claim. Collapsing by highest confidence makes which label survives
+        # deterministic instead of dependent on row order; a real model run
+        # emits the same class dozens of times per file, and several distinct
+        # unmapped labels can compete for the one NULL-taxon slot.
+        best_by_taxon: dict[int | None, ClassifierDetection] = {}
+        for d in passing:
+            previous = best_by_taxon.get(d.taxon_id)
+            if previous is None or d.confidence > previous.confidence:
+                best_by_taxon[d.taxon_id] = d
         desired = (
-            [ClaimInput(taxon_id=d.taxon_id, verdict=Verdict.SPECIES) for d in passing]
-            if passing
+            [
+                ClaimInput(
+                    taxon_id=d.taxon_id,
+                    verdict=Verdict.SPECIES,
+                    raw_label=d.raw_label,
+                )
+                for d in best_by_taxon.values()
+            ]
+            if best_by_taxon
             else [ClaimInput(taxon_id=None, verdict=Verdict.NO_ID)]
         )
         replace_claims(session, recording, source, desired, now)
@@ -170,11 +207,18 @@ def enqueue_batdetect2(session: OrmSession, engine: Engine) -> int:
     one-shot "just enabled" transition to detect: the very next cycle after
     flipping the config flag finds every existing recording still missing a
     row and enqueues it, same as any recording ingested afterward.
+
+    Returns the number of recordings still awaiting a first classification --
+    which is not the number of jobs actually created, since one already
+    pending from an earlier cycle is deduplicated by `queueing_lock` below.
     """
-    # Local import: `jobs.tasks` imports FROM this module's sibling
-    # `services.media` at ITS top level -- same circular-import shape,
-    # avoided the same way (see `services/media.py`'s own `jobs.tasks`
-    # import for precedent).
+    # Local import, and it must stay local: `jobs.tasks` imports
+    # `DetectionInput` from this module at ITS top level, so a top-level
+    # import back the other way is a genuine cycle. Enqueueing services and
+    # `jobs.tasks` are mutually dependent in general (the task needs the
+    # service's types, the service needs the task to defer it); one of the two
+    # directions always has to be deferred to call time, and here it is this
+    # one.
     from fledermap.jobs.tasks import app as jobs_app
     from fledermap.jobs.tasks import batdetect2_lock_key, classify_batdetect2_task
 
@@ -192,8 +236,19 @@ def enqueue_batdetect2(session: OrmSession, engine: Engine) -> int:
             Recording.id.not_in(already_processed),
         ),
     ).all()
+    # `queueing_lock` alongside `lock`, and swallowing AlreadyEnqueued, is the
+    # same pattern `services/media.py`'s `enqueue_media` uses, and it is load-
+    # bearing here: `lock` only serializes EXECUTION. Without `queueing_lock`,
+    # every 5-minute cycle would defer a fresh duplicate job for every
+    # recording still waiting on its first classification -- which during a
+    # backfill is all of them -- and each duplicate is another full torch
+    # forward pass over a file already being classified.
     for audio_hash in hashes:
-        classify_batdetect2_task.configure(
-            lock=batdetect2_lock_key(audio_hash),
-        ).defer(audio_hash=audio_hash)
+        try:
+            classify_batdetect2_task.configure(
+                lock=batdetect2_lock_key(audio_hash),
+                queueing_lock=batdetect2_lock_key(audio_hash),
+            ).defer(audio_hash=audio_hash)
+        except procrastinate.exceptions.AlreadyEnqueued:
+            pass
     return len(hashes)
