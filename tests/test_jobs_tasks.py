@@ -4,6 +4,7 @@ import asyncio
 import logging
 import os
 import time
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -14,7 +15,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.config import Config
-from fledermap.domain.codes import IdSource
+from fledermap.domain.codes import IdSource, Verdict
 from fledermap.jobs.app import (
     ensure_schema,
     make_worker_connector,
@@ -40,7 +41,14 @@ from fledermap.jobs.tasks import (
 )
 from fledermap.media.paths import spectrogram_path
 from fledermap.services import site_naming
-from fledermap.store.models import Identification, Recording, Site
+from fledermap.services.batdetect2 import DetectionInput, record_detections
+from fledermap.store.models import (
+    ClassifierDetection,
+    Identification,
+    Recording,
+    Site,
+    Taxon,
+)
 from fledermap.store.models import Session as SessionModel
 from tests.fixtures import build_wav, fmt_payload, wamd_payload
 
@@ -61,6 +69,13 @@ def _make_recording(
     session.add(r)
     session.flush()
     return r
+
+
+def _make_taxon(session: OrmSession, scientific_name: str) -> Taxon:
+    taxon = Taxon(rank="species", scientific_name=scientific_name)
+    session.add(taxon)
+    session.flush()
+    return taxon
 
 
 def _write_wav(root: Path, rel: str) -> None:
@@ -665,6 +680,120 @@ def test_run_ingest_cycle_fails_the_job_on_an_unexpected_error(
             {"id": job_id},
         ).scalar()
     assert status == "failed"
+
+
+def test_run_ingest_cycle_purges_batdetect2_rows_when_disabled(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """`batdetect2_enabled=False` (the default) must purge any pre-existing
+    `classifier_detection`/`Identification` rows for that source every
+    cycle -- not just skip enqueueing new ones -- so disabling the
+    classifier after it has run doesn't leave a stale claim winning
+    `current_best.py`'s precedence ordering forever (spec §5)."""
+    config = _make_config(tmp_path)
+    jobs_app.open(engine)
+    ensure_schema(jobs_app, engine)
+
+    with OrmSession(engine) as session:
+        recording = _make_recording(
+            session,
+            audio_hash="j" * 64,
+            path="never_scanned.wav",
+        )
+        taxon = _make_taxon(session, "Plecotus auritus")
+        session.commit()
+        record_detections(
+            session,
+            recording,
+            IdSource.BATDETECT2,
+            [DetectionInput(taxon_id=taxon.id, confidence=0.9)],
+        )
+        session.add(
+            Identification(
+                recording_id=recording.id,
+                source=IdSource.BATDETECT2,
+                verdict=Verdict.SPECIES,
+                taxon_id=taxon.id,
+            ),
+        )
+        session.commit()
+
+    assert config.batdetect2_enabled is False
+
+    run_ingest_cycle.configure(
+        lock=_INGEST_CYCLE_LOCK,
+        queueing_lock=_INGEST_CYCLE_LOCK,
+    ).defer(timestamp=int(time.time()))
+    _run_worker(
+        engine,
+        wait=False,
+        install_signal_handlers=False,
+        listen_notify=False,
+        queues=["ingest"],
+        additional_context={"config": config, "engine": engine},
+    )
+
+    with OrmSession(engine) as session:
+        remaining_detections = session.scalars(
+            select(ClassifierDetection).where(
+                ClassifierDetection.source == IdSource.BATDETECT2,
+            ),
+        ).all()
+        remaining_idents = session.scalars(
+            select(Identification).where(Identification.source == IdSource.BATDETECT2),
+        ).all()
+    assert remaining_detections == []
+    assert remaining_idents == []
+
+
+def test_run_ingest_cycle_enqueues_and_materializes_batdetect2_when_enabled(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """`batdetect2_enabled=True` must enqueue a classify job for every
+    recording still missing a `classifier_detection` row -- proven here by
+    the deferred job landing in `procrastinate_jobs`, not by it actually
+    running (that needs the optional `batdetect2` package, out of scope for
+    this test). A recognized filename convention and a real file on disk are
+    both needed so the recording survives `sweep_missing` with
+    `missing_since IS NULL` -- `enqueue_batdetect2` filters on exactly that,
+    same as `test_run_ingest_cycle_creates_a_recording_and_derives` above."""
+    archive_root = tmp_path / "archive"
+    path = archive_root / "EPTSER_20150610_215447.wav"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    audio = bytes(range(256)) * 8
+    path.write_bytes(build_wav([(b"fmt ", fmt_payload()), (b"data", audio)]))
+    old = time.time() - 3600
+    os.utime(path, (old, old))
+    config = replace(
+        _make_config(tmp_path, archive_roots=(archive_root,)),
+        batdetect2_enabled=True,
+    )
+    jobs_app.open(engine)
+    ensure_schema(jobs_app, engine)
+
+    run_ingest_cycle.configure(
+        lock=_INGEST_CYCLE_LOCK,
+        queueing_lock=_INGEST_CYCLE_LOCK,
+    ).defer(timestamp=int(time.time()))
+    _run_worker(
+        engine,
+        wait=False,
+        install_signal_handlers=False,
+        listen_notify=False,
+        queues=["ingest"],
+        additional_context={"config": config, "engine": engine},
+    )
+
+    with engine.connect() as conn:
+        classify_todo_count = conn.execute(
+            text(
+                "SELECT count(*) FROM procrastinate_jobs "
+                "WHERE queue_name = 'classify' AND status = 'todo'",
+            ),
+        ).scalar()
+    assert classify_todo_count == 1
 
 
 def test_run_clean_media_cycle_removes_an_orphaned_directory(

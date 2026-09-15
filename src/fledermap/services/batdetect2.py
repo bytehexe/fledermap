@@ -23,6 +23,7 @@ from datetime import UTC, datetime
 from typing import cast
 
 from sqlalchemy import CursorResult, delete, select
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import IdSource, Verdict
@@ -159,3 +160,40 @@ def purge_source(session: OrmSession, source: IdSource) -> PurgeReport:
         detections_removed=detections_removed,
         identifications_removed=identifications_removed,
     )
+
+
+def enqueue_batdetect2(session: OrmSession, engine: Engine) -> int:
+    """Enqueue `classify_batdetect2_task` for every recording lacking a
+    `classifier_detection` row for `IdSource.BATDETECT2` yet. Re-run every
+    ingest cycle while the classifier is enabled (spec §4/§5) -- this is
+    what makes enabling the classifier self-backfilling with no separate
+    one-shot "just enabled" transition to detect: the very next cycle after
+    flipping the config flag finds every existing recording still missing a
+    row and enqueues it, same as any recording ingested afterward.
+    """
+    # Local import: `jobs.tasks` imports FROM this module's sibling
+    # `services.media` at ITS top level -- same circular-import shape,
+    # avoided the same way (see `services/media.py`'s own `jobs.tasks`
+    # import for precedent).
+    from fledermap.jobs.tasks import app as jobs_app
+    from fledermap.jobs.tasks import batdetect2_lock_key, classify_batdetect2_task
+
+    try:
+        jobs_app.open(engine)
+    except NotImplementedError:
+        pass
+
+    already_processed = select(ClassifierDetection.recording_id).where(
+        ClassifierDetection.source == IdSource.BATDETECT2,
+    )
+    hashes = session.scalars(
+        select(Recording.audio_hash).where(
+            Recording.missing_since.is_(None),
+            Recording.id.not_in(already_processed),
+        ),
+    ).all()
+    for audio_hash in hashes:
+        classify_batdetect2_task.configure(
+            lock=batdetect2_lock_key(audio_hash),
+        ).defer(audio_hash=audio_hash)
+    return len(hashes)

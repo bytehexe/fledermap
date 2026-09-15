@@ -11,6 +11,7 @@ from fledermap.services.batdetect2 import (
     DetectionInput,
     MaterializeReport,
     PurgeReport,
+    enqueue_batdetect2,
     materialize_claims,
     purge_source,
     record_detections,
@@ -239,3 +240,29 @@ def test_purge_source_is_idempotent(engine: Engine) -> None:
     with OrmSession(engine) as session:
         report = purge_source(session, IdSource.BATDETECT2)
         assert report == PurgeReport(detections_removed=0, identifications_removed=0)
+
+
+def test_enqueue_batdetect2_only_enqueues_recordings_missing_a_detection_row(
+    engine: Engine,
+) -> None:
+    from fledermap.jobs.app import ensure_schema
+    from fledermap.jobs.tasks import app as jobs_app
+
+    jobs_app.open(engine)
+    ensure_schema(jobs_app, engine)
+
+    with OrmSession(engine) as session:
+        with_detections = _recording(session, "h" * 64)
+        _recording(session, "i" * 64)  # left without a detection row
+        taxon = _taxon(session, "Myotis daubentonii")
+        record_detections(
+            session,
+            with_detections,
+            IdSource.BATDETECT2,
+            [DetectionInput(taxon_id=taxon.id, confidence=0.5)],
+        )
+        session.commit()
+
+        count = enqueue_batdetect2(session, engine)
+
+        assert count == 1

@@ -317,6 +317,11 @@ def run_ingest_cycle(context: procrastinate.JobContext, timestamp: int) -> None:
     # ITS top level, so a top-level import here would be circular (Global
     # Constraints above). Safe here because by the time this function
     # actually runs, module import has long finished.
+    from fledermap.services.batdetect2 import (
+        enqueue_batdetect2,
+        materialize_claims,
+        purge_source,
+    )
     from fledermap.services.media import enqueue_media
 
     with OrmSession(engine) as session:
@@ -373,6 +378,15 @@ def run_ingest_cycle(context: procrastinate.JobContext, timestamp: int) -> None:
         session.commit()
 
         classify_noise(session, config.noise_snr_threshold_db)
+        session.commit()
+
+        if config.batdetect2_enabled:
+            enqueue_batdetect2(session, engine)
+            materialize_claims(
+                session, IdSource.BATDETECT2, config.batdetect2_threshold
+            )
+        else:
+            purge_source(session, IdSource.BATDETECT2)
         session.commit()
 
         from fledermap.services.site_naming import enqueue_site_naming
