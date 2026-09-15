@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session as OrmSession
 from fledermap.domain.codes import IdSource, Verdict
 from fledermap.services.review_flags import (
     ReviewContext,
+    _disagreement_reason,
+    _has_human_review,
     _misattribution_rates,
     _misattribution_reason,
     _rarity_reason,
@@ -77,6 +79,125 @@ def test_misattribution_reason_fires_at_majority_and_minimum() -> None:
 
 def test_misattribution_reason_absent_pair_is_none() -> None:
     assert _misattribution_reason({}, IdSource.EMT_GUANO, 1) is None
+
+
+def _recording(*identifications: Identification) -> Recording:
+    r = Recording(
+        audio_hash="a" * 64,
+        path="x.wav",
+        recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+    )
+    r.identifications = list(identifications)
+    return r
+
+
+def _ident(
+    source: IdSource,
+    *,
+    taxon_id: int | None = 1,
+    verdict: Verdict = Verdict.SPECIES,
+    raw_label: str | None = None,
+) -> Identification:
+    return Identification(
+        source=source,
+        verdict=verdict,
+        taxon_id=taxon_id,
+        raw_label=raw_label,
+        first_seen_at=datetime(2026, 8, 25, tzinfo=UTC),
+    )
+
+
+def test_has_human_review_false_with_no_claims() -> None:
+    assert _has_human_review(_recording()) is False
+
+
+def test_has_human_review_true_for_manual() -> None:
+    r = _recording(_ident(IdSource.MANUAL))
+    assert _has_human_review(r) is True
+
+
+def test_has_human_review_true_for_emt_manual() -> None:
+    r = _recording(_ident(IdSource.EMT_MANUAL))
+    assert _has_human_review(r) is True
+
+
+def test_has_human_review_false_for_only_automatic_sources() -> None:
+    r = _recording(_ident(IdSource.EMT_GUANO))
+    assert _has_human_review(r) is False
+
+
+def test_disagreement_reason_none_with_a_single_source() -> None:
+    r = _recording(_ident(IdSource.EMT_GUANO, taxon_id=1))
+    assert _disagreement_reason(r) is None
+
+
+def test_disagreement_reason_none_when_sources_agree_on_species() -> None:
+    r = _recording(
+        _ident(IdSource.EMT_GUANO, taxon_id=1),
+        _ident(IdSource.BATDETECT2, taxon_id=1),
+    )
+    assert _disagreement_reason(r) is None
+
+
+def test_disagreement_reason_fires_on_different_species() -> None:
+    r = _recording(
+        _ident(IdSource.EMT_GUANO, taxon_id=1),
+        _ident(IdSource.BATDETECT2, taxon_id=2),
+    )
+    assert _disagreement_reason(r) is not None
+
+
+def test_disagreement_reason_fires_on_species_vs_noise() -> None:
+    r = _recording(
+        _ident(IdSource.EMT_GUANO, taxon_id=1, verdict=Verdict.SPECIES),
+        _ident(IdSource.BATDETECT2, taxon_id=None, verdict=Verdict.NOISE),
+    )
+    assert _disagreement_reason(r) is not None
+
+
+def test_disagreement_reason_none_when_the_other_claim_is_no_id() -> None:
+    """NO_ID never counts as disagreement -- it's not a real answer."""
+    r = _recording(
+        _ident(IdSource.EMT_GUANO, taxon_id=1, verdict=Verdict.SPECIES),
+        _ident(IdSource.BATDETECT2, taxon_id=None, verdict=Verdict.NO_ID),
+    )
+    assert _disagreement_reason(r) is None
+
+
+def test_disagreement_reason_compares_unmapped_species_by_raw_label() -> None:
+    r = _recording(
+        _ident(
+            IdSource.EMT_GUANO, taxon_id=None, verdict=Verdict.SPECIES, raw_label="AAA"
+        ),
+        _ident(
+            IdSource.EMT_WAMD, taxon_id=None, verdict=Verdict.SPECIES, raw_label="AAA"
+        ),
+    )
+    assert _disagreement_reason(r) is None
+
+
+def test_disagreement_reason_fires_on_different_unmapped_codes() -> None:
+    r = _recording(
+        _ident(
+            IdSource.EMT_GUANO, taxon_id=None, verdict=Verdict.SPECIES, raw_label="AAA"
+        ),
+        _ident(
+            IdSource.EMT_WAMD, taxon_id=None, verdict=Verdict.SPECIES, raw_label="BBB"
+        ),
+    )
+    assert _disagreement_reason(r) is not None
+
+
+def test_disagreement_reason_ignores_manual_and_emt_manual_claims() -> None:
+    """The gate in review_reasons() already skips human-reviewed recordings
+    entirely, but _disagreement_reason itself must also not treat a human's
+    claim as just another classifier vote if called directly."""
+    r = _recording(
+        _ident(IdSource.EMT_GUANO, taxon_id=1),
+        _ident(IdSource.MANUAL, taxon_id=2),
+        _ident(IdSource.EMT_MANUAL, taxon_id=3),
+    )
+    assert _disagreement_reason(r) is None
 
 
 # DB-marked tests follow
@@ -357,6 +478,80 @@ def test_review_reasons_empty_when_manually_classified(engine: Engine) -> None:
 
         # Already reviewed by a human -- a rare-species match must not fire.
         assert review_reasons(r, context) == []
+
+
+@pytest.mark.db
+def test_review_reasons_empty_when_emt_manually_classified(engine: Engine) -> None:
+    """Consistency fix: EMT_MANUAL (the on-device human correction) must
+    suppress every review criterion, same as in-app MANUAL already does --
+    not just the new disagreement check."""
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
+        session.add(taxon)
+        session.flush()
+        r = Recording(
+            audio_hash="a" * 64,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add(r)
+        session.flush()
+        session.add(
+            Identification(
+                recording_id=r.id,
+                source=IdSource.EMT_MANUAL,
+                verdict=Verdict.SPECIES,
+                taxon_id=taxon.id,
+                first_seen_at=r.recorded_at,
+            ),
+        )
+        session.commit()
+        context = ReviewContext.build(session)
+
+        # Rare species dataset-wide (only 1 recording) would otherwise fire.
+        assert review_reasons(r, context) == []
+
+
+@pytest.mark.db
+def test_review_reasons_includes_disagreement_even_when_best_verdict_is_noise(
+    engine: Engine,
+) -> None:
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
+        session.add(taxon)
+        session.flush()
+        r = Recording(
+            audio_hash="a" * 64,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add(r)
+        session.flush()
+        session.add_all(
+            [
+                # EMT_GUANO outranks FLEDERMAP_NOISE, so best.verdict == NOISE.
+                Identification(
+                    recording_id=r.id,
+                    source=IdSource.EMT_GUANO,
+                    verdict=Verdict.NOISE,
+                    taxon_id=None,
+                    first_seen_at=r.recorded_at,
+                ),
+                Identification(
+                    recording_id=r.id,
+                    source=IdSource.BATDETECT2,
+                    verdict=Verdict.SPECIES,
+                    taxon_id=taxon.id,
+                    first_seen_at=r.recorded_at,
+                ),
+            ]
+        )
+        session.commit()
+        context = ReviewContext.build(session)
+
+        reasons = review_reasons(r, context)
+
+    assert reasons == ["Classifiers disagree"]
 
 
 @pytest.mark.db

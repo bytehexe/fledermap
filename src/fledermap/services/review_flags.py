@@ -3,9 +3,8 @@
 Nothing here is stored -- every reason is recomputed live and cleared only
 by fixing the underlying data (mapping a species code, adding a manual
 classification), the same philosophy the unmapped-species review queue
-already uses. See services/manual_classification.py's current_manual_state
-and services/current_best.py's current_best_identification, which this
-module builds on rather than duplicates."""
+already uses. See services/current_best.py's current_best_identification,
+which this module builds on rather than duplicates."""
 
 from __future__ import annotations
 
@@ -17,8 +16,7 @@ from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import IdSource, Verdict
 from fledermap.services.current_best import current_best_identification
-from fledermap.services.manual_classification import current_manual_state
-from fledermap.store.models import Recording
+from fledermap.store.models import Identification, Recording
 
 # Fixed, explainable thresholds (spec: "fixed low count dataset-wide" over a
 # percentile -- doesn't shift as more data comes in, and stays simple to
@@ -152,6 +150,55 @@ def _misattribution_reason(
     return None
 
 
+_HUMAN_REVIEW_SOURCES = frozenset({IdSource.MANUAL, IdSource.EMT_MANUAL})
+
+
+def _has_human_review(recording: Recording) -> bool:
+    """Whether a human has already weighed in on this recording -- either
+    in-app (`IdSource.MANUAL`) or on the detector itself
+    (`IdSource.EMT_MANUAL`). Either one means "already reviewed", so it
+    suppresses every criterion in `review_reasons` below, not just the
+    disagreement check -- a single shared gate rather than each criterion
+    re-deriving its own notion of "human reviewed"."""
+    return any(i.source in _HUMAN_REVIEW_SOURCES for i in recording.identifications)
+
+
+def _claim_key(ident: Identification) -> tuple[Verdict] | tuple[Verdict, int | str]:
+    """One classifier's "answer", comparable across sources. A resolved
+    species compares by taxon_id (raw_label may differ trivially between
+    sources naming the same species); an unmapped one falls back to
+    raw_label, so two different unmapped codes aren't silently treated as
+    agreeing just because neither resolved."""
+    if ident.verdict != Verdict.SPECIES:
+        return (ident.verdict,)
+    if ident.taxon_id is not None:
+        return (ident.verdict, ident.taxon_id)
+    return (ident.verdict, ident.raw_label or "")
+
+
+def _disagreement_reason(recording: Recording) -> str | None:
+    """At least two classifiers disagreeing on verdict or species (Obsidian
+    backlog: a new "flagged for review" criterion, built with future
+    classifiers in mind). Deliberately names no `IdSource` explicitly --
+    every source with a live, non-NO_ID, non-human claim contributes one
+    vote, so a future classifier participates automatically with no code
+    change here.
+
+    NO_ID never counts as disagreement (an admission of uncertainty isn't
+    an answer to disagree with); MANUAL/EMT_MANUAL claims are excluded
+    entirely, matching `_has_human_review`'s gate -- called directly (not
+    just via `review_reasons`), this function must not treat a human's
+    claim as just another classifier's vote."""
+    keys = {
+        _claim_key(ident)
+        for ident in recording.identifications
+        if ident.source not in _HUMAN_REVIEW_SOURCES and ident.verdict != Verdict.NO_ID
+    }
+    if len(keys) >= 2:
+        return "Classifiers disagree"
+    return None
+
+
 @dataclass(frozen=True)
 class ReviewContext:
     """Aggregates shared across every `review_reasons` call in one request --
@@ -180,19 +227,28 @@ class ReviewContext:
 
 
 def review_reasons(recording: Recording, context: ReviewContext) -> list[str]:
-    """Every computed reason this recording's assigned species should be
-    reviewed -- empty if none apply. Scoped to a SPECIES verdict with no
-    standing MANUAL claim (a human classifying it already counts as
-    reviewed); see the module docstring and the design spec's Goals section
-    for why nothing here is stored or dismissible."""
-    best = current_best_identification(recording)
-    if best is None or best.verdict != Verdict.SPECIES:
-        return []
-    manual_verdict, _manual_taxon_ids = current_manual_state(recording)
-    if manual_verdict is not None:
+    """Every computed reason this recording should be reviewed -- empty if
+    none apply. Gated on `_has_human_review`, not just a standing MANUAL
+    claim (a human classifying it, in-app or on the detector, already
+    counts as reviewed); see the module docstring and the design spec's
+    Goals section for why nothing here is stored or dismissible.
+
+    The disagreement check runs regardless of what verdict currently wins
+    -- unlike rarity/misattribution below, which are only meaningful for a
+    SPECIES result, a classifier disagreement is exactly as interesting
+    when the CURRENT-BEST verdict is NOISE (or nothing at all) but a
+    lower-precedence source called it a species."""
+    if _has_human_review(recording):
         return []
 
     reasons: list[str] = []
+    disagreement = _disagreement_reason(recording)
+    if disagreement is not None:
+        reasons.append(disagreement)
+
+    best = current_best_identification(recording)
+    if best is None or best.verdict != Verdict.SPECIES:
+        return reasons
     for claim in best.claims:
         if claim.taxon_id is None:
             continue
