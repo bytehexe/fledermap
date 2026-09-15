@@ -180,3 +180,16 @@ def spectral_gate(samples: np.ndarray, samplerate_hz: float) -> np.ndarray:
     # Match highpass_filter's float64 output convention -- callers chain this straight after
     # highpass_filter and shouldn't see the internal float32 STFT precision as a new dtype.
     return result.astype(np.float64)
+
+
+def denoised_samples(
+    samples: np.ndarray, samplerate_hz: float, cutoff_hz: float
+) -> np.ndarray:
+    """`highpass_filter` then `spectral_gate` -- the "Denoise" toggle's full audio-domain
+    pipeline, in the one order both `spectrogram.py` and `oscillogram.py` need it applied.
+    Factored out so callers computing this once (`web/views/media.py`'s denoised-samples
+    cache, shared across a recording-detail page's spectrogram and every oscillogram tile
+    request) don't duplicate the two-call chain themselves."""
+    return spectral_gate(
+        highpass_filter(samples, samplerate_hz, cutoff_hz), samplerate_hz
+    )

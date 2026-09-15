@@ -22,8 +22,7 @@ from scipy import signal
 
 from fledermap.media.denoise import (
     DEFAULT_CUTOFF_HZ,
-    highpass_filter,
-    spectral_gate,
+    denoised_samples,
     subtract_background_noise,
 )
 from fledermap.media.wav_pcm import read_pcm
@@ -155,6 +154,9 @@ class FullSpectrogramImage(NamedTuple):
 def render_full_spectrogram_image(
     wav_path: Path,
     params: SpectrogramParams,
+    *,
+    samples: np.ndarray | None = None,
+    samplerate: int | None = None,
 ) -> FullSpectrogramImage:
     """The expensive, tile-independent part of `render_spectrogram`: STFT via
     `scipy.signal.spectrogram`, power converted to dB relative to the recording's own peak,
@@ -173,11 +175,17 @@ def render_full_spectrogram_image(
     source of truth for every other step (per-tile resize, atomic write) and every existing
     caller (the drawer/overview's cached single-image render) is unaffected -- this function is
     purely an extraction, not a behavior change.
+
+    `samples`/`samplerate`, if given, are used AS-IS -- `wav_path` is not read and
+    `params.denoise` is not applied again -- for a caller that already read and (if wanted)
+    denoised this recording once (`web/views/media.py`'s denoised-samples cache, shared across
+    a page view's spectrogram AND every oscillogram tile request, v1 backlog "render-cost/memory
+    regression from audio-domain denoising, uncached"). Both must be given together, or neither.
     """
-    samples, samplerate = read_pcm(wav_path)
-    if params.denoise:
-        samples = highpass_filter(samples, samplerate, params.cutoff_hz)
-        samples = spectral_gate(samples, samplerate)
+    if samples is None or samplerate is None:
+        samples, samplerate = read_pcm(wav_path)
+        if params.denoise:
+            samples = denoised_samples(samples, samplerate, params.cutoff_hz)
 
     # Clamp to the signal's own length -- without this, a very short (or
     # truncated/corrupt) recording makes nperseg > len(samples), and

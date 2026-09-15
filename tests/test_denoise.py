@@ -4,6 +4,7 @@ import numpy as np
 
 from fledermap.media.denoise import (
     DEFAULT_CUTOFF_HZ,
+    denoised_samples,
     highpass_filter,
     spectral_gate,
     subtract_background_noise,
@@ -164,6 +165,24 @@ def test_spectral_gate_handles_silence_without_crashing() -> None:
 
     assert len(gated) == len(silence)
     assert np.max(np.abs(gated)) == 0.0
+
+
+def test_denoised_samples_matches_manual_highpass_then_gate_chain() -> None:
+    """`denoised_samples` exists to replace the identical two-line
+    highpass_filter-then-spectral_gate chain duplicated in spectrogram.py and
+    oscillogram.py -- it must produce exactly what that chain already produces,
+    not a new interpretation of "denoise"."""
+    rng = np.random.default_rng(4)
+    samples, _start, _end = _pulsed_tone_with_noise(rng)
+    samplerate_hz = 256_000
+    cutoff_hz = 5000.0
+
+    expected = spectral_gate(
+        highpass_filter(samples, samplerate_hz, cutoff_hz), samplerate_hz
+    )
+    actual = denoised_samples(samples, samplerate_hz, cutoff_hz)
+
+    np.testing.assert_array_equal(actual, expected)
 
 
 def test_spectral_gate_handles_a_signal_shorter_than_one_window() -> None:

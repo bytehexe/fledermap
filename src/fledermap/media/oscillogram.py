@@ -20,7 +20,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from fledermap.media.denoise import DEFAULT_CUTOFF_HZ, highpass_filter, spectral_gate
+from fledermap.media.denoise import DEFAULT_CUTOFF_HZ, denoised_samples
 from fledermap.media.wav_pcm import read_pcm
 
 
@@ -57,6 +57,8 @@ def render_oscillogram(
     *,
     params: OscillogramParams = OscillogramParams(),
     time_range_s: tuple[float, float] | None = None,
+    samples: np.ndarray | None = None,
+    samplerate: int | None = None,
 ) -> None:
     """Render `wav_path`'s peak-envelope waveform to `out_path` as a WebP
     image: for each output column, the min and max sample in that column's
@@ -79,14 +81,21 @@ def render_oscillogram(
     reason `spectrogram.py` computes its `peak` before slicing: normalisation
     must never drift between tiles of the same recording.
 
+    `samples`/`samplerate`, if given, are used AS-IS -- `wav_path` is not read and
+    `params.denoise` is not applied again -- for a caller that already read and (if wanted)
+    denoised this recording once (`web/views/media.py`'s denoised-samples cache, shared across
+    a page view's every oscillogram tile request AND the spectrogram render, v1 backlog
+    "render-cost/memory regression from audio-domain denoising, uncached": without this, every
+    one of a long recording's tiles re-ran the full-file highpass+spectral_gate pass from
+    scratch). Both must be given together, or neither.
+
     Writes atomically via a temp file + `os.replace`, matching
     `spectrogram.py`'s own write path.
     """
-    samples, samplerate = read_pcm(wav_path)
-
-    if params.denoise:
-        samples = highpass_filter(samples, samplerate, params.cutoff_hz)
-        samples = spectral_gate(samples, samplerate)
+    if samples is None or samplerate is None:
+        samples, samplerate = read_pcm(wav_path)
+        if params.denoise:
+            samples = denoised_samples(samples, samplerate, params.cutoff_hz)
 
     width, height = params.width_px, params.height_px
 

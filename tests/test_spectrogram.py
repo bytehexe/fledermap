@@ -543,6 +543,38 @@ def test_peak_excludes_low_band_even_when_denoise_is_off(tmp_path: Path) -> None
     assert pixel != (0, 0, 0)  # not the palette floor colour
 
 
+def test_render_full_spectrogram_image_accepts_precomputed_samples(
+    tmp_path: Path,
+) -> None:
+    """`render_full_spectrogram_image(..., samples=..., samplerate=...)` must produce a
+    pixel-identical image to a normal call, and must use the GIVEN samples rather than
+    re-reading and re-denoising the file -- the caching caller (`detail_spectrogram`/
+    `detail_oscillogram` sharing one denoised-samples computation per page view,
+    `web/views/media.py`) relies on this to skip the expensive highpass+spectral_gate pass a
+    second time."""
+    wav_path = tmp_path / "call.wav"
+    _sine_wav(wav_path)
+    params = SpectrogramParams(denoise=True)
+
+    normal = render_full_spectrogram_image(wav_path, params)
+
+    from fledermap.media.denoise import denoised_samples
+    from fledermap.media.wav_pcm import read_pcm
+
+    raw_samples, samplerate = read_pcm(wav_path)
+    precomputed_samples = denoised_samples(raw_samples, samplerate, params.cutoff_hz)
+    # Deliberately pass a DIFFERENT (silent) file path -- if the function ignored the
+    # precomputed samples and re-read from `wav_path`, the output would still match `normal`
+    # by coincidence, so this proves it actually uses what was passed in, not the path.
+    other_wav_path = tmp_path / "unrelated.wav"
+    _sine_wav(other_wav_path, freq_hz=80_000.0)
+    precomputed = render_full_spectrogram_image(
+        other_wav_path, params, samples=precomputed_samples, samplerate=samplerate
+    )
+
+    assert precomputed.image.tobytes() == normal.image.tobytes()
+
+
 def test_denoise_true_changes_spectrogram_pixels(tmp_path: Path) -> None:
     wav_path = tmp_path / "call.wav"
     _sine_wav(wav_path)

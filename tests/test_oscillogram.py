@@ -281,6 +281,45 @@ def test_params_hash_changes_when_cutoff_hz_changes() -> None:
     assert base.params_hash != changed.params_hash
 
 
+def test_render_oscillogram_accepts_precomputed_samples(tmp_path: Path) -> None:
+    """`render_oscillogram(..., samples=..., samplerate=...)` must produce a pixel-identical
+    image to a normal call, and must use the GIVEN samples rather than re-reading and
+    re-denoising the file -- the caching caller (`detail_oscillogram`, sharing one
+    denoised-samples computation across a recording's tile requests, `web/views/media.py`)
+    relies on this to skip the expensive highpass+spectral_gate pass on every tile."""
+    wav_path = tmp_path / "call.wav"
+    _sine_wav(wav_path)
+    params = OscillogramParams(denoise=True)
+
+    normal_out = tmp_path / "normal.webp"
+    render_oscillogram(wav_path, normal_out, params=params)
+
+    from fledermap.media.denoise import denoised_samples
+    from fledermap.media.wav_pcm import read_pcm
+
+    raw_samples, samplerate = read_pcm(wav_path)
+    precomputed_samples = denoised_samples(raw_samples, samplerate, params.cutoff_hz)
+    # Deliberately pass a DIFFERENT source file -- if the function ignored the precomputed
+    # samples and re-read from `wav_path`, the output could still match by coincidence, so
+    # this proves it actually uses what was passed in, not the path.
+    other_wav_path = tmp_path / "unrelated.wav"
+    _sine_wav(other_wav_path, freq_hz=80_000.0, amplitude=1000)
+    precomputed_out = tmp_path / "precomputed.webp"
+    render_oscillogram(
+        other_wav_path,
+        precomputed_out,
+        params=params,
+        samples=precomputed_samples,
+        samplerate=samplerate,
+    )
+
+    with (
+        Image.open(normal_out) as normal_img,
+        Image.open(precomputed_out) as precomputed_img,
+    ):
+        assert normal_img.tobytes() == precomputed_img.tobytes()
+
+
 def test_params_hash_changes_when_denoise_changes() -> None:
     base = OscillogramParams()
     changed = OscillogramParams(denoise=not base.denoise)

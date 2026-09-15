@@ -21,11 +21,13 @@ from collections.abc import Callable, Hashable
 from pathlib import Path
 
 import flask
+import numpy as np
 from flask.typing import ResponseReturnValue
 from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import Session as OrmSession
 
+from fledermap.media.denoise import denoised_samples
 from fledermap.media.heterodyne import (
     compute_peak_frequency_hz,
     render_heterodyne_preview,
@@ -40,7 +42,7 @@ from fledermap.media.spectrogram import (
     render_full_spectrogram_image,
     render_spectrogram,
 )
-from fledermap.media.wav_pcm import UnreadableWavError
+from fledermap.media.wav_pcm import UnreadableWavError, read_pcm
 from fledermap.services.media import resolve_recording, resolve_wav_path
 from fledermap.services.recording_detail import (
     DETAIL_PX_PER_MS,
@@ -59,6 +61,44 @@ logger = logging.getLogger(__name__)
 # `detail_spectrogram` below computes the shared STFT/palette image once per view instead of
 # once per tile.
 _spectrogram_image_cache: RenderCache[FullSpectrogramImage] = RenderCache()
+
+# A separate cache instance holding the recording's own (possibly denoised) samples array --
+# different value type than `_spectrogram_image_cache` above (raw samples, not a rendered
+# image), and shared by BOTH `detail_spectrogram` and `detail_oscillogram`: the expensive
+# highpass+spectral_gate pass (`media/denoise.py`'s `denoised_samples`) is identical for every
+# tile of one recording AND for the spectrogram's own render, so it must run once per
+# recording+denoise-state per page view, not once per tile request (v1 backlog "render-cost/
+# memory regression from audio-domain denoising, uncached" -- `detail_oscillogram` previously had
+# no equivalent to `_spectrogram_image_cache`'s existing per-recording reuse, so every one of a
+# long recording's ~17 tiles re-ran the full-file gate from scratch).
+_denoised_samples_cache: RenderCache[tuple[np.ndarray, int]] = RenderCache()
+
+
+def _denoised_samples_cache_key(
+    wav_path: Path,
+    *,
+    denoise: bool,
+    cutoff_hz: float,
+) -> tuple[object, ...]:
+    """Deliberately narrower than `_spectrogram_image_cache_key` above: only what
+    `_read_denoised_samples` itself depends on, none of the purely-visual spectrogram params
+    (palette, dynamic range, ...) -- so an oscillogram-only page view (spectrogram params never
+    even read) still gets a cache hit, and the two routes' requests for the SAME recording land
+    on the SAME key."""
+    return (str(wav_path), wav_path.stat().st_mtime_ns, denoise, cutoff_hz)
+
+
+def _read_denoised_samples(
+    wav_path: Path,
+    *,
+    denoise: bool,
+    cutoff_hz: float,
+) -> tuple[np.ndarray, int]:
+    samples, samplerate = read_pcm(wav_path)
+    if denoise:
+        samples = denoised_samples(samples, samplerate, cutoff_hz)
+    return samples, samplerate
+
 
 # A second, separate cache instance for the TE/HET preview-audio routes below -- deliberately
 # not sharing `_spectrogram_image_cache`'s instance (different value type, different size
@@ -291,6 +331,26 @@ def detail_spectrogram(audio_hash: str, tile_index: int) -> ResponseReturnValue:
     denoise = parse_bool(flask.request.args.get("denoise"))
     spectrogram_params = dataclasses.replace(spectrogram_params, denoise=denoise)
     tile_params = dataclasses.replace(spectrogram_params, width_px=tile.width_px)
+
+    def _compute_full_image() -> FullSpectrogramImage:
+        # Deliberately looked up only from INSIDE this lambda, which `_spectrogram_image_cache`
+        # only calls on a genuine miss: `_denoised_samples_cache` (max_size=2) and
+        # `_spectrogram_image_cache` (max_size=2) evict independently, so this recording's
+        # samples entry can be LRU-evicted by unrelated requests while its image entry is still
+        # warm -- fetching samples unconditionally before the image-cache lookup would redo the
+        # expensive highpass+spectral_gate pass for nothing every time that happens.
+        samples, samplerate = _denoised_samples_cache.get_or_compute(
+            _denoised_samples_cache_key(
+                wav_path, denoise=denoise, cutoff_hz=spectrogram_params.cutoff_hz
+            ),
+            lambda: _read_denoised_samples(
+                wav_path, denoise=denoise, cutoff_hz=spectrogram_params.cutoff_hz
+            ),
+        )
+        return render_full_spectrogram_image(
+            wav_path, spectrogram_params, samples=samples, samplerate=samplerate
+        )
+
     try:
         # Render-cost optimization (v1 backlog "render-cost optimization for tiled long
         # recordings"): the STFT/palette image is identical across every tile of this
@@ -298,8 +358,7 @@ def detail_spectrogram(audio_hash: str, tile_index: int) -> ResponseReturnValue:
         # requests instead of once per tile (media/render_cache.py).
         cache_key = _spectrogram_image_cache_key(wav_path, spectrogram_params)
         full_image = _spectrogram_image_cache.get_or_compute(
-            cache_key,
-            lambda: render_full_spectrogram_image(wav_path, spectrogram_params),
+            cache_key, _compute_full_image
         )
         return _serve_temp_render(
             lambda out: render_spectrogram(
@@ -331,12 +390,22 @@ def detail_oscillogram(audio_hash: str, tile_index: int) -> ResponseReturnValue:
     oscillogram_params = dataclasses.replace(oscillogram_params, denoise=denoise)
     tile_params = dataclasses.replace(oscillogram_params, width_px=tile.width_px)
     try:
+        samples, samplerate = _denoised_samples_cache.get_or_compute(
+            _denoised_samples_cache_key(
+                wav_path, denoise=denoise, cutoff_hz=oscillogram_params.cutoff_hz
+            ),
+            lambda: _read_denoised_samples(
+                wav_path, denoise=denoise, cutoff_hz=oscillogram_params.cutoff_hz
+            ),
+        )
         return _serve_temp_render(
             lambda out: render_oscillogram(
                 wav_path,
                 out,
                 params=tile_params,
                 time_range_s=time_range_s,
+                samples=samples,
+                samplerate=samplerate,
             ),
             suffix=".webp",
             mimetype="image/webp",

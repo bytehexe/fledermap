@@ -423,9 +423,9 @@ def test_detail_spectrogram_reuses_the_shared_image_across_a_recordings_tiles(
     calls = []
     real_render_full = media_view.render_full_spectrogram_image
 
-    def counting_render_full(wav_path, params):  # noqa: ANN001, ANN202
+    def counting_render_full(wav_path, params, **kwargs):  # noqa: ANN001, ANN003, ANN202
         calls.append(1)
-        return real_render_full(wav_path, params)
+        return real_render_full(wav_path, params, **kwargs)
 
     monkeypatch.setattr(
         media_view, "render_full_spectrogram_image", counting_render_full
@@ -446,6 +446,192 @@ def test_detail_spectrogram_reuses_the_shared_image_across_a_recordings_tiles(
         assert response.status_code == 200
 
     assert len(calls) == 1  # NOT recomputed for tiles 1 and 2
+
+
+def test_detail_spectrogram_skips_denoised_samples_when_the_image_cache_already_hits(
+    engine: Engine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`_denoised_samples_cache` (max_size=2) and `_spectrogram_image_cache` (max_size=2) are
+    separate caches with independent eviction -- a recording's samples entry can be LRU-evicted
+    by unrelated oscillogram requests while its image entry is still warm. When that happens,
+    re-requesting a tile of that recording's spectrogram must NOT recompute the denoised samples
+    at all: `render_full_spectrogram_image`'s lambda (the only thing that would use them) never
+    runs on an image-cache hit, so fetching them first is pure wasted work -- exactly the
+    redundant highpass+spectral_gate pass this whole change was written to eliminate."""
+    import fledermap.web.views.media as media_view
+
+    archive_root = tmp_path / "archive"
+    archive_root.mkdir()
+    duration_s = 4.0
+    for name in ("a.wav", "b.wav", "c.wav"):
+        _write_wav(archive_root / name, duration_s=duration_s)
+
+    with OrmSession(engine) as session:
+        for hash_prefix, path in (("e1", "a.wav"), ("e2", "b.wav"), ("e3", "c.wav")):
+            session.add(
+                Recording(
+                    audio_hash=hash_prefix * 32,
+                    path=path,
+                    recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                    duration_s=duration_s,
+                    samplerate_hz=256_000,
+                ),
+            )
+        session.commit()
+
+    app = create_app(
+        engine,
+        tmp_path / "static",
+        tmp_path / "media",
+        archive_roots=(archive_root,),
+    )
+    client = app.test_client()
+
+    # Warm recording A's image cache (and, incidentally, its samples cache).
+    assert (
+        client.get(f"/recordings/{'e1' * 32}/detail-spectrogram/0.webp").status_code
+        == 200
+    )
+    # Oscillogram-only requests for two OTHER recordings touch just the samples cache
+    # (max_size=2), LRU-evicting A's samples entry without touching A's image cache at all.
+    assert (
+        client.get(f"/recordings/{'e2' * 32}/detail-oscillogram/0.webp").status_code
+        == 200
+    )
+    assert (
+        client.get(f"/recordings/{'e3' * 32}/detail-oscillogram/0.webp").status_code
+        == 200
+    )
+
+    calls = []
+    real_read_denoised_samples = media_view._read_denoised_samples
+
+    def counting_read(wav_path, **kwargs):  # noqa: ANN001, ANN003, ANN202
+        calls.append(1)
+        return real_read_denoised_samples(wav_path, **kwargs)
+
+    monkeypatch.setattr(media_view, "_read_denoised_samples", counting_read)
+
+    # A different tile of A's now-samples-cache-cold, image-cache-warm recording.
+    response = client.get(f"/recordings/{'e1' * 32}/detail-spectrogram/1.webp")
+
+    assert response.status_code == 200
+    assert (
+        calls == []
+    )  # the image-cache hit must short-circuit before samples are ever fetched
+
+
+def test_detail_oscillogram_reuses_denoised_samples_across_a_recordings_tiles(
+    engine: Engine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """v1 backlog "render-cost/memory regression from audio-domain denoising, uncached": unlike
+    `detail_spectrogram` above, `detail_oscillogram` had no equivalent caching -- every one of a
+    long recording's tiles re-ran the full-file highpass+spectral_gate pass from scratch. The
+    expensive denoise pass must run once per recording+denoise-state per page view, not once per
+    tile."""
+    import fledermap.web.views.media as media_view
+
+    archive_root = tmp_path / "archive"
+    archive_root.mkdir()
+    duration_s = 4.0  # 3 tiles, same shape as the spectrogram test above
+    _write_wav(archive_root / "long.wav", duration_s=duration_s)
+
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="d7" * 32,
+                path="long.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                duration_s=duration_s,
+                samplerate_hz=256_000,
+            ),
+        )
+        session.commit()
+
+    calls = []
+    real_denoised_samples = media_view.denoised_samples
+
+    def counting_denoised_samples(samples, samplerate_hz, cutoff_hz):  # noqa: ANN001, ANN202
+        calls.append(1)
+        return real_denoised_samples(samples, samplerate_hz, cutoff_hz)
+
+    monkeypatch.setattr(media_view, "denoised_samples", counting_denoised_samples)
+
+    app = create_app(
+        engine,
+        tmp_path / "static",
+        tmp_path / "media",
+        archive_roots=(archive_root,),
+    )
+    client = app.test_client()
+
+    for tile_index in range(3):
+        response = client.get(
+            f"/recordings/{'d7' * 32}/detail-oscillogram/{tile_index}.webp?denoise=true",
+        )
+        assert response.status_code == 200
+
+    assert len(calls) == 1  # NOT recomputed for tiles 1 and 2
+
+
+def test_detail_spectrogram_and_oscillogram_share_one_denoised_samples_computation(
+    engine: Engine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The spectrogram render and the oscillogram tiles of the SAME page view must share one
+    denoised-samples computation, not each run their own full-file highpass+spectral_gate pass."""
+    import fledermap.web.views.media as media_view
+
+    archive_root = tmp_path / "archive"
+    archive_root.mkdir()
+    duration_s = 4.0
+    _write_wav(archive_root / "long.wav", duration_s=duration_s)
+
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="d8" * 32,
+                path="long.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                duration_s=duration_s,
+                samplerate_hz=256_000,
+            ),
+        )
+        session.commit()
+
+    calls = []
+    real_denoised_samples = media_view.denoised_samples
+
+    def counting_denoised_samples(samples, samplerate_hz, cutoff_hz):  # noqa: ANN001, ANN202
+        calls.append(1)
+        return real_denoised_samples(samples, samplerate_hz, cutoff_hz)
+
+    monkeypatch.setattr(media_view, "denoised_samples", counting_denoised_samples)
+
+    app = create_app(
+        engine,
+        tmp_path / "static",
+        tmp_path / "media",
+        archive_roots=(archive_root,),
+    )
+    client = app.test_client()
+
+    spec_response = client.get(
+        f"/recordings/{'d8' * 32}/detail-spectrogram/0.webp?denoise=true",
+    )
+    osc_response = client.get(
+        f"/recordings/{'d8' * 32}/detail-oscillogram/0.webp?denoise=true",
+    )
+
+    assert spec_response.status_code == osc_response.status_code == 200
+    assert (
+        len(calls) == 1
+    )  # spectrogram's render and the oscillogram tile share one pass
 
 
 def test_detail_spectrogram_404s_when_the_source_file_is_missing_from_disk(
