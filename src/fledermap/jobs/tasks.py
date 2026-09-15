@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.config import Config
 from fledermap.derive.sessions import partition_sessions
+from fledermap.domain.codes import IdSource
 from fledermap.jobs.app import make_job_app
 from fledermap.media.oscillogram import (
     DEFAULT_OSCILLOGRAM_PARAMS,
@@ -93,6 +94,75 @@ def oscillogram_lock_key(audio_hash: str) -> str:
 
 def preview_lock_key(audio_hash: str) -> str:
     return f"preview:{audio_hash}:{PREVIEW_VERSION}"
+
+
+def batdetect2_lock_key(audio_hash: str) -> str:
+    return f"batdetect2:{audio_hash}"
+
+
+# A fixed, non-configurable sanity floor -- distinct from the (configurable)
+# threshold `services/batdetect2.py`'s `materialize_claims` applies when
+# turning cached detections into claims. This floor only keeps the
+# `classifier_detection` cache itself from filling up with the model's
+# near-zero noise-level scores; raising the real threshold later must not
+# require a re-run of the model, so it stays generous.
+_BATDETECT2_FLOOR = 0.05
+
+
+@app.task(queue="classify", pass_context=True, retry=_RETRY)
+def classify_batdetect2_task(
+    context: procrastinate.JobContext,
+    audio_hash: str,
+) -> None:
+    """Run batdetect2 once over one recording and cache every candidate above
+    `_BATDETECT2_FLOOR` in `classifier_detection` -- never writes
+    `Identification` directly (see `services/batdetect2.py`'s
+    `materialize_claims`, run separately every ingest cycle).
+    """
+    # Local import, not a top-level one: batdetect2 is an optional extra
+    # (`pip install fledermap[batdetect2]`), and a top-level import here
+    # would crash this entire module -- and therefore every other job in the
+    # app -- on worker startup if it isn't installed. Matches this project's
+    # existing precedent for a configured-but-broken optional integration
+    # (`services/site_naming.py`'s `ensure_connected`): let this job fail
+    # naturally and retry via `_RETRY`, no config-time check, no global
+    # disable (design spec §5, §7).
+    # mypy: not added to the `types` env's extra-dependencies like other
+    # untyped third-party imports (see "Tooling" in CLAUDE.md) -- batdetect2
+    # is CC-BY-NC-licensed (pyproject.toml's [project.optional-dependencies]
+    # comment) and deliberately excluded even from dev tooling installs, not
+    # just the base package, so it can never land in an env every
+    # contributor's `hatch run types:check` pulls in unconditionally.
+    from batdetect2 import api as batdetect2_api  # type: ignore[import-not-found]
+
+    from fledermap.services.batdetect2 import DetectionInput, record_detections
+    from fledermap.services.media import resolve_recording, resolve_wav_path
+    from fledermap.store.seed import resolve_code
+
+    archive_roots: tuple[Path, ...] = context.additional_context["archive_roots"]
+    engine = context.additional_context["engine"]
+
+    with OrmSession(engine) as session:
+        recording = resolve_recording(session, audio_hash)
+        wav_path = resolve_wav_path(archive_roots, recording)
+
+        result = batdetect2_api.process_file(str(wav_path))
+
+        detections: list[DetectionInput] = []
+        for detection in result.detections:
+            if detection.detection_score < _BATDETECT2_FLOOR:
+                continue
+            top_class = max(detection.class_scores, key=detection.class_scores.get)
+            taxon = resolve_code(session, "batdetect2", top_class)
+            detections.append(
+                DetectionInput(
+                    taxon_id=taxon.id if taxon is not None else None,
+                    confidence=detection.detection_score,
+                ),
+            )
+
+        record_detections(session, recording, IdSource.BATDETECT2, detections)
+        session.commit()
 
 
 _NAME_SITE_LOCK = "poiidx-name-site"
