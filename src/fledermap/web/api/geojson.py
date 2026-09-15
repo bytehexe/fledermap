@@ -122,6 +122,7 @@ def sites_geojson() -> ResponseReturnValue:
         date_from = parse_datetime(flask.request.args.get("from"))
         date_to = parse_datetime(flask.request.args.get("to"), end_of_day=True)
         site_id = parse_int(flask.request.args.get("site"))
+        session_id = parse_int(flask.request.args.get("session"))
     except ValueError as exc:
         return flask.jsonify({"error": str(exc)}), 400
 
@@ -133,6 +134,7 @@ def sites_geojson() -> ResponseReturnValue:
             date_from=date_from,
             date_to=date_to,
             site_id=site_id,
+            session_id=session_id,
         )
         truncated = len(sites) > MAX_FEATURES
         features = [_site_feature(s) for s in sites[:MAX_FEATURES]]

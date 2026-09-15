@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import IdSource, Verdict
 from fledermap.store.models import Identification, Recording, Site, Taxon
+from fledermap.store.models import Session as AnnotationSession
 from fledermap.web.app import create_app
 
 pytestmark = pytest.mark.db
@@ -620,6 +621,51 @@ def test_recordings_geojson_filters_by_site(engine: Engine, tmp_path: Path) -> N
 
     hashes = {f["properties"]["audio_hash"] for f in response.get_json()["features"]}
     assert hashes == {"a" * 64}
+
+
+def test_sites_geojson_filters_by_session(engine: Engine, tmp_path: Path) -> None:
+    """Obsidian backlog, 2026-09-15: the map's session filter narrowed which
+    recording markers show, but the site markers stayed unfiltered."""
+    with OrmSession(engine) as session:
+        annotation_session = AnnotationSession(
+            started_at=datetime(2026, 8, 25, tzinfo=UTC),
+            ended_at=datetime(2026, 8, 25, 1, tzinfo=UTC),
+        )
+        session.add(annotation_session)
+        session.flush()
+        in_session = Site(
+            centroid=WKTElement("POINT(10 50)", srid=4326),
+            radius_m=50.0,
+            recording_count=1,
+            first_at=datetime(2026, 8, 25, tzinfo=UTC),
+            last_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        other = Site(
+            centroid=WKTElement("POINT(11 51)", srid=4326),
+            radius_m=50.0,
+            recording_count=1,
+            first_at=datetime(2026, 8, 25, tzinfo=UTC),
+            last_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add_all([in_session, other])
+        session.flush()
+        recording = Recording(
+            audio_hash="a" * 64,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            geom=WKTElement("POINT(10 50)", srid=4326),
+            site_id=in_session.id,
+            session_id=annotation_session.id,
+        )
+        session.add(recording)
+        session.commit()
+        in_session_id, session_id = in_session.id, annotation_session.id
+
+    client = _app_client(engine, tmp_path)
+    response = client.get(f"/api/sites.geojson?session={session_id}")
+
+    ids = {f["properties"]["id"] for f in response.get_json()["features"]}
+    assert ids == {in_session_id}
 
 
 def test_recordings_geojson_marks_multi_species_recordings(

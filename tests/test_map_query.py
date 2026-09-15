@@ -527,6 +527,44 @@ def test_filtered_sites_by_id(engine: Engine) -> None:
         assert [s.id for s in results] == [wanted_id]
 
 
+def test_filtered_sites_by_session_id(engine: Engine) -> None:
+    """Obsidian backlog, 2026-09-15: the map's session filter narrowed which
+    recordings/markers show, but not which site markers show -- a session
+    covering only one site still showed every site in the bbox."""
+    with OrmSession(engine) as session:
+        annotation_session = AnnotationSession(
+            started_at=datetime(2026, 8, 25, tzinfo=UTC),
+            ended_at=datetime(2026, 8, 25, 1, tzinfo=UTC),
+        )
+        session.add(annotation_session)
+        session.flush()
+        in_session = Site(
+            centroid=WKTElement("POINT(10 50)", srid=4326),
+            radius_m=50.0,
+            recording_count=1,
+            first_at=datetime(2026, 8, 25, tzinfo=UTC),
+            last_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        other = Site(
+            centroid=WKTElement("POINT(11 51)", srid=4326),
+            radius_m=50.0,
+            recording_count=1,
+            first_at=datetime(2026, 8, 25, tzinfo=UTC),
+            last_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add_all([in_session, other])
+        session.flush()
+        r = _recording(session, audio_hash="a" * 64, session_id=annotation_session.id)
+        r.site_id = in_session.id
+        session.add(r)
+        session.commit()
+        in_session_id, session_id = in_session.id, annotation_session.id
+
+        results = filtered_sites(session, session_id=session_id)
+
+        assert [s.id for s in results] == [in_session_id]
+
+
 # Tests for neighbor_recordings -- no database needed, pure function tests
 def _bare_recording(audio_hash: str, recorded_at: datetime) -> Recording:
     """A Recording that's never touched a session -- neighbor_recordings only

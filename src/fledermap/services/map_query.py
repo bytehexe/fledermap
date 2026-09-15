@@ -200,6 +200,7 @@ def filtered_sites(
     date_from: datetime | None = None,
     date_to: datetime | None = None,
     site_id: int | None = None,
+    session_id: int | None = None,
 ) -> Sequence[Site]:
     # Same reasoning as filtered_recordings above -- most-recently-active
     # first, deterministically, instead of an undefined DB order.
@@ -210,6 +211,20 @@ def filtered_sites(
         stmt = stmt.where(Site.first_at <= date_to)
     if site_id is not None:
         stmt = stmt.where(Site.id == site_id)
+    if session_id is not None:
+        # The map's session filter narrows which recording markers show;
+        # without this, the site markers stayed unfiltered even though a
+        # session only ever touches a handful of its sites (Obsidian
+        # backlog, 2026-09-15).
+        stmt = stmt.where(
+            Site.id.in_(
+                select(Recording.site_id).where(
+                    Recording.session_id == session_id,
+                    Recording.site_id.is_not(None),
+                    Recording.missing_since.is_(None),
+                ),
+            ),
+        )
 
     sites = list(session.scalars(stmt).all())
 
