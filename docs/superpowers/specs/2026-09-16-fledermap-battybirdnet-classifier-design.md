@@ -138,6 +138,18 @@ only called from EMT's ingest path), not new battybirdnet-specific logic in the 
   scientific-name prefix `"Plecotus"` onto the **already-existing** genus-level `Plecotus` taxon
   in `taxa_groups.yaml` — no new taxonomy needed, just a new `codes.battybirdnet` entry on that
   existing row.
+- **Two species on the EU checkpoint have no matching entry in `taxa_eu.yaml` at all:**
+  *Pipistrellus maderensis* and *Rhinolophus blasii*. `taxa_eu.yaml` is deliberately scoped to the
+  Wildlife Acoustics 31-species EU list (`docs/references.md`), and BattyBirdNET-Analyzer's
+  checkpoint (trained via a different, BirdNET-derived process) covers a genuinely different
+  species set that happens to include these two. Found during implementation (Task 3), not
+  assumed here: extending `taxa_eu.yaml`'s scope to cover battybirdnet's superset is a real
+  taxonomy-scope decision deserving its own explicit spec, not something folded into this
+  integration. Resolution: leave both deliberately unmapped for now — if the model ever emits
+  either label, it surfaces as an unmapped-species review-queue claim, this project's designed,
+  intended behavior for a genuine mapping gap (CLAUDE.md "Species codes": "An unmapped label is
+  not a failure... A wrong mapping is far worse than a missing one"). Carried into §7 as a known
+  limitation.
 - `NOISE` never gets a taxa-YAML entry — it resolves via `sentinel_verdict`, never `resolve_code`.
 
 ## 5. Config
@@ -168,6 +180,10 @@ repurposing of a bird-call classifier (BirdNET) onto ultrasonic frequencies.
 
 ## 7. Known limitations (documented, not solved here)
 
+- **Two species the EU checkpoint can detect (`Pipistrellus maderensis`, `Rhinolophus blasii`)
+  have no `taxa_eu.yaml` entry and are deliberately left unmapped** — see §4 for the full
+  reasoning. They will always land as unmapped-species review-queue claims until a future,
+  separately-decided spec extends `taxa_eu.yaml`'s scope beyond the Wildlife Acoustics list.
 - **`_BATTYBIRDNET_FLOOR = 0.05` (§3) means considerably more `classifier_detection` rows per
   recording than batdetect2 stores.** Considered filtering at write-time to the currently
   configured `battybirdnet_threshold` instead, which would shrink storage substantially — but
