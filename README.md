@@ -40,6 +40,18 @@ requires attribution to the
 [BatDetect2 project](https://github.com/macaodha/batdetect2), whose model
 this integration runs unmodified.
 
+## Optional: BattyBirdNET-Analyzer classifier
+
+A second, independently enable/disable-able classifier,
+[BattyBirdNET-Analyzer](https://github.com/rdz-oss/BattyBirdNET-Analyzer) (by R.D. Zinck,
+CC-BY-NC-SA-4.0), can also be enabled. Unlike batdetect2, Fledermap never imports, vendors, or
+bundles any of its code -- it only talks HTTP to a server you run yourself (see
+https://github.com/bytehexe/battybirdnet-docker for one way to run it), configured via
+`FLEDERMAP_BATTYBIRDNET_URL`. Set `FLEDERMAP_BATTYBIRDNET_ENABLED=true` and
+`FLEDERMAP_BATTYBIRDNET_URL` to your server's base URL to turn it on. Use of the server you point
+Fledermap at is non-commercial only, per BattyBirdNET-Analyzer's own license -- that obligation
+is yours as the operator running it, separate from Fledermap's own MIT license.
+
 ## Documentation
 
 Everything past this quickstart — how-to guides, reference material, and
