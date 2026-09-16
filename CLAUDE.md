@@ -509,18 +509,26 @@ one, because it resolves confidently to something the detector never emits.
 
 `taxa_eu.yaml` covers all 31 European species and `taxa_na.yaml` all 38 North
 American (USA/Canada) species on the Wildlife Acoustics list (2026-09-04, in
-anticipation of both EU and US users at v1). `taxa_groups.yaml` holds every genus/group-rank taxon (never a species),
+anticipation of both EU and US users at v1). `taxa_eu.yaml` additionally holds 2
+species outside that list (`Pipistrellus maderensis`, `Rhinolophus blasii`,
+added 2026-09-16) that BattyBirdNET-Analyzer's EU checkpoint can detect but the
+Wildlife Acoustics list doesn't cover — each has only a `battybirdnet` code, no
+`emt`, since the EMT never emits either label. `taxa_groups.yaml` holds every genus/group-rank taxon (never a species),
 deliberately region-neutral rather than filed under either regional file —
 `Myotis`/`Nyctaloid` moved there from `taxa_eu.yaml` (2026-09-05) after both
 turned out to be cross-region (Myotis has species in both lists; Nyctaloid's
 Eptesicus spans both continents too), which had gone unnoticed only because
 nothing read file-of-origin as a region signal. `seed.py`'s `_DATA` loads all
 three files. Every scientific/English/German name was cross-checked against
-Wikipedia/IUCN/ASM, not hand-entered; see each file's header comment for the
-source and the per-entry taxonomic-revision notes (e.g. two European species
-now filed under *Cnephaeus* rather than *Eptesicus* by current taxonomy —
-`scientific_name` deliberately still matches the WA page's own naming, since
-that's the vocabulary the code source is keyed against).
+Wikipedia/IUCN/ASM/Mammal Diversity Database, not hand-entered; see each
+file's header comment for the source and the per-entry taxonomic-revision
+notes. `scientific_name` tracks current taxonomic consensus (e.g. the three
+European Old World *Eptesicus* species now filed under *Cnephaeus*, per a 2023
+revision splitting the genus, updated 2026-09-16) even where a `codes` entry's
+own literal value doesn't match, because a `codes` value is a source's own
+vocabulary (what the WA page/EMT device or a classifier model literally
+emits), never derived from `scientific_name` — resolution is by exact
+`(source, code)` lookup, so renaming `scientific_name` cannot break it.
 
 ## Ingest invariants
 

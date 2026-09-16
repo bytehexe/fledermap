@@ -152,11 +152,17 @@ only called from EMT's ingest path), not new battybirdnet-specific logic in the 
   species set that happens to include these two. Found during implementation (Task 3), not
   assumed here: extending `taxa_eu.yaml`'s scope to cover battybirdnet's superset is a real
   taxonomy-scope decision deserving its own explicit spec, not something folded into this
-  integration. Resolution: leave both deliberately unmapped for now — if the model ever emits
+  integration. Resolution at the time: leave both deliberately unmapped — if the model ever emits
   either label, it surfaces as an unmapped-species review-queue claim, this project's designed,
   intended behavior for a genuine mapping gap (CLAUDE.md "Species codes": "An unmapped label is
   not a failure... A wrong mapping is far worse than a missing one"). Carried into §7 as a known
   limitation.
+
+  **Update (2026-09-16, post-merge):** both species were added to `taxa_eu.yaml` as
+  `battybirdnet`-only entries (no `emt` code), common names cross-checked against Wikipedia. This
+  is the taxonomy-scope decision the paragraph above deferred — made explicitly, on its own, after
+  the integration itself had already shipped and been reviewed, rather than folded silently into
+  this feature's own implementation. `taxa_eu.yaml`'s header comment carries the same reasoning.
 - `NOISE` never gets a taxa-YAML entry — it resolves via `sentinel_verdict`, never `resolve_code`.
 
 ## 5. Config
@@ -187,10 +193,9 @@ repurposing of a bird-call classifier (BirdNET) onto ultrasonic frequencies.
 
 ## 7. Known limitations (documented, not solved here)
 
-- **Two species the EU checkpoint can detect (`Pipistrellus maderensis`, `Rhinolophus blasii`)
-  have no `taxa_eu.yaml` entry and are deliberately left unmapped** — see §4 for the full
-  reasoning. They will always land as unmapped-species review-queue claims until a future,
-  separately-decided spec extends `taxa_eu.yaml`'s scope beyond the Wildlife Acoustics list.
+- ~~Two species the EU checkpoint can detect (`Pipistrellus maderensis`, `Rhinolophus blasii`)
+  have no `taxa_eu.yaml` entry and are deliberately left unmapped~~ — **resolved 2026-09-16**, see
+  §4's update note. Both now have a `battybirdnet`-only entry in `taxa_eu.yaml`.
 - **`_BATTYBIRDNET_FLOOR = 0.05` (§3) means considerably more `classifier_detection` rows per
   recording than batdetect2 stores.** Considered filtering at write-time to the currently
   configured `battybirdnet_threshold` instead, which would shrink storage substantially — but

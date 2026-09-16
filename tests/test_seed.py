@@ -79,7 +79,7 @@ def test_a_code_reassigned_in_the_yaml_follows_the_taxon(engine: Engine) -> None
 
         repointed = resolve_code(session, "emt", "EPTSER")
         assert repointed is not None
-        assert repointed.scientific_name == "Eptesicus serotinus"
+        assert repointed.scientific_name == "Cnephaeus serotinus"
 
 
 def test_resolves_a_known_code(engine: Engine) -> None:
@@ -90,7 +90,7 @@ def test_resolves_a_known_code(engine: Engine) -> None:
         taxon = resolve_code(session, "emt", "EPTSER")
 
         assert taxon is not None
-        assert taxon.scientific_name == "Eptesicus serotinus"
+        assert taxon.scientific_name == "Cnephaeus serotinus"
         assert taxon.common_name_de == "Breitflügelfledermaus"
 
 
@@ -202,6 +202,28 @@ def test_battybirdnet_code_resolves_the_plecotus_genus_group(engine: Engine) -> 
         assert taxon.rank == "genus"
 
 
+@pytest.mark.parametrize(
+    "scientific_name",
+    ["Pipistrellus maderensis", "Rhinolophus blasii"],
+)
+def test_battybirdnet_code_resolves_species_absent_from_the_wildlife_acoustics_list(
+    engine: Engine, scientific_name: str
+) -> None:
+    """These two are outside the Wildlife Acoustics list (no `emt` code) but are
+    real species BattyBirdNET-Analyzer's EU checkpoint can detect -- added to
+    taxa_eu.yaml as a `battybirdnet`-only entry rather than left permanently
+    unmapped (see that file's header comment).
+    """
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        session.commit()
+
+        taxon = resolve_code(session, IdSource.BATTYBIRDNET, scientific_name)
+
+        assert taxon is not None
+        assert taxon.scientific_name == scientific_name
+
+
 def test_group_codes_resolve_to_the_right_taxon(engine: Engine) -> None:
     with OrmSession(engine) as session:
         seed_taxonomy(session)
@@ -237,14 +259,14 @@ def test_one_taxon_may_carry_several_codes_from_one_source(engine: Engine) -> No
     would make NABat unrepresentable.
 
     The codes below are illustrative of the two-form shape, not reference data —
-    Eptesicus serotinus is European and does not appear in NABat's list.
+    Cnephaeus serotinus is European and does not appear in NABat's list.
     """
     with OrmSession(engine) as session:
         seed_taxonomy(session)
         session.commit()
 
         taxon = session.scalars(
-            select(Taxon).where(Taxon.scientific_name == "Eptesicus serotinus"),
+            select(Taxon).where(Taxon.scientific_name == "Cnephaeus serotinus"),
         ).one()
         session.add_all(
             [

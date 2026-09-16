@@ -10,12 +10,24 @@
 #
 # This covers all 31 European species on that list.
 #
+# `scientific_name` tracks current taxonomic consensus (Mammal Diversity Database / ASM "Bat
+# Species of the World"), not necessarily the WA page's own naming -- verified 2026-09-16 against
+# every entry in this file plus taxa_na.yaml, the only change found being the three Old World
+# Eptesicus species below now filed under the resurrected genus Cnephaeus (2023 revision). Each
+# `codes` entry's own value is untouched by this: it's a source's own literal vocabulary (the WA
+# page's alpha code, or a classifier model's actual output string), resolved by exact
+# (source, code) lookup -- never derived from `scientific_name` -- so renaming this field cannot
+# break a code mapping, even where a `codes` literal still says "Eptesicus" because that's what
+# the model itself emits.
+#
 # `battybirdnet` codes below map BattyBirdNET-Analyzer's EU checkpoint labels, which is a
 # genuinely different (BirdNET-derived) species set, not scoped to the Wildlife Acoustics list
 # above. It also emits Pipistrellus maderensis and Rhinolophus blasii, neither of which is on the
-# Wildlife Acoustics list this file is scoped to -- deliberately left unmapped here rather than
-# extending this file's scope; either label will correctly land in the unmapped-species review
-# queue if the model ever emits it, rather than getting invented an entry it wasn't verified for.
+# Wildlife Acoustics list -- both are added below anyway (with only a `battybirdnet` code, no
+# `emt`) since they're real, verified species this classifier can genuinely detect; common names
+# cross-checked against Wikipedia, not hand-entered. A species this classifier can emit that
+# isn't listed at all (rather than one listed here without a code) still lands in the
+# unmapped-species review queue by design, same as any other unrecognized label.
 taxa:
   - scientific_name: Pipistrellus pipistrellus
     rank: species
@@ -37,6 +49,14 @@ taxa:
     common_name_de: Weißrandfledermaus
     common_name_en: Kuhl's pipistrelle
     codes: {emt: PIPKUH, battybirdnet: "Pipistrellus kuhlii"}
+  - scientific_name: Pipistrellus maderensis
+    rank: species
+    common_name_de: Madeira-Fledermaus
+    common_name_en: Madeira pipistrelle
+    # Not on the Wildlife Acoustics list this file is otherwise scoped to (no
+    # `emt` code) -- BattyBirdNET-Analyzer's EU checkpoint emits it, so it's
+    # added here rather than left permanently unmapped.
+    codes: {battybirdnet: "Pipistrellus maderensis"}
   - scientific_name: Nyctalus noctula
     rank: species
     common_name_de: Abendsegler
@@ -52,17 +72,21 @@ taxa:
     common_name_de: Riesenabendsegler
     common_name_en: Greater noctule bat
     codes: {emt: NYCLAS, battybirdnet: "Nyctalus lasiopterus"}
-  - scientific_name: Eptesicus serotinus
+  - scientific_name: Cnephaeus serotinus
     rank: species
     common_name_de: Breitflügelfledermaus
     common_name_en: Serotine
+    # `codes` values are each source's own literal vocabulary, not derived from
+    # `scientific_name` -- batdetect2/battybirdnet still emit "Eptesicus serotinus"
+    # (their training data predates this 2023 revision), so those literals stay
+    # as-is even though `scientific_name` above reflects current consensus.
     codes: {emt: EPTSER, batdetect2: "Eptesicus serotinus", battybirdnet: "Eptesicus serotinus"}
-  - scientific_name: Eptesicus isabellinus
+  - scientific_name: Cnephaeus isabellinus
     rank: species
     common_name_de: Isabell-Breitflügelfledermaus
     common_name_en: Meridional serotine
     codes: {emt: EPTISA}
-  - scientific_name: Eptesicus nilssonii
+  - scientific_name: Cnephaeus nilssonii
     rank: species
     common_name_de: Nordfledermaus
     common_name_en: Northern bat
@@ -165,6 +189,14 @@ taxa:
     common_name_de: Kleine Hufeisennase
     common_name_en: Lesser horseshoe bat
     codes: {emt: RHIHIP, batdetect2: "Rhinolophus hipposideros", battybirdnet: "Rhinolophus hipposideros"}
+  - scientific_name: Rhinolophus blasii
+    rank: species
+    common_name_de: Blasius-Hufeisennase
+    common_name_en: Blasius's horseshoe bat
+    # Not on the Wildlife Acoustics list this file is otherwise scoped to (no
+    # `emt` code) -- BattyBirdNET-Analyzer's EU checkpoint emits it, so it's
+    # added here rather than left permanently unmapped.
+    codes: {battybirdnet: "Rhinolophus blasii"}
   - scientific_name: Tadarida teniotis
     rank: species
     common_name_de: Europäische Bulldoggfledermaus
