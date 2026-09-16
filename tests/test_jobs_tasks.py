@@ -41,7 +41,7 @@ from fledermap.jobs.tasks import (
 )
 from fledermap.media.paths import spectrogram_path
 from fledermap.services import site_naming
-from fledermap.services.batdetect2 import DetectionInput, record_detections
+from fledermap.services.classifier_detections import DetectionInput, record_detections
 from fledermap.store.models import (
     ClassifierDetection,
     Identification,
