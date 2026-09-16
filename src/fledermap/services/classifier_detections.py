@@ -20,6 +20,7 @@ uses for the same reason.
 
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -145,17 +146,34 @@ def materialize_claims(
         .distinct(),
     ).all()
 
+    if not recording_ids:
+        return MaterializeReport(recordings_updated=0)
+
+    # Batched instead of one SELECT + one GET per recording (was 2 queries x
+    # every recording this source has ever touched, every cycle -- see
+    # docs/superpowers/specs/2026-09-16-fledermap-worker-scaling-design.md
+    # §3.5). The recompute-every-cycle behavior above is unchanged, only how
+    # the starting state is READ.
+    recordings_by_id = {
+        recording.id: recording
+        for recording in session.scalars(
+            select(Recording).where(Recording.id.in_(recording_ids)),
+        )
+    }
+    detections_by_recording: dict[int, list[ClassifierDetection]] = defaultdict(list)
+    for detection in session.scalars(
+        select(ClassifierDetection).where(
+            ClassifierDetection.source == source,
+            ClassifierDetection.recording_id.in_(recording_ids),
+        ),
+    ):
+        detections_by_recording[detection.recording_id].append(detection)
+
     now = datetime.now(UTC)
     updated = 0
     for recording_id in recording_ids:
-        recording = session.get(Recording, recording_id)
-        assert recording is not None  # FK guarantees this
-        detections = session.scalars(
-            select(ClassifierDetection).where(
-                ClassifierDetection.recording_id == recording_id,
-                ClassifierDetection.source == source,
-            ),
-        ).all()
+        recording = recordings_by_id[recording_id]  # FK guarantees this exists
+        detections = detections_by_recording.get(recording_id, [])
         passing = [d for d in detections if d.confidence >= threshold]
         # One claim per distinct EFFECTIVE taxon_id (or per sentinel
         # verdict), keeping the highest-confidence detection's label for
