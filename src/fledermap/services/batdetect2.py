@@ -44,13 +44,18 @@ def enqueue_batdetect2(session: OrmSession, engine: Engine) -> int:
     except NotImplementedError:
         pass
 
-    already_processed = select(ClassifierDetection.recording_id).where(
-        ClassifierDetection.source == IdSource.BATDETECT2,
+    already_processed = (
+        select(ClassifierDetection.id)
+        .where(
+            ClassifierDetection.recording_id == Recording.id,
+            ClassifierDetection.source == IdSource.BATDETECT2,
+        )
+        .exists()
     )
     hashes = session.scalars(
         select(Recording.audio_hash).where(
             Recording.missing_since.is_(None),
-            Recording.id.not_in(already_processed),
+            ~already_processed,
         ),
     ).all()
     for audio_hash in hashes:

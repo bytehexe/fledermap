@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -218,6 +219,21 @@ class ClassifierDetection(Base):
     """
 
     __tablename__ = "classifier_detection"
+    __table_args__ = (
+        # Backs the NOT EXISTS anti-join in services/batdetect2.py's
+        # enqueue_batdetect2 and services/battybirdnet.py's
+        # enqueue_battybirdnet -- both filter by (source, recording_id)
+        # every ingest cycle to find recordings still missing a detection
+        # row. Without this, Postgres falls back to a full Seq Scan of this
+        # table (confirmed via EXPLAIN ANALYZE: 12.2s at 334k rows) even
+        # though `source` and `recording_id` each have their OWN index --
+        # neither alone can drive an index-only anti-join on the pair.
+        Index(
+            "ix_classifier_detection_source_recording_id",
+            "source",
+            "recording_id",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     recording_id: Mapped[int] = mapped_column(
