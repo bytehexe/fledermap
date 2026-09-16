@@ -571,9 +571,9 @@ class Config:
                 config_path,
             )
             text = _as_str(battybirdnet_enabled_raw, label).strip().lower()
-            if text == "true":
+            if text in ("true", "1", "yes"):
                 battybirdnet_enabled = True
-            elif text == "false":
+            elif text in ("false", "0", "no"):
                 battybirdnet_enabled = False
             else:
                 msg = f"{label}={battybirdnet_enabled_raw!r} is not a boolean (true/false)."

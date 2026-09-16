@@ -103,14 +103,18 @@ the URL: several of these overlap in subject and disagree in detail.
 > this is the device's own bug, not a convention mismatch in either decoder. Detail and
 > consequences in the design spec's R1 section.
 
-## Classifiers (additional identification sources, not yet built)
+## Classifiers (additional identification sources)
 
 Per the design, species ID is not this project's problem — the EMT already does
 it, and other classifiers are simply further `identification` rows (spec D9).
+Both classifiers below are shipped, off-by-default, optional integrations — see
+CLAUDE.md's "Species codes" section and each classifier's own design spec.
 
-- [BattyBirdNET-Analyzer](https://github.com/rdz-oss/BattyBirdNET-Analyzer)
-- [BattyBirdNET-Pi](https://github.com/rdz-oss/BattyBirdNET-Pi) — the single-station system that prompted this project
-- BatDetect2 — no URL recorded yet; add one when it is next referenced
+| Source | Authoritative for | Notes |
+|---|---|---|
+| [BatDetect2](https://github.com/macaodha/batdetect2) | The `codes.batdetect2` vocabulary in `taxa_eu.yaml`/`taxa_na.yaml`. | Codes are the model's own class labels, read directly off the real installed package's output (`api.process_file`'s `annotation["class"]`) rather than a separately published list — see `taxa_eu.yaml`'s per-entry comments for label quirks kept verbatim (e.g. `Barbastellus barbastellus`'s genus typo, matched deliberately since `resolve_code` keys on the model's own vocabulary, not a corrected spelling). |
+| [BattyBirdNET-Analyzer](https://github.com/rdz-oss/BattyBirdNET-Analyzer) | The `codes.battybirdnet` vocabulary in `taxa_eu.yaml`. | Codes are the scientific-name prefix of each label in the pinned upstream checkpoint label file [`checkpoints/bats/v1.0/BattyBirdNET-EU-256kHz_Labels.txt`](https://github.com/rdz-oss/BattyBirdNET-Analyzer/blob/main/checkpoints/bats/v1.0/BattyBirdNET-EU-256kHz_Labels.txt) (`rdz-oss/BattyBirdNET-Analyzer`, `main` ref, confirmed 2026-09-16) — a genuinely different (BirdNET-derived) species set than the Wildlife Acoustics list above, not scoped to it. See `taxa_eu.yaml`'s header comment and the battybirdnet design spec §4 for the two EU-checkpoint species left deliberately unmapped. |
+| [BattyBirdNET-Pi](https://github.com/rdz-oss/BattyBirdNET-Pi) | — | The single-station system that prompted this project; not itself integrated. |
 
 ## Prior art
 

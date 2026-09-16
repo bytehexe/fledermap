@@ -7,8 +7,8 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import IdSource
-from fledermap.services.batdetect2 import DetectionInput, enqueue_batdetect2
-from fledermap.services.classifier_detections import record_detections
+from fledermap.services.batdetect2 import enqueue_batdetect2
+from fledermap.services.classifier_detections import DetectionInput, record_detections
 from fledermap.store.models import Recording, Taxon
 
 pytestmark = pytest.mark.db

@@ -437,3 +437,81 @@ def test_materialize_claims_writes_a_noise_verdict_for_a_sentinel_label(
         ).one()
         assert ident.verdict == Verdict.NOISE
         assert ident.taxon_id is None
+
+
+def test_materialize_claims_lets_noise_win_the_null_taxon_slot_by_confidence(
+    engine: Engine,
+) -> None:
+    """A NOISE sentinel and an unmapped-species label both resolve to
+    taxon_id=None, and `uq_identification_source_claim` allows only one
+    (recording, source, taxon_id=NULL) row -- so the two candidates compete
+    for that single slot, and the highest-confidence one must win. Here
+    NOISE has the higher confidence, so the surviving claim must be
+    Verdict.NOISE, and the unmapped-species candidate must produce no claim
+    of its own."""
+    with OrmSession(engine) as session:
+        recording = _recording(session, "o" * 64)
+        record_detections(
+            session,
+            recording,
+            IdSource.BATDETECT2,
+            [
+                DetectionInput(taxon_id=None, raw_label="NOISE", confidence=0.9),
+                DetectionInput(
+                    taxon_id=None, raw_label="Not A Real Species", confidence=0.85
+                ),
+            ],
+        )
+        session.commit()
+
+        materialize_claims(session, IdSource.BATDETECT2, threshold=0.8)
+        session.commit()
+
+        claims = session.scalars(
+            select(Identification).where(
+                Identification.recording_id == recording.id,
+                Identification.source == IdSource.BATDETECT2,
+            ),
+        ).all()
+        assert len(claims) == 1
+        assert claims[0].verdict == Verdict.NOISE
+        assert claims[0].taxon_id is None
+
+
+def test_materialize_claims_lets_an_unmapped_species_win_the_null_taxon_slot_by_confidence(
+    engine: Engine,
+) -> None:
+    """Same three-way NULL-taxon-slot competition as
+    `test_materialize_claims_lets_noise_win_the_null_taxon_slot_by_confidence`,
+    but with the unmapped-species candidate at the higher confidence -- the
+    surviving claim must be Verdict.SPECIES with taxon_id=None (not
+    Verdict.NOISE), proving the dedup is purely confidence-based rather than
+    favoring one verdict over the other."""
+    with OrmSession(engine) as session:
+        recording = _recording(session, "p" * 64)
+        record_detections(
+            session,
+            recording,
+            IdSource.BATDETECT2,
+            [
+                DetectionInput(taxon_id=None, raw_label="NOISE", confidence=0.82),
+                DetectionInput(
+                    taxon_id=None, raw_label="Not A Real Species", confidence=0.95
+                ),
+            ],
+        )
+        session.commit()
+
+        materialize_claims(session, IdSource.BATDETECT2, threshold=0.8)
+        session.commit()
+
+        claims = session.scalars(
+            select(Identification).where(
+                Identification.recording_id == recording.id,
+                Identification.source == IdSource.BATDETECT2,
+            ),
+        ).all()
+        assert len(claims) == 1
+        assert claims[0].verdict == Verdict.SPECIES
+        assert claims[0].taxon_id is None
+        assert claims[0].raw_label == "Not A Real Species"

@@ -13,7 +13,6 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import IdSource
-from fledermap.services.classifier_detections import DetectionInput as DetectionInput
 from fledermap.store.models import ClassifierDetection, Recording
 
 

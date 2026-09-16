@@ -42,7 +42,7 @@ this integration runs unmodified.
 
 ## Optional: BattyBirdNET-Analyzer classifier
 
-A second, independently enable/disable-able classifier,
+A third, independently enable/disable-able classifier,
 [BattyBirdNET-Analyzer](https://github.com/rdz-oss/BattyBirdNET-Analyzer) (by R.D. Zinck,
 CC-BY-NC-SA-4.0), can also be enabled. Unlike batdetect2, Fledermap never imports, vendors, or
 bundles any of its code -- it only talks HTTP to a server you run yourself (see

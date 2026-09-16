@@ -96,6 +96,13 @@ purge_source` call site (jobs/tasks.py, tests) moves to `services.classifier_det
    needs confirming against a real running server's actual JSON at implementation time, same
    discipline as batdetect2's own Task 5 precedent — reading the source is a legitimate
    verification step, not a substitute for it.
+
+   **Still unconfirmed as of 2026-09-16, after implementation.** No real `battybirdnet-docker`
+   instance was available in the implementation environment, so `results_to_detections` and
+   `classify_battybirdnet_task` (`jobs/tasks.py`) ship on the source-reading-only shape above,
+   not a verified one. Whoever first runs this classifier against a real server should capture
+   one genuine `/analyze` response and add a fixture-based test proving the shape matches,
+   mirroring `tests/test_batdetect2_real_api.py`'s precedent for the sibling classifier.
 4. Write the full flattened list via `record_detections` (full replace, unchanged function).
 5. On any request failure (`requests.exceptions.RequestException`, non-200 response, or a
    response `analyze` reports as unsuccessful): let the job raise and retry via Procrastinate's
@@ -207,6 +214,15 @@ repurposing of a bird-call classifier (BirdNET) onto ultrasonic frequencies.
   comparison across two semantically different categories. Accepted as-is for this pass — a
   natural extension of an already-accepted limitation, not a new one — and left for a future spec
   if it turns out to matter in practice.
+- **A `NOISE` claim can coexist with a `SPECIES` claim from the same classifier and the same
+  recording.** They occupy different `taxon_id` slots — `NOISE` always at `taxon_id=None`, a
+  mapped species at its own real `taxon_id` — so `uq_identification_source_claim` never forces
+  them to compete the way the bullet above describes for two candidates that both resolve to
+  `taxon_id=None`. This is a deliberate, accepted design decision, not an oversight:
+  `current_best.py` already renders multiple simultaneous `SPECIES` claims from one source as
+  "Multiple Species" (`is_multi`), and a `NOISE` claim sitting alongside a `SPECIES` claim from
+  the same source is a natural extension of that same existing multi-claim handling, not a new
+  failure mode requiring separate suppression logic.
 
 ## 8. Out of scope for this spec
 

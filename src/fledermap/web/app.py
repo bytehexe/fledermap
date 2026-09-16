@@ -78,7 +78,7 @@ def create_app(
     `batdetect2_enabled` is `Config.batdetect2_enabled` -- the map page's
     Source filter only lists "batdetect2" as an option when this is true,
     since disabling the classifier purges every one of its claims (see
-    `services/batdetect2.py`'s `purge_source`), leaving nothing for the
+    `services/classifier_detections.py`'s `purge_source`), leaving nothing for the
     filter to match; defaults to `False`, same reasoning as `archive_roots`
     above.
     """

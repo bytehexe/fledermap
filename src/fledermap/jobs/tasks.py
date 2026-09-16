@@ -105,7 +105,7 @@ def batdetect2_lock_key(audio_hash: str) -> str:
 
 
 # A fixed, non-configurable sanity floor -- distinct from the (configurable)
-# threshold `services/batdetect2.py`'s `materialize_claims` applies when
+# threshold `services/classifier_detections.py`'s `materialize_claims` applies when
 # turning cached detections into claims. This floor only keeps the
 # `classifier_detection` cache itself from filling up with the model's
 # near-zero noise-level scores; raising the real threshold later must not
@@ -159,6 +159,18 @@ def results_to_detections(
     parsing bug (reading attributes that never existed) shipped because
     nothing checked the parsing against the real package's actual output
     shape, and a hand-written mock of the same wrong shape passed happily.
+
+    UNVERIFIED AGAINST A REAL SERVER: the `results` shape assumed here is
+    derived entirely from reading BattyBirdNET-Analyzer's upstream
+    `analyze.py`/`server.py` source (design spec 2026-09-16-fledermap-
+    battybirdnet-classifier-design.md §3) -- no live `battybirdnet-docker`
+    instance was available to confirm it against a genuine `/analyze`
+    response. Whoever first enables this classifier against a real server
+    should capture one real response and add a fixture-based test proving
+    this shape matches, mirroring `tests/test_batdetect2_real_api.py`'s
+    precedent for the sibling classifier (which exists precisely because a
+    source-read-only assumption about batdetect2's own output shape once
+    shipped wrong).
     """
     resolved: dict[str, int | None] = {}
     detections: list[DetectionInput] = []
@@ -209,6 +221,16 @@ def classify_battybirdnet_task(
     engine = context.additional_context["engine"]
     config: Config = context.additional_context["config"]
 
+    if config.battybirdnet_url is None:
+        # Can only happen if this job was deferred while the classifier was
+        # enabled, then the config changed (disabled, or the URL cleared)
+        # before it ran -- mirrors `name_site_task`'s analogous
+        # `poiidx_database_url is None` guard above. Nothing to do, and
+        # nothing to retry usefully; without this check the f-string below
+        # would silently build the URL "None/analyze" and fail later with a
+        # confusing `requests.exceptions.MissingSchema` instead.
+        return
+
     # Three phases, and the session is deliberately CLOSED across the middle
     # one: an HTTP round-trip to an external server is slow, and holding a
     # connection open across it leaves it `idle in transaction` for that
@@ -227,6 +249,9 @@ def classify_battybirdnet_task(
         )
     response.raise_for_status()
     payload = response.json()
+    # `server.py`'s `/analyze` handler builds `data = {"msg": "success",
+    # "results": results, ...}` on success (confirmed by reading its source
+    # directly) -- any other value means the server itself reports failure.
     if payload.get("msg") != "success":
         msg = f"battybirdnet server returned {payload.get('msg')!r} for {audio_hash}"
         raise RuntimeError(msg)
@@ -278,7 +303,7 @@ def annotations_to_detections(
                 # An unmapped label is stored as a detection all the same,
                 # with taxon_id None and the label preserved -- it becomes an
                 # "unmapped species" claim rather than being discarded (see
-                # `services/batdetect2.py`'s `materialize_claims`).
+                # `services/classifier_detections.py`'s `materialize_claims`).
                 taxon_id=resolved[raw_label],
                 raw_label=raw_label,
                 # `class_prob`, not `det_prob`: this is the number the user's
@@ -300,7 +325,7 @@ def classify_batdetect2_task(
 ) -> None:
     """Run batdetect2 once over one recording and cache every candidate above
     `_BATDETECT2_FLOOR` in `classifier_detection` -- never writes
-    `Identification` directly (see `services/batdetect2.py`'s
+    `Identification` directly (see `services/classifier_detections.py`'s
     `materialize_claims`, run separately every ingest cycle).
     """
     # Local import, not a top-level one: batdetect2 is an optional extra
