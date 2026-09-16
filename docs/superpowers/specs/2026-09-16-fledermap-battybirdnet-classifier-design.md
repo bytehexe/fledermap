@@ -80,9 +80,12 @@ purge_source` call site (jobs/tasks.py, tests) moves to `services.classifier_det
    label vocabulary (all ~30 species plus `NOISE` for the EU checkpoint), sorted by score
    descending but never filtered — `score` is a JSON string, not a number, and must be cast with
    `float()`. Flatten every window's list into one stream of `(label, confidence)` pairs across
-   the whole recording, drop anything below a `_BATTYBIRDNET_FLOOR` sanity floor (mirroring
-   `_BATDETECT2_FLOOR`, keeping the exact value TBD at implementation time against real
-   response sizes), and turn each survivor into a `DetectionInput`: if
+   the whole recording, drop anything below `_BATTYBIRDNET_FLOOR = 0.05` (the same value as
+   `_BATDETECT2_FLOOR`, chosen for the same reason: a low sanity floor, not the user's
+   configured threshold, is what keeps a later threshold change free of any model re-run — see
+   §7's storage-vs-free-recompute discussion, resolved in favor of the low-floor approach despite
+   battybirdnet's response being considerably larger per recording than batdetect2's), and turn
+   each survivor into a `DetectionInput`: if
    `domain/codes.py`'s existing `sentinel_verdict(label)` returns a `Verdict` (it already maps
    `"noise"`, case/whitespace-insensitive, to `Verdict.NOISE` — built for EMT's own sentinel
    strings, reused here as-is with zero changes), carry `taxon_id=None` with that meaning;
@@ -165,6 +168,15 @@ repurposing of a bird-call classifier (BirdNET) onto ultrasonic frequencies.
 
 ## 7. Known limitations (documented, not solved here)
 
+- **`_BATTYBIRDNET_FLOOR = 0.05` (§3) means considerably more `classifier_detection` rows per
+  recording than batdetect2 stores.** Considered filtering at write-time to the currently
+  configured `battybirdnet_threshold` instead, which would shrink storage substantially — but
+  rejected, since `enqueue_battybirdnet` (like `enqueue_batdetect2`) never re-runs the model for a
+  recording that already has a `classifier_detection` row, so filtering at the configured
+  threshold would mean a later *lowered* threshold could never surface anything that was
+  discarded, without deleting rows and forcing a re-classification. The low-floor approach keeps
+  "changing the threshold takes effect on the next materialize cycle, no model re-run" true for
+  battybirdnet exactly as it already is for batdetect2, at the cost of more storage per recording.
 - **Region is fixed for the whole server process at startup**, and only one region (`AREA`) can
   be active at a time — the operator picks one when building/running their container. Fledermap
   has no region/location field on `Recording` (same gap already noted in the batdetect2 spec's
