@@ -25,6 +25,7 @@ from fledermap.domain.metadata import (
     ParsedIdentification,
     RecordingMetadata,
     ScannedFile,
+    UnchangedFile,
 )
 from fledermap.ingest.scan import INCOMPLETE_SCAN_REASONS, scan_with_skips
 from fledermap.services.identifications import ClaimInput, replace_claims
@@ -331,32 +332,69 @@ def scan_all_roots(
     *,
     timestamp_source: TimestampSource,
     default_timezone: tzinfo,
-) -> tuple[list[tuple[ScannedFile, int]], set[str], int, int]:
+    session: OrmSession,
+) -> tuple[list[tuple[ScannedFile, int]], set[str], int, int, int]:
     """Scan every configured root in order, pairing each `ScannedFile` with
     the index of the root that produced it (design spec §4). Returns
-    `(scanned, seen_hashes, skipped, incomplete_skips)` -- `seen_hashes` and
-    the two counts are exactly what `sweep_missing` needs, so a caller
-    doesn't have to re-derive them from `scanned`.
+    `(scanned, seen_hashes, skipped, incomplete_skips, unchanged_by_fingerprint)`
+    -- `seen_hashes` and the two skip counts are exactly what `sweep_missing`
+    needs, so a caller doesn't have to re-derive them from `scanned`.
+    `unchanged_by_fingerprint` counts files recognised as unchanged via
+    `known` below and so never reached `commit_scan` at all -- a caller
+    reporting `commit_scan`'s own `IngestReport.unchanged` must add this in,
+    or the summary undercounts every file this function's short-circuit
+    handled.
+
+    `session` is used ONLY to build a `known` fingerprint map up front -- one
+    query for every already-ingested file's (path, size, mtime, audio_hash)
+    -- so `scan_with_skips` can skip re-reading, re-hashing, and re-computing
+    SNR for a file that hasn't changed since it was last fully scanned. See
+    docs/superpowers/specs/2026-09-16-fledermap-worker-scaling-design.md
+    §3.1. `ingest/scan.py` itself stays pure/DB-free (D16); this is the one
+    place that bridge exists.
     """
+    known: dict[Path, tuple[int, float, str]] = {}
+    rows = session.execute(
+        select(
+            Recording.archive_root_index,
+            Recording.path,
+            Recording.scan_size_bytes,
+            Recording.scan_mtime,
+            Recording.audio_hash,
+        ).where(
+            Recording.scan_size_bytes.is_not(None),
+            Recording.scan_mtime.is_not(None),
+        ),
+    )
+    for root_index, rel_path, size_bytes, mtime, existing_hash in rows:
+        if root_index >= len(archive_roots):
+            continue
+        known[archive_roots[root_index] / rel_path] = (size_bytes, mtime, existing_hash)
+
     scanned: list[tuple[ScannedFile, int]] = []
     seen_hashes: set[str] = set()
     skipped = 0
     incomplete_skips = 0
+    unchanged_by_fingerprint = 0
     for root_index, root in enumerate(archive_roots):
         for item in scan_with_skips(
             root,
             timestamp_source=timestamp_source,
             default_timezone=default_timezone,
+            known=known,
         ):
             if isinstance(item, ScannedFile):
                 scanned.append((item, root_index))
                 seen_hashes.add(item.audio_hash)
+            elif isinstance(item, UnchangedFile):
+                seen_hashes.add(item.audio_hash)
+                unchanged_by_fingerprint += 1
             else:
                 _, reason = item
                 skipped += 1
                 if reason in INCOMPLETE_SCAN_REASONS:
                     incomplete_skips += 1
-    return scanned, seen_hashes, skipped, incomplete_skips
+    return scanned, seen_hashes, skipped, incomplete_skips, unchanged_by_fingerprint
 
 
 def commit_scan(
@@ -441,6 +479,8 @@ def commit_scan(
                 path=rel,
                 archive_root_index=root_index,
                 ingested_at=now,
+                scan_size_bytes=item.size_bytes,
+                scan_mtime=item.mtime,
             )
             _apply_metadata(recording, item)
             session.add(recording)
@@ -472,6 +512,12 @@ def commit_scan(
         # known hash reappears in a scan. Two functions now share this
         # responsibility — keep them in sync if the reappearance rule changes.
         existing.missing_since = None
+        if (
+            existing.scan_size_bytes != item.size_bytes
+            or existing.scan_mtime != item.mtime
+        ):
+            existing.scan_size_bytes = item.size_bytes
+            existing.scan_mtime = item.mtime
         metadata_changed = _apply_metadata(existing, item)
         ids_changed = _apply_identifications(
             session,

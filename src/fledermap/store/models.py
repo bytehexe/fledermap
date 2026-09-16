@@ -84,6 +84,17 @@ class Recording(Base):
     )
     ingested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     missing_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # Fingerprint of the file's content-relevant disk state the last time it
+    # was FULLY scanned (content read, hashed, SNR computed) -- not merely
+    # resolved. `services/ingest.py`'s `scan_all_roots` uses these to skip
+    # that expensive work entirely for a file whose current (size, mtime)
+    # still matches: see docs/superpowers/specs/2026-09-16-fledermap-worker-
+    # scaling-design.md §3.1. A stale/mismatching pair only ever costs one
+    # extra full rescan of that one file -- correctness never depends on
+    # these being right, only performance does.
+    scan_size_bytes: Mapped[int | None] = mapped_column(Integer)
+    scan_mtime: Mapped[float | None] = mapped_column(Float)
     favourite: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     flagged_for_review: Mapped[bool] = mapped_column(
         Boolean,

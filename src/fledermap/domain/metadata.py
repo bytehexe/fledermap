@@ -50,4 +50,15 @@ class ScannedFile:
 
     audio_hash: str
     path: Path
+    size_bytes: int
+    mtime: float
     metadata: RecordingMetadata
+
+
+@dataclass(frozen=True)
+class UnchangedFile:
+    """A file whose (path, size, mtime) matches what was already recorded for
+    it -- ingest can trust the already-known audio_hash without re-reading,
+    re-hashing, or re-computing SNR for its content."""
+
+    audio_hash: str

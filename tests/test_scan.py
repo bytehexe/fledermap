@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from fledermap.domain.metadata import ScannedFile
+from fledermap.domain.metadata import ScannedFile, UnchangedFile
 from fledermap.ingest.scan import (
     INCOMPLETE_SCAN_REASONS,
     SkipReason,
@@ -93,6 +93,44 @@ def test_scan_populates_hash_and_metadata(tmp_path: Path) -> None:
     assert result.metadata.samplerate_hz == 256000
     assert result.metadata.duration_s is not None
     assert result.metadata.snr_db is not None
+
+
+def test_a_file_matching_a_known_fingerprint_is_reported_unchanged_without_being_reopened(
+    tmp_path: Path,
+) -> None:
+    path = _emt_file(tmp_path, "EPTSER_20150610_215446.wav")
+    file_stat = path.stat()
+    known = {path: (file_stat.st_size, file_stat.st_mtime, "deadbeef")}
+
+    results = list(scan_with_skips(tmp_path, known=known))
+
+    assert results == [UnchangedFile(audio_hash="deadbeef")]
+
+
+def test_a_file_whose_mtime_differs_from_the_known_fingerprint_is_rescanned(
+    tmp_path: Path,
+) -> None:
+    path = _emt_file(tmp_path, "EPTSER_20150610_215446.wav")
+    file_stat = path.stat()
+    known = {path: (file_stat.st_size, file_stat.st_mtime - 1, "deadbeef")}
+
+    results = list(scan_with_skips(tmp_path, known=known))
+
+    assert len(results) == 1
+    assert not isinstance(results[0], UnchangedFile)
+
+
+def test_a_file_whose_size_differs_from_the_known_fingerprint_is_rescanned(
+    tmp_path: Path,
+) -> None:
+    path = _emt_file(tmp_path, "EPTSER_20150610_215446.wav")
+    file_stat = path.stat()
+    known = {path: (file_stat.st_size + 1, file_stat.st_mtime, "deadbeef")}
+
+    results = list(scan_with_skips(tmp_path, known=known))
+
+    assert len(results) == 1
+    assert not isinstance(results[0], UnchangedFile)
 
 
 def test_scan_does_not_modify_the_archive(tmp_path: Path) -> None:

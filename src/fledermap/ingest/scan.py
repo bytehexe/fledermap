@@ -8,14 +8,14 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from dataclasses import replace
 from datetime import UTC, tzinfo
 from enum import StrEnum
 from pathlib import Path
 
 from fledermap.domain.codes import TimestampSource
-from fledermap.domain.metadata import ScannedFile
+from fledermap.domain.metadata import ScannedFile, UnchangedFile
 from fledermap.ingest.filename import parse_emt_filename
 from fledermap.ingest.guano_read import parse_guano
 from fledermap.ingest.merge import NoTimestampError, merge_metadata
@@ -119,6 +119,7 @@ def _scan_one(
     default_timezone: tzinfo,
 ) -> ScannedFile | SkipReason:
     try:
+        stat = path.stat()
         digest = audio_hash(path)
     except OSError:
         return SkipReason.UNREADABLE
@@ -175,7 +176,13 @@ def _scan_one(
         snr_db=snr_db,
     )
 
-    return ScannedFile(audio_hash=digest, path=path, metadata=metadata)
+    return ScannedFile(
+        audio_hash=digest,
+        path=path,
+        size_bytes=stat.st_size,
+        mtime=stat.st_mtime,
+        metadata=metadata,
+    )
 
 
 def scan(
@@ -185,14 +192,19 @@ def scan(
     settle_seconds: float = DEFAULT_SETTLE_SECONDS,
     now: float | None = None,
     default_timezone: tzinfo = UTC,
+    known: Mapping[Path, tuple[int, float, str]] = {},
 ) -> Iterator[ScannedFile]:
-    """Yield a ScannedFile for every readable, settled recording under `root`."""
+    """Yield a ScannedFile for every readable, settled, CHANGED recording
+    under `root`. A file matching `known` is settled but unchanged, so it
+    never appears here -- see `scan_with_skips` for the full picture
+    including `UnchangedFile`."""
     for scanned in scan_with_skips(
         root,
         timestamp_source=timestamp_source,
         settle_seconds=settle_seconds,
         now=now,
         default_timezone=default_timezone,
+        known=known,
     ):
         if isinstance(scanned, ScannedFile):
             yield scanned
@@ -205,8 +217,14 @@ def scan_with_skips(
     settle_seconds: float = DEFAULT_SETTLE_SECONDS,
     now: float | None = None,
     default_timezone: tzinfo = UTC,
-) -> Iterator[ScannedFile | tuple[Path, SkipReason]]:
-    """As `scan`, but also reports why files were skipped, for CLI summaries."""
+    known: Mapping[Path, tuple[int, float, str]] = {},
+) -> Iterator[ScannedFile | UnchangedFile | tuple[Path, SkipReason]]:
+    """As `scan`, but also reports why files were skipped, for CLI summaries,
+    and reports an already-known-unchanged file as `UnchangedFile` instead of
+    re-reading its content -- `known` maps an absolute path to the
+    (size_bytes, mtime, audio_hash) it had the last time it was fully
+    scanned; a file whose current stat matches is trusted without being
+    reopened at all."""
     clock = time.time() if now is None else now
     for path in sorted(root.rglob("*")):
         try:
@@ -220,5 +238,16 @@ def scan_with_skips(
         if reason is not None:
             yield (path, reason)
             continue
+        fingerprint = known.get(path)
+        if fingerprint is not None:
+            known_size, known_mtime, known_hash = fingerprint
+            try:
+                stat = path.stat()
+            except OSError:
+                yield (path, SkipReason.UNREADABLE)
+                continue
+            if stat.st_size == known_size and stat.st_mtime == known_mtime:
+                yield UnchangedFile(audio_hash=known_hash)
+                continue
         result = _scan_one(path, timestamp_source, default_timezone)
         yield result if isinstance(result, ScannedFile) else (path, result)

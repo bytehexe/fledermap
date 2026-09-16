@@ -48,6 +48,8 @@ def _scanned(
     return ScannedFile(
         audio_hash=digest,
         path=ROOT / "Session_20130401_053030" / name,
+        size_bytes=0,
+        mtime=0.0,
         metadata=RecordingMetadata(
             recorded_at=datetime(2015, 6, 10, 21, 54, 46, tzinfo=UTC),
             # Populated, not left at None (task-11 fix round 1, priority 1):
@@ -322,6 +324,8 @@ def test_path_outside_archive_root_raises(engine: Engine) -> None:
     outside = ScannedFile(
         audio_hash="c" * 64,
         path=Path("/elsewhere/foo.wav"),
+        size_bytes=0,
+        mtime=0.0,
         metadata=RecordingMetadata(
             recorded_at=datetime(2015, 6, 10, 21, 54, 46, tzinfo=UTC),
         ),
@@ -412,7 +416,13 @@ def test_emt_manual_identification_changing_replaces_the_old_row(
             wamd=parse_wamd(wamd_payload(auto_id=None, manual_id=manual_id)),
             filename=None,
         )
-        return ScannedFile(audio_hash="e" * 64, path=ROOT / "a.wav", metadata=metadata)
+        return ScannedFile(
+            audio_hash="e" * 64,
+            path=ROOT / "a.wav",
+            size_bytes=0,
+            mtime=0.0,
+            metadata=metadata,
+        )
 
     with OrmSession(engine) as session:
         seed_taxonomy(session)
@@ -448,7 +458,13 @@ def test_emt_manual_identification_clearing_removes_the_row(
             wamd=parse_wamd(wamd_payload(auto_id=None, manual_id=manual_id)),
             filename=None,
         )
-        return ScannedFile(audio_hash="f" * 64, path=ROOT / "a.wav", metadata=metadata)
+        return ScannedFile(
+            audio_hash="f" * 64,
+            path=ROOT / "a.wav",
+            size_bytes=0,
+            mtime=0.0,
+            metadata=metadata,
+        )
 
     with OrmSession(engine) as session:
         seed_taxonomy(session)
@@ -714,7 +730,10 @@ def test_archive_root_index_self_heals_on_next_scan(engine: Engine) -> None:
     assert recording.archive_root_index == 0
 
 
-def test_scan_all_roots_tags_each_item_with_its_root_index(tmp_path: Path) -> None:
+def test_scan_all_roots_tags_each_item_with_its_root_index(
+    tmp_path: Path,
+    engine: Engine,
+) -> None:
     root_a = tmp_path / "a"
     root_b = tmp_path / "b"
     root_a.mkdir()
@@ -733,13 +752,54 @@ def test_scan_all_roots_tags_each_item_with_its_root_index(tmp_path: Path) -> No
         old = time.time() - 3600
         os.utime(path, (old, old))
 
-    scanned, seen, skipped, incomplete_skips = scan_all_roots(
-        (root_a, root_b),
-        timestamp_source=TimestampSource.FILENAME,
-        default_timezone=UTC,
-    )
+    with OrmSession(engine) as session:
+        scanned, seen, skipped, incomplete_skips, _unchanged_fp = scan_all_roots(
+            (root_a, root_b),
+            timestamp_source=TimestampSource.FILENAME,
+            default_timezone=UTC,
+            session=session,
+        )
 
     assert skipped == 0
     assert incomplete_skips == 0
     assert sorted(index for _item, index in scanned) == [0, 1]
     assert len(seen) == 2
+
+
+def test_an_unchanged_file_is_not_reopened_on_a_second_scan_all_roots_call(
+    tmp_path: Path,
+    engine: Engine,
+) -> None:
+    wav = tmp_path / "EPTSER_20150610_215446.wav"
+    wav.write_bytes(
+        build_wav([(b"fmt ", fmt_payload()), (b"data", b"\x01\x02" * 32)]),
+    )
+    old = time.time() - 3600
+    os.utime(wav, (old, old))
+
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        scanned, seen, skipped, incomplete, _unchanged_fp = scan_all_roots(
+            (tmp_path,),
+            timestamp_source=TimestampSource.FILENAME,
+            default_timezone=UTC,
+            session=session,
+        )
+        report = commit_scan(session, scanned, archive_roots=(tmp_path,))
+        session.commit()
+        assert report.created == 1
+
+        # Second call: nothing on disk changed. `scanned` must be empty --
+        # the file was recognised as unchanged via the fingerprint stored by
+        # the first call's commit_scan, never reopened.
+        scanned2, seen2, skipped2, incomplete2, unchanged_fp2 = scan_all_roots(
+            (tmp_path,),
+            timestamp_source=TimestampSource.FILENAME,
+            default_timezone=UTC,
+            session=session,
+        )
+        assert scanned2 == []
+        assert seen2 == seen
+        assert skipped2 == 0
+        assert unchanged_fp2 == 1
+        assert incomplete2 == 0

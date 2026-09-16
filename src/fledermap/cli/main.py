@@ -206,12 +206,16 @@ def ingest(ctx: click.Context, sweep: bool) -> None:
         reresolve_unmapped_identifications(session)
         session.commit()
 
-        scanned, seen, skipped, incomplete_skips = scan_all_roots(
-            config.archive_roots,
-            timestamp_source=config.timestamp_source,
-            default_timezone=config.default_timezone,
+        scanned, seen, skipped, incomplete_skips, unchanged_by_fingerprint = (
+            scan_all_roots(
+                config.archive_roots,
+                timestamp_source=config.timestamp_source,
+                default_timezone=config.default_timezone,
+                session=session,
+            )
         )
         report = commit_scan(session, scanned, archive_roots=config.archive_roots)
+        report.unchanged += unchanged_by_fingerprint
         session.commit()
 
         enqueue_media(report.created_hashes, engine)
