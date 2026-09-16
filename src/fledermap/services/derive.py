@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 
 import numpy as np
@@ -120,29 +121,48 @@ def derive_sites(
             continue
         by_label.setdefault(int(label), []).append(recording)
 
+    # Inverted index built once (O(previous members)), not re-scanned per
+    # cluster: `previous_members` is site_id -> its recording ids, this is
+    # the reverse, recording_id -> its old site_id. Turns the old
+    # O(clusters x sites) matching below into O(recordings): each cluster's
+    # overlap with every candidate previous site is read off in one pass
+    # over its own members instead of one pass over every previous site.
+    recording_to_old_site: dict[int, int] = {
+        recording_id: site_id
+        for site_id, ids in previous_members.items()
+        for recording_id in ids
+    }
+
+    def overlap_counts(members: list[Recording]) -> Counter[int]:
+        counts: Counter[int] = Counter()
+        for r in members:
+            old_site_id = recording_to_old_site.get(r.id)
+            if old_site_id is not None:
+                counts[old_site_id] += 1
+        return counts
+
     # Greedily match each new cluster to the previous site it overlaps most
     # with, largest overlap first, so a split/merge doesn't let a smaller
-    # overlap claim a site before a bigger one gets the chance.
-    def best_previous_overlap(members: list[Recording]) -> int:
-        member_ids = {r.id for r in members}
-        return max(
-            (len(member_ids & ids) for ids in previous_members.values()), default=0
-        )
-
+    # overlap claim a site before a bigger one gets the chance. Overlap
+    # counts are computed once per cluster and reused for both the sort key
+    # and the matching loop below, rather than recomputed.
+    clusters_with_counts = [
+        (members, overlap_counts(members)) for members in by_label.values()
+    ]
     clusters_by_overlap = sorted(
-        by_label.values(), key=best_previous_overlap, reverse=True
+        clusters_with_counts,
+        key=lambda pair: max(pair[1].values(), default=0),
+        reverse=True,
     )
 
     matched_site_ids: set[int] = set()
     clusters_with_reuse: list[tuple[list[Recording], int | None]] = []
-    for members in clusters_by_overlap:
-        member_ids = {r.id for r in members}
+    for members, counts in clusters_by_overlap:
         best_site_id: int | None = None
         best_overlap = 0
-        for site_id, ids in previous_members.items():
+        for site_id, overlap in counts.items():
             if site_id in matched_site_ids:
                 continue
-            overlap = len(member_ids & ids)
             if overlap > best_overlap:
                 best_overlap = overlap
                 best_site_id = site_id
