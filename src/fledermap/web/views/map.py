@@ -61,6 +61,7 @@ def map_page() -> str:
             has_unmapped_species=has_unmapped_species(session),
             max_features=MAX_FEATURES,
             batdetect2_enabled=flask.current_app.config["BATDETECT2_ENABLED"],
+            battybirdnet_enabled=flask.current_app.config["BATTYBIRDNET_ENABLED"],
         )
 
 

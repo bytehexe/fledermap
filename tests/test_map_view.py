@@ -56,8 +56,10 @@ def test_map_page_includes_the_filter_form(engine: Engine, tmp_path: Path) -> No
     assert 'value="emt.manual"' in html
     # `manual` and `fledermap.noise` both have real, produced data today
     # (services/manual_classification.py, services/noise.py) unlike
-    # `battybirdnet`/`kaleidoscope`, which nothing writes yet and which stay
-    # off this list.
+    # `kaleidoscope`, which nothing writes yet and stays off this list.
+    # `battybirdnet` is conditional on `battybirdnet_enabled` (like
+    # `batdetect2`), off by default -- see the dedicated enabled/disabled
+    # tests below.
     assert 'value="manual"' in html
     assert 'value="fledermap.noise"' in html
     assert 'value="battybirdnet"' not in html
@@ -91,6 +93,35 @@ def test_map_page_includes_batdetect2_source_option_when_enabled(
 
     html = response.get_data(as_text=True)
     assert 'value="batdetect2"' in html
+
+
+def test_map_page_omits_battybirdnet_source_option_when_disabled(
+    engine: Engine, tmp_path: Path
+) -> None:
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    response = client.get("/")
+
+    html = response.get_data(as_text=True)
+    assert 'value="battybirdnet"' not in html
+
+
+def test_map_page_includes_battybirdnet_source_option_when_enabled(
+    engine: Engine, tmp_path: Path
+) -> None:
+    app = create_app(
+        engine,
+        tmp_path / "static",
+        tmp_path / "media",
+        battybirdnet_enabled=True,
+    )
+    client = app.test_client()
+
+    response = client.get("/")
+
+    html = response.get_data(as_text=True)
+    assert 'value="battybirdnet"' in html
 
 
 def test_taxon_filter_is_a_dropdown_of_real_taxa(

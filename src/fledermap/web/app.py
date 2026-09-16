@@ -56,6 +56,7 @@ def create_app(
     media_root: Path,
     archive_roots: tuple[Path, ...] = (),
     batdetect2_enabled: bool = False,
+    battybirdnet_enabled: bool = False,
 ) -> flask.Flask:
     """`static_root` is `Config.static_root` -- where
     `services/vendor_assets.py`'s `ensure_vendor_assets` fetches Leaflet/HTMX/Alpine.
@@ -80,13 +81,15 @@ def create_app(
     since disabling the classifier purges every one of its claims (see
     `services/classifier_detections.py`'s `purge_source`), leaving nothing for the
     filter to match; defaults to `False`, same reasoning as `archive_roots`
-    above.
+    above. `battybirdnet_enabled` is `Config.battybirdnet_enabled` and gates
+    the "battybirdnet" filter option the same way.
     """
     app = flask.Flask(__name__)
     app.config["ENGINE"] = engine
     app.config["MEDIA_ROOT"] = media_root
     app.config["ARCHIVE_ROOTS"] = archive_roots
     app.config["BATDETECT2_ENABLED"] = batdetect2_enabled
+    app.config["BATTYBIRDNET_ENABLED"] = battybirdnet_enabled
 
     with OrmSession(engine) as session:
         display_timezone_name = session.execute(

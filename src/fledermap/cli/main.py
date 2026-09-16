@@ -432,6 +432,7 @@ def serve(host: str | None, port: int | None) -> None:
         config.media_root,
         config.archive_roots,
         config.batdetect2_enabled,
+        config.battybirdnet_enabled,
     )
     app.run(
         host=host if host is not None else config.host,
