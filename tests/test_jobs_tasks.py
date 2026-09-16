@@ -851,6 +851,178 @@ def test_run_ingest_cycle_enqueues_and_materializes_batdetect2_when_enabled(
         assert idents[0].taxon_id == taxon_id
 
 
+def test_run_ingest_cycle_purges_battybirdnet_rows_when_disabled(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """`battybirdnet_enabled=False` (the default) must purge any pre-existing
+    `classifier_detection`/`Identification` rows for that source every
+    cycle -- not just skip enqueueing new ones -- so disabling the
+    classifier after it has run doesn't leave a stale claim winning
+    `current_best.py`'s precedence ordering forever (spec §5)."""
+    config = _make_config(tmp_path)
+    jobs_app.open(engine)
+    ensure_schema(jobs_app, engine)
+
+    with OrmSession(engine) as session:
+        recording = _make_recording(
+            session,
+            audio_hash="j" * 64,
+            path="never_scanned.wav",
+        )
+        taxon = _make_taxon(session, "Plecotus auritus")
+        session.commit()
+        record_detections(
+            session,
+            recording,
+            IdSource.BATTYBIRDNET,
+            [
+                DetectionInput(
+                    taxon_id=taxon.id,
+                    raw_label=taxon.scientific_name,
+                    confidence=0.9,
+                ),
+            ],
+        )
+        session.add(
+            Identification(
+                recording_id=recording.id,
+                source=IdSource.BATTYBIRDNET,
+                verdict=Verdict.SPECIES,
+                taxon_id=taxon.id,
+            ),
+        )
+        session.commit()
+
+    assert config.battybirdnet_enabled is False
+
+    run_ingest_cycle.configure(
+        lock=_INGEST_CYCLE_LOCK,
+        queueing_lock=_INGEST_CYCLE_LOCK,
+    ).defer(timestamp=int(time.time()))
+    _run_worker(
+        engine,
+        wait=False,
+        install_signal_handlers=False,
+        listen_notify=False,
+        queues=["ingest"],
+        additional_context={"config": config, "engine": engine},
+    )
+
+    with OrmSession(engine) as session:
+        remaining_detections = session.scalars(
+            select(ClassifierDetection).where(
+                ClassifierDetection.source == IdSource.BATTYBIRDNET,
+            ),
+        ).all()
+        remaining_idents = session.scalars(
+            select(Identification).where(
+                Identification.source == IdSource.BATTYBIRDNET
+            ),
+        ).all()
+    assert remaining_detections == []
+    assert remaining_idents == []
+
+
+def test_run_ingest_cycle_enqueues_and_materializes_battybirdnet_when_enabled(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """Both halves of the cycle's battybirdnet step, since one cannot stand in
+    for the other:
+
+    *Enqueue* -- a classify job must be deferred for every recording still
+    missing a `classifier_detection` row. Proven by the job landing in
+    `procrastinate_jobs`, not by it actually running (that needs a real HTTP
+    call to a battybirdnet server, out of scope here). A recognized filename
+    convention and a real file on disk are both needed so the recording
+    survives `sweep_missing` with `missing_since IS NULL` --
+    `enqueue_battybirdnet` filters on exactly that, same as
+    `test_run_ingest_cycle_creates_a_recording_and_derives` above.
+
+    *Materialize* -- a second recording is pre-seeded with a detection above
+    the configured threshold, so `materialize_claims` has something to act on
+    and its resulting `Identification` can be asserted. Without that seed the
+    materialize call would run over an empty set and dropping it entirely
+    would leave this test green.
+    """
+    archive_root = tmp_path / "archive"
+    path = archive_root / "EPTSER_20150610_215447.wav"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    audio = bytes(range(256)) * 8
+    path.write_bytes(build_wav([(b"fmt ", fmt_payload()), (b"data", audio)]))
+    old = time.time() - 3600
+    os.utime(path, (old, old))
+    config = replace(
+        _make_config(tmp_path, archive_roots=(archive_root,)),
+        battybirdnet_enabled=True,
+        battybirdnet_url="http://localhost:7667",
+    )
+    jobs_app.open(engine)
+    ensure_schema(jobs_app, engine)
+
+    with OrmSession(engine) as session:
+        already_classified = _make_recording(
+            session,
+            audio_hash="k" * 64,
+            path="already_classified.wav",
+        )
+        taxon = _make_taxon(session, "Plecotus auritus")
+        session.commit()
+        already_classified_id = already_classified.id
+        taxon_id = taxon.id
+        record_detections(
+            session,
+            already_classified,
+            IdSource.BATTYBIRDNET,
+            [
+                DetectionInput(
+                    taxon_id=taxon.id,
+                    raw_label=taxon.scientific_name,
+                    # Above the configured threshold, so materialize must turn
+                    # it into a SPECIES claim.
+                    confidence=config.battybirdnet_threshold + 0.1,
+                ),
+            ],
+        )
+        session.commit()
+
+    run_ingest_cycle.configure(
+        lock=_INGEST_CYCLE_LOCK,
+        queueing_lock=_INGEST_CYCLE_LOCK,
+    ).defer(timestamp=int(time.time()))
+    _run_worker(
+        engine,
+        wait=False,
+        install_signal_handlers=False,
+        listen_notify=False,
+        queues=["ingest"],
+        additional_context={"config": config, "engine": engine},
+    )
+
+    with engine.connect() as conn:
+        classify_todo_count = conn.execute(
+            text(
+                "SELECT count(*) FROM procrastinate_jobs "
+                "WHERE queue_name = 'classify' AND status = 'todo'",
+            ),
+        ).scalar()
+    # Only the newly ingested recording: the pre-seeded one already has a
+    # detection row and must not be re-classified.
+    assert classify_todo_count == 1
+
+    with OrmSession(engine) as session:
+        idents = session.scalars(
+            select(Identification).where(
+                Identification.recording_id == already_classified_id,
+                Identification.source == IdSource.BATTYBIRDNET,
+            ),
+        ).all()
+        assert len(idents) == 1
+        assert idents[0].verdict == Verdict.SPECIES
+        assert idents[0].taxon_id == taxon_id
+
+
 def test_run_clean_media_cycle_removes_an_orphaned_directory(
     engine: Engine,
     tmp_path: Path,

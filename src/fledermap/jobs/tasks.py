@@ -509,6 +509,7 @@ def run_ingest_cycle(context: procrastinate.JobContext, timestamp: int) -> None:
     # Constraints above). Safe here because by the time this function
     # actually runs, module import has long finished.
     from fledermap.services.batdetect2 import enqueue_batdetect2
+    from fledermap.services.battybirdnet import enqueue_battybirdnet
     from fledermap.services.classifier_detections import (
         materialize_claims,
         purge_source,
@@ -578,6 +579,15 @@ def run_ingest_cycle(context: procrastinate.JobContext, timestamp: int) -> None:
             )
         else:
             purge_source(session, IdSource.BATDETECT2)
+        session.commit()
+
+        if config.battybirdnet_enabled:
+            enqueue_battybirdnet(session, engine)
+            materialize_claims(
+                session, IdSource.BATTYBIRDNET, config.battybirdnet_threshold
+            )
+        else:
+            purge_source(session, IdSource.BATTYBIRDNET)
         session.commit()
 
         from fledermap.services.site_naming import enqueue_site_naming
