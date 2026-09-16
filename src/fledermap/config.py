@@ -44,6 +44,9 @@ ENV_PORT = "FLEDERMAP_PORT"
 ENV_HOST = "FLEDERMAP_HOST"
 ENV_BATDETECT2_ENABLED = "FLEDERMAP_BATDETECT2_ENABLED"
 ENV_BATDETECT2_THRESHOLD = "FLEDERMAP_BATDETECT2_THRESHOLD"
+ENV_BATTYBIRDNET_ENABLED = "FLEDERMAP_BATTYBIRDNET_ENABLED"
+ENV_BATTYBIRDNET_URL = "FLEDERMAP_BATTYBIRDNET_URL"
+ENV_BATTYBIRDNET_THRESHOLD = "FLEDERMAP_BATTYBIRDNET_THRESHOLD"
 
 # Every key the config file is allowed to set -- one entry per `Config` field
 # that has a `FLEDERMAP_*` env var above. Checked in `_load_config_file` so a
@@ -63,6 +66,9 @@ _KNOWN_FILE_KEYS = frozenset(
         "site_naming_radius_m",
         "batdetect2_enabled",
         "batdetect2_threshold",
+        "battybirdnet_enabled",
+        "battybirdnet_url",
+        "battybirdnet_threshold",
         "media_root",
         "static_root",
         "port",
@@ -276,6 +282,21 @@ class Config:
     # 0.8 is this project's own conservative starting point; batdetect2 itself documents no
     # default for its `--detection-threshold` CLI argument.
     batdetect2_threshold: float = 0.8
+    # Off by default, same disable=delete/enable=regenerate contract as
+    # batdetect2 -- see docs/superpowers/specs/2026-09-16-fledermap-
+    # battybirdnet-classifier-design.md §1/§5. Unlike batdetect2, there is no
+    # optional-dependency extra to install: this only ever talks HTTP to a
+    # server the operator runs and builds themselves.
+    battybirdnet_enabled: bool = False
+    # Base URL of the operator's own BattyBirdNET-Analyzer server (e.g.
+    # http://localhost:7667), REQUIRED when battybirdnet_enabled is true --
+    # validated below. None means "not configured", distinct from an empty
+    # string.
+    battybirdnet_url: str | None = None
+    # Matches the upstream tool's own suggested default confidence bar
+    # (config.py's MIN_CONFIDENCE = 0.6), even though that constant is never
+    # actually enforced server-side for the /analyze API path (spec §3/§5).
+    battybirdnet_threshold: float = 0.6
     site_eps_m: float = 75.0
     site_min_points: int = 3
     # Optional (design spec 2026-08-28-fledermap-poiidx-site-naming-design.md,
@@ -534,6 +555,82 @@ class Config:
                 msg = f"{label}={batdetect2_threshold_raw!r} must be between 0 and 1."
                 raise ConfigError(msg)
 
+        battybirdnet_enabled_raw = _lookup(
+            ENV_BATTYBIRDNET_ENABLED,
+            "battybirdnet_enabled",
+            file_values,
+        )
+        if battybirdnet_enabled_raw is None:
+            battybirdnet_enabled = False
+        elif isinstance(battybirdnet_enabled_raw, bool):
+            battybirdnet_enabled = battybirdnet_enabled_raw
+        else:
+            label = _source_label(
+                ENV_BATTYBIRDNET_ENABLED,
+                "battybirdnet_enabled",
+                config_path,
+            )
+            text = _as_str(battybirdnet_enabled_raw, label).strip().lower()
+            if text == "true":
+                battybirdnet_enabled = True
+            elif text == "false":
+                battybirdnet_enabled = False
+            else:
+                msg = f"{label}={battybirdnet_enabled_raw!r} is not a boolean (true/false)."
+                raise ConfigError(msg)
+
+        battybirdnet_url_raw = _lookup(
+            ENV_BATTYBIRDNET_URL,
+            "battybirdnet_url",
+            file_values,
+        )
+        if battybirdnet_url_raw is None:
+            battybirdnet_url = None
+        else:
+            label = _source_label(
+                ENV_BATTYBIRDNET_URL,
+                "battybirdnet_url",
+                config_path,
+            )
+            battybirdnet_url = _as_str(battybirdnet_url_raw, label)
+            if not battybirdnet_url:
+                msg = f"{label} is set but empty. Unset it entirely to disable battybirdnet."
+                raise ConfigError(msg)
+
+        if battybirdnet_enabled and battybirdnet_url is None:
+            msg = (
+                f"{_source_label(ENV_BATTYBIRDNET_ENABLED, 'battybirdnet_enabled', config_path)}"
+                " is true, but battybirdnet_url is not set. Set "
+                f"{ENV_BATTYBIRDNET_URL} (or battybirdnet_url in the config file) to the "
+                "operator's BattyBirdNET-Analyzer server URL."
+            )
+            raise ConfigError(msg)
+
+        battybirdnet_threshold_raw = _lookup(
+            ENV_BATTYBIRDNET_THRESHOLD,
+            "battybirdnet_threshold",
+            file_values,
+        )
+        if battybirdnet_threshold_raw is None:
+            battybirdnet_threshold = 0.6
+        else:
+            label = _source_label(
+                ENV_BATTYBIRDNET_THRESHOLD,
+                "battybirdnet_threshold",
+                config_path,
+            )
+            if isinstance(battybirdnet_threshold_raw, bool):
+                msg = f"{label}={battybirdnet_threshold_raw!r} is not a number."
+                raise ConfigError(msg)
+            try:
+                battybirdnet_threshold = float(battybirdnet_threshold_raw)
+            except (TypeError, ValueError) as exc:
+                msg = f"{label}={battybirdnet_threshold_raw!r} is not a number."
+                raise ConfigError(msg) from exc
+            if not 0.0 <= battybirdnet_threshold <= 1.0:
+                msg = f"{label}={battybirdnet_threshold_raw!r} must be between 0 and 1."
+                raise ConfigError(msg)
+
         port_raw = _lookup(ENV_PORT, "port", file_values)
         if port_raw is None:
             port = 5000
@@ -612,6 +709,9 @@ class Config:
             noise_snr_threshold_db=noise_snr_threshold_db,
             batdetect2_enabled=batdetect2_enabled,
             batdetect2_threshold=batdetect2_threshold,
+            battybirdnet_enabled=battybirdnet_enabled,
+            battybirdnet_url=battybirdnet_url,
+            battybirdnet_threshold=battybirdnet_threshold,
             site_eps_m=site_eps_m,
             site_min_points=site_min_points,
             poiidx_database_url=poiidx_database_url,

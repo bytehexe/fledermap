@@ -10,6 +10,9 @@ from fledermap.config import (
     ENV_ARCHIVE_ROOTS,
     ENV_BATDETECT2_ENABLED,
     ENV_BATDETECT2_THRESHOLD,
+    ENV_BATTYBIRDNET_ENABLED,
+    ENV_BATTYBIRDNET_THRESHOLD,
+    ENV_BATTYBIRDNET_URL,
     ENV_CONFIG_FILE,
     ENV_DATABASE_URL,
     ENV_DEFAULT_TIMEZONE,
@@ -370,6 +373,51 @@ def test_batdetect2_threshold_out_of_range_raises_config_error(
     monkeypatch.setenv(ENV_BATDETECT2_THRESHOLD, "1.5")
     with pytest.raises(ConfigError, match="between 0 and 1"):
         Config.from_env()
+
+
+def test_battybirdnet_enabled_defaults_to_false(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+    monkeypatch.delenv(ENV_BATTYBIRDNET_ENABLED, raising=False)
+    monkeypatch.delenv(ENV_BATTYBIRDNET_URL, raising=False)
+    monkeypatch.delenv(ENV_BATTYBIRDNET_THRESHOLD, raising=False)
+    config = Config.from_env()
+    assert config.battybirdnet_enabled is False
+    assert config.battybirdnet_url is None
+    assert config.battybirdnet_threshold == 0.6
+
+
+def test_battybirdnet_enabled_requires_url(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+    monkeypatch.setenv(ENV_BATTYBIRDNET_ENABLED, "true")
+    monkeypatch.delenv(ENV_BATTYBIRDNET_URL, raising=False)
+    with pytest.raises(ConfigError, match="battybirdnet_url"):
+        Config.from_env()
+
+
+def test_battybirdnet_url_and_threshold_are_configurable_via_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+    monkeypatch.setenv(ENV_BATTYBIRDNET_ENABLED, "true")
+    monkeypatch.setenv(ENV_BATTYBIRDNET_URL, "http://localhost:7667")
+    monkeypatch.setenv(ENV_BATTYBIRDNET_THRESHOLD, "0.75")
+    config = Config.from_env()
+    assert config.battybirdnet_enabled is True
+    assert config.battybirdnet_url == "http://localhost:7667"
+    assert config.battybirdnet_threshold == 0.75
 
 
 def test_default_site_eps_and_min_points(

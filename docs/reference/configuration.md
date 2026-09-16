@@ -34,6 +34,9 @@ also rejected at startup rather than silently ignored.
 | Web server's port | `port` | `FLEDERMAP_PORT` | no | `5000` |
 | batdetect2 classifier enabled | `batdetect2_enabled` | `FLEDERMAP_BATDETECT2_ENABLED` | no | `false` |
 | batdetect2 detection threshold | `batdetect2_threshold` | `FLEDERMAP_BATDETECT2_THRESHOLD` | no | `0.8` |
+| BattyBirdNET classifier enabled | `battybirdnet_enabled` | `FLEDERMAP_BATTYBIRDNET_ENABLED` | no | `false` |
+| BattyBirdNET-Analyzer server URL | `battybirdnet_url` | `FLEDERMAP_BATTYBIRDNET_URL` | only if enabled | unset |
+| BattyBirdNET detection threshold | `battybirdnet_threshold` | `FLEDERMAP_BATTYBIRDNET_THRESHOLD` | no | `0.6` |
 
 Notes on individual settings:
 
@@ -83,6 +86,18 @@ Notes on individual settings:
   true`. Enabling it without that extra installed doesn't break the rest of
   the application — it fails only the classification job itself, at run
   time.
+- **`battybirdnet_enabled`/`battybirdnet_url`/`battybirdnet_threshold`** turn on a third,
+  optional species classifier ([BattyBirdNET-Analyzer](https://github.com/rdz-oss/BattyBirdNET-Analyzer)),
+  reached over HTTP rather than run in-process. `battybirdnet_enabled` defaults to `false`;
+  when set to `true`, `battybirdnet_url` becomes required — it must point at a
+  BattyBirdNET-Analyzer server the operator runs and builds themselves (e.g.
+  `http://localhost:7667`). Unlike BatDetect2, no `pip install fledermap[...]` extra exists for
+  this: Fledermap never imports or vendors any BattyBirdNET code, only POSTs recordings to the
+  configured server, so there is no CC-BY-NC licensing concern on Fledermap's side.
+  `battybirdnet_threshold` (default `0.6`, matching the upstream tool's own suggested confidence
+  bar, valid range `0.0`–`1.0`) is compared against the returned per-species confidence the same
+  way `batdetect2_threshold` is, and is likewise re-applied to stored raw scores on every ingest
+  cycle with no re-classification needed.
 
 ## Example config file
 

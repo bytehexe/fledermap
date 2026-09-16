@@ -46,6 +46,12 @@ dependencies = [
   # manual step -- not something a routine dependency bump should trigger
   # (final review, 2026-08-28).
   "poiidx>=0.0.9,<0.1",
+  # A plain HTTP client for the (optional, off-by-default) BattyBirdNET-Analyzer
+  # classifier integration -- Fledermap only ever POSTs to a server the operator
+  # runs and builds themselves; no BattyBirdNET code is imported, vendored, or
+  # bundled, so this carries none of batdetect2's CC-BY-NC extras-group ceremony
+  # (design spec 2026-09-16-fledermap-battybirdnet-classifier-design.md §1).
+  "requests",
 ]
 
 # CC-BY-NC-4.0-licensed, non-commercial use only (https://pypi.org/project/batdetect2/).
@@ -113,6 +119,7 @@ extra-dependencies = [
   "types-PyYAML",
   "types-shapely",
   "scipy-stubs",
+  "types-requests",
 ]
 
 [tool.hatch.envs.types.scripts]
