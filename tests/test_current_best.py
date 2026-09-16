@@ -370,9 +370,9 @@ def test_sort_identifications_by_precedence_is_stable_for_the_same_source() -> N
 
 def test_sort_identifications_by_precedence_puts_an_unranked_source_last() -> None:
     """A source defined in `IdSource` but not yet wired into `_PRECEDENCE`
-    (a future classifier, e.g. BATTYBIRDNET) must not crash the sort."""
+    (e.g. KALEIDOSCOPE, which nothing writes yet) must not crash the sort."""
     manual = _ident(IdSource.MANUAL)
-    future = _ident(IdSource.BATTYBIRDNET)
+    future = _ident(IdSource.KALEIDOSCOPE)
 
     assert sort_identifications_by_precedence([future, manual]) == [manual, future]
 
@@ -386,3 +386,15 @@ def test_batdetect2_outranks_fledermap_noise_but_not_emt_sources() -> None:
     assert sort_identifications_by_precedence(
         [noise, batdetect2, emt_filename, manual],
     ) == [manual, emt_filename, batdetect2, noise]
+
+
+def test_batdetect2_outranks_battybirdnet_which_outranks_fledermap_noise() -> None:
+    manual = _ident(IdSource.MANUAL)
+    emt_filename = _ident(IdSource.EMT_FILENAME)
+    batdetect2 = _ident(IdSource.BATDETECT2)
+    battybirdnet = _ident(IdSource.BATTYBIRDNET)
+    noise = _ident(IdSource.FLEDERMAP_NOISE)
+
+    assert sort_identifications_by_precedence(
+        [noise, battybirdnet, batdetect2, emt_filename, manual],
+    ) == [manual, emt_filename, batdetect2, battybirdnet, noise]

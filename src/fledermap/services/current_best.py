@@ -32,6 +32,7 @@ _PRECEDENCE: tuple[IdSource, ...] = (
     IdSource.EMT_WAMD,
     IdSource.EMT_FILENAME,
     IdSource.BATDETECT2,
+    IdSource.BATTYBIRDNET,
     IdSource.FLEDERMAP_NOISE,
 )
 
