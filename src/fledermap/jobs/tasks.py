@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import procrastinate
+import requests
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.config import Config
@@ -117,6 +118,131 @@ def batdetect2_lock_key(audio_hash: str) -> str:
 # always the smaller of the two, so gating on it would discard real calls the
 # model was merely undecided about the species of.
 _BATDETECT2_FLOOR = 0.05
+
+
+def battybirdnet_lock_key(audio_hash: str) -> str:
+    return f"battybirdnet:{audio_hash}"
+
+
+# A fixed, non-configurable sanity floor, same reasoning as _BATDETECT2_FLOOR
+# above: the operator's server returns EVERY class's score for EVERY
+# 3-second segment, unfiltered (confirmed against analyze.py's actual
+# analyzeFile()/saveResultFile() split -- MIN_CONFIDENCE is only ever
+# applied inside saveResultFile(), a CLI-only file-export function the
+# /analyze route never calls). Without this floor, classifier_detection
+# would fill up with near-zero scores for every one of the label
+# vocabulary's ~30 classes, for every segment, in every recording.
+_BATTYBIRDNET_FLOOR = 0.05
+
+
+def results_to_detections(
+    results: dict[str, list[list[str]]],
+    resolve_label: Callable[[str], int | None],
+) -> list[DetectionInput]:
+    """Turn a BattyBirdNET-Analyzer `/analyze` response's `results` field
+    into `DetectionInput`s, dropping anything below `_BATTYBIRDNET_FLOOR`.
+
+    `results` is `{"{segment_start}-{segment_end}": [[label, score_str],
+    ...], ...}` -- one entry per 3-second analysis window, every class in
+    the label vocabulary scored (confirmed from analyze.py's `analyzeFile`,
+    which `server.py`'s `/analyze` route returns verbatim). Flattened across
+    every window into one stream: the same label can legitimately appear
+    many times across different windows of the same recording, each a
+    distinct candidate (mirrors this module's own `annotations_to_detections`
+    for batdetect2, which does the same flattening across a per-call-window
+    annotation list).
+
+    Separate from the task, and taking a plain label-to-taxon-id callable
+    rather than a `Session`, so this parsing can be tested directly against
+    a real captured response with no database anywhere in reach -- same
+    reasoning as `annotations_to_detections`'s own docstring: batdetect2's
+    parsing bug (reading attributes that never existed) shipped because
+    nothing checked the parsing against the real package's actual output
+    shape, and a hand-written mock of the same wrong shape passed happily.
+    """
+    resolved: dict[str, int | None] = {}
+    detections: list[DetectionInput] = []
+    for candidates in results.values():
+        for label, score_str in candidates:
+            confidence = float(score_str)
+            if confidence < _BATTYBIRDNET_FLOOR:
+                continue
+            if label not in resolved:
+                # A label repeats across every window of a recording, so the
+                # same lookup would otherwise run once per window instead of
+                # once per distinct label. Scoped to one call, like
+                # annotations_to_detections's identical cache: a longer-lived
+                # one would go stale the moment a code mapping is added.
+                resolved[label] = resolve_label(label)
+            detections.append(
+                DetectionInput(
+                    taxon_id=resolved[label],
+                    raw_label=label,
+                    confidence=confidence,
+                ),
+            )
+    return detections
+
+
+@app.task(queue="classify", pass_context=True, retry=_RETRY)
+def classify_battybirdnet_task(
+    context: procrastinate.JobContext,
+    audio_hash: str,
+) -> None:
+    """POST one recording's WAV to the operator's configured BattyBirdNET-
+    Analyzer server and cache every candidate above `_BATTYBIRDNET_FLOOR` in
+    `classifier_detection` -- never writes `Identification` directly (see
+    `services/classifier_detections.py`'s `materialize_claims`, run
+    separately every ingest cycle).
+
+    On any request failure, or a response the server itself reports as
+    unsuccessful, this raises and lets Procrastinate's `_RETRY` policy
+    handle it -- no healthcheck step, no circuit breaker, matching
+    batdetect2's own precedent (design spec 2026-09-16-fledermap-
+    battybirdnet-classifier-design.md §3).
+    """
+    from fledermap.services.classifier_detections import record_detections
+    from fledermap.services.media import resolve_recording, resolve_wav_path
+    from fledermap.store.seed import resolve_code
+
+    archive_roots: tuple[Path, ...] = context.additional_context["archive_roots"]
+    engine = context.additional_context["engine"]
+    config: Config = context.additional_context["config"]
+
+    # Three phases, and the session is deliberately CLOSED across the middle
+    # one: an HTTP round-trip to an external server is slow, and holding a
+    # connection open across it leaves it `idle in transaction` for that
+    # whole time, holding locks that can block unrelated DDL indefinitely
+    # (CLAUDE.md's Database section) -- same reasoning as
+    # `classify_batdetect2_task`.
+    with OrmSession(engine) as session:
+        recording = resolve_recording(session, audio_hash)
+        wav_path = resolve_wav_path(archive_roots, recording)
+
+    with open(wav_path, "rb") as audio_file:
+        response = requests.post(
+            f"{config.battybirdnet_url}/analyze",
+            files={"audio": audio_file},
+            timeout=300,
+        )
+    response.raise_for_status()
+    payload = response.json()
+    if payload.get("msg") != "success":
+        msg = f"battybirdnet server returned {payload.get('msg')!r} for {audio_hash}"
+        raise RuntimeError(msg)
+    results: dict[str, list[list[str]]] = payload["results"]
+
+    with OrmSession(engine) as session:
+        recording = resolve_recording(session, audio_hash)
+
+        def resolve_label(label: str) -> int | None:
+            scientific_name = label.split("_", 1)[0]
+            taxon = resolve_code(session, IdSource.BATTYBIRDNET, scientific_name)
+            return taxon.id if taxon is not None else None
+
+        detections = results_to_detections(results, resolve_label)
+        record_detections(session, recording, IdSource.BATTYBIRDNET, detections)
+        session.commit()
 
 
 def annotations_to_detections(
