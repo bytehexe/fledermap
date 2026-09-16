@@ -35,7 +35,7 @@ from fledermap.media.paths import (
 )
 from fledermap.media.preview import make_preview
 from fledermap.media.spectrogram import DEFAULT_SPECTROGRAM_PARAMS, render_spectrogram
-from fledermap.services.batdetect2 import DetectionInput
+from fledermap.services.classifier_detections import DetectionInput
 from fledermap.services.derive import derive_sites
 from fledermap.services.ingest import (
     IncompleteScanError,
@@ -193,7 +193,7 @@ def classify_batdetect2_task(
     # contributor's `hatch run types:check` pulls in unconditionally.
     from batdetect2 import api as batdetect2_api  # type: ignore[import-not-found]
 
-    from fledermap.services.batdetect2 import record_detections
+    from fledermap.services.classifier_detections import record_detections
     from fledermap.services.media import resolve_recording, resolve_wav_path
     from fledermap.store.seed import resolve_code
 
@@ -382,8 +382,8 @@ def run_ingest_cycle(context: procrastinate.JobContext, timestamp: int) -> None:
     # ITS top level, so a top-level import here would be circular (Global
     # Constraints above). Safe here because by the time this function
     # actually runs, module import has long finished.
-    from fledermap.services.batdetect2 import (
-        enqueue_batdetect2,
+    from fledermap.services.batdetect2 import enqueue_batdetect2
+    from fledermap.services.classifier_detections import (
         materialize_claims,
         purge_source,
     )
