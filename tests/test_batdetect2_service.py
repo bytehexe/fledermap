@@ -16,7 +16,13 @@ from fledermap.services.batdetect2 import (
     purge_source,
     record_detections,
 )
-from fledermap.store.models import ClassifierDetection, Identification, Recording, Taxon
+from fledermap.store.models import (
+    ClassifierDetection,
+    Identification,
+    Recording,
+    Taxon,
+    TaxonCode,
+)
 
 pytestmark = pytest.mark.db
 
@@ -216,6 +222,62 @@ def test_materialize_claims_keeps_the_best_label_for_competing_unmapped_ones(
             ),
         ).one()
         assert ident.raw_label == "Myotis bechsteinii"
+
+
+def test_materialize_claims_reconnects_a_cached_unmapped_label_once_a_code_is_added(
+    engine: Engine,
+) -> None:
+    """A code mapping added to the taxonomy AFTER the classification job
+    already cached a detection as unmapped must still reach it:
+    `enqueue_batdetect2` never re-runs the model for a recording that
+    already has detection rows, so `materialize_claims` re-resolving
+    `raw_label` itself, every cycle, is the only path a later-added mapping
+    has to an already-cached, already-unmapped detection."""
+    with OrmSession(engine) as session:
+        recording = _recording(session, "m" * 64)
+        record_detections(
+            session,
+            recording,
+            IdSource.BATDETECT2,
+            [
+                DetectionInput(
+                    taxon_id=None, raw_label="Myotis alcathoe", confidence=0.9
+                )
+            ],
+        )
+        session.commit()
+
+        materialize_claims(session, IdSource.BATDETECT2, threshold=0.8)
+        session.commit()
+
+        before = session.scalars(
+            select(Identification).where(
+                Identification.recording_id == recording.id,
+                Identification.source == IdSource.BATDETECT2,
+            ),
+        ).one()
+        assert before.taxon_id is None
+
+        # Simulate a taxonomy mapping added after the job already ran --
+        # `classifier_detection.taxon_id` for this row is still None, and
+        # nothing ever re-runs the model to refresh it.
+        taxon = _taxon(session, "Myotis alcathoe")
+        session.add(
+            TaxonCode(source="batdetect2", code="Myotis alcathoe", taxon_id=taxon.id)
+        )
+        session.commit()
+
+        materialize_claims(session, IdSource.BATDETECT2, threshold=0.8)
+        session.commit()
+
+        after = session.scalars(
+            select(Identification).where(
+                Identification.recording_id == recording.id,
+                Identification.source == IdSource.BATDETECT2,
+            ),
+        ).one()
+        assert after.taxon_id == taxon.id
+        assert after.verdict == Verdict.SPECIES
 
 
 def test_materialize_claims_writes_no_id_when_nothing_clears_threshold(

@@ -30,6 +30,7 @@ from sqlalchemy.orm import Session as OrmSession
 from fledermap.domain.codes import IdSource, Verdict
 from fledermap.services.identifications import ClaimInput, replace_claims
 from fledermap.store.models import ClassifierDetection, Identification, Recording
+from fledermap.store.seed import resolve_code
 
 
 @dataclass(frozen=True)
@@ -107,13 +108,27 @@ def materialize_claims(
     A detection that clears `threshold` but whose label has no taxon mapping
     still becomes a SPECIES claim, with `taxon_id` None and `raw_label` set --
     NOT a NO_ID, and not dropped. An unmapped label is a review-queue item by
-    design (design spec §3, CLAUDE.md "Species codes"), and it is the same
-    shape `services/ingest.py`'s `_apply_identifications` produces for an
-    unmapped EMT code, so the existing "unmapped species" UI and
-    `reresolve_unmapped_identifications` pick it up for free once a mapping is
-    added. Dropping it instead would be unrecoverable here: `NO_ID` is a
+    design (design spec §3, CLAUDE.md "Species codes"), and it renders through
+    the same "unmapped species" UI `services/ingest.py`'s
+    `_apply_identifications` already produces for an unmapped EMT code.
+    Dropping it instead would be unrecoverable here: `NO_ID` is a
     confident-looking answer, and `enqueue_batdetect2` never re-runs the model
     for a recording that already has detection rows.
+
+    `classifier_detection.taxon_id` is only ever resolved once, when the
+    classification job first ran (jobs/tasks.py's `classify_batdetect2_task`)
+    -- it is a cache, and `enqueue_batdetect2` never re-runs the model for a
+    recording that already has detection rows. A code mapping added to the
+    taxonomy YAML *after* that run would therefore never reach a cached
+    `taxon_id is None` row through `reresolve_unmapped_identifications`
+    alone: that function patches the `Identification` row directly, but this
+    function rebuilds `Identification` from `classifier_detection` every
+    cycle regardless, which would silently undo the patch on the very next
+    run. So this function re-attempts `resolve_code` against `raw_label`
+    itself, every cycle, for every still-unmapped detection -- the resolution
+    is cheap (an indexed lookup) and idempotent, and it is what actually
+    lets a later mapping reach an already-cached, already-unmapped
+    detection, rather than only a not-yet-classified one.
     """
     recording_ids = session.scalars(
         select(ClassifierDetection.recording_id)
@@ -133,29 +148,41 @@ def materialize_claims(
             ),
         ).all()
         passing = [d for d in detections if d.confidence >= threshold]
-        # One claim per distinct taxon_id, keeping the highest-confidence
-        # detection's label for each. `replace_claims` keys a claim's identity
-        # on taxon_id alone, and `uq_identification_source_claim` (with
-        # `postgresql_nulls_not_distinct`) allows only one row per
-        # (recording, source, taxon_id) -- including one single NULL-taxon row
-        # -- so several detections sharing a taxon_id MUST collapse to one
-        # claim. Collapsing by highest confidence makes which label survives
-        # deterministic instead of dependent on row order; a real model run
-        # emits the same class dozens of times per file, and several distinct
-        # unmapped labels can compete for the one NULL-taxon slot.
-        best_by_taxon: dict[int | None, ClassifierDetection] = {}
+        # One claim per distinct EFFECTIVE taxon_id, keeping the
+        # highest-confidence detection's label for each. "Effective" because
+        # a detection cached as unmapped (taxon_id is None) is re-resolved
+        # against `raw_label` here, every cycle -- see this function's
+        # docstring for why that re-resolution, not just a straight read of
+        # the cached taxon_id, is what makes a taxonomy mapping added after
+        # the model already ran actually take effect.
+        #
+        # `replace_claims` keys a claim's identity on taxon_id alone, and
+        # `uq_identification_source_claim` (with `postgresql_nulls_not_distinct`)
+        # allows only one row per (recording, source, taxon_id) -- including
+        # one single NULL-taxon row -- so several detections sharing an
+        # effective taxon_id MUST collapse to one claim. Collapsing by
+        # highest confidence makes which label survives deterministic instead
+        # of dependent on row order; a real model run emits the same class
+        # dozens of times per file, and several distinct still-unmapped
+        # labels can compete for the one NULL-taxon slot.
+        best_by_taxon: dict[int | None, tuple[ClassifierDetection, int | None]] = {}
         for d in passing:
-            previous = best_by_taxon.get(d.taxon_id)
-            if previous is None or d.confidence > previous.confidence:
-                best_by_taxon[d.taxon_id] = d
+            effective_taxon_id = d.taxon_id
+            if effective_taxon_id is None and d.raw_label is not None:
+                taxon = resolve_code(session, source, d.raw_label)
+                if taxon is not None:
+                    effective_taxon_id = taxon.id
+            previous = best_by_taxon.get(effective_taxon_id)
+            if previous is None or d.confidence > previous[0].confidence:
+                best_by_taxon[effective_taxon_id] = (d, effective_taxon_id)
         desired = (
             [
                 ClaimInput(
-                    taxon_id=d.taxon_id,
+                    taxon_id=effective_taxon_id,
                     verdict=Verdict.SPECIES,
                     raw_label=d.raw_label,
                 )
-                for d in best_by_taxon.values()
+                for d, effective_taxon_id in best_by_taxon.values()
             ]
             if best_by_taxon
             else [ClaimInput(taxon_id=None, verdict=Verdict.NO_ID)]

@@ -253,3 +253,19 @@ BATTYBIRDNET`, appropriately, since that one is explicitly out of scope for this
   batdetect2. Worth a future spec of its own if/when it's wanted, most usefully covering poiidx
   and batdetect2 (and any later classifier) together rather than one at a time, including where
   in the UI such a status/error would live (no settings/status page exists yet).
+
+## 8. Reconnecting an unmapped label after the fact
+
+Found during this feature's final whole-branch review: `reresolve_unmapped_identifications`
+(the existing mechanism that retroactively reconnects an unmapped EMT claim once a code
+mapping is added) patches the `Identification` row's `taxon_id` directly — but that alone
+would not help a batdetect2 claim, since `services/batdetect2.py`'s `materialize_claims`
+rebuilds `Identification` from `classifier_detection` every cycle regardless, which would
+silently undo the patch on the very next run.
+
+Fixed by having `materialize_claims` re-attempt `resolve_code` against a still-unmapped
+detection's `raw_label` itself, every cycle, rather than only trusting the `taxon_id` cached
+on the detection row from whenever the classification job last ran — see the function's own
+docstring in `services/batdetect2.py` for the mechanism. This is what lets a taxonomy mapping
+added after the model already ran reach an already-cached, already-unmapped detection, not
+only a not-yet-classified one.
