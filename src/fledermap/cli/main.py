@@ -431,6 +431,7 @@ def serve(host: str | None, port: int | None) -> None:
         config.static_root,
         config.media_root,
         config.archive_roots,
+        config.batdetect2_enabled,
     )
     app.run(
         host=host if host is not None else config.host,

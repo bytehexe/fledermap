@@ -53,10 +53,44 @@ def test_map_page_includes_the_filter_form(engine: Engine, tmp_path: Path) -> No
     assert 'name="session"' in html
     assert 'name="source"' in html
     assert 'name="favourite_only"' in html
-    # finding 7: emt.manual has real, produced data today and must be
-    # selectable, unlike `manual`, which nothing produces yet.
     assert 'value="emt.manual"' in html
-    assert 'value="manual"' not in html
+    # `manual` and `fledermap.noise` both have real, produced data today
+    # (services/manual_classification.py, services/noise.py) unlike
+    # `battybirdnet`/`kaleidoscope`, which nothing writes yet and which stay
+    # off this list.
+    assert 'value="manual"' in html
+    assert 'value="fledermap.noise"' in html
+    assert 'value="battybirdnet"' not in html
+    assert 'value="kaleidoscope"' not in html
+
+
+def test_map_page_omits_batdetect2_source_option_when_disabled(
+    engine: Engine, tmp_path: Path
+) -> None:
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    response = client.get("/")
+
+    html = response.get_data(as_text=True)
+    assert 'value="batdetect2"' not in html
+
+
+def test_map_page_includes_batdetect2_source_option_when_enabled(
+    engine: Engine, tmp_path: Path
+) -> None:
+    app = create_app(
+        engine,
+        tmp_path / "static",
+        tmp_path / "media",
+        batdetect2_enabled=True,
+    )
+    client = app.test_client()
+
+    response = client.get("/")
+
+    html = response.get_data(as_text=True)
+    assert 'value="batdetect2"' in html
 
 
 def test_taxon_filter_is_a_dropdown_of_real_taxa(
