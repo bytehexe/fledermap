@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
-from fledermap.ingest.scan import DEFAULT_SETTLE_SECONDS
+from fledermap.ingest.scan import DEFAULT_SETTLE_SECONDS, has_hidden_component
 
 if TYPE_CHECKING:
     from watchdog.observers.api import BaseObserver
@@ -83,12 +83,33 @@ class _Debouncer:
         task.add_done_callback(self._tasks.discard)
 
 
+def _event_is_hidden(path_str: str, archive_roots: Sequence[Path]) -> bool:
+    path = Path(path_str)
+    for root in archive_roots:
+        if path.is_relative_to(root):
+            return has_hidden_component(path, root)
+    return False
+
+
 class _Handler(FileSystemEventHandler):
-    def __init__(self, debouncer: _Debouncer) -> None:
+    def __init__(self, debouncer: _Debouncer, archive_roots: Sequence[Path]) -> None:
         self._debouncer = debouncer
+        self._archive_roots = archive_roots
 
     def on_any_event(self, event: FileSystemEvent) -> None:
         if event.is_directory:
+            return
+        # Both src and, for a move, dest are checked: a hidden-to-visible
+        # move (a sync tool renaming its temp file to the final name) is a
+        # genuine arrival and must still notify; only an event where every
+        # path involved is hidden is truly irrelevant.
+        dest_path = getattr(event, "dest_path", "") or None
+        src_hidden = _event_is_hidden(str(event.src_path), self._archive_roots)
+        dest_hidden = dest_path is None or _event_is_hidden(
+            str(dest_path),
+            self._archive_roots,
+        )
+        if src_hidden and dest_hidden:
             return
         self._debouncer.notify()
 
@@ -104,7 +125,7 @@ def start_watching(
     `defer`. Caller owns the returned Observer's lifecycle: `.stop()` then
     `.join()` it on shutdown."""
     debouncer = _Debouncer(loop, defer, debounce_seconds)
-    handler = _Handler(debouncer)
+    handler = _Handler(debouncer, archive_roots)
     observer = Observer()
     for root in archive_roots:
         observer.schedule(handler, str(root), recursive=True)

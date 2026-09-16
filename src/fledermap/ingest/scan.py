@@ -74,6 +74,18 @@ INCOMPLETE_SCAN_REASONS = frozenset(
 )
 
 
+def has_hidden_component(path: Path, root: Path) -> bool:
+    """True if `path`, relative to `root`, has any path component starting
+    with `.` -- Syncthing's own `.stfolder`, `.stversions`, sync temp files,
+    etc. Relative to `root`, not absolute: an archive root that itself lives
+    under a dotted directory must not be excluded by its own ancestry."""
+    try:
+        parts = path.relative_to(root).parts
+    except ValueError:
+        parts = (path.name,)
+    return any(part.startswith(".") for part in parts)
+
+
 def _settle_check(
     path: Path,
     root: Path,
@@ -88,11 +100,7 @@ def _settle_check(
     scannable, while hidden subdirectories inside it (Syncthing's
     `.stfolder`) stay skipped.
     """
-    try:
-        parts = path.relative_to(root).parts
-    except ValueError:
-        parts = (path.name,)
-    if any(part.startswith(".") for part in parts):
+    if has_hidden_component(path, root):
         return SkipReason.EXCLUDED
     if path.name.endswith(_TEMP_SUFFIXES):
         return SkipReason.EXCLUDED

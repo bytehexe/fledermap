@@ -74,6 +74,56 @@ def test_a_second_event_before_the_window_elapses_resets_the_timer(
     assert calls[0] - start >= 0.08 - 0.01  # small tolerance for scheduler jitter
 
 
+def test_events_under_a_hidden_path_component_are_ignored(tmp_path: Path) -> None:
+    calls: list[float] = []
+    hidden_dir = tmp_path / ".stfolder"
+    hidden_dir.mkdir()
+
+    async def body() -> None:
+        loop = asyncio.get_running_loop()
+        observer = start_watching(
+            [tmp_path],
+            loop,
+            lambda: _defer_recorder(calls),
+            debounce_seconds=0.05,
+        )
+        try:
+            (hidden_dir / "index").write_bytes(b"x")
+            await asyncio.sleep(0.2)
+        finally:
+            observer.stop()
+            observer.join()
+
+    asyncio.run(_run(body, timeout=2.0))
+    assert calls == []
+
+
+def test_a_hidden_to_visible_move_is_not_ignored(tmp_path: Path) -> None:
+    """A sync tool renaming a hidden temp file to its final visible name is a
+    genuine arrival and must still trigger a defer."""
+    calls: list[float] = []
+    hidden = tmp_path / ".foo.wav.syncthing-tmp"
+    hidden.write_bytes(b"x")
+
+    async def body() -> None:
+        loop = asyncio.get_running_loop()
+        observer = start_watching(
+            [tmp_path],
+            loop,
+            lambda: _defer_recorder(calls),
+            debounce_seconds=0.05,
+        )
+        try:
+            hidden.rename(tmp_path / "final.wav")
+            await asyncio.sleep(0.2)
+        finally:
+            observer.stop()
+            observer.join()
+
+    asyncio.run(_run(body, timeout=2.0))
+    assert len(calls) == 1
+
+
 def test_events_across_multiple_roots_are_all_watched(tmp_path: Path) -> None:
     calls: list[float] = []
     root_a = tmp_path / "a"
