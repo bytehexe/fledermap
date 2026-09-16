@@ -73,18 +73,27 @@ purge_source` call site (jobs/tasks.py, tests) moves to `services.classifier_det
    field, via `requests`. No `meta` fields are set beyond the server's own defaults — no
    `lat`/`lon`, since `Recording` has no region field (same accepted gap as batdetect2's own
    region-blind operation, §7 below).
-3. Parse the JSON response's `results` list into `DetectionInput`s — **every** entry, not just the
-   top one (matches batdetect2's "cache everything, threshold is a free re-filter" approach; the
-   exact per-entry shape, e.g. `[label, confidence]` vs. a dict, is confirmed empirically against
-   a real running server at implementation time, not assumed from reading the upstream source).
-   For each entry: if `domain/codes.py`'s existing `sentinel_verdict(label)` returns a `Verdict`
-   (it already maps `"noise"`, case/whitespace-insensitive, to `Verdict.NOISE` — built for EMT's
-   own sentinel strings, reused here as-is with zero changes), build a `DetectionInput` with
-   `taxon_id=None` carrying that meaning; otherwise split `label` on the first `"_"` and resolve
-   the prefix (the scientific name) via `resolve_code(session, IdSource.BATTYBIRDNET, prefix)`,
-   keeping the full original `label` string as `raw_label` for display/audit (matching
-   batdetect2's convention of storing the verbatim model output).
-4. Write the full list via `record_detections` (full replace, unchanged function).
+3. Parse the JSON response's `results` field — confirmed from `analyze.py`'s `analyzeFile`
+   (the function `server.py`'s `/analyze` route calls and returns verbatim) to be a dict shaped
+   `{"{segment_start}-{segment_end}": [[label, score_str], ...], ...}`: one key per 3-second
+   analysis window, each value a list of `[label, score]` pairs for **every** class in the
+   label vocabulary (all ~30 species plus `NOISE` for the EU checkpoint), sorted by score
+   descending but never filtered — `score` is a JSON string, not a number, and must be cast with
+   `float()`. Flatten every window's list into one stream of `(label, confidence)` pairs across
+   the whole recording, drop anything below a `_BATTYBIRDNET_FLOOR` sanity floor (mirroring
+   `_BATDETECT2_FLOOR`, keeping the exact value TBD at implementation time against real
+   response sizes), and turn each survivor into a `DetectionInput`: if
+   `domain/codes.py`'s existing `sentinel_verdict(label)` returns a `Verdict` (it already maps
+   `"noise"`, case/whitespace-insensitive, to `Verdict.NOISE` — built for EMT's own sentinel
+   strings, reused here as-is with zero changes), carry `taxon_id=None` with that meaning;
+   otherwise split `label` on the first `"_"` and resolve the prefix (the scientific name) via
+   `resolve_code(session, IdSource.BATTYBIRDNET, prefix)`, keeping the full original `label`
+   string as `raw_label` for display/audit (matching batdetect2's convention of storing the
+   verbatim model output). This dict shape (confirmed from upstream source, 2026-09-16) still
+   needs confirming against a real running server's actual JSON at implementation time, same
+   discipline as batdetect2's own Task 5 precedent — reading the source is a legitimate
+   verification step, not a substitute for it.
+4. Write the full flattened list via `record_detections` (full replace, unchanged function).
 5. On any request failure (`requests.exceptions.RequestException`, non-200 response, or a
    response `analyze` reports as unsuccessful): let the job raise and retry via Procrastinate's
    existing `_RETRY` policy. No healthcheck step, no circuit breaker, no global "disable and
@@ -92,9 +101,15 @@ purge_source` call site (jobs/tasks.py, tests) moves to `services.classifier_det
    `ensure_connected` and batdetect2's own spec (its §7 already deferred building this kind of
    mechanism generally).
 
-No separate low-sanity-floor constant (unlike batdetect2's `_BATDETECT2_FLOOR`) is needed here:
-the server's own hardcoded `MIN_CONFIDENCE` (0.6 in the upstream default build) already performs
-that role — every candidate Fledermap ever sees from `/analyze` is already above it.
+A `_BATTYBIRDNET_FLOOR` constant (mirroring `_BATDETECT2_FLOOR`) is needed here: `server.py`'s
+`/analyze` route returns `results` straight from `analyze.analyzeFile()`, a plain dict
+`{"{start}-{end}": [[label, score_str], ...]}` — one entry per 3-second segment, with **every**
+class in the label vocabulary scored and included, sorted by score but never filtered by
+`MIN_CONFIDENCE`. That constant is only ever compared inside `saveResultFile()` (the CLI-only
+file-export function), which the API server never calls — confirmed by reading `analyze.py`'s
+source directly. So every segment's full, unfiltered score distribution across the whole label
+vocabulary reaches Fledermap, mostly near-zero — exactly what batdetect2's own floor exists to
+contain, and the same reasoning applies here.
 
 `materialize_claims` (the shared, now-generic module) needs one small, targeted addition: check
 `sentinel_verdict(raw_label)` before attempting `resolve_code`, and if it returns a verdict,
@@ -132,9 +147,12 @@ Mirrors `Config`'s existing `batdetect2_enabled`/`batdetect2_threshold` shape, p
   `http://localhost:7667`). `Config.from_env()` raises `ConfigError` if `battybirdnet_enabled`
   is true but `battybirdnet_url` is unset — mirrors the existing `poiidx_database_url`
   validation shape (a required companion setting for an optional integration).
-- `battybirdnet_threshold: float = 0.6` — deliberately matches the server's own hardcoded
-  `MIN_CONFIDENCE` floor exactly (unlike batdetect2's 0.8 default), since anything lower can
-  never surface any candidate against the default `battybirdnet-docker` build (§7).
+- `battybirdnet_threshold: float = 0.6` — matches the upstream tool's own default
+  `MIN_CONFIDENCE` (its CLI's own suggested confidence bar, `config.py`'s `MIN_CONFIDENCE: float
+  = 0.6`), even though that constant is never actually enforced server-side for the API path
+  (§3/§7) — it's still a reasonable starting point since it's the tool author's own judgment of a
+  sensible default, distinct from batdetect2's 0.8 (this project's own conservative choice, no
+  equivalent upstream number to anchor to).
 
 ## 6. Precedence
 
@@ -153,13 +171,6 @@ repurposing of a bird-call classifier (BirdNET) onto ultrasonic frequencies.
   out-of-scope section) and no way to select or verify the server's configured region per
   recording. Same accepted tradeoff as batdetect2's unconditional, region-blind operation: a
   mismatch just means meaningless output for a recording outside the server's configured area.
-- **`FLEDERMAP_BATTYBIRDNET_THRESHOLD` is only meaningful in the 0.6–1.0 range** against the
-  default `battybirdnet-docker` build, since the server's own hardcoded `MIN_CONFIDENCE=0.6`
-  filters out everything else before Fledermap ever sees it — unlike batdetect2's full 0–1 range.
-  Config validation still allows the full 0–1 range for forward-compatibility with a server build
-  that exposes its own override; this file documents the practical floor rather than enforcing it
-  in code, since hardcoding one specific external server's default into Fledermap's own config
-  validation would break the day an operator's build changes it.
 - **A `NOISE` candidate can compete with a genuinely-unmapped-species candidate for the single
   `taxon_id IS NULL` claim slot** `uq_identification_source_claim` allows per `(recording,
   source)`. `materialize_claims`'s existing highest-confidence-wins dedup (already the accepted
