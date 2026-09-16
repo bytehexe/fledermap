@@ -29,7 +29,7 @@ taxa:
     rank: genus
     common_name_de: Langohren
     common_name_en: Long-eared bats
-    codes: {}
+    codes: {battybirdnet: "Plecotus"}
   - scientific_name: HiF
     rank: group
     common_name_en: Various species with pulses having a minimum frequency higher than ~30 kHz

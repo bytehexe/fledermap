@@ -5,6 +5,7 @@ from sqlalchemy import Engine, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as OrmSession
 
+from fledermap.domain.codes import IdSource
 from fledermap.store.models import Taxon, TaxonCode
 from fledermap.store.seed import resolve_code, seed_taxonomy
 
@@ -157,9 +158,12 @@ def test_myotis_now_resolves_mysp(engine: Engine) -> None:
         assert taxon.scientific_name == "Myotis"
 
 
-def test_plecotus_has_no_taxon_code(engine: Engine) -> None:
-    """No authoritative European-equivalent code exists (checked directly against
-    NABat's own page, 2026-09-05, docs/references.md) -- must not be invented."""
+def test_plecotus_has_no_emt_or_nabat_taxon_code(engine: Engine) -> None:
+    """No authoritative Wildlife-Acoustics/NABat European-equivalent code exists
+    (checked directly against NABat's own page, 2026-09-05, docs/references.md) --
+    must not be invented. `battybirdnet` is a separate source with its own genus-level
+    label for this taxon (see test_battybirdnet_code_resolves_the_plecotus_genus_group),
+    so the total code count is 1, not 0."""
     with OrmSession(engine) as session:
         seed_taxonomy(session)
         session.commit()
@@ -172,7 +176,30 @@ def test_plecotus_has_no_taxon_code(engine: Engine) -> None:
             .select_from(TaxonCode)
             .where(TaxonCode.taxon_id == plecotus.id),
         )
-        assert code_count == 0
+        assert code_count == 1
+
+
+def test_battybirdnet_code_resolves_myotis_daubentonii(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        session.commit()
+
+        taxon = resolve_code(session, IdSource.BATTYBIRDNET, "Myotis daubentonii")
+
+        assert taxon is not None
+        assert taxon.scientific_name == "Myotis daubentonii"
+
+
+def test_battybirdnet_code_resolves_the_plecotus_genus_group(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        session.commit()
+
+        taxon = resolve_code(session, IdSource.BATTYBIRDNET, "Plecotus")
+
+        assert taxon is not None
+        assert taxon.scientific_name == "Plecotus"
+        assert taxon.rank == "genus"
 
 
 def test_group_codes_resolve_to_the_right_taxon(engine: Engine) -> None:
