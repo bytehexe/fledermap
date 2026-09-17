@@ -549,3 +549,25 @@ def test_identification_status_shadowed_for_a_species_overridden_by_containment(
     assert identification_status(guano, best) == "shadowed"
     assert identification_status(batdetect2_a, best) == "current"
     assert identification_status(batdetect2_b, best) == "current"
+
+
+def test_multi_support_peek_stops_at_nearest_source_even_if_it_does_not_contain() -> (
+    None
+):
+    """The peek must stop at the NEAREST multi_support source with live claims, even when it
+    doesn't contain the winner's taxon -- it must NOT keep scanning past it to a further
+    multi_support source that would have contained it. A real disagreement with the nearest
+    one wins; the farther one is never consulted."""
+    r = _recording(
+        _ident(IdSource.EMT_GUANO, taxon_id=3),
+        _ident(IdSource.BATDETECT2, taxon_id=1),
+        _ident(IdSource.BATDETECT2, taxon_id=2),
+        _ident(IdSource.BATTYBIRDNET, taxon_id=3),
+    )
+
+    best = current_best_identification(r)
+
+    assert best is not None
+    assert not best.is_multi
+    assert best.primary.source == IdSource.EMT_GUANO
+    assert best.primary.taxon_id == 3
