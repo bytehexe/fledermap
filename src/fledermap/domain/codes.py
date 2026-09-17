@@ -65,6 +65,46 @@ class IdSource(StrEnum):
     FLEDERMAP_NOISE = "fledermap.noise"
 
 
+# Declarative classifier properties -- consumed by services/current_best.py's precedence walk
+# and services/review_flags.py's disagreement check, so a future classifier participates
+# correctly by declaring its properties here instead of needing new code in either function
+# (docs/superpowers/specs/2026-09-17-fledermap-classifier-interaction-design.md §2).
+
+_MANUAL_SOURCES: frozenset[IdSource] = frozenset({IdSource.MANUAL, IdSource.EMT_MANUAL})
+
+_ONLY_NOISE_SOURCES: frozenset[IdSource] = frozenset({IdSource.FLEDERMAP_NOISE})
+
+_MULTI_SUPPORT_SOURCES: frozenset[IdSource] = frozenset(
+    {IdSource.MANUAL, IdSource.BATDETECT2, IdSource.BATTYBIRDNET},
+)
+
+
+def is_manual(source: IdSource) -> bool:
+    """A human's deliberate judgment -- either in-app (`MANUAL`) or the on-device correction
+    re-derived from the file (`EMT_MANUAL`). Its own `NO_ID` is a considered "I checked and
+    there's nothing here," not an admission of uncertainty, so `current_best.py`'s precedence
+    walk treats it as "strong NoID" (wins outright) rather than falling through like an
+    automatic classifier's `NO_ID` does. Also excluded entirely from
+    `review_flags.py`'s disagreement voting."""
+    return source in _MANUAL_SOURCES
+
+
+def is_only_noise(source: IdSource) -> bool:
+    """A source whose only possible verdicts are `NOISE` and `NO_ID` -- it can never assert a
+    species. Its `NO_ID` is excluded from `review_flags.py`'s disagreement voting (an admission
+    from a coarse pre-filter that it can't tell either way is not informative alongside a real
+    classifier's confident species call); its `NOISE` claim is not excluded."""
+    return source in _ONLY_NOISE_SOURCES
+
+
+def is_multi_support(source: IdSource) -> bool:
+    """A source whose claims for one recording may legitimately name more than one taxon at
+    once, rather than every extra claim past the first being either a competing alternative or
+    an error. Drives both `current_best.py`'s multi-support containment override and
+    `review_flags.py`'s equality/containment disagreement rule."""
+    return source in _MULTI_SUPPORT_SOURCES
+
+
 class VisualSighting(StrEnum):
     """Whether a human observer saw a bat visually during a session --
     independent of acoustic detection/species ID.

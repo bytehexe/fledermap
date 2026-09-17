@@ -1,6 +1,13 @@
 from __future__ import annotations
 
-from fledermap.domain.codes import Verdict, sentinel_verdict
+from fledermap.domain.codes import (
+    IdSource,
+    Verdict,
+    is_manual,
+    is_multi_support,
+    is_only_noise,
+    sentinel_verdict,
+)
 
 
 def test_recognises_filename_style_noid() -> None:
@@ -25,3 +32,34 @@ def test_is_case_insensitive() -> None:
 
 def test_real_species_code_is_not_a_sentinel() -> None:
     assert sentinel_verdict("EPTSER") is None
+
+
+def test_is_manual_true_for_manual_and_emt_manual() -> None:
+    assert is_manual(IdSource.MANUAL) is True
+    assert is_manual(IdSource.EMT_MANUAL) is True
+
+
+def test_is_manual_false_for_automatic_sources() -> None:
+    assert is_manual(IdSource.EMT_GUANO) is False
+    assert is_manual(IdSource.BATDETECT2) is False
+    assert is_manual(IdSource.FLEDERMAP_NOISE) is False
+
+
+def test_is_only_noise_true_only_for_fledermap_noise() -> None:
+    assert is_only_noise(IdSource.FLEDERMAP_NOISE) is True
+    assert is_only_noise(IdSource.BATDETECT2) is False
+    assert is_only_noise(IdSource.MANUAL) is False
+
+
+def test_is_multi_support_true_for_manual_batdetect2_battybirdnet() -> None:
+    assert is_multi_support(IdSource.MANUAL) is True
+    assert is_multi_support(IdSource.BATDETECT2) is True
+    assert is_multi_support(IdSource.BATTYBIRDNET) is True
+
+
+def test_is_multi_support_false_for_plain_sources() -> None:
+    assert is_multi_support(IdSource.EMT_MANUAL) is False
+    assert is_multi_support(IdSource.EMT_GUANO) is False
+    assert is_multi_support(IdSource.EMT_WAMD) is False
+    assert is_multi_support(IdSource.EMT_FILENAME) is False
+    assert is_multi_support(IdSource.FLEDERMAP_NOISE) is False
