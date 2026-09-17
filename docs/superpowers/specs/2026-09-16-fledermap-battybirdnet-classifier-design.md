@@ -70,9 +70,13 @@ purge_source` call site (jobs/tasks.py, tests) moves to `services.classifier_det
 1. Resolve the recording and its WAV path (`services/media.py`'s `resolve_recording`/
    `resolve_wav_path`, same helpers `classify_batdetect2_task` already uses).
 2. Close the session, then `POST {battybirdnet_url}/analyze` with the WAV as a multipart `audio`
-   field, via `requests`. No `meta` fields are set beyond the server's own defaults — no
-   `lat`/`lon`, since `Recording` has no region field (same accepted gap as batdetect2's own
-   region-blind operation, §7 below).
+   field, via `requests`. **Correction, 2026-09-17, against a real server:** a bare request with
+   no `meta` field 500s unconditionally — `server.py`'s handler does
+   `json.loads(bottle.request.forms.get("meta", {}))`, and its own default for a missing field is
+   a dict, not a JSON string, so `json.loads` always raises. Fledermap sends a literal
+   `data={"meta": "{}"}` to work around this server-side bug (never patching or vendoring the
+   server's own code, per §1) — no `lat`/`lon` inside it, since `Recording` has no region field
+   (same accepted gap as batdetect2's own region-blind operation, §7 below).
 3. Parse the JSON response's `results` field — confirmed from `analyze.py`'s `analyzeFile`
    (the function `server.py`'s `/analyze` route calls and returns verbatim) to be a dict shaped
    `{"{segment_start}-{segment_end}": [[label, score_str], ...], ...}`: one key per 3-second

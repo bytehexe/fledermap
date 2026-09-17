@@ -245,6 +245,15 @@ def classify_battybirdnet_task(
         response = requests.post(
             f"{config.battybirdnet_url}/analyze",
             files={"audio": audio_file},
+            # `server.py`'s handler unconditionally does
+            # `json.loads(bottle.request.forms.get("meta", {}))` -- its
+            # default for a MISSING "meta" field is a dict, not a JSON
+            # string, so json.loads crashes with a 500 on every request that
+            # omits it (confirmed against a real battybirdnet-docker
+            # instance, 2026-09-17). Sending an empty JSON object as a
+            # literal string works around the server's own bug without
+            # patching or vendoring its code (design spec §1).
+            data={"meta": "{}"},
             timeout=300,
         )
     response.raise_for_status()
