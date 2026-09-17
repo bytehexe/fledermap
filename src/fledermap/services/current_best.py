@@ -88,6 +88,23 @@ def _live_claims(recording: Recording, source: IdSource) -> list[Identification]
     return matches
 
 
+def _is_effective_multi_support_override_target(matches: list[Identification]) -> bool:
+    """Whether a `multi_support` source's live claim set is eligible to be an override target
+    in `_multi_support_containment_override` below (spec §3.2 steps 2-3 / §5). Two independent
+    gates, both required:
+
+    - **Homogeneous SPECIES** (spec §5): the source's live claims must all be verdict `SPECIES`.
+      A set mixing a `SPECIES` claim with a `NOISE` claim (legitimately possible per
+      `services/classifier_detections.py`'s `materialize_claims`, which dedups by
+      `effective_taxon_id` alone) means the source is contradicting itself, not offering a
+      coherent multi-species answer to defer to -- treating it as an override target would
+      produce a `CurrentIdentification` that itself mixes a SPECIES claim with a NOISE claim.
+    - **More than one claim**: a singleton claim set gains nothing by overriding the winner --
+      it names the same information the winner already does, so preferring it would only flip
+      which source's row displays as "current" for no informational gain."""
+    return len(matches) > 1 and all(m.verdict == Verdict.SPECIES for m in matches)
+
+
 def _multi_support_containment_override(
     recording: Recording,
     winning_taxon_id: int | None,
@@ -95,9 +112,13 @@ def _multi_support_containment_override(
 ) -> list[Identification] | None:
     """Looks past a plain (non-multi_support, non-manual) SPECIES winner for the NEAREST
     multi_support source below it with live claims -- skipping any weak-NoID source along the
-    way via `_live_claims`, same as the main walk. Returns that source's full claim set when it
-    contains `winning_taxon_id` (no real disagreement, so show the richer result instead of
-    discarding it); returns None otherwise (either no multi_support source was found, or it
+    way via `_live_claims`, same as the main walk. That nearest source must also be
+    "effectively multi-support" (`_is_effective_multi_support_override_target` above) to be
+    considered at all; if it isn't, the peek gives up right there -- per spec §3.2 step 2, an
+    ineligible nearest source is never skipped in favor of a further multi_support source down
+    the precedence order. Returns that source's full claim set when it contains
+    `winning_taxon_id` (no real disagreement, so show the richer result instead of discarding
+    it); returns None otherwise (either no eligible multi_support source was found, or it
     doesn't contain the taxon -- a real disagreement, so the original winner stands and nothing
     further below is consulted, per spec §3.2: "the highest precedence source that actually
     disagrees is the one that should win")."""
@@ -107,6 +128,8 @@ def _multi_support_containment_override(
         matches = _live_claims(recording, source)
         if not matches:
             continue
+        if not _is_effective_multi_support_override_target(matches):
+            return None
         taxon_ids = {m.taxon_id for m in matches if m.taxon_id is not None}
         if winning_taxon_id in taxon_ids:
             return matches
@@ -231,7 +254,7 @@ def identification_status(
     """
     if best is not None and ident in best.claims:
         return "current"
-    if ident.source != IdSource.MANUAL and ident.verdict == Verdict.NO_ID:
+    if not is_manual(ident.source) and ident.verdict == Verdict.NO_ID:
         return "passive"
     return "shadowed"
 

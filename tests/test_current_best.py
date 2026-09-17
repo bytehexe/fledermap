@@ -571,3 +571,57 @@ def test_multi_support_peek_stops_at_nearest_source_even_if_it_does_not_contain(
     assert not best.is_multi
     assert best.primary.source == IdSource.EMT_GUANO
     assert best.primary.taxon_id == 3
+
+
+def test_no_override_when_multi_support_set_mixes_species_and_noise() -> None:
+    """spec §3.2/§5: BATDETECT2's claim set legitimately mixes a SPECIES claim with a NOISE
+    claim (services/classifier_detections.py's materialize_claims dedups by taxon_id, and NOISE
+    always has taxon_id=None) -- that source is contradicting itself, not offering a coherent
+    multi-species answer, so it must not be an override target even though it contains the
+    winner's taxon."""
+    r = _recording(
+        _ident(IdSource.EMT_GUANO, taxon_id=1),
+        _ident(IdSource.BATDETECT2, taxon_id=1),
+        _ident(IdSource.BATDETECT2, taxon_id=None, verdict=Verdict.NOISE),
+    )
+
+    best = current_best_identification(r)
+
+    assert best is not None
+    assert not best.is_multi
+    assert best.primary.source == IdSource.EMT_GUANO
+    assert best.primary.taxon_id == 1
+
+
+def test_no_override_when_multi_support_set_is_a_singleton_matching_the_winner() -> (
+    None
+):
+    """spec §3.2 step 3: BATDETECT2 naming only PIPPIP -- the same single species EMT_GUANO
+    already called -- gains nothing by overriding; the singleton-claim gate stops the peek and
+    EMT_GUANO's own claim stands as the displayed result."""
+    r = _recording(
+        _ident(IdSource.EMT_GUANO, taxon_id=1),
+        _ident(IdSource.BATDETECT2, taxon_id=1),
+    )
+
+    best = current_best_identification(r)
+
+    assert best is not None
+    assert not best.is_multi
+    assert best.primary.source == IdSource.EMT_GUANO
+    assert best.primary.taxon_id == 1
+
+
+def test_identification_status_shadowed_for_emt_manual_no_id_losing_to_a_manual_species() -> (
+    None
+):
+    """EMT_MANUAL's NO_ID is a "strong" NoID (is_manual) that would win outright on its own, but
+    here MANUAL outranks it and wins instead -- the EMT_MANUAL row lost a real claim, so it must
+    show "shadowed", not "passive" (which would wrongly imply it was auto-skipped as a weak
+    NoID)."""
+    winner = _ident(IdSource.MANUAL, taxon_id=1)
+    loser = _ident(IdSource.EMT_MANUAL, verdict=Verdict.NO_ID, taxon_id=None)
+    r = _recording(winner, loser)
+    best = current_best_identification(r)
+
+    assert identification_status(loser, best) == "shadowed"

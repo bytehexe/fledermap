@@ -9,6 +9,7 @@ from sqlalchemy import Engine, event, select
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import IdSource, Verdict
+from fledermap.services.current_best import current_best_identification
 from fledermap.services.review_flags import (
     ReviewContext,
     _disagreement_reason,
@@ -269,6 +270,59 @@ def test_disagreement_reason_ignores_manual_and_emt_manual_claims() -> None:
         _ident(IdSource.EMT_MANUAL, taxon_id=3),
     )
     assert _disagreement_reason(r) is None
+
+
+def test_disagreement_reason_fires_when_a_multi_support_set_mixes_species_and_noise() -> (
+    None
+):
+    """spec §4/§5: BATDETECT2's own claim set mixes a SPECIES claim with a NOISE claim (a real,
+    legitimate output shape of services/classifier_detections.py's materialize_claims, which
+    dedups by taxon_id -- NOISE always has taxon_id=None). BATDETECT2 is not *effectively*
+    multi-support for this recording, so it's compared against EMT_GUANO by plain equality, not
+    the containment rule a coherent multi-species set would get -- {PIPPIP} != {PIPPIP, NOISE},
+    so this flags rather than silently reading as "PIPPIP is a member of BATDETECT2's set"."""
+    r = _recording(
+        _ident(IdSource.EMT_GUANO, taxon_id=1),
+        _ident(IdSource.BATDETECT2, taxon_id=1),
+        _ident(IdSource.BATDETECT2, taxon_id=None, verdict=Verdict.NOISE),
+    )
+    assert _disagreement_reason(r) is not None
+
+
+def test_disagreement_reason_none_when_a_singleton_multi_support_set_matches() -> None:
+    """A singleton effectively-multi-support set behaves identically to a plain set under the
+    existing equality/containment rules -- no separate gate needed for it, unlike
+    current_best.py's override."""
+    r = _recording(
+        _ident(IdSource.EMT_GUANO, taxon_id=1),
+        _ident(IdSource.BATDETECT2, taxon_id=1),
+    )
+    assert _disagreement_reason(r) is None
+
+
+def test_mixed_multi_support_set_agrees_between_current_best_and_disagreement_check() -> (
+    None
+):
+    """Coherence test: current_best.py's override and review_flags.py's disagreement check must
+    agree on the same recording, not just pass in parallel with separate fixtures. EMT_GUANO
+    (plain) calls PIPPIP; BATDETECT2 (multi_support) self-contradicts with {SPECIES: PIPPIP,
+    NOISE} (spec §5's corrected invariant). The override must decline to fire (BATDETECT2 isn't
+    effectively multi-support, so EMT_GUANO's own claim stands as the winner) precisely because
+    this is a real disagreement -- and _disagreement_reason must independently flag that same
+    disagreement rather than the override silently suppressing it."""
+    r = _recording(
+        _ident(IdSource.EMT_GUANO, taxon_id=1),
+        _ident(IdSource.BATDETECT2, taxon_id=1),
+        _ident(IdSource.BATDETECT2, taxon_id=None, verdict=Verdict.NOISE),
+    )
+
+    best = current_best_identification(r)
+    assert best is not None
+    assert not best.is_multi
+    assert best.primary.source == IdSource.EMT_GUANO
+    assert best.primary.taxon_id == 1
+
+    assert _disagreement_reason(r) == "Classifiers disagree"
 
 
 # DB-marked tests follow

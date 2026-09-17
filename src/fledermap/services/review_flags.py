@@ -169,7 +169,10 @@ def _has_human_review(recording: Recording) -> bool:
     return any(i.source in _HUMAN_REVIEW_SOURCES for i in recording.identifications)
 
 
-def _claim_key(ident: Identification) -> tuple[Verdict] | tuple[Verdict, int | str]:
+_ClaimKey = tuple[Verdict] | tuple[Verdict, int | str]
+
+
+def _claim_key(ident: Identification) -> _ClaimKey:
     """One classifier's "answer", comparable across sources. A resolved
     species compares by taxon_id (raw_label may differ trivially between
     sources naming the same species); an unmapped one falls back to
@@ -182,53 +185,74 @@ def _claim_key(ident: Identification) -> tuple[Verdict] | tuple[Verdict, int | s
     return (ident.verdict, ident.raw_label or "")
 
 
-_ClaimKey = tuple[Verdict] | tuple[Verdict, int | str]
+@dataclass(frozen=True)
+class _SourceVote:
+    """One source's vote-set plus whether it counts as "effectively multi-support" for this
+    recording (spec §4/§5) -- a source's `is_multi_support` property is a fixed fact about the
+    source, but whether it behaves as multi-support here depends on its actual claims, so
+    `_compatible` needs the per-recording answer, not the raw property."""
+
+    claim_keys: frozenset[_ClaimKey]
+    effectively_multi_support: bool
 
 
 def _source_vote_sets(
     recording: Recording,
-) -> dict[IdSource, frozenset[_ClaimKey]]:
-    """One vote-set per eligible source -- `is_manual` sources are excluded entirely (matching
+) -> dict[IdSource, _SourceVote]:
+    """One vote per eligible source -- `is_manual` sources are excluded entirely (matching
     `_HUMAN_REVIEW_SOURCES`'s old role; called directly, not just via `review_reasons`, this
     function must not treat a human's claim as just another classifier's vote), and an
     `is_only_noise` source's `NO_ID` claim is excluded (a coarse pre-filter admitting it can't
     tell either way is not informative -- see domain/codes.py's `is_only_noise` docstring). A
-    source with no remaining claims after that filtering contributes no vote at all."""
+    source with no remaining claims after that filtering contributes no vote at all.
+
+    A source counts as "effectively multi-support" only when `is_multi_support(source)` is true
+    AND every one of its (already-filtered) live claims has verdict `SPECIES` (spec §5) -- a set
+    mixing a `SPECIES` claim with a `NOISE` claim is the source contradicting itself, not a
+    coherent multi-species answer, so `_compatible` must not read it via the
+    equality/containment rules meant for that case."""
     by_source: dict[IdSource, list[Identification]] = {}
     for ident in recording.identifications:
         if is_manual(ident.source):
             continue
         by_source.setdefault(ident.source, []).append(ident)
 
-    votes: dict[IdSource, frozenset[_ClaimKey]] = {}
+    votes: dict[IdSource, _SourceVote] = {}
     for source, claims in by_source.items():
         if is_only_noise(source):
             claims = [c for c in claims if c.verdict != Verdict.NO_ID]
         if not claims:
             continue
-        votes[source] = frozenset(_claim_key(c) for c in claims)
+        effectively_multi_support = is_multi_support(source) and all(
+            c.verdict == Verdict.SPECIES for c in claims
+        )
+        votes[source] = _SourceVote(
+            claim_keys=frozenset(_claim_key(c) for c in claims),
+            effectively_multi_support=effectively_multi_support,
+        )
     return votes
 
 
 def _compatible(
-    source_a: IdSource,
     set_a: frozenset[_ClaimKey],
-    source_b: IdSource,
+    a_multi: bool,
     set_b: frozenset[_ClaimKey],
+    b_multi: bool,
 ) -> bool:
-    """Whether two sources' vote-sets agree, per spec §4:
+    """Whether two sources' vote-sets agree, per spec §4. `a_multi`/`b_multi` are each source's
+    "effectively multi-support" status for this recording (`_SourceVote.effectively_multi_support`)
+    -- not the raw `is_multi_support(source)` property -- since a `multi_support` source whose
+    claims mix `SPECIES` with `NOISE` (spec §5) is treated here as an ordinary plain source:
 
-    - Both `is_multi_support`: only exact equality agrees -- deliberately strict (see the
+    - Both effectively multi-support: only exact equality agrees -- deliberately strict (see the
       module-level design spec's §4/§6): two multi-species sources must name exactly the same
       set, even a strict subset of the other's calls counts as disagreement.
-    - Exactly one `is_multi_support`: the plain source's single call must be a MEMBER of the
-      multi_support source's set (containment, not equality) -- a source that can only ever
+    - Exactly one effectively multi-support: the plain source's single call must be a MEMBER of
+      the multi-support source's set (containment, not equality) -- a source that can only ever
       name one species isn't expected to name every species a multi-species source might.
-    - Neither `is_multi_support`: both sets are singletons, so equality and containment
+    - Neither effectively multi-support: both sets are singletons, so equality and containment
       coincide -- same comparison the original flat key-based check already made for two plain
       sources."""
-    a_multi = is_multi_support(source_a)
-    b_multi = is_multi_support(source_b)
     if a_multi and b_multi:
         return set_a == set_b
     if a_multi:
@@ -247,9 +271,14 @@ def _disagreement_reason(recording: Recording) -> str | None:
     declaring those, with no code change here."""
     votes = list(_source_vote_sets(recording).items())
     for i in range(len(votes)):
-        source_a, set_a = votes[i]
-        for source_b, set_b in votes[i + 1 :]:
-            if not _compatible(source_a, set_a, source_b, set_b):
+        _, vote_a = votes[i]
+        for _, vote_b in votes[i + 1 :]:
+            if not _compatible(
+                vote_a.claim_keys,
+                vote_a.effectively_multi_support,
+                vote_b.claim_keys,
+                vote_b.effectively_multi_support,
+            ):
                 return "Classifiers disagree"
     return None
 
