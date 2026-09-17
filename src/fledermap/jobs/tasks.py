@@ -126,7 +126,7 @@ def battybirdnet_lock_key(audio_hash: str) -> str:
 
 # A fixed, non-configurable sanity floor, same reasoning as _BATDETECT2_FLOOR
 # above: the operator's server returns EVERY class's score for EVERY
-# 3-second segment, unfiltered (confirmed against analyze.py's actual
+# fixed-width analysis window, unfiltered (confirmed against analyze.py's actual
 # analyzeFile()/saveResultFile() split -- MIN_CONFIDENCE is only ever
 # applied inside saveResultFile(), a CLI-only file-export function the
 # /analyze route never calls). Without this floor, classifier_detection
@@ -144,10 +144,25 @@ def results_to_detections(
     `_BATTYBIRDNET_FLOOR`.
 
     `results` is `{"{segment_start}-{segment_end}": [[label, score_str],
-    ...], ...}` -- one entry per 3-second analysis window, every class in
-    the label vocabulary scored (confirmed from analyze.py's `analyzeFile`,
-    which `server.py`'s `/analyze` route returns verbatim). A window is one
-    bat call, which can only be one species, so only the single
+    ...], ...}` -- one entry per fixed-width analysis window (a plain tiling
+    of the whole recording by `analyze.py`'s `getRawAudioFromFile`/
+    `audio.splitSignal`, unrelated to where any actual call falls; NOT
+    per-call), every class in the label vocabulary scored (confirmed from
+    analyze.py's `analyzeFile`, which `server.py`'s `/analyze` route returns
+    verbatim). Confirmed against the real upstream source (`rdz-oss/
+    BattyBirdNET-Analyzer`, `config.py`): for the bat models this server
+    serves, the window is `cfg.SIG_LENGTH = 144000 / cfg.SAMPLE_RATE` seconds
+    (~0.5625s at the default `SAMPLE_RATE = 256000`, since none of the bat
+    area branches in `server.py` override it -- only its `BIRDS`/
+    `CUSTOM_BIRD` branches force `SIG_LENGTH = 3`), with no overlap by
+    default (`server.py`'s `/analyze` route sets `cfg.SIG_OVERLAP` from the
+    request's own `overlap` field, defaulting to `0.0` if the request omits
+    it -- not `config.py`'s own `SIG_LENGTH / 4.0` module-level default).
+    Exact duration and overlap therefore depend on the operator's running
+    server/model area and the request, not a fixed "3 seconds" this
+    docstring used to assume. A window is one bat call, which can only be
+    one species (a real call pulse is a few ms to tens of ms, well inside
+    even the shortest of these windows), so only the single
     highest-scoring candidate in each window becomes a detection -- keeping
     every candidate above the floor (the original behavior) let one call
     cast a claim for every species the model gave a non-trivial score to,

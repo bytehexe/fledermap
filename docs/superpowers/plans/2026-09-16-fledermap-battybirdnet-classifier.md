@@ -1323,7 +1323,7 @@ def battybirdnet_lock_key(audio_hash: str) -> str:
 
 # A fixed, non-configurable sanity floor, same reasoning as _BATDETECT2_FLOOR
 # above: the operator's server returns EVERY class's score for EVERY
-# 3-second segment, unfiltered (confirmed against analyze.py's actual
+# fixed-width analysis window, unfiltered (confirmed against analyze.py's actual
 # analyzeFile()/saveResultFile() split -- MIN_CONFIDENCE is only ever
 # applied inside saveResultFile(), a CLI-only file-export function the
 # /analyze route never calls). Without this floor, classifier_detection
@@ -1340,7 +1340,8 @@ def results_to_detections(
     into `DetectionInput`s, dropping anything below `_BATTYBIRDNET_FLOOR`.
 
     `results` is `{"{segment_start}-{segment_end}": [[label, score_str],
-    ...], ...}` -- one entry per 3-second analysis window, every class in
+    ...], ...}` -- one entry per fixed-width analysis window (not 3
+    seconds -- see the design spec's 2026-09-17 correction), every class in
     the label vocabulary scored (confirmed from analyze.py's `analyzeFile`,
     which `server.py`'s `/analyze` route returns verbatim). Flattened across
     every window into one stream: the same label can legitimately appear

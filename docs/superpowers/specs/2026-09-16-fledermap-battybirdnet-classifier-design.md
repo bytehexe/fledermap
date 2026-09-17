@@ -79,8 +79,10 @@ purge_source` call site (jobs/tasks.py, tests) moves to `services.classifier_det
    (same accepted gap as batdetect2's own region-blind operation, §7 below).
 3. Parse the JSON response's `results` field — confirmed from `analyze.py`'s `analyzeFile`
    (the function `server.py`'s `/analyze` route calls and returns verbatim) to be a dict shaped
-   `{"{segment_start}-{segment_end}": [[label, score_str], ...], ...}`: one key per 3-second
-   analysis window, each value a list of `[label, score]` pairs for **every** class in the
+   `{"{segment_start}-{segment_end}": [[label, score_str], ...], ...}`: one key per fixed-width
+   analysis window (a plain tiling of the recording, unrelated to where any call falls — **not**
+   3 seconds for the bat models this server runs; see the correction below), each value a list
+   of `[label, score]` pairs for **every** class in the
    label vocabulary (all ~30 species plus `NOISE` for the EU checkpoint), sorted by score
    descending but never filtered — `score` is a JSON string, not a number, and must be cast with
    `float()`. Flatten every window's list into one stream of `(label, confidence)` pairs across
@@ -107,6 +109,21 @@ purge_source` call site (jobs/tasks.py, tests) moves to `services.classifier_det
    not a verified one. Whoever first runs this classifier against a real server should capture
    one genuine `/analyze` response and add a fixture-based test proving the shape matches,
    mirroring `tests/test_batdetect2_real_api.py`'s precedent for the sibling classifier.
+
+   **Correction (2026-09-17):** the "3-second analysis window" claim above was wrong — traced to
+   a stale BirdNET-era comment in `analyzeFile` ("split into 3-second chunks") that doesn't apply
+   to the bat models this server actually runs. Re-reading the real upstream source
+   (`rdz-oss/BattyBirdNET-Analyzer`, `config.py`) shows the window is
+   `cfg.SIG_LENGTH = 144000 / cfg.SAMPLE_RATE` seconds — ~0.5625s at the default
+   `SAMPLE_RATE = 256000`, since none of `server.py`'s bat area branches (`Bavaria`/`EU`/
+   `Scotland`/`South-Wales`/`UK`/`USA`/`USA-EAST`/`USA-WEST`/`CUSTOM_BAT`) override it; only its
+   `BIRDS`/`CUSTOM_BIRD` branches force `SIG_LENGTH = 3`. The `/analyze` route also sets
+   `cfg.SIG_OVERLAP` from the request's own `overlap` field (default `0.0`, i.e. no overlap),
+   not `config.py`'s module-level `SIG_LENGTH / 4.0` default. Exact duration/overlap depend on
+   the operator's running server and request, not a fixed 3 seconds. This doesn't change the
+   design: the window is still a fixed, non-call-aligned tile either way, and the shorter real
+   duration makes "one window is one call" a *better* approximation than assumed here, since a
+   real call pulse (a few ms to tens of ms) fits inside it with more room to spare, not less.
 4. Write the full flattened list via `record_detections` (full replace, unchanged function).
 5. On any request failure (`requests.exceptions.RequestException`, non-200 response, or a
    response `analyze` reports as unsuccessful): let the job raise and retry via Procrastinate's
@@ -117,7 +134,8 @@ purge_source` call site (jobs/tasks.py, tests) moves to `services.classifier_det
 
 A `_BATTYBIRDNET_FLOOR` constant (mirroring `_BATDETECT2_FLOOR`) is needed here: `server.py`'s
 `/analyze` route returns `results` straight from `analyze.analyzeFile()`, a plain dict
-`{"{start}-{end}": [[label, score_str], ...]}` — one entry per 3-second segment, with **every**
+`{"{start}-{end}": [[label, score_str], ...]}` — one entry per fixed-width window (see the
+2026-09-17 correction above; not 3 seconds), with **every**
 class in the label vocabulary scored and included, sorted by score but never filtered by
 `MIN_CONFIDENCE`. That constant is only ever compared inside `saveResultFile()` (the CLI-only
 file-export function), which the API server never calls — confirmed by reading `analyze.py`'s

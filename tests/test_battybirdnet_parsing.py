@@ -51,10 +51,10 @@ def test_results_to_detections_flattens_the_winner_of_each_segment() -> None:
 
 
 def test_results_to_detections_keeps_only_the_top_candidate_per_segment() -> None:
-    """A single 3-second window is one bat call, which can only be one
-    species -- so of the several candidates BattyBirdNET scores for one
-    window, only the highest-confidence one becomes a detection, even when
-    a second candidate also clears the floor."""
+    """A single fixed-width analysis window is one bat call, which can only
+    be one species -- so of the several candidates BattyBirdNET scores for
+    one window, only the highest-confidence one becomes a detection, even
+    when a second candidate also clears the floor."""
     results = {
         "0-3": [
             ["Myotis daubentonii_Daubentons bat", "0.9"],
