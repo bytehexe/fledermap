@@ -252,13 +252,20 @@ def _compatible(
       name one species isn't expected to name every species a multi-species source might.
     - Neither effectively multi-support: both sets are singletons, so equality and containment
       coincide -- same comparison the original flat key-based check already made for two plain
-      sources."""
+      sources. One exception: a bare `{NOISE}` vs. a bare `{NO_ID}` is compatible even though the
+      sets aren't equal -- a classifier confidently calling NOISE and another classifier simply
+      not clearing its own threshold for anything carries no signal of actual contradiction,
+      unlike SPECIES vs. NOISE (still flagged) or SPECIES vs. NO_ID (still flagged, per §4's gap
+      3 in the classifier-interaction design spec)."""
     if a_multi and b_multi:
         return set_a == set_b
     if a_multi:
         return set_b <= set_a
     if b_multi:
         return set_a <= set_b
+    noise_key, no_id_key = (Verdict.NOISE,), (Verdict.NO_ID,)
+    if {set_a, set_b} == {frozenset({noise_key}), frozenset({no_id_key})}:
+        return True
     return set_a == set_b
 
 

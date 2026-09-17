@@ -227,7 +227,21 @@ every one of its live claims has verdict `SPECIES` (homogeneous). A source whose
 mixes verdicts is treated, for that recording only, as if it were a plain source — see §3.2 and §4
 for what that means in each place.
 
-## 6. Known limitations
+## 6. `NOISE` vs. plain `NO_ID` compatibility — added 2026-09-17 after deployment
+
+§4's "neither effectively multi-support: compatible iff sets equal" rule, as written, also made a
+bare `{NOISE}` incompatible with a bare `{NO_ID}` — since gap 3 (§1, §4) made a plain source's
+`NO_ID` vote as `{NO_ID}` rather than being skipped, two plain sources where one calls `NOISE` and
+the other simply didn't clear its own threshold for anything now flag "Classifiers disagree." That
+wasn't the intent: gap 3 was about a classifier confidently finding nothing where another
+confidently finds a *species* — a real disagreement worth a look. A classifier calling `NOISE`
+alongside another that abstains entirely (`NO_ID`) is not that; it's two classifiers agreeing
+there's no confident species here, one of them just being explicit about why. `NOISE` vs. `SPECIES`
+and `NO_ID` vs. `SPECIES` both still flag, unchanged — only the `NOISE`-vs-`NO_ID` pairing between
+two otherwise-plain vote-sets is now compatible. `_compatible()`'s "neither effectively
+multi-support" branch carries one exception for exactly this case.
+
+## 7. Known limitations
 
 - **`current_best.py`'s containment check and `review_flags.py`'s equality/containment check can
   disagree on an unmapped species claim, because they key claims differently.** §3.2's containment

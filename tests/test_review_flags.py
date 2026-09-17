@@ -179,6 +179,17 @@ def test_disagreement_reason_none_when_an_only_noise_sources_no_id_meets_a_speci
     assert _disagreement_reason(r) is None
 
 
+def test_disagreement_reason_none_when_a_plain_noise_meets_a_plain_no_id() -> None:
+    """A classifier confidently calling NOISE doesn't disagree with another classifier that
+    simply didn't clear its own threshold for anything -- unlike SPECIES vs. NOISE, this pairing
+    carries no real signal of contradiction, only of differing sensitivity."""
+    r = _recording(
+        _ident(IdSource.EMT_GUANO, taxon_id=None, verdict=Verdict.NOISE),
+        _ident(IdSource.EMT_WAMD, taxon_id=None, verdict=Verdict.NO_ID),
+    )
+    assert _disagreement_reason(r) is None
+
+
 def test_disagreement_reason_none_when_two_plain_no_ids_agree() -> None:
     r = _recording(
         _ident(IdSource.EMT_GUANO, taxon_id=None, verdict=Verdict.NO_ID),
