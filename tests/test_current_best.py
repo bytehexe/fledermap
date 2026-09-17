@@ -398,3 +398,154 @@ def test_batdetect2_outranks_battybirdnet_which_outranks_fledermap_noise() -> No
     assert sort_identifications_by_precedence(
         [noise, battybirdnet, batdetect2, emt_filename, manual],
     ) == [manual, emt_filename, batdetect2, battybirdnet, noise]
+
+
+def test_emt_manual_no_id_is_active_and_shadows_a_lower_precedence_species() -> None:
+    """Unlike before this change, EMT_MANUAL's own NO_ID now wins outright (strong NoID),
+    matching MANUAL -- see spec 2026-09-17-fledermap-classifier-interaction-design.md §2/§3.1."""
+    r = _recording(
+        _ident(IdSource.EMT_MANUAL, verdict=Verdict.NO_ID, taxon_id=None),
+        _ident(IdSource.EMT_GUANO, taxon_id=9),
+    )
+
+    best = current_best_identification(r)
+
+    assert best is not None
+    assert best.primary.source == IdSource.EMT_MANUAL
+    assert best.verdict == Verdict.NO_ID
+
+
+def test_multi_support_override_when_higher_precedence_species_is_contained() -> None:
+    """EMT_GUANO (plain, higher precedence) calls PIPPIP; BATDETECT2 (multi_support, lower
+    precedence) calls {PIPPIP, MYODAU}. Since PIPPIP is in BATDETECT2's set, the richer
+    multi-species result wins instead of narrowing to EMT_GUANO's single claim."""
+    r = _recording(
+        _ident(IdSource.EMT_GUANO, taxon_id=1),
+        _ident(IdSource.BATDETECT2, taxon_id=1),
+        _ident(IdSource.BATDETECT2, taxon_id=2),
+    )
+
+    best = current_best_identification(r)
+
+    assert best is not None
+    assert best.is_multi
+    assert best.taxon_ids == frozenset({1, 2})
+    assert all(c.source == IdSource.BATDETECT2 for c in best.claims)
+
+
+def test_no_override_when_higher_precedence_species_is_not_contained() -> None:
+    """EMT_GUANO calls a taxon BATDETECT2's set doesn't contain -- a real disagreement, so
+    EMT_GUANO's claim stands untouched (the review-flag rewrite in Task 3 is what surfaces this
+    as "Classifiers disagree")."""
+    r = _recording(
+        _ident(IdSource.EMT_GUANO, taxon_id=3),
+        _ident(IdSource.BATDETECT2, taxon_id=1),
+        _ident(IdSource.BATDETECT2, taxon_id=2),
+    )
+
+    best = current_best_identification(r)
+
+    assert best is not None
+    assert not best.is_multi
+    assert best.primary.source == IdSource.EMT_GUANO
+    assert best.primary.taxon_id == 3
+
+
+def test_multi_support_override_skips_over_a_weak_no_id_source_in_between() -> None:
+    """EMT_WAMD sits between EMT_GUANO and BATDETECT2 in precedence and has only an automatic
+    NO_ID claim (skipped, "weak") -- the peek must not stop there and must still reach
+    BATDETECT2 below it."""
+    r = _recording(
+        _ident(IdSource.EMT_GUANO, taxon_id=1),
+        _ident(IdSource.EMT_WAMD, verdict=Verdict.NO_ID, taxon_id=None),
+        _ident(IdSource.BATDETECT2, taxon_id=1),
+        _ident(IdSource.BATDETECT2, taxon_id=2),
+    )
+
+    best = current_best_identification(r)
+
+    assert best is not None
+    assert best.is_multi
+    assert best.taxon_ids == frozenset({1, 2})
+
+
+def test_no_peek_when_the_winner_is_manual() -> None:
+    """A human's call is never second-guessed by a multi_support classifier below it, even when
+    that classifier's set would have contained the human's taxon."""
+    r = _recording(
+        _ident(IdSource.EMT_MANUAL, taxon_id=1),
+        _ident(IdSource.BATDETECT2, taxon_id=1),
+        _ident(IdSource.BATDETECT2, taxon_id=2),
+    )
+
+    best = current_best_identification(r)
+
+    assert best is not None
+    assert not best.is_multi
+    assert best.primary.source == IdSource.EMT_MANUAL
+    assert best.primary.taxon_id == 1
+
+
+def test_no_peek_when_the_winner_verdict_is_noise() -> None:
+    """A multi_support source's set is always species-only or {NO_ID} (spec §5), so a NOISE
+    winner can never be contained in one -- the peek is skipped as pure overhead, and the NOISE
+    verdict stands."""
+    r = _recording(
+        _ident(IdSource.EMT_GUANO, verdict=Verdict.NOISE, taxon_id=None),
+        _ident(IdSource.BATDETECT2, taxon_id=1),
+    )
+
+    best = current_best_identification(r)
+
+    assert best is not None
+    assert best.primary.source == IdSource.EMT_GUANO
+    assert best.verdict == Verdict.NOISE
+
+
+def test_multi_support_winner_returned_directly_without_peeking_further() -> None:
+    """When the FIRST source with live claims is itself multi_support, it wins outright --
+    nothing below it (even another multi_support source) is ever consulted."""
+    r = _recording(
+        _ident(IdSource.BATDETECT2, taxon_id=1),
+        _ident(IdSource.BATDETECT2, taxon_id=2),
+        _ident(IdSource.BATTYBIRDNET, taxon_id=3),
+    )
+
+    best = current_best_identification(r)
+
+    assert best is not None
+    assert best.is_multi
+    assert best.taxon_ids == frozenset({1, 2})
+
+
+def test_multi_support_override_also_works_with_battybirdnet() -> None:
+    """The containment override is not hardcoded to BATDETECT2 -- BATTYBIRDNET (the other
+    multi_support automatic classifier) triggers it the same way."""
+    r = _recording(
+        _ident(IdSource.EMT_GUANO, taxon_id=1),
+        _ident(IdSource.BATTYBIRDNET, taxon_id=1),
+        _ident(IdSource.BATTYBIRDNET, taxon_id=2),
+    )
+
+    best = current_best_identification(r)
+
+    assert best is not None
+    assert best.is_multi
+    assert best.taxon_ids == frozenset({1, 2})
+    assert all(c.source == IdSource.BATTYBIRDNET for c in best.claims)
+
+
+def test_identification_status_shadowed_for_a_species_overridden_by_containment() -> (
+    None
+):
+    """EMT_GUANO's own claim loses to the multi-support override -- it must show as
+    "shadowed" (a real claim that lost), not "current" or "passive"."""
+    guano = _ident(IdSource.EMT_GUANO, taxon_id=1)
+    batdetect2_a = _ident(IdSource.BATDETECT2, taxon_id=1)
+    batdetect2_b = _ident(IdSource.BATDETECT2, taxon_id=2)
+    r = _recording(guano, batdetect2_a, batdetect2_b)
+    best = current_best_identification(r)
+
+    assert identification_status(guano, best) == "shadowed"
+    assert identification_status(batdetect2_a, best) == "current"
+    assert identification_status(batdetect2_b, best) == "current"

@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Literal
 
-from fledermap.domain.codes import IdSource, Verdict
+from fledermap.domain.codes import IdSource, Verdict, is_manual, is_multi_support
 from fledermap.store.models import Identification, Recording, Taxon
 
 _PRECEDENCE: tuple[IdSource, ...] = (
@@ -41,11 +41,11 @@ _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 @dataclass(frozen=True)
 class CurrentIdentification:
-    """One or more non-superseded claims from the single winning source
-    (§2/§3 of the design spec). `claims` has more than one entry only when
-    the winning source is MANUAL with multiple SPECIES/group claims -- every
-    other source is resolved to exactly one claim, same as before this
-    rewrite."""
+    """One or more non-superseded claims from the single winning source (§2/§3 of the design
+    spec, extended by docs/superpowers/specs/2026-09-17-fledermap-classifier-interaction-design.md).
+    `claims` has more than one entry only when the winning source is `is_multi_support`
+    (MANUAL/BATDETECT2/BATTYBIRDNET) with multiple SPECIES/group claims -- every plain source is
+    resolved to exactly one claim."""
 
     claims: tuple[Identification, ...]
 
@@ -55,12 +55,11 @@ class CurrentIdentification:
 
     @property
     def primary(self) -> Identification:
-        """The single representative claim for headline/marker-color
-        purposes -- first-added (lowest first_seen_at). This tie-break is
-        only reachable for a genuine multi-species MANUAL result: every
-        other source has at most one live row per recording by construction
-        (services/identifications.py's replace_claims), so there is nothing
-        to tie-break there any more."""
+        """The single representative claim for headline/marker-color purposes --
+        first-added (lowest first_seen_at). This tie-break is only reachable for a genuine
+        multi-species `is_multi_support` result: every plain source has at most one live row
+        per recording by construction (services/identifications.py's replace_claims), so there
+        is nothing to tie-break there any more."""
         return min(self.claims, key=lambda i: i.first_seen_at or _EPOCH)
 
     @property
@@ -76,24 +75,78 @@ class CurrentIdentification:
         return cls(claims=tuple(matches))
 
 
-def current_best_identification(recording: Recording) -> CurrentIdentification | None:
-    """Walk sources in precedence order. A source's claims are skipped
-    (fall through to the next source) only when they are ALL automatic
-    NO_ID -- any SPECIES, NOISE, or MANUAL claim of any verdict wins
-    outright and stops the walk.
+def _live_claims(recording: Recording, source: IdSource) -> list[Identification]:
+    """A source's claims for this recording, or an empty list when its claims are ALL
+    automatic NO_ID ("weak NoID" -- falls through to the next source). `is_manual` sources
+    never fall through ("strong NoID": a human's own NO_ID is a considered answer, not an
+    admission of uncertainty) -- see domain/codes.py's `is_manual` docstring."""
+    matches = [i for i in recording.identifications if i.source == source]
+    if not matches:
+        return []
+    if not is_manual(source) and all(m.verdict == Verdict.NO_ID for m in matches):
+        return []
+    return matches
 
-    Only MANUAL may surface more than one claim (a genuine multi-species
-    file) -- every other source has at most one live row per recording by
-    construction (services/identifications.py's replace_claims keeps it that
-    way), so there is nothing to dedupe here any more."""
-    for source in _PRECEDENCE:
-        matches = [i for i in recording.identifications if i.source == source]
+
+def _multi_support_containment_override(
+    recording: Recording,
+    winning_taxon_id: int | None,
+    remaining_sources: Sequence[IdSource],
+) -> list[Identification] | None:
+    """Looks past a plain (non-multi_support, non-manual) SPECIES winner for the NEAREST
+    multi_support source below it with live claims -- skipping any weak-NoID source along the
+    way via `_live_claims`, same as the main walk. Returns that source's full claim set when it
+    contains `winning_taxon_id` (no real disagreement, so show the richer result instead of
+    discarding it); returns None otherwise (either no multi_support source was found, or it
+    doesn't contain the taxon -- a real disagreement, so the original winner stands and nothing
+    further below is consulted, per spec §3.2: "the highest precedence source that actually
+    disagrees is the one that should win")."""
+    for source in remaining_sources:
+        if not is_multi_support(source):
+            continue
+        matches = _live_claims(recording, source)
         if not matches:
             continue
-        if source != IdSource.MANUAL and all(
-            m.verdict == Verdict.NO_ID for m in matches
-        ):
+        taxon_ids = {m.taxon_id for m in matches if m.taxon_id is not None}
+        if winning_taxon_id in taxon_ids:
+            return matches
+        return None
+    return None
+
+
+def current_best_identification(recording: Recording) -> CurrentIdentification | None:
+    """Walk sources in precedence order. A source's claims are skipped (fall through to the
+    next source) per `_live_claims` above -- any SPECIES, NOISE, or is_manual claim of any
+    verdict wins outright and stops the walk, EXCEPT that a plain (non-`is_manual`,
+    non-`is_multi_support`) SPECIES winner is first checked against the nearest
+    `is_multi_support` source below it (`_multi_support_containment_override`): if that
+    source's claim set contains the winner's taxon, its full (possibly multi-species) result
+    replaces the plain winner instead of discarding the extra species information. A `NOISE`
+    winner never triggers this check -- a `multi_support` source's set is always species-only or
+    `{NO_ID}` (spec §5), so containment against `NOISE` can never apply. Nor does an `is_manual`
+    winner -- a human's call, or a device-side manual correction, is never second-guessed by an
+    automatic classifier below it.
+
+    `is_manual` and `is_multi_support` sources may surface more than one claim (a genuine
+    multi-species file, or the containment override above) -- every plain source has at most one
+    live row per recording by construction (services/identifications.py's replace_claims keeps
+    it that way)."""
+    for index, source in enumerate(_PRECEDENCE):
+        matches = _live_claims(recording, source)
+        if not matches:
             continue
+        if (
+            not is_manual(source)
+            and not is_multi_support(source)
+            and matches[0].verdict == Verdict.SPECIES
+        ):
+            override = _multi_support_containment_override(
+                recording,
+                matches[0].taxon_id,
+                _PRECEDENCE[index + 1 :],
+            )
+            if override is not None:
+                return CurrentIdentification.from_matches(override)
         return CurrentIdentification.from_matches(matches)
     return None
 
