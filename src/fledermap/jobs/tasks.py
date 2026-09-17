@@ -140,17 +140,24 @@ def results_to_detections(
     resolve_label: Callable[[str], int | None],
 ) -> list[DetectionInput]:
     """Turn a BattyBirdNET-Analyzer `/analyze` response's `results` field
-    into `DetectionInput`s, dropping anything below `_BATTYBIRDNET_FLOOR`.
+    into `DetectionInput`s, one per window at most, dropping anything below
+    `_BATTYBIRDNET_FLOOR`.
 
     `results` is `{"{segment_start}-{segment_end}": [[label, score_str],
     ...], ...}` -- one entry per 3-second analysis window, every class in
     the label vocabulary scored (confirmed from analyze.py's `analyzeFile`,
-    which `server.py`'s `/analyze` route returns verbatim). Flattened across
-    every window into one stream: the same label can legitimately appear
-    many times across different windows of the same recording, each a
-    distinct candidate (mirrors this module's own `annotations_to_detections`
-    for batdetect2, which does the same flattening across a per-call-window
-    annotation list).
+    which `server.py`'s `/analyze` route returns verbatim). A window is one
+    bat call, which can only be one species, so only the single
+    highest-scoring candidate in each window becomes a detection -- keeping
+    every candidate above the floor (the original behavior) let one call
+    cast a claim for every species the model gave a non-trivial score to,
+    which is why BattyBirdNET over-reported species relative to batdetect2:
+    batdetect2's own annotations already carry a single top-1 `class` per
+    detected call (see `annotations_to_detections` below), so it never had
+    this problem. Across different windows of the same recording, a
+    different label can still legitimately win -- that per-window stream is
+    still flattened into one, same as `annotations_to_detections` flattens
+    across its own per-call annotation list.
 
     Separate from the task, and taking a plain label-to-taxon-id callable
     rather than a `Session`, so this parsing can be tested directly against
@@ -175,24 +182,26 @@ def results_to_detections(
     resolved: dict[str, int | None] = {}
     detections: list[DetectionInput] = []
     for candidates in results.values():
-        for label, score_str in candidates:
-            confidence = float(score_str)
-            if confidence < _BATTYBIRDNET_FLOOR:
-                continue
-            if label not in resolved:
-                # A label repeats across every window of a recording, so the
-                # same lookup would otherwise run once per window instead of
-                # once per distinct label. Scoped to one call, like
-                # annotations_to_detections's identical cache: a longer-lived
-                # one would go stale the moment a code mapping is added.
-                resolved[label] = resolve_label(label)
-            detections.append(
-                DetectionInput(
-                    taxon_id=resolved[label],
-                    raw_label=label,
-                    confidence=confidence,
-                ),
-            )
+        if not candidates:
+            continue
+        label, score_str = max(candidates, key=lambda candidate: float(candidate[1]))
+        confidence = float(score_str)
+        if confidence < _BATTYBIRDNET_FLOOR:
+            continue
+        if label not in resolved:
+            # A label repeats across different windows of a recording, so
+            # the same lookup would otherwise run once per window instead of
+            # once per distinct label. Scoped to one call, like
+            # annotations_to_detections's identical cache: a longer-lived
+            # one would go stale the moment a code mapping is added.
+            resolved[label] = resolve_label(label)
+        detections.append(
+            DetectionInput(
+                taxon_id=resolved[label],
+                raw_label=label,
+                confidence=confidence,
+            ),
+        )
     return detections
 
 

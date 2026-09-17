@@ -26,7 +26,7 @@ def test_battybirdnet_floor_is_pinned_at_point_zero_five() -> None:
     assert _BATTYBIRDNET_FLOOR == 0.05
 
 
-def test_results_to_detections_flattens_every_segment_above_the_floor() -> None:
+def test_results_to_detections_flattens_the_winner_of_each_segment() -> None:
     resolved = {"Myotis daubentonii": 7, "NOISE": None}
     results = {
         "0-3": [
@@ -44,10 +44,29 @@ def test_results_to_detections_flattens_every_segment_above_the_floor() -> None:
     )
 
     confidences = {(d.raw_label, round(d.confidence, 2)) for d in detections}
-    assert ("Myotis daubentonii_Daubentons bat", 0.9) in confidences
-    assert ("NOISE", 0.85) in confidences
-    # Below _BATTYBIRDNET_FLOOR, dropped:
-    assert not any(c == 0.02 or c == 0.01 for _, c in confidences)
+    assert confidences == {
+        ("Myotis daubentonii_Daubentons bat", 0.9),
+        ("NOISE", 0.85),
+    }
+
+
+def test_results_to_detections_keeps_only_the_top_candidate_per_segment() -> None:
+    """A single 3-second window is one bat call, which can only be one
+    species -- so of the several candidates BattyBirdNET scores for one
+    window, only the highest-confidence one becomes a detection, even when
+    a second candidate also clears the floor."""
+    results = {
+        "0-3": [
+            ["Myotis daubentonii_Daubentons bat", "0.9"],
+            ["Eptesicus serotinus_Serotine bat", "0.6"],
+        ],
+    }
+
+    detections = results_to_detections(results, lambda _label: None)
+
+    assert len(detections) == 1
+    assert detections[0].raw_label == "Myotis daubentonii_Daubentons bat"
+    assert detections[0].confidence == 0.9
 
 
 def test_results_to_detections_resolves_the_scientific_name_prefix_only() -> None:
