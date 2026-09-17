@@ -14,7 +14,13 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
 
-from fledermap.domain.codes import IdSource, Verdict
+from fledermap.domain.codes import (
+    IdSource,
+    Verdict,
+    is_manual,
+    is_multi_support,
+    is_only_noise,
+)
 from fledermap.services.current_best import current_best_identification
 from fledermap.store.models import Identification, Recording
 
@@ -176,26 +182,75 @@ def _claim_key(ident: Identification) -> tuple[Verdict] | tuple[Verdict, int | s
     return (ident.verdict, ident.raw_label or "")
 
 
-def _disagreement_reason(recording: Recording) -> str | None:
-    """At least two classifiers disagreeing on verdict or species (Obsidian
-    backlog: a new "flagged for review" criterion, built with future
-    classifiers in mind). Deliberately names no `IdSource` explicitly --
-    every source with a live, non-NO_ID, non-human claim contributes one
-    vote, so a future classifier participates automatically with no code
-    change here.
+_ClaimKey = tuple[Verdict] | tuple[Verdict, int | str]
 
-    NO_ID never counts as disagreement (an admission of uncertainty isn't
-    an answer to disagree with); MANUAL/EMT_MANUAL claims are excluded
-    entirely, matching `_has_human_review`'s gate -- called directly (not
-    just via `review_reasons`), this function must not treat a human's
-    claim as just another classifier's vote."""
-    keys = {
-        _claim_key(ident)
-        for ident in recording.identifications
-        if ident.source not in _HUMAN_REVIEW_SOURCES and ident.verdict != Verdict.NO_ID
-    }
-    if len(keys) >= 2:
-        return "Classifiers disagree"
+
+def _source_vote_sets(
+    recording: Recording,
+) -> dict[IdSource, frozenset[_ClaimKey]]:
+    """One vote-set per eligible source -- `is_manual` sources are excluded entirely (matching
+    `_HUMAN_REVIEW_SOURCES`'s old role; called directly, not just via `review_reasons`, this
+    function must not treat a human's claim as just another classifier's vote), and an
+    `is_only_noise` source's `NO_ID` claim is excluded (a coarse pre-filter admitting it can't
+    tell either way is not informative -- see domain/codes.py's `is_only_noise` docstring). A
+    source with no remaining claims after that filtering contributes no vote at all."""
+    by_source: dict[IdSource, list[Identification]] = {}
+    for ident in recording.identifications:
+        if is_manual(ident.source):
+            continue
+        by_source.setdefault(ident.source, []).append(ident)
+
+    votes: dict[IdSource, frozenset[_ClaimKey]] = {}
+    for source, claims in by_source.items():
+        if is_only_noise(source):
+            claims = [c for c in claims if c.verdict != Verdict.NO_ID]
+        if not claims:
+            continue
+        votes[source] = frozenset(_claim_key(c) for c in claims)
+    return votes
+
+
+def _compatible(
+    source_a: IdSource,
+    set_a: frozenset[_ClaimKey],
+    source_b: IdSource,
+    set_b: frozenset[_ClaimKey],
+) -> bool:
+    """Whether two sources' vote-sets agree, per spec §4:
+
+    - Both `is_multi_support`: only exact equality agrees -- deliberately strict (see the
+      module-level design spec's §4/§6): two multi-species sources must name exactly the same
+      set, even a strict subset of the other's calls counts as disagreement.
+    - Exactly one `is_multi_support`: the plain source's single call must be a MEMBER of the
+      multi_support source's set (containment, not equality) -- a source that can only ever
+      name one species isn't expected to name every species a multi-species source might.
+    - Neither `is_multi_support`: both sets are singletons, so equality and containment
+      coincide -- same comparison the original flat key-based check already made for two plain
+      sources."""
+    a_multi = is_multi_support(source_a)
+    b_multi = is_multi_support(source_b)
+    if a_multi and b_multi:
+        return set_a == set_b
+    if a_multi:
+        return set_b <= set_a
+    if b_multi:
+        return set_a <= set_b
+    return set_a == set_b
+
+
+def _disagreement_reason(recording: Recording) -> str | None:
+    """At least two classifiers disagreeing on verdict or species (Obsidian backlog: a new
+    "flagged for review" criterion, built with future classifiers in mind, extended by
+    docs/superpowers/specs/2026-09-17-fledermap-classifier-interaction-design.md §4).
+    Deliberately names no `IdSource` explicitly beyond the `is_manual`/`is_only_noise`/
+    `is_multi_support` properties -- a future classifier participates automatically by
+    declaring those, with no code change here."""
+    votes = list(_source_vote_sets(recording).items())
+    for i in range(len(votes)):
+        source_a, set_a = votes[i]
+        for source_b, set_b in votes[i + 1 :]:
+            if not _compatible(source_a, set_a, source_b, set_b):
+                return "Classifiers disagree"
     return None
 
 

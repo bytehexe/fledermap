@@ -155,13 +155,84 @@ def test_disagreement_reason_fires_on_species_vs_noise() -> None:
     assert _disagreement_reason(r) is not None
 
 
-def test_disagreement_reason_none_when_the_other_claim_is_no_id() -> None:
-    """NO_ID never counts as disagreement -- it's not a real answer."""
+def test_disagreement_reason_fires_when_a_plain_no_id_meets_a_species_claim() -> None:
+    """A plain automatic classifier's confident NO_ID now counts as a vote -- it disagrees with
+    another classifier's confident SPECIES call, unless the NO_ID came from an is_only_noise
+    source (see the next test)."""
     r = _recording(
         _ident(IdSource.EMT_GUANO, taxon_id=1, verdict=Verdict.SPECIES),
-        _ident(IdSource.BATDETECT2, taxon_id=None, verdict=Verdict.NO_ID),
+        _ident(IdSource.EMT_WAMD, taxon_id=None, verdict=Verdict.NO_ID),
+    )
+    assert _disagreement_reason(r) is not None
+
+
+def test_disagreement_reason_none_when_an_only_noise_sources_no_id_meets_a_species_claim() -> (
+    None
+):
+    """FLEDERMAP_NOISE's NO_ID is excluded from voting entirely -- a coarse pre-filter admitting
+    it can't tell either way is not informative alongside a real classifier's species call."""
+    r = _recording(
+        _ident(IdSource.EMT_GUANO, taxon_id=1, verdict=Verdict.SPECIES),
+        _ident(IdSource.FLEDERMAP_NOISE, taxon_id=None, verdict=Verdict.NO_ID),
     )
     assert _disagreement_reason(r) is None
+
+
+def test_disagreement_reason_none_when_two_plain_no_ids_agree() -> None:
+    r = _recording(
+        _ident(IdSource.EMT_GUANO, taxon_id=None, verdict=Verdict.NO_ID),
+        _ident(IdSource.EMT_WAMD, taxon_id=None, verdict=Verdict.NO_ID),
+    )
+    assert _disagreement_reason(r) is None
+
+
+def test_disagreement_reason_none_when_a_plain_species_is_contained_in_a_multi_support_set() -> (
+    None
+):
+    """A plain source's single call agrees with a multi_support source's set as long as the
+    call is a member of it -- containment, not equality."""
+    r = _recording(
+        _ident(IdSource.EMT_GUANO, taxon_id=1),
+        _ident(IdSource.BATDETECT2, taxon_id=1),
+        _ident(IdSource.BATDETECT2, taxon_id=2),
+    )
+    assert _disagreement_reason(r) is None
+
+
+def test_disagreement_reason_fires_when_a_plain_species_is_not_in_a_multi_support_set() -> (
+    None
+):
+    r = _recording(
+        _ident(IdSource.EMT_GUANO, taxon_id=3),
+        _ident(IdSource.BATDETECT2, taxon_id=1),
+        _ident(IdSource.BATDETECT2, taxon_id=2),
+    )
+    assert _disagreement_reason(r) is not None
+
+
+def test_disagreement_reason_none_when_two_multi_support_sets_are_exactly_equal() -> (
+    None
+):
+    r = _recording(
+        _ident(IdSource.BATDETECT2, taxon_id=1),
+        _ident(IdSource.BATDETECT2, taxon_id=2),
+        _ident(IdSource.BATTYBIRDNET, taxon_id=1),
+        _ident(IdSource.BATTYBIRDNET, taxon_id=2),
+    )
+    assert _disagreement_reason(r) is None
+
+
+def test_disagreement_reason_fires_when_two_multi_support_sets_are_not_exactly_equal() -> (
+    None
+):
+    """Deliberately strict (spec §4): two multi_support sources disagree whenever their sets
+    aren't identical, even when one is a strict subset of the other."""
+    r = _recording(
+        _ident(IdSource.BATDETECT2, taxon_id=1),
+        _ident(IdSource.BATDETECT2, taxon_id=2),
+        _ident(IdSource.BATTYBIRDNET, taxon_id=1),
+    )
+    assert _disagreement_reason(r) is not None
 
 
 def test_disagreement_reason_compares_unmapped_species_by_raw_label() -> None:
