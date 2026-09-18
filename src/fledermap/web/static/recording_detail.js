@@ -73,6 +73,9 @@ document.addEventListener("DOMContentLoaded", () => {
   // hitting its `let` temporal dead zone.
   let rulerBox = null;
   let rulerBoxLocal = null;
+  let currentSelection = null; // {startTimeS, endTimeS} | null -- durable across a view toggle,
+  // unlike rulerBox/rulerBoxLocal above, which setActiveTool clears on every tool switch.
+  let selectionBox = null;
 
   // Reveal-on-load (design spec section 3): every tile in a row must load before that row's
   // placeholder clears -- a partially-loaded row (some tiles rendered, others still pending)
@@ -556,6 +559,17 @@ document.addEventListener("DOMContentLoaded", () => {
   // is the one live DOM node for the current measurement -- created lazily on first drag, reused
   // (repositioned) on subsequent drags, removed entirely on clear.
 
+  const viewLockToggle = document.getElementById("view-lock-toggle");
+
+  function clearSelectionBox() {
+    if (selectionBox) {
+      selectionBox.remove();
+      selectionBox = null;
+    }
+    currentSelection = null;
+    viewLockToggle.disabled = false;
+  }
+
   function clearRulerBox() {
     if (rulerBox) {
       rulerBox.remove();
@@ -649,6 +663,28 @@ document.addEventListener("DOMContentLoaded", () => {
     repositionRulerReadout();
   }
 
+  function updateSelectionBox(dragStart, event) {
+    const rect = wrap.getBoundingClientRect();
+    const scrollDriftPx = scrollEl.scrollLeft - dragStart.scrollLeft;
+    const startX = (dragStart.x - scrollDriftPx - rect.left) / currentScale;
+    const curX = (event.clientX - rect.left) / currentScale;
+    const left = Math.min(startX, curX);
+    const width = Math.abs(curX - startX);
+
+    if (!selectionBox) {
+      selectionBox = document.createElement("div");
+      selectionBox.className = "selection-box";
+      wrap.appendChild(selectionBox);
+    }
+    selectionBox.style.left = `${left}px`;
+    selectionBox.style.width = `${width}px`;
+
+    const startTimeS = Math.min(startX, curX) / pxPerMs / 1000;
+    const endTimeS = Math.max(startX, curX) / pxPerMs / 1000;
+    currentSelection = { startTimeS, endTimeS };
+    viewLockToggle.disabled = true;
+  }
+
   const toolbar = document.getElementById("detail-toolbar");
   const toolButtons = Array.from(toolbar.querySelectorAll(".tool-button"));
   let activeTool = "default";
@@ -661,7 +697,12 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     wrap.classList.toggle("tool-default", tool === "default");
     wrap.classList.toggle("tool-ruler", tool === "ruler");
+    wrap.classList.toggle("tool-select", tool === "select");
     clearRulerBox();
+    // Avoids clearing the selection you're actively mid-drag-creating the instant you click the
+    // Select button itself -- setActiveTool("select") runs once, on the click that activates the
+    // tool, before any drag has happened.
+    if (tool !== "select") clearSelectionBox();
   }
 
   toolButtons.forEach((btn) => {
@@ -669,7 +710,6 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   setActiveTool("default");
 
-  const viewLockToggle = document.getElementById("view-lock-toggle");
   const lockIconUnlocked = viewLockToggle.querySelector(".lock-icon-unlocked");
   const lockIconLocked = viewLockToggle.querySelector(".lock-icon-locked");
   viewLockToggle.addEventListener("click", () => {
@@ -770,6 +810,15 @@ document.addEventListener("DOMContentLoaded", () => {
       },
       onDrag(event, dragStart) {
         updateRulerBox(dragStart, event);
+      },
+      onDragEnd() {},
+    },
+    select: {
+      onClick() {
+        clearSelectionBox();
+      },
+      onDrag(event, dragStart) {
+        updateSelectionBox(dragStart, event);
       },
       onDragEnd() {},
     },

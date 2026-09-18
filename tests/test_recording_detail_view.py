@@ -5,6 +5,7 @@ import re
 from datetime import UTC, datetime
 from pathlib import Path
 
+import flask
 import pytest
 from geoalchemy2.elements import WKTElement
 from sqlalchemy import Engine, select
@@ -20,6 +21,42 @@ pytestmark = [pytest.mark.db, pytest.mark.usefixtures("_vendor_icons")]
 
 # Vendor icon SVGs (needed by any template calling `icon()`) are written by the centralized
 # `_vendor_icons` autouse fixture in `tests/conftest.py` -- see its docstring.
+
+
+def _create_app_with_one_recording(
+    engine: Engine, tmp_path: Path, audio_hash: str
+) -> tuple[flask.Flask, str]:
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash=audio_hash,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                duration_s=0.5,
+                samplerate_hz=256_000,
+            ),
+        )
+        session.commit()
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    return app, audio_hash
+
+
+def test_select_tool_button_is_present(engine: Engine, tmp_path: Path) -> None:
+    app, audio_hash = _create_app_with_one_recording(engine, tmp_path, "se" * 32)
+    response = app.test_client().get(f"/recordings/{audio_hash}")
+    html = response.get_data(as_text=True)
+    assert 'data-tool="select"' in html
+
+
+def test_view_lock_toggle_is_not_disabled_on_load(
+    engine: Engine, tmp_path: Path
+) -> None:
+    app, audio_hash = _create_app_with_one_recording(engine, tmp_path, "vl" * 32)
+    response = app.test_client().get(f"/recordings/{audio_hash}")
+    html = response.get_data(as_text=True)
+    lock_button_start = html.index('id="view-lock-toggle"')
+    lock_button_tag_end = html.index(">", lock_button_start)
+    assert "disabled" not in html[lock_button_start:lock_button_tag_end]
 
 
 def test_recording_details_page_404s_for_an_unknown_hash(

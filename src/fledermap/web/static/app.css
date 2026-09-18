@@ -801,6 +801,17 @@ button:disabled { cursor: default; opacity: 0.5; }
 .detail-spectrogram-wrap.tool-default { cursor: grab; }
 .detail-spectrogram-wrap.tool-default.dragging { cursor: grabbing; }
 .detail-spectrogram-wrap.tool-ruler { cursor: crosshair; }
+.detail-spectrogram-wrap.tool-select { cursor: crosshair; }
+.selection-box {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px dashed var(--color-accent);
+  border-right: 1px dashed var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  pointer-events: none;
+  z-index: 2;
+}
 
 /* Three fixed, equal-width zones (design spec
    2026-09-18-fledermap-analysis-view-design.md §3) -- `1fr 1fr 1fr`, never `auto`, so a zone's
