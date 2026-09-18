@@ -34,6 +34,10 @@ from fledermap.services.identifications import ClaimInput, replace_claims
 from fledermap.store.models import ClassifierDetection, Identification, Recording
 from fledermap.store.seed import resolve_code
 
+# Stored when a classifier ran and found nothing above its floor. `sentinel_verdict` reads it as
+# NO_ID, the same "found nothing" label the EMT and both classifiers already use.
+NO_DETECTION_LABEL = "NoID"
+
 
 @dataclass(frozen=True)
 class DetectionInput:
@@ -65,6 +69,15 @@ def record_detections(
     reads it incrementally) -- it is only ever read back wholesale by
     `materialize_claims`, so there is nothing to gain from updating rows in
     place and it would only add complexity.
+
+    An empty `detections` is stored as ONE explicit NoID marker row (`NO_DETECTION_LABEL`,
+    no taxon, confidence 0.0), never as zero rows. A finished run that found nothing must stay
+    distinguishable from a recording the model has not run on yet -- `enqueue_batdetect2`/
+    `enqueue_battybirdnet` select recordings with no row for the source, so zero rows made every
+    such recording look unclassified and re-queued it on every ingest cycle, forever. The marker
+    is confidence 0.0 so it never clears a threshold as a detection; `materialize_claims` turns it
+    (or, at threshold 0, its sentinel label) into the same NO_ID claim as any other recording
+    whose detections all fall below the threshold.
     """
     session.execute(
         delete(ClassifierDetection).where(
@@ -72,7 +85,10 @@ def record_detections(
             ClassifierDetection.source == source,
         ),
     )
-    for detection in detections:
+    rows = detections or [
+        DetectionInput(taxon_id=None, raw_label=NO_DETECTION_LABEL, confidence=0.0)
+    ]
+    for detection in rows:
         session.add(
             ClassifierDetection(
                 recording_id=recording.id,
@@ -105,7 +121,8 @@ def materialize_claims(
     A recording with cached detections but none clearing `threshold` gets an
     explicit NO_ID claim (not an absent claim), the same "no ID" distinction
     every other source makes -- silence would be indistinguishable from
-    "never ran through this classifier at all".
+    "never ran through this classifier at all". A run that found nothing at all is recorded as a
+    NoID marker row by `record_detections`, so it takes this same path.
 
     A detection whose `raw_label` is a known non-species sentinel (checked
     via `domain/codes.py`'s `sentinel_verdict` -- e.g. battybirdnet's literal

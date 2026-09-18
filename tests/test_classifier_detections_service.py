@@ -83,7 +83,12 @@ def test_record_detections_replaces_a_source_s_existing_rows(engine: Engine) -> 
         assert rows[0].confidence == 0.9
 
 
-def test_record_detections_with_no_candidates_clears_prior_rows(engine: Engine) -> None:
+def test_record_detections_with_no_candidates_replaces_prior_rows_with_a_noid_marker(
+    engine: Engine,
+) -> None:
+    """A run that finds nothing is still a completed classification: it leaves one explicit NoID
+    row (not zero rows), which is what tells `enqueue_*` the recording is done. Zero rows reads as
+    "never ran" and re-queues the recording every ingest cycle, forever."""
     with OrmSession(engine) as session:
         recording = _recording(session, "b" * 64)
         taxon = _taxon(session, "Nyctalus noctula")
@@ -108,7 +113,60 @@ def test_record_detections_with_no_candidates_clears_prior_rows(engine: Engine) 
                 ClassifierDetection.recording_id == recording.id,
             ),
         ).all()
-        assert rows == []
+        assert len(rows) == 1  # the prior species row is gone, replaced by the marker
+        assert rows[0].taxon_id is None
+        assert rows[0].raw_label == "NoID"
+        assert rows[0].confidence == 0.0
+
+
+@pytest.mark.parametrize("source", [IdSource.BATDETECT2, IdSource.BATTYBIRDNET])
+def test_a_recording_a_classifier_found_nothing_in_is_not_re_enqueued_and_reads_as_no_id(
+    engine: Engine, source: IdSource
+) -> None:
+    with OrmSession(engine) as session:
+        recording = _recording(session, "9" * 64)
+        record_detections(session, recording, source, [])
+        session.commit()
+
+        already_classified = session.scalar(
+            select(ClassifierDetection.id).where(
+                ClassifierDetection.recording_id == recording.id,
+                ClassifierDetection.source == source,
+            )
+        )
+        assert already_classified is not None  # what the enqueue anti-join looks for
+
+        materialize_claims(session, source, threshold=0.8)
+        session.commit()
+        idents = session.scalars(
+            select(Identification).where(
+                Identification.recording_id == recording.id,
+                Identification.source == source,
+            ),
+        ).all()
+        assert [(i.verdict, i.taxon_id, i.raw_label) for i in idents] == [
+            (Verdict.NO_ID, None, None)
+        ]
+
+
+def test_the_noid_marker_still_reads_as_no_id_at_a_zero_threshold(
+    engine: Engine,
+) -> None:
+    """Threshold 0 lets the 0.0-confidence marker through as a passing detection; it must resolve
+    through `sentinel_verdict` to the same NO_ID claim, not an unmapped-species one."""
+    with OrmSession(engine) as session:
+        recording = _recording(session, "8" * 64)
+        record_detections(session, recording, IdSource.BATDETECT2, [])
+        session.commit()
+
+        materialize_claims(session, IdSource.BATDETECT2, threshold=0.0)
+        session.commit()
+        idents = session.scalars(
+            select(Identification).where(Identification.recording_id == recording.id),
+        ).all()
+        assert [(i.verdict, i.taxon_id, i.raw_label) for i in idents] == [
+            (Verdict.NO_ID, None, None)
+        ]
 
 
 def test_materialize_claims_writes_species_claim_above_threshold(

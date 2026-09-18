@@ -214,7 +214,9 @@ class ClassifierDetection(Base):
 
     Holds every candidate above a fixed, non-configurable, low sanity floor
     (see jobs/tasks.py's `_BATDETECT2_FLOOR`) -- not the user-configured
-    verdict threshold. Exposing the floor as config would let someone set it
+    verdict threshold. A finished run with no candidate at all holds one NoID marker row
+    (`services/classifier_detections.py`'s `NO_DETECTION_LABEL`), so "found nothing" is
+    distinguishable from "not run yet". Exposing the floor as config would let someone set it
     above their own threshold and silently break threshold-change recompute.
     """
 

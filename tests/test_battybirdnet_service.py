@@ -60,3 +60,25 @@ def test_enqueue_battybirdnet_only_enqueues_recordings_missing_a_detection_row(
         count = enqueue_battybirdnet(session, engine)
 
         assert count == 1
+
+
+def test_enqueue_battybirdnet_does_not_requeue_a_recording_the_model_found_nothing_in(
+    engine: Engine,
+) -> None:
+    """Regression: a finished run with no candidate used to leave zero `classifier_detection`
+    rows, indistinguishable from "never ran", so the recording was re-classified on every ingest
+    cycle indefinitely (1461 identical runs in 25 h on the live archive)."""
+    from fledermap.jobs.app import ensure_schema
+    from fledermap.jobs.tasks import app as jobs_app
+    from fledermap.services.battybirdnet import enqueue_battybirdnet
+
+    jobs_app.open(engine)
+    ensure_schema(jobs_app, engine)
+
+    with OrmSession(engine) as session:
+        found_nothing = _recording(session, "m" * 64)
+        _recording(session, "n" * 64)  # genuinely not classified yet
+        record_detections(session, found_nothing, IdSource.BATTYBIRDNET, [])
+        session.commit()
+
+        assert enqueue_battybirdnet(session, engine) == 1

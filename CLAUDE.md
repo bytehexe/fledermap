@@ -397,6 +397,13 @@ it needs nothing installed beyond `node` itself, which this project already assu
   load-bearing: nothing ever read a superseded row for anything beyond a struck-through display
   with no version/timestamp shown, and no config for a hypothetical future retention need existed
   either.
+- **"Classifier ran, found nothing" is a NoID marker row, never zero rows.** `enqueue_batdetect2`/
+  `enqueue_battybirdnet` pick recordings with no `classifier_detection` row for the source, so a
+  finished run that stored nothing looked exactly like "not run yet" and was re-classified on every
+  ingest cycle forever (found live: 19 BattyBirdNET recordings, ~1461 identical runs each in 25 h).
+  `record_detections` writes one `raw_label="NoID"`, no-taxon, confidence-0.0 row for an empty
+  result; `sentinel_verdict` reads it as NO_ID and `materialize_claims` needs no special case.
+  Any new classifier must go through `record_detections` for the same reason.
 - **Postgres treats NULLs as distinct**, so a `UniqueConstraint` over a nullable column does not
   fire at all. `uq_identification_source_claim` needs `postgresql_nulls_not_distinct=True`
   because the NO_ID/NOISE sentinel claim has `taxon_id IS NULL` — without it, a source could
