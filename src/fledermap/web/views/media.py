@@ -27,7 +27,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import Session as OrmSession
 
-from fledermap.media.denoise import denoised_samples
+from fledermap.media.denoise import DEFAULT_CUTOFF_HZ, denoised_samples
 from fledermap.media.heterodyne import (
     compute_peak_frequency_hz,
     render_heterodyne_preview,
@@ -36,6 +36,7 @@ from fledermap.media.oscillogram import OscillogramParams, render_oscillogram
 from fledermap.media.paths import oscillogram_path, preview_path, spectrogram_path
 from fledermap.media.preview import make_preview
 from fledermap.media.render_cache import RenderCache
+from fledermap.media.sound_level_spectrum import compute_sound_level_spectrum
 from fledermap.media.spectrogram import (
     FullSpectrogramImage,
     SpectrogramParams,
@@ -189,6 +190,28 @@ def preview(audio_hash: str) -> ResponseReturnValue:
         preview_path(media_root, audio_hash),
         "audio/ogg",
     )
+
+
+def _resolve_detail_wav(audio_hash: str) -> tuple[Path, float] | None:
+    """Resolves `audio_hash` to (wav_path, samplerate_hz) for routes that don't tile -- narrower
+    than `_detail_tile_context` below, which additionally requires a valid `tile_index`."""
+    engine = flask.current_app.config["ENGINE"]
+    archive_roots = flask.current_app.config["ARCHIVE_ROOTS"]
+    with OrmSession(engine) as session:
+        try:
+            recording = resolve_recording(session, audio_hash)
+        except (NoResultFound, FileNotFoundError):
+            return None
+        if recording.duration_s is None or recording.samplerate_hz is None:
+            return None
+        try:
+            wav_path = resolve_wav_path(archive_roots, recording)
+        except FileNotFoundError:
+            return None
+        if not wav_path.exists():
+            return None
+        samplerate_hz = recording.samplerate_hz
+    return wav_path, samplerate_hz
 
 
 def _detail_tile_context(
@@ -414,6 +437,44 @@ def detail_oscillogram(audio_hash: str, tile_index: int) -> ResponseReturnValue:
     except UnreadableWavError as exc:
         logger.warning("unreadable source WAV for %s: %s", audio_hash, exc)
         flask.abort(404)
+
+
+@media_bp.get("/recordings/<audio_hash>/detail/sound-level-spectrum")
+def detail_sound_level_spectrum(audio_hash: str) -> ResponseReturnValue:
+    context = _resolve_detail_wav(audio_hash)
+    if context is None:
+        flask.abort(404)
+    wav_path, samplerate_hz = context
+    denoise = parse_bool(flask.request.args.get("denoise"))
+    start_s = flask.request.args.get("start_s", type=float)
+    end_s = flask.request.args.get("end_s", type=float)
+
+    try:
+        samples, _samplerate, _full_scale = _denoised_samples_cache.get_or_compute(
+            _denoised_samples_cache_key(
+                wav_path, denoise=denoise, cutoff_hz=DEFAULT_CUTOFF_HZ
+            ),
+            lambda: _read_denoised_samples(
+                wav_path, denoise=denoise, cutoff_hz=DEFAULT_CUTOFF_HZ
+            ),
+        )
+    except UnreadableWavError as exc:
+        logger.warning("unreadable source WAV for %s: %s", audio_hash, exc)
+        flask.abort(404)
+
+    if start_s is not None and end_s is not None:
+        start_index = max(0, int(start_s * samplerate_hz))
+        end_index = min(len(samples), int(end_s * samplerate_hz))
+        samples = samples[start_index:end_index]
+
+    spectrum = compute_sound_level_spectrum(samples, samplerate_hz)
+    return flask.jsonify(
+        {
+            "freqs_hz": spectrum.freqs_hz.tolist(),
+            "db": spectrum.db.tolist(),
+            "peak_freq_hz": spectrum.peak_freq_hz,
+        }
+    )
 
 
 def _resolve_wav_path_or_404(audio_hash: str) -> Path:
