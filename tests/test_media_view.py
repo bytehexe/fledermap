@@ -1378,6 +1378,9 @@ def test_sound_level_spectrum_returns_whole_file_by_default(
     assert len(body["freqs_hz"]) > 0
     assert len(body["db"]) == len(body["freqs_hz"])
     assert abs(body["peak_freq_hz"] - 45_000.0) < 5_000.0  # _sine_pcm's default freq_hz
+    # The labelled peaks: ascending, and always including the global peak.
+    assert body["peaks_freq_hz"] == sorted(body["peaks_freq_hz"])
+    assert body["peak_freq_hz"] in body["peaks_freq_hz"]
 
 
 def test_sound_level_spectrum_honors_a_start_end_span(

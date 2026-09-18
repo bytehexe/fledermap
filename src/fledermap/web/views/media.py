@@ -485,6 +485,7 @@ def detail_sound_level_spectrum(audio_hash: str) -> ResponseReturnValue:
             "freqs_hz": spectrum.freqs_hz.tolist(),
             "db": spectrum.db.tolist(),
             "peak_freq_hz": spectrum.peak_freq_hz,
+            "peaks_freq_hz": spectrum.peaks_freq_hz,
         }
     )
 

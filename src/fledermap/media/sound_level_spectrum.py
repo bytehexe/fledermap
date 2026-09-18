@@ -8,7 +8,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.signal import welch
+from scipy.signal import find_peaks, welch
+
+# What counts as a "major" local maximum (spec 2026-09-18-fledermap-sound-level-peaks-design.md).
+# Prominence alone is not enough: a hump at the noise floor can be 10 dB prominent (a real
+# recording's -34 dB hump was), so a level floor re the search peak rejects those. Both values
+# and the cap were checked against three real whole-file spectra; short Select spans (few Welch
+# segments, noisier curve) are the case to re-check.
+PEAK_MIN_PROMINENCE_DB = 8.0
+PEAK_MIN_LEVEL_DB = -20.0
+MAX_PEAKS = 5
 
 
 @dataclass(frozen=True)
@@ -21,6 +30,47 @@ class SoundLevelSpectrum:
     # so that bin reflects where the search window starts, not a spectral peak. Reporting it
     # would present the cutoff itself (e.g. "5.0 kHz") as a measurement.
     peak_freq_hz: float | None
+    # Ascending; the global peak (when `peak_freq_hz` is not None) plus the other major local
+    # maxima -- see `find_major_peaks_hz`.
+    peaks_freq_hz: list[float]
+
+
+def find_major_peaks_hz(
+    freqs_hz: np.ndarray, db: np.ndarray, peak_min_freq_hz: float = 0.0
+) -> list[float]:
+    """Frequencies (ascending) of the spectrum's major local maxima, at most `MAX_PEAKS`.
+
+    Searches only at/above `peak_min_freq_hz`, the same region the global-peak search uses. The
+    global maximum of that region is always included (even if it is not prominent by itself, e.g.
+    it sits on a broad shoulder) -- unless it is the region's first bin, where the exclusion cut
+    through a still-falling component (see `SoundLevelSpectrum.peak_freq_hz`). `find_peaks` never
+    returns an endpoint, so no other peak can land on that boundary either. When more than
+    `MAX_PEAKS` qualify, the most prominent are kept.
+    """
+    above_cutoff = freqs_hz >= peak_min_freq_hz
+    low_band_was_excluded = bool(above_cutoff.any() and not above_cutoff.all())
+    search_freqs_hz = freqs_hz[above_cutoff] if above_cutoff.any() else freqs_hz
+    search_db = db[above_cutoff] if above_cutoff.any() else db
+    global_index = int(np.argmax(search_db))
+    global_on_boundary = low_band_was_excluded and global_index == 0
+
+    found, properties = find_peaks(
+        search_db, prominence=PEAK_MIN_PROMINENCE_DB, height=PEAK_MIN_LEVEL_DB
+    )
+    # A flat-topped global maximum makes `find_peaks` report the plateau's middle bin while
+    # `argmax` reports its first -- the same peak, so it must not be listed twice.
+    candidates = [
+        (float(prominence), int(index))
+        for index, prominence in zip(found, properties["prominences"], strict=True)
+        if global_on_boundary or abs(int(index) - global_index) > 1
+    ]
+    candidates.sort(reverse=True)
+    kept: list[int] = [index for _, index in candidates]
+    if global_on_boundary:
+        kept = kept[:MAX_PEAKS]
+    else:
+        kept = [global_index, *kept[: MAX_PEAKS - 1]]
+    return [float(search_freqs_hz[index]) for index in sorted(kept)]
 
 
 def compute_sound_level_spectrum(
@@ -63,4 +113,7 @@ def compute_sound_level_spectrum(
         # relative to. Every bin is equally silent -- report them at the floor of the dB scale
         # (not 0.0, which is the loud end) rather than dividing by zero.
         db = np.full_like(psd, -dynamic_range_db)
-    return SoundLevelSpectrum(freqs_hz=freqs_hz, db=db, peak_freq_hz=peak_freq_hz)
+    peaks_freq_hz = find_major_peaks_hz(freqs_hz, db, peak_min_freq_hz)
+    return SoundLevelSpectrum(
+        freqs_hz=freqs_hz, db=db, peak_freq_hz=peak_freq_hz, peaks_freq_hz=peaks_freq_hz
+    )

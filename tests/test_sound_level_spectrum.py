@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import json
 import warnings
+from pathlib import Path
 
 import numpy as np
+import pytest
 
-from fledermap.media.sound_level_spectrum import compute_sound_level_spectrum
+from fledermap.media.sound_level_spectrum import (
+    compute_sound_level_spectrum,
+    find_major_peaks_hz,
+)
+
+_FIXTURES = Path(__file__).parent / "data" / "sound_level_spectra"
 
 
 def _sine(freq_hz: float, samplerate_hz: float, duration_s: float) -> np.ndarray:
@@ -110,3 +118,125 @@ def test_a_peak_at_the_first_bin_is_kept_when_nothing_was_excluded() -> None:
         _sine(500.0, samplerate_hz, 0.02), samplerate_hz, peak_min_freq_hz=0.0
     )
     assert result.peak_freq_hz is not None
+
+
+def _load_fixture(name: str) -> tuple[np.ndarray, np.ndarray]:
+    data = json.loads((_FIXTURES / f"{name}.json").read_text())
+    freqs_hz = np.arange(data["n_bins"]) * data["bin_width_hz"]
+    return freqs_hz, np.array(data["db"])
+
+
+# Real whole-file spectra with Janna's expected peak counts (spec
+# 2026-09-18-fledermap-sound-level-peaks-design.md, "Reference cases"). Frequencies are matched
+# within one bin (125 Hz).
+@pytest.mark.parametrize(
+    ("fixture", "expected_hz"),
+    [
+        ("three_peaks_11_21_45khz", [11_000.0, 20_900.0, 44_900.0]),
+        ("one_dominant_peak_53khz", [53_000.0]),
+        ("two_peaks_11_27khz", [10_900.0, 27_000.0]),
+    ],
+)
+def test_reference_recordings_yield_the_expected_major_peaks(
+    fixture: str, expected_hz: list[float]
+) -> None:
+    freqs_hz, db = _load_fixture(fixture)
+    peaks = find_major_peaks_hz(freqs_hz, db, peak_min_freq_hz=5_000.0)
+    assert peaks == pytest.approx(expected_hz, abs=125.0)
+
+
+def _spiky_db(
+    n_bins: int, heights_db: dict[int, float], floor_db: float = -60.0
+) -> np.ndarray:
+    """A `floor_db` baseline with a triangular spike (5 bins wide each side) topped at each
+    `index: height` -- an unambiguous, hand-countable set of peaks."""
+    db = np.full(n_bins, floor_db)
+    for index, height in heights_db.items():
+        for offset in range(-5, 6):
+            j = index + offset
+            if 0 <= j < n_bins:
+                db[j] = max(db[j], height - abs(offset) * (height - floor_db) / 5)
+    return db
+
+
+def test_at_most_five_peaks_are_kept_the_most_prominent_and_the_global_one() -> None:
+    freqs_hz = np.arange(400) * 100.0
+    heights = {
+        20: -18.0,
+        70: -5.0,
+        120: 0.0,
+        170: -10.0,
+        220: -16.0,
+        270: -12.0,
+        320: -14.0,
+    }
+    peaks = find_major_peaks_hz(freqs_hz, _spiky_db(400, heights))
+    # 7 candidates; the two weakest (-18 at bin 20, -16 at bin 220) are dropped.
+    assert peaks == [7_000.0, 12_000.0, 17_000.0, 27_000.0, 32_000.0]
+
+
+def test_a_prominent_hump_below_the_level_floor_is_not_a_peak() -> None:
+    freqs_hz = np.arange(200) * 100.0
+    # -30 dB is 30 dB prominent over its surroundings but well under the -20 dB floor.
+    peaks = find_major_peaks_hz(freqs_hz, _spiky_db(200, {50: 0.0, 120: -30.0}))
+    assert peaks == [5_000.0]
+
+
+def test_a_bump_that_barely_stands_out_is_not_a_peak() -> None:
+    freqs_hz = np.arange(200) * 100.0
+    db = _spiky_db(200, {50: 0.0})
+    db[120] = -56.0  # 4 dB above the -60 dB floor around it
+    assert find_major_peaks_hz(freqs_hz, db) == [5_000.0]
+
+
+def test_the_global_peak_is_included_even_when_it_is_not_prominent_itself() -> None:
+    freqs_hz = np.arange(400) * 100.0
+    # The global maximum (0 dB) sits on a -5 dB shoulder running to the left edge, so its own
+    # prominence is only 5 dB (under the 8 dB criterion) -- it must still be labelled.
+    db = _spiky_db(400, {120: -10.0, 170: -12.0, 220: -14.0, 270: -11.0, 320: -13.0})
+    db[:60] = -5.0
+    db[58:63] = [-5.0, -3.0, 0.0, -3.0, -5.0]
+    peaks = find_major_peaks_hz(freqs_hz, db)
+    assert 6_000.0 in peaks
+    assert len(peaks) == 5
+
+
+def test_a_peak_below_the_cutoff_is_not_reported() -> None:
+    freqs_hz = np.arange(200) * 100.0
+    db = _spiky_db(
+        200, {10: 0.0, 120: -6.0}
+    )  # 1.0 kHz peak, loudest, under a 5 kHz cutoff
+    assert find_major_peaks_hz(freqs_hz, db, peak_min_freq_hz=5_000.0) == [12_000.0]
+
+
+def test_a_spectrum_still_falling_at_the_cutoff_has_no_peak_there() -> None:
+    freqs_hz = np.arange(200) * 100.0
+    db = (
+        -np.arange(200) * 0.3
+    )  # loudest below the cutoff, monotonically falling above it
+    assert find_major_peaks_hz(freqs_hz, db, peak_min_freq_hz=5_000.0) == []
+
+
+def test_compute_reports_both_tones_of_a_two_tone_signal_in_ascending_order() -> None:
+    samplerate_hz = 256_000.0
+    samples = _sine(40_000.0, samplerate_hz, 0.05) + 0.5 * _sine(
+        80_000.0, samplerate_hz, 0.05
+    )
+    result = compute_sound_level_spectrum(
+        samples, samplerate_hz, peak_min_freq_hz=5_000.0
+    )
+    assert result.peak_freq_hz is not None
+    assert len(result.peaks_freq_hz) == 2
+    assert result.peaks_freq_hz == sorted(result.peaks_freq_hz)
+    assert result.peaks_freq_hz[0] == pytest.approx(40_000.0, abs=500.0)
+    assert result.peaks_freq_hz[1] == pytest.approx(80_000.0, abs=500.0)
+    assert result.peak_freq_hz in result.peaks_freq_hz
+
+
+def test_compute_reports_no_peaks_when_the_global_peak_is_the_search_boundary() -> None:
+    samplerate_hz = 256_000.0
+    result = compute_sound_level_spectrum(
+        _sine(4_900.0, samplerate_hz, 0.02), samplerate_hz, peak_min_freq_hz=5_000.0
+    )
+    assert result.peak_freq_hz is None
+    assert result.peaks_freq_hz == []

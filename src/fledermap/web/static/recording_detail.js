@@ -667,6 +667,7 @@ document.addEventListener("DOMContentLoaded", () => {
             type: "line",
             data: chartData,
             options: soundLevelSpectrumChartOptions(spectrum),
+            plugins: [peakLabelPlugin],
           });
         }
       })
