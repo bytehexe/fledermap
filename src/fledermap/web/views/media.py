@@ -444,13 +444,16 @@ def detail_sound_level_spectrum(audio_hash: str) -> ResponseReturnValue:
     context = _resolve_detail_wav(audio_hash)
     if context is None:
         flask.abort(404)
-    wav_path, samplerate_hz = context
+    wav_path, _db_samplerate_hz = context
     denoise = parse_bool(flask.request.args.get("denoise"))
     start_s = flask.request.args.get("start_s", type=float)
     end_s = flask.request.args.get("end_s", type=float)
 
     try:
-        samples, _samplerate, _full_scale = _denoised_samples_cache.get_or_compute(
+        # `samplerate_hz` here is the ACTUAL decoded samplerate, not `_db_samplerate_hz` from the
+        # `Recording` row above -- if the two ever disagree, using the DB value would both
+        # mis-slice the requested span and mislabel every frequency in the response.
+        samples, samplerate_hz, _full_scale = _denoised_samples_cache.get_or_compute(
             _denoised_samples_cache_key(
                 wav_path, denoise=denoise, cutoff_hz=DEFAULT_CUTOFF_HZ
             ),
@@ -474,7 +477,12 @@ def detail_sound_level_spectrum(audio_hash: str) -> ResponseReturnValue:
             flask.abort(400)
         samples = samples[start_index:end_index]
 
-    spectrum = compute_sound_level_spectrum(samples, samplerate_hz)
+    # `peak_min_freq_hz=DEFAULT_CUTOFF_HZ` matches detail_spectrogram/detail_oscillogram's own
+    # peak-exclusion convention (media/spectrogram.py) -- low-frequency wind/handling noise
+    # otherwise dominates and produces a meaningless "peak".
+    spectrum = compute_sound_level_spectrum(
+        samples, samplerate_hz, peak_min_freq_hz=DEFAULT_CUTOFF_HZ
+    )
     return flask.jsonify(
         {
             "freqs_hz": spectrum.freqs_hz.tolist(),

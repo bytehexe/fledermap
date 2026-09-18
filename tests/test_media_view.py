@@ -1449,3 +1449,111 @@ def test_sound_level_spectrum_400s_for_a_reversed_span(
     )
 
     assert response.status_code == 400
+
+
+def test_sound_level_spectrum_denoise_true_differs_from_default(
+    engine: Engine, tmp_path: Path
+) -> None:
+    archive_root = tmp_path / "archive"
+    archive_root.mkdir()
+    duration_s = 0.05
+    _write_wav(archive_root / "a.wav", duration_s=duration_s, samplerate=256_000)
+
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="s5" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                duration_s=duration_s,
+                samplerate_hz=256_000,
+            ),
+        )
+        session.commit()
+
+    app = create_app(
+        engine, tmp_path / "static", tmp_path / "media", archive_roots=(archive_root,)
+    )
+    client = app.test_client()
+    plain = client.get(f"/recordings/{'s5' * 32}/detail/sound-level-spectrum")
+    denoised = client.get(
+        f"/recordings/{'s5' * 32}/detail/sound-level-spectrum?denoise=true"
+    )
+
+    assert plain.status_code == 200
+    assert denoised.status_code == 200
+    assert plain.get_json()["db"] != denoised.get_json()["db"]
+
+
+def test_sound_level_spectrum_falls_back_to_whole_file_when_only_one_of_start_end_is_given(
+    engine: Engine, tmp_path: Path
+) -> None:
+    archive_root = tmp_path / "archive"
+    archive_root.mkdir()
+    duration_s = 0.02
+    _write_wav(archive_root / "a.wav", duration_s=duration_s, samplerate=256_000)
+
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="s6" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                duration_s=duration_s,
+                samplerate_hz=256_000,
+            ),
+        )
+        session.commit()
+
+    app = create_app(
+        engine, tmp_path / "static", tmp_path / "media", archive_roots=(archive_root,)
+    )
+    client = app.test_client()
+    whole_file = client.get(f"/recordings/{'s6' * 32}/detail/sound-level-spectrum")
+    only_start = client.get(
+        f"/recordings/{'s6' * 32}/detail/sound-level-spectrum?start_s=0.01"
+    )
+    only_end = client.get(
+        f"/recordings/{'s6' * 32}/detail/sound-level-spectrum?end_s=0.01"
+    )
+
+    assert only_start.status_code == 200
+    assert only_end.status_code == 200
+    assert only_start.get_json() == whole_file.get_json()
+    assert only_end.get_json() == whole_file.get_json()
+
+
+def test_sound_level_spectrum_falls_back_to_whole_file_for_non_numeric_start_end(
+    engine: Engine, tmp_path: Path
+) -> None:
+    # Flask's `type=float` request-arg parsing yields `None` for a non-numeric string -- this
+    # must fall back to the same "at least one of start_s/end_s missing" whole-file behavior as
+    # the test above, not a 400 or a crash.
+    archive_root = tmp_path / "archive"
+    archive_root.mkdir()
+    duration_s = 0.02
+    _write_wav(archive_root / "a.wav", duration_s=duration_s, samplerate=256_000)
+
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="s7" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                duration_s=duration_s,
+                samplerate_hz=256_000,
+            ),
+        )
+        session.commit()
+
+    app = create_app(
+        engine, tmp_path / "static", tmp_path / "media", archive_roots=(archive_root,)
+    )
+    client = app.test_client()
+    whole_file = client.get(f"/recordings/{'s7' * 32}/detail/sound-level-spectrum")
+    non_numeric = client.get(
+        f"/recordings/{'s7' * 32}/detail/sound-level-spectrum?start_s=abc&end_s=xyz"
+    )
+
+    assert non_numeric.status_code == 200
+    assert non_numeric.get_json() == whole_file.get_json()

@@ -420,6 +420,14 @@ standard even where an older page hasn't been brought up to it yet.
   its position stable. This was already the deciding call for the recording-detail page's locked
   scrollbar (`.detail-scroll.view-locked` in `app.css`) over hiding it — extend the same judgment
   to buttons, form fields, and any other control.
+  **Sanctioned exception: a full content-area swap.** The recording-detail page's Playback/Analysis
+  view toggle hides the Playback-only toolbar zone with `.view-analysis .toolbar-zone-tools
+  .playback-only { display: none; }` rather than disabling each button in it. This differs from
+  the ordinary case the rule above is for — one button silently vanishing while everything else
+  in an otherwise-static view looks the same — because the graphs beneath the toolbar swap
+  completely at the same moment: the surrounding visual context makes the change self-evident, so
+  there's no muscle-memory surprise to guard against. This exception is scoped to that kind of
+  whole-view swap, not a license to hide an individual control inside an otherwise-unchanged view.
 - **A disabled element must be visually unmistakable as disabled** — greyed out, not merely
   unresponsive. A real `<button>`, `<input>`, `<select>`, or `<textarea>` gets this for free from
   its native `disabled` attribute plus `app.css`'s `:disabled` rules (`opacity: 0.5` today —

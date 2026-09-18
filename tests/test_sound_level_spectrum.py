@@ -47,6 +47,22 @@ def test_a_short_slice_still_returns_output_without_erroring() -> None:
     assert len(result.db) == len(result.freqs_hz)
 
 
+def test_peak_search_excludes_the_low_frequency_noise_band() -> None:
+    # A loud low-frequency component (wind/handling noise, below the cutoff) plus a quieter but
+    # genuine "call" component above it -- matches spectrogram.py's own peak-exclusion rationale
+    # (CLAUDE.md's Ingest/derived-media notes): without the exclusion, argmax would land on the
+    # louder low-frequency component instead of the real call.
+    samplerate_hz = 256_000.0
+    duration_s = 0.02
+    cutoff_hz = 5_000.0
+    loud_low_freq = 2.0 * _sine(1_000.0, samplerate_hz, duration_s)
+    quiet_call = 0.2 * _sine(40_000.0, samplerate_hz, duration_s)
+    result = compute_sound_level_spectrum(
+        loud_low_freq + quiet_call, samplerate_hz, peak_min_freq_hz=cutoff_hz
+    )
+    assert abs(result.peak_freq_hz - 40_000.0) < 2_000.0
+
+
 def test_all_silent_input_raises_no_warning_and_returns_sane_values() -> None:
     # All-zero input (a genuinely reachable case: silent audio in a narrow Select-tool span).
     # Must not raise divide-by-zero warning, and must return valid (no inf/nan) dB values
