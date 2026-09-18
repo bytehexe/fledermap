@@ -581,7 +581,13 @@ button:disabled { cursor: default; opacity: 0.5; }
   border-radius: 6px;
   padding: 0.6rem 0.75rem;
 }
-.panel-columns .col.identifications { flex: 3; }
+/* flex: 0 1 auto (not the sibling columns' flex: 2 grow share) -- sized to its own
+   content instead of claiming an oversized fixed share of the row. The matrix is
+   usually narrower than a 3-column split gives it (the old bullet-list content this
+   ratio was tuned for could run much wider), so growing it left visible empty space in
+   the box; recording-meta/context (still flex: 2) absorb whatever room this frees up
+   (Janna, 2026-09-18, live use). */
+.panel-columns .col.identifications { flex: 0 1 auto; }
 .panel-columns h3 {
   margin: 0 0 0.4rem;
   font-size: 0.8rem;
