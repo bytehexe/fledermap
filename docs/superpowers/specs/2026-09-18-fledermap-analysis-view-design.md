@@ -127,6 +127,14 @@ the same time), not the "a button silently vanishes while everything else looks 
 `docs/style-guide.md` warns against; the visual context makes the swap self-evident. The middle
 (Denoise) and right (view toggle) zones are unaffected by `activeView`.
 
+**Zone widths are fixed, equal thirds** — `#detail-toolbar { display: grid; grid-template-columns:
+1fr 1fr 1fr; }`, not `1fr auto 1fr`. This is deliberate: an `auto` middle column would size to its
+content, but nothing here should ever resize the toolbar based on what's currently inside a zone —
+the left zone emptying out in Analysis view, the view-toggle button's label changing length ("📊
+Analysis view" vs. "🌊 Playback"), or a future Analysis-specific tool appearing in the left zone
+must never shift where the other zones' contents sit. Equal fixed thirds guarantee that regardless
+of content changes in any zone.
+
 ### 4. Select tool
 
 Registered in `recording_detail.js`'s existing `tools` strategy-object registry (2026-09-04 spec
