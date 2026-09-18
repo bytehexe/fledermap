@@ -66,6 +66,19 @@ it now would mean guessing at data this project doesn't have.
   scope boundary the 2026-09-04 tools spec drew for Default/Ruler: in-memory JS state only, mouse
   only.
 
+## Future directions (not designed, not committed)
+
+Noted here only so a future spec doesn't have to rediscover the idea — nothing below constrains
+this spec's implementation, and none of it should be built now:
+
+Once the annotation feature exists, per-call batdetect2 data could add further representations
+*within the sound-level spectrum graph itself*, not just as the separate call-distance graph —
+e.g. overlaying individual per-call spectra (all calls in view or scoped to the current selection),
+optionally broken out by species, and/or switchable between an aggregate view and a per-call view.
+Whether that's a toggle, an overlay, small multiples, or something else entirely is genuinely
+unspecified — this is a reminder that the shape may grow, not a requirement to keep §5/§6's
+endpoint or chart-mounting code generic against it today.
+
 ## Design
 
 ### 1. Naming the existing view: "Playback"
