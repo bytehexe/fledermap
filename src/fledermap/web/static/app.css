@@ -22,6 +22,13 @@
      (blue/cyan segments have R=0; yellow/red segments have B=0), so magenta
      (high R AND B) sits outside its gamut at every power level. */
   --color-overlay: #ff2fd6;
+  /* The Select tool's box, the same class of overlay as `--color-overlay` above (and equally
+     theme-invariant): it was still `--color-accent` and vanished into the blue background, an
+     earlier fix having covered only the cursor and ruler. White rather than the magenta above
+     because it read clearly better on the palette's blue majority in a side-by-side render, and it
+     keeps the selection visibly a different tool from the ruler. White alone fades where a
+     boundary crosses a yellow/red call core, so `.selection-box` pairs it with a dark halo. */
+  --color-selection: #ffffff;
   --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color-scheme: light;
 }
@@ -829,9 +836,14 @@ button:disabled { cursor: default; opacity: 0.5; }
   position: absolute;
   top: 0;
   bottom: 0;
-  border-left: 1px dashed var(--color-accent);
-  border-right: 1px dashed var(--color-accent);
-  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  border-left: 1px dashed var(--color-selection);
+  border-right: 1px dashed var(--color-selection);
+  background: color-mix(in srgb, var(--color-selection) 12%, transparent);
+  /* Dark halo just outside each edge, so the white boundary stays readable over the pale
+     yellow/red core of a loud call. */
+  box-shadow:
+    -1px 0 0 color-mix(in srgb, black 70%, transparent),
+    1px 0 0 color-mix(in srgb, black 70%, transparent);
   pointer-events: none;
   z-index: 2;
 }
