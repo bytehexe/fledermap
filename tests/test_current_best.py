@@ -261,12 +261,17 @@ def test_recording_headline_shows_multiple_species_for_a_multi_claim_result() ->
     assert recording_headline(None, best) == "Multiple Species"
 
 
-def test_identification_label_shows_code_and_scientific_name_when_both_exist() -> None:
+def test_identification_label_shows_only_the_scientific_name_when_a_code_also_exists() -> (
+    None
+):
+    """The matrix has its own column to say which classifier made the claim -- repeating
+    the raw code alongside a resolved taxon's name added no information there, just noise
+    (Janna, 2026-09-18, live use)."""
     taxon = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
     ident = _ident(IdSource.EMT_GUANO, taxon_id=1)
     ident.raw_label = "PIPPIP"
 
-    assert identification_label(ident, taxon) == "PIPPIP (Pipistrellus pipistrellus)"
+    assert identification_label(ident, taxon) == "Pipistrellus pipistrellus"
 
 
 def test_identification_label_shows_only_the_scientific_name_with_no_raw_label() -> (

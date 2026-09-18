@@ -480,7 +480,11 @@ def test_recording_panel_renders_identification_list_content(
     assert response.status_code == 200
     html = response.get_data(as_text=True)
     assert "emt.guano" in html
-    assert "EPTSER" in html
+    # A resolved taxon's row shows its scientific name only -- the raw code
+    # (EPTSER) is dropped since the matrix's own column already says who
+    # made the claim (Janna, 2026-09-18, live use).
+    assert "Eptesicus serotinus" in html
+    assert "EPTSER" not in html
     assert 'class="superseded"' not in html
     # Style-guide audit (2026-09-09): parity with recording_details.html's own
     # Identifications box -- a mapped taxon's name must be a link.

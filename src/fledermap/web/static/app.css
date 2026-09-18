@@ -596,13 +596,23 @@ button:disabled { cursor: default; opacity: 0.5; }
   color: var(--color-muted);
   font-style: italic;
 }
-.identification-matrix { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+/* Intrinsic width (not width: 100%) -- inside the drawer panel's narrow flex column this
+   already fills the available space naturally; on the details page, where the wrapping
+   ".col identifications" is NOT flex-constrained the way it is in the drawer, forcing full
+   width stretched a handful of narrow columns across the whole page and made the table
+   sparse and harder to read (Janna, 2026-09-18, live use). */
+.identification-matrix { max-width: 100%; border-collapse: collapse; font-size: 0.85rem; }
 .identification-matrix th, .identification-matrix td {
   border-bottom: 1px solid var(--color-border);
   padding: 0.25rem 0.4rem;
 }
 .identification-matrix thead th { text-align: center; color: var(--color-muted); font-weight: 600; }
 .identification-matrix tbody th { text-align: left; font-weight: 400; white-space: nowrap; }
+/* Beats the plain ".identification-matrix tbody th" rule above on specificity
+   (0,1,2 vs 0,1,0) -- without the extra "tbody th" qualifier here, that rule's own
+   font-weight: 400 always won regardless of source order, so the winning row's label
+   silently never actually bolded (Janna, 2026-09-18, live use). */
+.identification-matrix tbody th.identification-current { font-weight: 600; }
 .identification-cell { text-align: center; }
 .identification-cell .icon { color: var(--color-accent); }
 .identification-cell.identification-passive .icon,
