@@ -214,8 +214,7 @@ def identification_label(ident: Identification, taxon: Taxon | None) -> str:
 
     - A resolved taxon: just the scientific name -- the raw code (if any) is never shown
       alongside it. The matrix already has a column per classifier to say who made the
-      claim, so repeating the code there added no information, only noise (Janna,
-      2026-09-18, live use, changed from the earlier "<code> (<scientific name>)" form).
+      claim, so repeating the code there would add no information, only noise.
     - A code with no resolved taxon (an unmapped automatic code): the raw code alone.
     - Neither: the verdict's own value (`species`/`no_id`/`noise`), same fallback
       `recording_headline` uses.

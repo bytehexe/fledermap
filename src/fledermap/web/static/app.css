@@ -581,14 +581,11 @@ button:disabled { cursor: default; opacity: 0.5; }
   border-radius: 6px;
   padding: 0.6rem 0.75rem;
 }
-/* No more per-column override -- ".col" above already gives every column an equal
-   flex: 2 share (a plain 1/3 split). This used to be flex: 3 (an oversized fixed
-   share, tuned for the old bullet-list content), then briefly flex: 0 1 auto
-   (content-sized) -- but a content-sized column changes width row to row depending
-   on how many identification rows/columns that specific recording has, which made
-   the whole three-column row visibly jump while paging through recordings (Janna,
-   2026-09-18, live use). A fixed equal split doesn't jump, even though the matrix
-   itself won't always fill its third. */
+/* No per-column override -- every column shares ".col"'s flex: 2 equally (a plain
+   1/3 split), deliberately NOT sized to content: a content-sized column's width
+   varies with how many identification rows/columns a given recording has, which
+   makes the whole row visibly jump while paging through recordings. A fixed split
+   doesn't jump, even though the Identifications matrix won't always fill its third. */
 .panel-columns h3 {
   margin: 0 0 0.4rem;
   font-size: 0.8rem;
