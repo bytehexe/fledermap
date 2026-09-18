@@ -31,6 +31,15 @@ def compute_sound_level_spectrum(
     freqs_hz, psd = welch(samples, fs=samplerate_hz, nperseg=nperseg)
     peak_index = int(np.argmax(psd))
     peak_freq_hz = float(freqs_hz[peak_index])
-    db = 10 * np.log10(np.maximum(psd, 1e-300) / psd[peak_index])
-    db = np.clip(db, -dynamic_range_db, 0.0)
+    peak_psd = psd[peak_index]
+    if peak_psd > 0:
+        # Normal case: sound present. Scale relative to peak, matching spectrogram.py's
+        # self-relative convention (CLAUDE.md's "Derived media rendering").
+        db = 10 * np.log10(np.maximum(psd, 1e-300) / peak_psd)
+        db = np.clip(db, -dynamic_range_db, 0.0)
+    else:
+        # All-zero signal (e.g., silent audio in a narrow Select-tool span): no peak to be
+        # relative to. Every bin is equally silent -- report them all uniformly rather than
+        # dividing by zero.
+        db = np.zeros_like(psd)
     return SoundLevelSpectrum(freqs_hz=freqs_hz, db=db, peak_freq_hz=peak_freq_hz)

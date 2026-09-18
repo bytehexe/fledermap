@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 
 from fledermap.media.sound_level_spectrum import compute_sound_level_spectrum
@@ -43,3 +45,19 @@ def test_a_short_slice_still_returns_output_without_erroring() -> None:
     result = compute_sound_level_spectrum(short_samples, samplerate_hz)
     assert len(result.freqs_hz) > 0
     assert len(result.db) == len(result.freqs_hz)
+
+
+def test_all_silent_input_raises_no_warning_and_returns_sane_values() -> None:
+    # All-zero input (a genuinely reachable case: silent audio in a narrow Select-tool span).
+    # Must not raise divide-by-zero warning, and must return valid (no inf/nan) dB values.
+    samplerate_hz = 256_000.0
+    silent_samples = np.zeros(512)
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        result = compute_sound_level_spectrum(silent_samples, samplerate_hz)
+        # Assert no warnings were raised.
+        assert len(w) == 0, f"Unexpected warning(s): {[str(x.message) for x in w]}"
+    # Assert all dB values are finite (no inf or nan).
+    assert np.isfinite(result.db).all(), "dB array contains inf or nan"
+    # Assert reasonable peak frequency (not inf/nan).
+    assert np.isfinite(result.peak_freq_hz), "peak_freq_hz is inf or nan"
