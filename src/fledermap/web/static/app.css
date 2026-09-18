@@ -845,6 +845,9 @@ button:disabled { cursor: default; opacity: 0.5; }
 .toolbar-zone-shared { justify-content: center; }
 .toolbar-zone-view { justify-content: flex-end; }
 .view-analysis .toolbar-zone-tools .playback-only { display: none; }
+/* TE/HET/Play belongs to the Playback view: Analysis view has no cursor or timeline for it to
+   drive, so it goes with the rest of Playback's content instead of sitting below both views. */
+.view-analysis .audio-row { display: none; }
 /* `fitDetailHeight` (recording_detail.js) is the sole owner of `scrollEl.hidden`/the too-small
    message -- it runs on every resize regardless of which view is active, so it can't also be
    trusted to leave Playback's content hidden while Analysis view is showing. This CSS rule

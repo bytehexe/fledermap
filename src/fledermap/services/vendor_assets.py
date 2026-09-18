@@ -194,12 +194,13 @@ ASSETS: tuple[VendorAsset, ...] = (
     ),
     # The Analysis-view toggle button's two icons (design spec
     # docs/superpowers/specs/2026-09-18-fledermap-analysis-view-design.md) -- outline style, to
-    # match the rest of the toolbar's icon-based toggles (Lock, Denoise). A FILLED player-play
-    # already exists above for the play/pause button; this is a separate, outline-style asset.
+    # match the rest of the toolbar's icon-based toggles (Lock, Denoise). The "back to Playback"
+    # icon is deliberately not a play triangle: that glyph is reserved for the actual play/pause
+    # button above, and reusing it on a view switch read as a second play button.
     VendorAsset(
-        url="https://unpkg.com/@tabler/icons@3.46.0/icons/outline/player-play.svg",
-        sha256="9726d5358929fbfe4a4cbd08131a5f1b4246ca01125f5108e7221b9c73e101ff",
-        relative_path="icons/outline/player-play.svg",
+        url="https://unpkg.com/@tabler/icons@3.46.0/icons/outline/vinyl.svg",
+        sha256="8d331f7f30543a25c04059f54b78d6b763838c17113357458a3880a2baf8279c",
+        relative_path="icons/outline/vinyl.svg",
     ),
     VendorAsset(
         url="https://unpkg.com/@tabler/icons@3.46.0/icons/outline/chart-histogram.svg",

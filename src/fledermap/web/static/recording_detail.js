@@ -861,7 +861,7 @@ document.addEventListener("DOMContentLoaded", () => {
     viewToggleButton.title = `Switch to ${targetView === "analysis" ? "Analysis" : "Playback"} view`;
     viewToggleIconToAnalysis.hidden = view !== "playback";
     viewToggleIconToPlayback.hidden = view !== "analysis";
-    viewToggleLabel.textContent = targetView === "analysis" ? "Analysis view" : "Playback";
+    viewToggleLabel.textContent = targetView === "analysis" ? "Analysis view" : "Playback view";
     mainContent.classList.toggle("view-playback", view === "playback");
     mainContent.classList.toggle("view-analysis", view === "analysis");
     // `scrollEl.hidden`/the too-small message are owned entirely by `fitDetailHeight` (app.css's
@@ -877,6 +877,9 @@ document.addEventListener("DOMContentLoaded", () => {
       fitDetailHeight();
     }
     if (view === "analysis") {
+      // The playback controls are hidden in Analysis view (app.css's `.view-analysis
+      // .audio-row`), so audio still playing would have no visible way to stop it.
+      audio.pause();
       // Order matters: `updateSelectionButtonAvailability` only ever needs to enable/disable
       // the Selection button here (a selection made while in Playback never gets a chance to
       // flip it otherwise) -- it must not also be the thing that decides `activeSpan`, or a
