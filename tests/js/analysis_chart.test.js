@@ -4,7 +4,9 @@ const {
   soundLevelSpectrumToChartData,
   soundLevelSpectrumChartOptions,
   formatPeakLabel,
-  stackPeakLabels,
+  placePeakLabels,
+  peakLabelPlugin,
+  PEAK_LABEL_HEADROOM_PX,
 } = require("../../src/fledermap/web/static/analysis_chart.js");
 
 const SPECTRUM = {
@@ -83,9 +85,36 @@ test("the x axis ends at the spectrum's own last bin, not a rounded-up tick", ()
   assert.equal(scales.x.min, 0);
 });
 
-test("the chart leaves headroom above the plot so a 0 dB peak's label is not clipped", () => {
+test("the headroom for peak labels is not padding above the legend", () => {
+  // layout.padding.top would sit ABOVE the legend, leaving the legend on top of a 0 dB peak's
+  // label; the room has to be between the legend and the plot (see peakLabelPlugin.beforeInit).
   const { layout } = soundLevelSpectrumChartOptions(SPECTRUM);
-  assert.ok(layout.padding.top >= 30);
+  assert.equal(layout, undefined);
+});
+
+test("peakLabelPlugin grows the legend downward so the labels have room between it and the plot", () => {
+  const legend = {
+    height: 0,
+    fit() {
+      this.height = 20;
+    },
+  };
+  peakLabelPlugin.beforeInit({ legend });
+  legend.fit();
+  assert.equal(legend.height, 20 + PEAK_LABEL_HEADROOM_PX);
+  assert.ok(PEAK_LABEL_HEADROOM_PX >= 30);
+});
+
+test("peakLabelPlugin tolerates a chart without a legend", () => {
+  assert.doesNotThrow(() => peakLabelPlugin.beforeInit({ legend: null }));
+});
+
+test("the peaks legend swatch is red like the markers, not the default grey", () => {
+  // Chart.js draws a legend swatch from the dataset's backgroundColor/borderColor, not from the
+  // point styling the markers use.
+  const peakDataset = soundLevelSpectrumToChartData(SPECTRUM).datasets[1];
+  assert.equal(peakDataset.backgroundColor, peakDataset.pointBackgroundColor);
+  assert.equal(peakDataset.borderColor, peakDataset.pointBorderColor);
 });
 
 test("formatPeakLabel is the frequency alone, one decimal, in kHz", () => {
@@ -93,40 +122,44 @@ test("formatPeakLabel is the frequency alone, one decimal, in kHz", () => {
   assert.equal(formatPeakLabel(11), "11.0 kHz");
 });
 
-test("stackPeakLabels keeps labels that do not overlap on the same level", () => {
-  const levels = stackPeakLabels(
-    [{ centerPx: 100, widthPx: 50 }, { centerPx: 200, widthPx: 50 }],
-    4
-  );
-  assert.deepEqual(levels, [0, 0]);
+const label = (centerPx, baselineY, widthPx = 50) => ({ centerPx, widthPx, baselineY });
+
+test("placePeakLabels leaves labels that do not overlap where their markers want them", () => {
+  const ys = placePeakLabels([label(100, 70), label(200, 90)], 4, 14);
+  assert.deepEqual(ys, [70, 90]);
 });
 
-test("stackPeakLabels raises a label that would overlap the previous one", () => {
-  const levels = stackPeakLabels(
-    [{ centerPx: 100, widthPx: 50 }, { centerPx: 130, widthPx: 50 }],
-    4
-  );
-  assert.deepEqual(levels, [0, 1]);
+test("placePeakLabels raises a colliding label to just above the one it collides with", () => {
+  const ys = placePeakLabels([label(100, 70), label(130, 70)], 4, 14);
+  assert.deepEqual(ys, [70, 56]);
 });
 
-test("stackPeakLabels drops a raised label back down once it clears the neighbours", () => {
-  // Third label overlaps only the raised second one, not the first -> level 0 is free again.
-  const levels = stackPeakLabels(
-    [
-      { centerPx: 100, widthPx: 50 },
-      { centerPx: 130, widthPx: 50 },
-      { centerPx: 190, widthPx: 50 },
-    ],
-    4
-  );
-  assert.deepEqual(levels, [0, 1, 0]);
+test("placePeakLabels stacks against the placed label, not against the label's own marker", () => {
+  // The second peak's marker sits lower than the first's; raising it by one line from ITS marker
+  // (75 - 14 = 61) would leave the two labels' glyphs overlapping (70 vs 61 is under a line).
+  const ys = placePeakLabels([label(100, 70), label(102, 75)], 4, 14);
+  assert.deepEqual(ys, [70, 56]);
 });
 
-test("stackPeakLabels treats a gap smaller than the padding as an overlap", () => {
+test("placePeakLabels does not raise a label whose marker is already a full line away", () => {
+  const ys = placePeakLabels([label(100, 70), label(130, 40)], 4, 14);
+  assert.deepEqual(ys, [70, 40]);
+});
+
+test("placePeakLabels drops back down once a label clears the raised neighbour", () => {
+  // Third label overlaps neither of the first two horizontally -> keeps its own height.
+  const ys = placePeakLabels([label(100, 70), label(130, 70), label(190, 70)], 4, 14);
+  assert.deepEqual(ys, [70, 56, 70]);
+});
+
+test("placePeakLabels treats a gap smaller than the padding as an overlap", () => {
   // 50px labels centred 52px apart leave a 2px gap; with a 4px minimum they collide.
-  const levels = stackPeakLabels(
-    [{ centerPx: 100, widthPx: 50 }, { centerPx: 152, widthPx: 50 }],
-    4
-  );
-  assert.deepEqual(levels, [0, 1]);
+  const ys = placePeakLabels([label(100, 70), label(152, 70)], 4, 14);
+  assert.deepEqual(ys, [70, 56]);
+});
+
+test("placePeakLabels clears every label it collides with, not just the first", () => {
+  // The third overlaps both earlier labels, which sit on two different rows.
+  const ys = placePeakLabels([label(100, 70), label(120, 70), label(110, 70)], 4, 14);
+  assert.deepEqual(ys, [70, 56, 42]);
 });

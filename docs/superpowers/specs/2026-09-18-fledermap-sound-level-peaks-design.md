@@ -29,13 +29,22 @@ peak, unlabelled apart from a legend entry.
 - **Response:** the endpoint keeps `peak_freq_hz` and adds `peaks_freq_hz` (ascending list, always
   a superset of the global peak when that is not `None`).
 - **Labels:** frequency only, one decimal, in kHz, same rounding as the legend today. Drawn above
-  the marker, centred, clamped to the chart area. A label that would overlap the previous one
-  horizontally is raised by one text height rather than dropped or hidden ("always-on").
-  `layout.padding.top` leaves room so the label of a 0 dB peak is not clipped.
+  the marker, centred, clamped to the chart area. A label that would collide with one already
+  placed is raised to just above *that* label (not by a fixed step from its own marker — two
+  neighbouring markers sit at different heights, so a fixed step left the glyphs overlapping),
+  rather than dropped or hidden ("always-on").
+- **Headroom for the labels sits between the legend and the plot**, not above the legend: a 0 dB
+  peak's label needs ~36 px above the plot's top edge. `layout.padding.top` pads the wrong side
+  (the legend then lands on the label), so the legend box is made 36 px taller at its bottom
+  instead (its entries stay at the top). Known limit: in a very narrow panel (chart ≲ 320 px
+  wide, legend wrapped to two rows, plot only tens of px tall) three crowded labels can stack a
+  third row into the legend.
 - **Legend:** the single `Peak frequency (x kHz, bin width …)` entry becomes `Peaks (bin width …
   kHz)`; the frequencies now live on the chart. The bin-width note stays — a peak can only be
   located to within one FFT bin, which matters most for a short Selection.
-- **Marker style:** every peak uses the existing red marker.
+- **Marker style:** every peak uses the existing red marker, and the legend swatch is red too
+  (Chart.js draws a swatch from the dataset's `backgroundColor`/`borderColor`, not from the point
+  styling the markers use).
 - **No new dependency.** Labels are drawn by a small inline Chart.js plugin (`afterDatasetsDraw`,
   `ctx.fillText`), text colour read from `--color-text` via `getComputedStyle` so dark mode works
   (a canvas cannot resolve CSS variables itself).

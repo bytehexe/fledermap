@@ -43,6 +43,12 @@ function soundLevelSpectrumToChartData(spectrum) {
       pointRadius: 5,
       pointBackgroundColor: "red",
       pointBorderColor: "red",
+      // The legend swatch is drawn from the dataset's own backgroundColor/borderColor, not the
+      // point styling above -- without these it came out as Chart.js's default grey, unlike the
+      // markers it stands for. No line is drawn (showLine: false), so borderColor only colors
+      // the swatch.
+      backgroundColor: "red",
+      borderColor: "red",
       peakLabels: true,
     });
   }
@@ -52,13 +58,12 @@ function soundLevelSpectrumToChartData(spectrum) {
 // Axis titles carry the units -- the chart previously had none, so the reader could not tell the
 // x values were kHz or the y values were dB relative to the peak. The x axis ends at the
 // spectrum's own last bin (Nyquist), not at Chart.js's "nice" rounding, which drew an empty
-// 128-140 kHz stretch of axis past the end of the data. `layout.padding.top` reserves room above
-// the plot for the peak labels: a 0 dB peak sits on the plot's top edge, and its label (plus one
-// staggered row, see `stackPeakLabels`) would otherwise be clipped by the canvas.
+// 128-140 kHz stretch of axis past the end of the data. No `layout.padding.top` for the peak
+// labels' headroom: that pads ABOVE the legend, leaving the legend sitting on top of a 0 dB
+// peak's label -- the room has to be between the legend and the plot, see `peakLabelPlugin`.
 function soundLevelSpectrumChartOptions(spectrum) {
   const lastKhz = spectrum.freqs_hz[spectrum.freqs_hz.length - 1] / 1000;
   return {
-    layout: { padding: { top: 36 } },
     scales: {
       x: { type: "linear", min: 0, max: lastKhz, title: { display: true, text: "Frequency (kHz)" } },
       y: { title: { display: true, text: "Level (dB re peak)" } },
@@ -70,28 +75,41 @@ function formatPeakLabel(khz) {
   return `${khz.toFixed(1)} kHz`;
 }
 
-// Assigns each label a vertical level (0 = directly above its marker, 1 = one text-height
-// higher, ...) so that no two labels overlap horizontally. Labels are never dropped -- the point
-// is that every peak stays labelled -- so a crowded pair is staggered instead. `labels` is in
-// ascending x order; `gapPx` is the minimum clear space between two labels on the same level.
-// Greedy: each label takes the lowest level free of overlap with the labels already placed.
-function stackPeakLabels(labels, gapPx) {
+// Text height plus a hair of leading: the vertical distance between two labels stacked above each
+// other, and the height the collision test treats a label as occupying.
+const PEAK_LABEL_LINE_HEIGHT_PX = 14;
+
+// Decides each label's baseline y so that no two labels overlap. Labels are never dropped -- the
+// point is that every peak stays labelled -- so a crowded pair is staggered instead. `labels` is in
+// ascending x order, each `{centerPx, widthPx, baselineY}` with `baselineY` where its own marker
+// wants it; `gapPx` is the minimum clear horizontal space between two labels. Greedy: a label that
+// collides with an already-placed one is raised to just above THAT label. (Raising it by a fixed
+// step from its own marker was wrong: two neighbouring markers sit at different heights, so the
+// step could leave the glyphs of the two labels overlapping.) Returns the baseline y per label.
+function placePeakLabels(labels, gapPx, lineHeightPx) {
   const placed = [];
   return labels.map((label) => {
-    let level = 0;
-    while (
-      placed.some(
-        (other) =>
-          other.level === level &&
-          Math.abs(other.centerPx - label.centerPx) < (other.widthPx + label.widthPx) / 2 + gapPx
-      )
-    ) {
-      level += 1;
+    let y = label.baselineY;
+    let moved = true;
+    while (moved) {
+      moved = false;
+      for (const other of placed) {
+        const overlapsHorizontally =
+          Math.abs(other.centerPx - label.centerPx) < (other.widthPx + label.widthPx) / 2 + gapPx;
+        if (overlapsHorizontally && Math.abs(other.y - y) < lineHeightPx) {
+          y = other.y - lineHeightPx;
+          moved = true;
+        }
+      }
     }
-    placed.push({ ...label, level });
-    return level;
+    placed.push({ centerPx: label.centerPx, widthPx: label.widthPx, y });
+    return y;
   });
 }
+
+// Vertical room reserved between the legend and the plot for the labels: a 0 dB peak sits on the
+// plot's top edge, so its label (plus one raised row, see `placePeakLabels`) is drawn above it.
+const PEAK_LABEL_HEADROOM_PX = 36;
 
 // Chart.js inline plugin: always-on frequency labels above every peak marker. Drawn on the
 // canvas because Chart.js has no built-in point labels and this project deliberately has no
@@ -100,6 +118,19 @@ function stackPeakLabels(labels, gapPx) {
 // node:test.
 const peakLabelPlugin = {
   id: "peakLabels",
+  // Chart.js has no option for space between the legend and the plot, so the legend box is made
+  // taller at its bottom: its entries stay at the top and the extra height becomes the gap the
+  // labels are drawn into. Wrapping `fit` is the established recipe for this (the alternative,
+  // `layout.padding.top`, pads the wrong side of the legend).
+  beforeInit(chart) {
+    const legend = chart.legend;
+    if (!legend) return;
+    const fit = legend.fit;
+    legend.fit = function fitWithLabelHeadroom() {
+      fit.call(this);
+      this.height += PEAK_LABEL_HEADROOM_PX;
+    };
+  },
   afterDatasetsDraw(chart) {
     const { ctx, chartArea } = chart;
     const style = getComputedStyle(chart.canvas);
@@ -109,7 +140,6 @@ const peakLabelPlugin = {
     ctx.font = `12px ${style.fontFamily}`;
     ctx.textAlign = "center";
     ctx.textBaseline = "bottom";
-    const lineHeightPx = 14;
     const markerRadiusPx = 5;
     chart.data.datasets.forEach((dataset, datasetIndex) => {
       if (!dataset.peakLabels) return;
@@ -122,16 +152,10 @@ const peakLabelPlugin = {
           Math.max(point.x, chartArea.left + widthPx / 2),
           chartArea.right - widthPx / 2
         );
-        return { text, widthPx, centerPx, markerY: point.y };
+        return { text, widthPx, centerPx, baselineY: point.y - markerRadiusPx - 2 };
       });
-      const levels = stackPeakLabels(labels, 4);
-      labels.forEach((label, i) => {
-        ctx.fillText(
-          label.text,
-          label.centerPx,
-          label.markerY - markerRadiusPx - 2 - levels[i] * lineHeightPx
-        );
-      });
+      const baselines = placePeakLabels(labels, 4, PEAK_LABEL_LINE_HEIGHT_PX);
+      labels.forEach((label, i) => ctx.fillText(label.text, label.centerPx, baselines[i]));
     });
   },
 };
@@ -141,7 +165,8 @@ if (typeof module !== "undefined" && module.exports) {
     soundLevelSpectrumToChartData,
     soundLevelSpectrumChartOptions,
     formatPeakLabel,
-    stackPeakLabels,
+    placePeakLabels,
     peakLabelPlugin,
+    PEAK_LABEL_HEADROOM_PX,
   };
 }
