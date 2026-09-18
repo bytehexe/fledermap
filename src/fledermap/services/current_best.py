@@ -356,3 +356,139 @@ def display_identifications(
         )
         rows.append(IdentificationRow("emt", rep_ident, rep_status))
     return rows
+
+
+ClaimKey = tuple[Verdict] | tuple[Verdict, int | str]
+
+
+def claim_key(ident: Identification) -> ClaimKey:
+    """One classifier's "answer", comparable across sources regardless of which raw text or
+    taxon each source's row carries -- shared by `identification_matrix` below (grouping rows)
+    and `services/review_flags.py` (disagreement voting), which used to keep its own private
+    copy of exactly this (`docs/superpowers/specs/2026-09-17-fledermap-classifier-interaction-
+    design.md`'s own §6 flagged this duplication as a known limitation). A resolved species
+    compares by taxon_id (raw_label may differ trivially between sources naming the same
+    species); an unmapped one falls back to raw_label, so two different unmapped codes aren't
+    silently treated as agreeing just because neither resolved; every other verdict (NO_ID,
+    NOISE) compares by verdict alone, so e.g. every NO_ID claim groups together regardless of
+    source."""
+    if ident.verdict != Verdict.SPECIES:
+        return (ident.verdict,)
+    if ident.taxon_id is not None:
+        return (ident.verdict, ident.taxon_id)
+    return (ident.verdict, ident.raw_label or "")
+
+
+@dataclass(frozen=True)
+class MatrixColumn:
+    """One classifier column of the "Identifications" matrix -- `key` matches an
+    `IdentificationRow.source_label` from `display_identifications`, `label` is the
+    abbreviated column header actually shown."""
+
+    key: str
+    label: str
+
+
+_COLUMN_LABELS: dict[str, str] = {
+    "batdetect2": "bd2",
+    "battybirdnet": "bbn",
+    "fledermap.noise": "fm.n",
+    "emt.manual": "emt.m",
+    "emt.guano": "emt.g",
+    "emt.wamd": "emt.w",
+    "emt.filename": "emt.f",
+}
+
+
+@dataclass(frozen=True)
+class MatrixCell:
+    """One (row, column) intersection. `ident`/`status` are `None` when this column's
+    classifier made no claim matching this row's `claim_key` -- the template renders that as
+    a blank cell rather than a checkmark."""
+
+    ident: Identification | None
+    status: IdentificationStatus | None
+
+
+@dataclass(frozen=True)
+class MatrixRow:
+    """One species/verdict row of the matrix. `label`/`taxon` come from whichever claim in
+    this row happens to be encountered first when building the row (any of them carries the
+    same `claim_key`, so the same display text) -- not necessarily the current winner.
+    `is_current` is true when any cell in the row is the actual "current" claim, driving the
+    row label's bold styling; a cell's own `status` (not this flag) decides whether that
+    individual cell's checkmark is bold -- a row can be the current winner while still holding
+    a "shadowed" cell for a source that merely agrees without being the one that won."""
+
+    label: str
+    taxon: Taxon | None
+    is_current: bool
+    cells: dict[str, MatrixCell]
+
+
+@dataclass(frozen=True)
+class IdentificationMatrix:
+    columns: list[MatrixColumn]
+    rows: list[MatrixRow]
+
+
+def identification_matrix(
+    identifications: Sequence[Identification],
+    best: CurrentIdentification | None,
+    *,
+    combine_emt: bool,
+) -> IdentificationMatrix:
+    """Species-by-classifier pivot of the "Identifications" breakdown (Obsidian backlog:
+    "Classifier list vs table") -- built directly on `display_identifications`'s already-
+    collapsed rows, so `Config.combine_emt_display` folds guano/wamd/filename into one `emt`
+    column here exactly the same way it folds them into one list row there; EMT-group
+    disagreement already resolves to the winning claim per that same function, so a combined
+    `emt` column never needs its own disagreement handling. Rows group claims by `claim_key`
+    (same species/verdict, whichever source said it) and are ordered by first appearance
+    across the precedence-sorted columns."""
+    display_rows = display_identifications(
+        identifications, best, combine_emt=combine_emt
+    )
+
+    columns: list[MatrixColumn] = []
+    seen_columns: set[str] = set()
+    for row in display_rows:
+        if row.source_label not in seen_columns:
+            seen_columns.add(row.source_label)
+            columns.append(
+                MatrixColumn(
+                    row.source_label,
+                    _COLUMN_LABELS.get(row.source_label, row.source_label),
+                ),
+            )
+
+    row_order: list[ClaimKey] = []
+    by_key: dict[ClaimKey, dict[str, IdentificationRow]] = {}
+    for row in display_rows:
+        key = claim_key(row.ident)
+        if key not in by_key:
+            row_order.append(key)
+            by_key[key] = {}
+        by_key[key][row.source_label] = row
+
+    rows: list[MatrixRow] = []
+    for key in row_order:
+        by_column = by_key[key]
+        representative = next(iter(by_column.values())).ident
+        rows.append(
+            MatrixRow(
+                label=identification_label(representative, representative.taxon),
+                taxon=representative.taxon,
+                is_current=any(row.status == "current" for row in by_column.values()),
+                cells={
+                    column.key: MatrixCell(
+                        by_column[column.key].ident,
+                        by_column[column.key].status,
+                    )
+                    if column.key in by_column
+                    else MatrixCell(None, None)
+                    for column in columns
+                },
+            ),
+        )
+    return IdentificationMatrix(columns=columns, rows=rows)

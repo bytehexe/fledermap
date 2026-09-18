@@ -17,7 +17,7 @@ from fledermap.media.spectrogram import (
 )
 from fledermap.services.current_best import (
     current_best_identification,
-    display_identifications,
+    identification_matrix,
 )
 from fledermap.services.manual_classification import (
     current_manual_state,
@@ -122,7 +122,7 @@ def _render_recording_panel(
         taxon = None
         if best is not None and not best.is_multi and best.primary.taxon_id is not None:
             taxon = session.get(Taxon, best.primary.taxon_id)
-        identifications_with_status = display_identifications(
+        matrix = identification_matrix(
             recording.identifications,
             best,
             combine_emt=flask.current_app.config["COMBINE_EMT_DISPLAY"],
@@ -160,7 +160,7 @@ def _render_recording_panel(
             best=best,
             reasons=reasons,
             taxon=taxon,
-            identifications_with_status=identifications_with_status,
+            matrix=matrix,
             previous=previous,
             next=following,
             filter_qs=filter_qs,

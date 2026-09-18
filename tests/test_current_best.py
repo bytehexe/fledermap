@@ -5,9 +5,11 @@ from datetime import UTC, datetime
 from fledermap.domain.codes import IdSource, Verdict
 from fledermap.services.current_best import (
     CurrentIdentification,
+    claim_key,
     current_best_identification,
     display_identifications,
     identification_label,
+    identification_matrix,
     identification_status,
     recording_headline,
     sort_identifications_by_precedence,
@@ -723,3 +725,186 @@ def test_identification_status_shadowed_for_emt_manual_no_id_losing_to_a_manual_
     best = current_best_identification(r)
 
     assert identification_status(loser, best) == "shadowed"
+
+
+def test_claim_key_groups_species_claims_by_taxon_id() -> None:
+    a = _ident(IdSource.MANUAL, taxon_id=1)
+    b = _ident(IdSource.EMT_GUANO, taxon_id=1)
+
+    assert claim_key(a) == claim_key(b)
+
+
+def test_claim_key_distinguishes_unmapped_codes_by_raw_label() -> None:
+    a = _ident(IdSource.EMT_GUANO, taxon_id=None, verdict=Verdict.SPECIES)
+    a.raw_label = "EPTNIL"
+    b = _ident(IdSource.EMT_WAMD, taxon_id=None, verdict=Verdict.SPECIES)
+    b.raw_label = "PIPPIP"
+
+    assert claim_key(a) != claim_key(b)
+
+
+def test_claim_key_groups_every_no_id_claim_together_regardless_of_taxon() -> None:
+    a = _ident(IdSource.MANUAL, taxon_id=None, verdict=Verdict.NO_ID)
+    b = _ident(IdSource.EMT_GUANO, taxon_id=None, verdict=Verdict.NO_ID)
+
+    assert claim_key(a) == claim_key(b)
+
+
+def test_identification_matrix_one_column_per_source_label_in_precedence_order() -> (
+    None
+):
+    manual = _ident(IdSource.MANUAL, taxon_id=1)
+    guano = _ident(IdSource.EMT_GUANO, taxon_id=2)
+    r = _recording(guano, manual)
+    best = current_best_identification(r)
+
+    matrix = identification_matrix(r.identifications, best, combine_emt=True)
+
+    assert [c.key for c in matrix.columns] == ["manual", "emt"]
+
+
+def test_identification_matrix_respects_combine_emt_display_flag() -> None:
+    guano = _ident(IdSource.EMT_GUANO, taxon_id=1)
+    wamd = _ident(IdSource.EMT_WAMD, taxon_id=1)
+    r = _recording(wamd, guano)
+    best = current_best_identification(r)
+
+    combined = identification_matrix(r.identifications, best, combine_emt=True)
+    separate = identification_matrix(r.identifications, best, combine_emt=False)
+
+    assert [c.key for c in combined.columns] == ["emt"]
+    assert [c.key for c in separate.columns] == ["emt.guano", "emt.wamd"]
+
+
+def test_identification_matrix_abbreviates_column_labels() -> None:
+    matrix = identification_matrix(
+        [
+            _ident(IdSource.BATDETECT2, taxon_id=1),
+            _ident(IdSource.BATTYBIRDNET, taxon_id=1),
+            _ident(IdSource.FLEDERMAP_NOISE, verdict=Verdict.NOISE, taxon_id=None),
+        ],
+        None,
+        combine_emt=True,
+    )
+
+    labels = {c.key: c.label for c in matrix.columns}
+    assert labels["batdetect2"] == "bd2"
+    assert labels["battybirdnet"] == "bbn"
+    assert labels["fledermap.noise"] == "fm.n"
+
+
+def test_identification_matrix_groups_claims_naming_the_same_taxon_into_one_row() -> (
+    None
+):
+    manual = _ident(IdSource.MANUAL, taxon_id=1)
+    guano = _ident(IdSource.EMT_GUANO, taxon_id=1)
+    guano.raw_label = "VESMUR"
+    r = _recording(guano, manual)
+    best = current_best_identification(r)
+
+    matrix = identification_matrix(r.identifications, best, combine_emt=True)
+
+    assert len(matrix.rows) == 1
+    row = matrix.rows[0]
+    assert row.cells["manual"].ident is manual
+    assert row.cells["emt"].ident is guano
+
+
+def test_identification_matrix_keeps_different_unmapped_codes_as_separate_rows() -> (
+    None
+):
+    a = _ident(IdSource.EMT_GUANO, taxon_id=None, verdict=Verdict.SPECIES)
+    a.raw_label = "EPTNIL"
+    b = _ident(IdSource.BATDETECT2, taxon_id=None, verdict=Verdict.SPECIES)
+    b.raw_label = "PIPPIP"
+    r = _recording(a, b)
+    best = current_best_identification(r)
+
+    matrix = identification_matrix(r.identifications, best, combine_emt=True)
+
+    assert len(matrix.rows) == 2
+
+
+def test_identification_matrix_leaves_an_absent_classifiers_cell_empty() -> None:
+    manual = _ident(IdSource.MANUAL, taxon_id=1)
+    batdetect2 = _ident(IdSource.BATDETECT2, taxon_id=2)
+    r = _recording(manual, batdetect2)
+    best = current_best_identification(r)
+
+    matrix = identification_matrix(r.identifications, best, combine_emt=True)
+
+    manual_row = next(row for row in matrix.rows if row.cells["manual"].ident is manual)
+    assert manual_row.cells["batdetect2"].ident is None
+    assert manual_row.cells["batdetect2"].status is None
+
+
+def test_identification_matrix_marks_the_winning_row_and_cell_as_current() -> None:
+    manual = _ident(IdSource.MANUAL, taxon_id=1)
+    guano = _ident(IdSource.EMT_GUANO, taxon_id=2)
+    r = _recording(guano, manual)
+    best = current_best_identification(r)
+
+    matrix = identification_matrix(r.identifications, best, combine_emt=True)
+
+    winning_row = next(
+        row for row in matrix.rows if row.cells["manual"].ident is manual
+    )
+    losing_row = next(row for row in matrix.rows if row.cells["emt"].ident is guano)
+
+    assert winning_row.is_current
+    assert winning_row.cells["manual"].status == "current"
+    assert not losing_row.is_current
+    assert losing_row.cells["emt"].status == "shadowed"
+
+
+def test_identification_matrix_cell_is_plain_when_a_claim_agrees_but_did_not_win() -> (
+    None
+):
+    """Two sources both name the same taxon, but only one is actually driving the
+    result -- the other's cell must carry its own real status ("shadowed"), not
+    silently inherit "current" just because the row itself is the winning row."""
+    manual = _ident(IdSource.MANUAL, taxon_id=1)
+    guano = _ident(IdSource.EMT_GUANO, taxon_id=1)
+    r = _recording(guano, manual)
+    best = current_best_identification(r)
+
+    matrix = identification_matrix(r.identifications, best, combine_emt=True)
+
+    assert len(matrix.rows) == 1
+    row = matrix.rows[0]
+    assert row.is_current
+    assert row.cells["manual"].status == "current"
+    assert row.cells["emt"].status == "shadowed"
+
+
+def test_identification_matrix_orders_rows_by_first_appearance() -> None:
+    manual = _ident(IdSource.MANUAL, taxon_id=1)
+    guano_no_id = _ident(IdSource.EMT_GUANO, verdict=Verdict.NO_ID, taxon_id=None)
+    batdetect2 = _ident(IdSource.BATDETECT2, taxon_id=2)
+    r = _recording(batdetect2, guano_no_id, manual)
+    best = current_best_identification(r)
+
+    matrix = identification_matrix(r.identifications, best, combine_emt=True)
+
+    # precedence order of columns is manual, emt, batdetect2 -- each source's own
+    # first (only) claim introduces its row in that same order.
+    assert [row.label for row in matrix.rows] == [
+        identification_label(manual, None),
+        "no_id",
+        identification_label(batdetect2, None),
+    ]
+
+
+def test_identification_matrix_row_label_and_taxon_come_from_a_representative_claim() -> (
+    None
+):
+    taxon = Taxon(rank="species", scientific_name="Vespertilio murinus")
+    manual = _ident(IdSource.MANUAL, taxon_id=1)
+    manual.taxon = taxon
+    r = _recording(manual)
+    best = current_best_identification(r)
+
+    matrix = identification_matrix(r.identifications, best, combine_emt=True)
+
+    assert matrix.rows[0].label == "Vespertilio murinus"
+    assert matrix.rows[0].taxon is taxon

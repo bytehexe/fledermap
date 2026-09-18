@@ -1,21 +1,13 @@
 {# src/fledermap/web/templates/_identifications_box.html -- the recording-details page's
-   own copy of the drawer panel's "Identifications" breakdown (_recording_panel.html): both
-   now render the same precedence-ordered list with the same current/passive/shadowed
-   styling (services/current_best.py's sort_identifications_by_precedence +
-   identification_status, app.css's .identification-current/-passive/-shadowed) --
-   position in the list plus bold/italic styling says why the page shows what it shows,
-   replacing an earlier per-row "shadowed by emt.guano" text annotation that needed the
-   winning source spelled out. Still a separate template rather than a shared include with
-   the drawer's version: this one's rows are wired for a future manual-classification pick
-   (spec: manual classification is details-page-only), the drawer's are read-only. #}
+   own copy of the drawer panel's "Identifications" heading (_recording_panel.html): both
+   render the same shared species-by-classifier matrix (_identification_matrix.html,
+   services/current_best.py's identification_matrix()) -- replaced the earlier
+   precedence-ordered list, whose position-in-list-plus-bold/italic styling itself had
+   already replaced an even earlier per-row "shadowed by emt.guano" text annotation. This
+   wrapper stays a separate template rather than folding into the drawer's version: it's the
+   spot a future manual-classification pick would hang off (spec: manual classification is
+   details-page-only), the drawer's own wrapper is read-only. #}
 <div class="col identifications">
   <h3>Identifications</h3>
-  <ul>
-    {% for row in identifications_with_status %}
-    <li class="identification-{{ row.status }}">
-      {{ row.source_label }}:
-      {% if row.ident.taxon %}<a href="/species/{{ row.ident.taxon.id }}">{{ identification_label(row.ident, row.ident.taxon) }}</a>{% else %}{{ identification_label(row.ident, row.ident.taxon) }}{% endif %}
-    </li>
-    {% endfor %}
-  </ul>
+  {% include "_identification_matrix.html" %}
 </div>

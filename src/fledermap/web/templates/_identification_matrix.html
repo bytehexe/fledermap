@@ -1,0 +1,38 @@
+{# src/fledermap/web/templates/_identification_matrix.html -- the species-by-classifier
+   pivot of the "Identifications" breakdown (services/current_best.py's
+   identification_matrix()), included by both the drawer panel (_recording_panel.html) and
+   the details page (_identifications_box.html). Shared as an include, unlike those two
+   templates' own deliberate independence from each other -- there's no reason for this
+   table's markup itself to diverge between the two views, it's purely a rendering of the
+   same data structure either way.
+
+   A cell's own status (current/passive/shadowed, same three values and same CSS classes
+   `_identifications_box.html` already used for its list rows) decides whether ITS checkmark
+   is bold -- not the row's `is_current` flag, which only bolds the row's species label. Two
+   sources can both name the winning species while only one of them is the actual current
+   claim; the other's checkmark stays plain. #}
+<table class="identification-matrix">
+  <thead>
+    <tr>
+      <th scope="col"></th>
+      {% for column in matrix.columns %}
+      <th scope="col" title="{{ column.key }}">{{ column.label }}</th>
+      {% endfor %}
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in matrix.rows %}
+    <tr>
+      <th scope="row" class="{{ 'identification-current' if row.is_current else '' }}">
+        {% if row.taxon %}<a href="/species/{{ row.taxon.id }}">{{ row.label }}</a>{% else %}{{ row.label }}{% endif %}
+      </th>
+      {% for column in matrix.columns %}
+      {% set cell = row.cells[column.key] %}
+      <td class="identification-cell {{ 'identification-' ~ cell.status if cell.status else '' }}">
+        {% if cell.ident %}{{ icon("check") }}{% endif %}
+      </td>
+      {% endfor %}
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>

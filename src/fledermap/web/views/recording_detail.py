@@ -14,7 +14,7 @@ from fledermap.media.paths import preview_path
 from fledermap.media.preview import TIME_EXPANSION_FACTOR
 from fledermap.services.current_best import (
     current_best_identification,
-    display_identifications,
+    identification_matrix,
 )
 from fledermap.services.manual_classification import current_manual_state
 from fledermap.services.recording_detail import (
@@ -98,7 +98,7 @@ def recording_details_page(audio_hash: str) -> flask.Response:
         taxon = None
         if best is not None and not best.is_multi and best.primary.taxon_id is not None:
             taxon = session.get(Taxon, best.primary.taxon_id)
-        identifications_with_status = display_identifications(
+        matrix = identification_matrix(
             recording.identifications,
             best,
             combine_emt=flask.current_app.config["COMBINE_EMT_DISPLAY"],
@@ -180,7 +180,7 @@ def recording_details_page(audio_hash: str) -> flask.Response:
             current_taxa=current_taxa,
             manual_verdict=manual_verdict,
             taxon_search_index=taxon_search_index,
-            identifications_with_status=identifications_with_status,
+            matrix=matrix,
             site=site,
             site_label=site_label,
             recording_session=recording_session,

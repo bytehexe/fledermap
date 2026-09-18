@@ -586,9 +586,9 @@ def test_recording_panel_combines_emt_sources_into_one_row_by_default(
     app = create_app(engine, tmp_path / "static", tmp_path / "media")
     html = app.test_client().get(f"/recordings/{'m' * 64}/panel").get_data(as_text=True)
 
-    assert "emt:" in html
-    assert "emt.guano" not in html
-    assert "emt.wamd" not in html
+    assert 'title="emt"' in html
+    assert 'title="emt.guano"' not in html
+    assert 'title="emt.wamd"' not in html
 
 
 def test_recording_panel_source_filter_emt_matches_any_automatic_emt_source(

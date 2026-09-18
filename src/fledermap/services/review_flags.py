@@ -21,7 +21,11 @@ from fledermap.domain.codes import (
     is_multi_support,
     is_only_noise,
 )
-from fledermap.services.current_best import current_best_identification
+from fledermap.services.current_best import (
+    ClaimKey,
+    claim_key,
+    current_best_identification,
+)
 from fledermap.store.models import Identification, Recording
 
 # Fixed, explainable thresholds (spec: "fixed low count dataset-wide" over a
@@ -169,22 +173,6 @@ def _has_human_review(recording: Recording) -> bool:
     return any(i.source in _HUMAN_REVIEW_SOURCES for i in recording.identifications)
 
 
-_ClaimKey = tuple[Verdict] | tuple[Verdict, int | str]
-
-
-def _claim_key(ident: Identification) -> _ClaimKey:
-    """One classifier's "answer", comparable across sources. A resolved
-    species compares by taxon_id (raw_label may differ trivially between
-    sources naming the same species); an unmapped one falls back to
-    raw_label, so two different unmapped codes aren't silently treated as
-    agreeing just because neither resolved."""
-    if ident.verdict != Verdict.SPECIES:
-        return (ident.verdict,)
-    if ident.taxon_id is not None:
-        return (ident.verdict, ident.taxon_id)
-    return (ident.verdict, ident.raw_label or "")
-
-
 @dataclass(frozen=True)
 class _SourceVote:
     """One source's vote-set plus whether it counts as "effectively multi-support" for this
@@ -192,7 +180,7 @@ class _SourceVote:
     source, but whether it behaves as multi-support here depends on its actual claims, so
     `_compatible` needs the per-recording answer, not the raw property."""
 
-    claim_keys: frozenset[_ClaimKey]
+    claim_keys: frozenset[ClaimKey]
     effectively_multi_support: bool
 
 
@@ -227,16 +215,16 @@ def _source_vote_sets(
             c.verdict == Verdict.SPECIES for c in claims
         )
         votes[source] = _SourceVote(
-            claim_keys=frozenset(_claim_key(c) for c in claims),
+            claim_keys=frozenset(claim_key(c) for c in claims),
             effectively_multi_support=effectively_multi_support,
         )
     return votes
 
 
 def _compatible(
-    set_a: frozenset[_ClaimKey],
+    set_a: frozenset[ClaimKey],
     a_multi: bool,
-    set_b: frozenset[_ClaimKey],
+    set_b: frozenset[ClaimKey],
     b_multi: bool,
 ) -> bool:
     """Whether two sources' vote-sets agree, per spec §4. `a_multi`/`b_multi` are each source's

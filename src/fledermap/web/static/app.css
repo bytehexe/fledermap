@@ -596,6 +596,17 @@ button:disabled { cursor: default; opacity: 0.5; }
   color: var(--color-muted);
   font-style: italic;
 }
+.identification-matrix { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.identification-matrix th, .identification-matrix td {
+  border-bottom: 1px solid var(--color-border);
+  padding: 0.25rem 0.4rem;
+}
+.identification-matrix thead th { text-align: center; color: var(--color-muted); font-weight: 600; }
+.identification-matrix tbody th { text-align: left; font-weight: 400; white-space: nowrap; }
+.identification-cell { text-align: center; }
+.identification-cell .icon { color: var(--color-accent); }
+.identification-cell.identification-passive .icon,
+.identification-cell.identification-shadowed .icon { color: var(--color-muted); }
 
 .session-detail-columns { display: flex; gap: 1rem; margin: 1rem 0; flex-wrap: wrap; }
 .session-detail-columns .col { flex: 1 1 260px; }
