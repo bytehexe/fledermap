@@ -644,6 +644,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     currentSelection = null;
     viewLockToggle.disabled = false;
+    scrollEl.classList.toggle("view-locked", isViewLockActive());
     updateSelectionButtonAvailability();
   }
 
@@ -760,6 +761,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const endTimeS = Math.max(startX, curX) / pxPerMs / 1000;
     currentSelection = { startTimeS, endTimeS };
     viewLockToggle.disabled = true;
+    scrollEl.classList.toggle("view-locked", isViewLockActive());
   }
 
   const toolbar = document.getElementById("detail-toolbar");
