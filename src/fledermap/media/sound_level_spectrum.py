@@ -39,7 +39,7 @@ def compute_sound_level_spectrum(
         db = np.clip(db, -dynamic_range_db, 0.0)
     else:
         # All-zero signal (e.g., silent audio in a narrow Select-tool span): no peak to be
-        # relative to. Every bin is equally silent -- report them all uniformly rather than
-        # dividing by zero.
-        db = np.zeros_like(psd)
+        # relative to. Every bin is equally silent -- report them at the floor of the dB scale
+        # (not 0.0, which is the loud end) rather than dividing by zero.
+        db = np.full_like(psd, -dynamic_range_db)
     return SoundLevelSpectrum(freqs_hz=freqs_hz, db=db, peak_freq_hz=peak_freq_hz)
