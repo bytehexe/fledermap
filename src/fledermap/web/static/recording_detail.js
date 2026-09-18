@@ -483,53 +483,45 @@ document.addEventListener("DOMContentLoaded", () => {
     return nativeXPxToTimeS(visibleRightNativePx);
   }
 
-  // Tighter boundary watch, `requestAnimationFrame`-driven (up to ~60 checks/second) rather
-  // than the `timeupdate` event the cursor-drawing code below also uses for the same check.
-  // `timeupdate` only fires a handful of times a second and the browser doesn't guarantee a
-  // fixed interval, so between two ticks real playback keeps going before JS gets a chance to
-  // pause it -- how far past the boundary it gets depends on that (variable) gap, which is
-  // exactly why it sometimes overran further than other times (Janna, 2026-09-04, live use:
-  // "in some rare cases plays just a little bit longer"). rAF can't make this perfectly
-  // sample-accurate (nothing JS-driven against an <audio> element can be -- there's no
-  // "pause at this exact sample" API), but polling ~15x more often than `timeupdate` typically
-  // does substantially tightens and evens out the overrun. The `timeupdate` handler's own
-  // boundary check stays in place below as a harmless fallback (pausing an already-paused
-  // element is a no-op) for whatever this loop might miss -- e.g. a tab backgrounded, where
-  // browsers throttle `requestAnimationFrame` but not `timeupdate`.
-  let boundaryWatchHandle = null;
+  // Cursor position tracking, `requestAnimationFrame`-driven (up to ~60 updates/second) rather
+  // than solely the `timeupdate` event -- `timeupdate` only fires a handful of times a second
+  // and the browser doesn't guarantee a fixed interval, which both makes ordinary cursor motion
+  // visibly step rather than glide, and, while View Lock is engaged, let playback overrun the
+  // locked boundary before JS got a chance to pause it, by an amount that varied with that
+  // (variable) gap (Janna, 2026-09-04, live use: "in some rare cases plays just a little bit
+  // longer"). rAF can't make the boundary pause perfectly sample-accurate (nothing JS-driven
+  // against an <audio> element can be -- there's no "pause at this exact sample" API), but
+  // polling ~15x more often than `timeupdate` typically does substantially tightens and evens
+  // out the overrun, and the same higher cadence is what makes ordinary playback tracking smooth.
+  // The `timeupdate` listener below calls the same update function as a fallback for whatever
+  // this loop might miss -- e.g. a tab backgrounded, where browsers throttle
+  // `requestAnimationFrame` but not `timeupdate`.
+  let cursorRafHandle = null;
 
-  function stopBoundaryWatch() {
-    if (boundaryWatchHandle !== null) {
-      cancelAnimationFrame(boundaryWatchHandle);
-      boundaryWatchHandle = null;
+  function stopCursorRaf() {
+    if (cursorRafHandle !== null) {
+      cancelAnimationFrame(cursorRafHandle);
+      cursorRafHandle = null;
     }
   }
 
-  function stepBoundaryWatch() {
-    boundaryWatchHandle = null;
-    if (!viewLocked || audio.paused) return;
-    const spectrogramTimeS = audio.currentTime / audioControls.getTimeExpansionFactor();
-    const viewEndS = currentViewEndTimeS();
-    if (spectrogramTimeS >= viewEndS) {
-      const xPx = viewEndS * 1000 * pxPerMs;
-      cursor.style.left = `${xPx}px`;
-      cursor.hidden = false;
-      audio.pause();
-      return;
-    }
-    boundaryWatchHandle = requestAnimationFrame(stepBoundaryWatch);
+  function stepCursorRaf() {
+    cursorRafHandle = null;
+    if (audio.paused) return;
+    updatePlaybackPosition();
+    if (!audio.paused) cursorRafHandle = requestAnimationFrame(stepCursorRaf);
   }
 
-  // Covers every way playback can start while locked: the ▶ button, a spectrogram click, and
-  // engaging Lock View itself while already playing (the click handler below calls this too).
-  function startBoundaryWatchIfNeeded() {
-    if (viewLocked && !audio.paused && boundaryWatchHandle === null) {
-      boundaryWatchHandle = requestAnimationFrame(stepBoundaryWatch);
+  // Covers every way playback can start: the ▶ button, a spectrogram click, and resuming from
+  // a pause.
+  function startCursorRafIfNeeded() {
+    if (!audio.paused && cursorRafHandle === null) {
+      cursorRafHandle = requestAnimationFrame(stepCursorRaf);
     }
   }
-  audio.addEventListener("play", startBoundaryWatchIfNeeded);
-  audio.addEventListener("pause", stopBoundaryWatch);
-  audio.addEventListener("ended", stopBoundaryWatch);
+  audio.addEventListener("play", startCursorRafIfNeeded);
+  audio.addEventListener("pause", stopCursorRaf);
+  audio.addEventListener("ended", stopCursorRaf);
 
   function relayout() {
     fitDetailHeight();
@@ -667,10 +659,8 @@ document.addEventListener("DOMContentLoaded", () => {
     scrollEl.classList.toggle("view-locked", viewLocked);
     if (viewLocked) {
       lockedStartS = nativeXPxToTimeS(scrollEl.scrollLeft / currentScale);
-      startBoundaryWatchIfNeeded(); // covers locking while already mid-playback
     } else {
       lockedStartS = null;
-      stopBoundaryWatch();
     }
   });
 
@@ -815,8 +805,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Playback cursor (design spec section 4 + "Future slots"): tracks
   // <audio>'s currentTime, snaps the scroll container into view only when
-  // the cursor goes off-screen -- no continuous auto-follow by default.
-  audio.addEventListener("timeupdate", () => {
+  // the cursor goes off-screen -- no continuous auto-follow by default. Also enforces the View
+  // Lock playback boundary (pausing at the locked view's right edge) -- see the rAF loop above
+  // for why this single function is driven from two places.
+  function updatePlaybackPosition() {
     // Ignore the spurious zero-position tick a source change (mode switch, denoise toggle)
     // fires before its real position restore has landed -- see the `pendingRestore` comment
     // in audio_controls.js's `setSource`. Reacting to it here would auto-scroll the cursor
@@ -871,5 +863,6 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!audio.paused && !viewLocked && (visualXPx < visibleLeft || visualXPx > visibleRight)) {
       scrollEl.scrollLeft = Math.max(0, visualXPx - scrollEl.clientWidth / 2);
     }
-  });
+  }
+  audio.addEventListener("timeupdate", updatePlaybackPosition);
 });
