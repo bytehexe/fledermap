@@ -124,6 +124,19 @@ document.addEventListener("DOMContentLoaded", () => {
   // Assigning a new `src` does NOT itself clear what's on screen -- browsers keep
   // painting the last successfully decoded frame until the new one is ready, so
   // simply never touching `hidden` here is enough to get the "swap in place" effect.
+  // Backlog "start with the currently visible tile(s) first": `tiles` is in DOM (left-to-right)
+  // order, laid out edge-to-edge, so each tile's native-px start offset is the running sum of
+  // the widths before it -- `t.width` reflects each `<img>`'s `width` attribute regardless of
+  // its `hidden` state, unlike `getBoundingClientRect()`, which collapses to zero for a
+  // `display: none` element. `orderTilesVisibleFirst` (tile_visibility.js) does the actual
+  // overlap math so it stays unit-testable without a DOM.
+  function visibleFirstOrder(tiles) {
+    const rangeStartPx = scrollEl.scrollLeft / currentScale;
+    const rangeEndPx = (scrollEl.scrollLeft + scrollEl.clientWidth) / currentScale;
+    const widthsPx = tiles.map((t) => t.width);
+    return orderTilesVisibleFirst(widthsPx, rangeStartPx, rangeEndPx).map((i) => tiles[i]);
+  }
+
   function reloadTilesInPlace(tiles, loadingEl) {
     let remaining = tiles.length;
     let hadError = false;
@@ -140,7 +153,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
 
-    tiles.forEach((t) => {
+    visibleFirstOrder(tiles).forEach((t) => {
       delete t.dataset.failed;
       t.addEventListener("load", settle, { once: true });
       t.addEventListener(
