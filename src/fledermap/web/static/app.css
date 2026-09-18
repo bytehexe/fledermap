@@ -845,6 +845,12 @@ button:disabled { cursor: default; opacity: 0.5; }
 .toolbar-zone-shared { justify-content: center; }
 .toolbar-zone-view { justify-content: flex-end; }
 .view-analysis .toolbar-zone-tools .playback-only { display: none; }
+/* The mirror image: Analysis view's own tools (Whole file / Selection). Hidden by default and
+   shown under `.view-analysis`, not the other way round, so they cannot flash in Playback view
+   before recording_detail.js has set the view class. `revert` restores the button's normal
+   display rather than hard-coding one. */
+.analysis-only { display: none; }
+.view-analysis .toolbar-zone-tools .analysis-only { display: revert; }
 /* TE/HET/Play belongs to the Playback view: Analysis view has no cursor or timeline for it to
    drive, so it goes with the rest of Playback's content instead of sitting below both views. */
 .view-analysis .audio-row { display: none; }
@@ -855,7 +861,12 @@ button:disabled { cursor: default; opacity: 0.5; }
    `setActiveView` run in, instead of the two fighting over the same `hidden` property. */
 .view-analysis .detail-scroll,
 .view-analysis #detail-too-small-message { display: none; }
-.tool-button[aria-pressed="true"] {
+/* `.analysis-span-button` (Whole file / Selection) shares the tool buttons' pressed look -- it now
+   sits in the same toolbar zone -- but is not a `.tool-button`: `setActiveTool` in
+   recording_detail.js walks every `.tool-button` and un-presses those whose `data-tool` doesn't
+   match, which would clear these on every tool switch. */
+.tool-button[aria-pressed="true"],
+.analysis-span-button[aria-pressed="true"] {
   background: var(--color-accent);
   color: var(--color-bg);
   border-color: var(--color-accent);
@@ -871,7 +882,8 @@ button:disabled { cursor: default; opacity: 0.5; }
    change on hover (an exact restate of the resting style was itself a
    second inconsistency, making some tool buttons look different from
    others on hover). */
-.tool-button[aria-pressed="true"]:hover {
+.tool-button[aria-pressed="true"]:hover,
+.analysis-span-button[aria-pressed="true"]:hover {
   background: var(--color-accent);
   color: var(--color-bg);
   border-color: var(--color-accent);
@@ -1133,12 +1145,6 @@ button:disabled { cursor: default; opacity: 0.5; }
 
 .analysis-panel { display: flex; gap: 1rem; margin: 0.5rem 0; }
 .analysis-graph { flex: 1; display: flex; flex-direction: column; gap: 0.4rem; }
-.analysis-graph-controls { display: flex; gap: 0.4rem; }
-.analysis-span-button[aria-pressed="true"] {
-  background: var(--color-accent);
-  color: var(--color-bg);
-  border-color: var(--color-accent);
-}
 .analysis-graph-reserved {
   align-items: center;
   justify-content: center;

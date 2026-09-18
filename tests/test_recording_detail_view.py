@@ -1559,6 +1559,27 @@ def test_analysis_panel_has_whole_file_and_selection_controls(
     assert "Call-distance graph" in html
 
 
+def test_span_buttons_live_in_the_toolbar_tools_zone_as_analysis_only(
+    engine: Engine, tmp_path: Path
+) -> None:
+    """Whole file / Selection are a view-level control (they will drive both Analysis graphs),
+    so they sit in the toolbar's view-specific left zone, shown only in Analysis view via the
+    `analysis-only` hook -- not inside one graph's own panel. The runtime show/hide needs a DOM;
+    this checks the markup placement and hook."""
+    app, audio_hash = _create_app_with_one_recording(engine, tmp_path, "sz" * 32)
+    html = app.test_client().get(f"/recordings/{audio_hash}").get_data(as_text=True)
+
+    zone_start = html.index("toolbar-zone-tools")
+    zone_end = html.index("toolbar-zone-shared")
+    for needle in ('data-span="whole-file"', 'data-span="selection"'):
+        position = html.index(needle)
+        assert zone_start < position < zone_end, needle
+        tag_start = html.rindex("<button", 0, position)
+        assert "analysis-only" in html[tag_start:position], needle
+
+    assert "analysis-graph-controls" not in html
+
+
 def test_selection_span_button_is_disabled_on_load(
     engine: Engine, tmp_path: Path
 ) -> None:

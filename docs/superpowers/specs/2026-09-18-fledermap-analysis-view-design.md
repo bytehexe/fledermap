@@ -137,7 +137,8 @@ three flex/grid zones:
 <div class="detail-toolbar" id="detail-toolbar">
   <div class="toolbar-zone toolbar-zone-tools">
     <!-- Playback: Default, Ruler, Select, View Lock buttons (existing + new, below) -->
-    <!-- Analysis: empty today; reserved for future analysis-specific tools -->
+    <!-- Analysis: Whole file / Selection (`.analysis-only`, the mirror of `.playback-only`);
+         further analysis-specific tools go here too. See "Analysis toolbar contents" below. -->
   </div>
   <div class="toolbar-zone toolbar-zone-shared">
     <!-- Denoise button, unchanged, present in both views -->
@@ -154,6 +155,20 @@ disabling each button — this is a full content-area swap (the graphs beneath c
 the same time), not the "a button silently vanishes while everything else looks the same" pattern
 `docs/style-guide.md` warns against; the visual context makes the swap self-evident. The middle
 (Denoise) and right (view toggle) zones are unaffected by `activeView`.
+
+**Analysis toolbar contents (Janna, 2026-09-18): the Whole file / Selection span control belongs in
+this left zone, not above one graph.** It is a view-level choice — it will drive the call-distance
+graph as well as the sound-level spectrum — so it lives in the view-specific toolbar zone that was
+reserved for exactly this. Shown only in Analysis view via `.analysis-only` (hidden by default,
+shown under `.view-analysis`, so it cannot flash in Playback view); "Selection" stays disabled,
+not hidden, while no selection exists (same rule as View Lock, §4).
+
+```
+Playback view                                                              
+[Default][Ruler][Select][Lock view]     [Denoise]                  [Analysis view]
+Analysis view
+[Whole file][Selection]                 [Denoise]                  [Playback view]
+```
 
 **Zone widths are fixed, equal thirds** — `#detail-toolbar { display: grid; grid-template-columns:
 1fr 1fr 1fr; }`, not `1fr auto 1fr`. This is deliberate: an `auto` middle column would size to its
@@ -255,10 +270,6 @@ GET /recordings/<audio_hash>/detail/sound-level-spectrum?start_s=<float>&end_s=<
 ```html
 <div class="analysis-panel">
   <div class="analysis-graph">
-    <div class="analysis-graph-controls">
-      <button data-span="whole-file">Whole file</button>
-      <button data-span="selection" disabled>Selection</button>  <!-- enabled iff currentSelection is set -->
-    </div>
     <canvas id="sound-level-spectrum-chart"></canvas>
   </div>
   <div class="analysis-graph analysis-graph-reserved">
@@ -267,7 +278,9 @@ GET /recordings/<audio_hash>/detail/sound-level-spectrum?start_s=<float>&end_s=<
 </div>
 ```
 
-- The Whole file/Selection buttons default: Selection is pre-selected if `currentSelection` is set
+- The Whole file/Selection buttons live in the toolbar's left zone (§3), not in this panel:
+  `<button data-span="whole-file">` / `<button data-span="selection" disabled>` (Selection enabled
+  iff `currentSelection` is set). Their default: Selection is pre-selected if `currentSelection` is set
   at the moment Analysis view is entered, else Whole file. The "Selection" button is disabled
   (grayed, not hidden — same style-guide rule as View Lock in §4) whenever `currentSelection` is
   unset, so it's visibly unavailable rather than absent.

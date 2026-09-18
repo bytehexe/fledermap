@@ -422,7 +422,8 @@ standard even where an older page hasn't been brought up to it yet.
   to buttons, form fields, and any other control.
   **Sanctioned exception: a full content-area swap.** The recording-detail page's Playback/Analysis
   view toggle hides the Playback-only toolbar zone with `.view-analysis .toolbar-zone-tools
-  .playback-only { display: none; }` rather than disabling each button in it. This differs from
+  .playback-only { display: none; }` rather than disabling each button in it (and, mirrored, shows
+  Analysis's own Whole file / Selection buttons there via `.analysis-only`). This differs from
   the ordinary case the rule above is for — one button silently vanishing while everything else
   in an otherwise-static view looks the same — because the graphs beneath the toolbar swap
   completely at the same moment (the TE/HET/Play `.audio-row` goes with them, since it belongs to
