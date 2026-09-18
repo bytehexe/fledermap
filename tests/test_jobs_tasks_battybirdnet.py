@@ -68,14 +68,21 @@ def test_classify_battybirdnet_task_caches_every_detection_above_the_floor(
     mock_response.json.return_value = {
         "msg": "success",
         "results": {
+            # Two separate windows: results_to_detections keeps only the top-scoring
+            # candidate PER WINDOW (commit ddd163c -- a window is one bat call, which
+            # can only be one species), so each of these must be its own window's
+            # winner to both survive, rather than two candidates of the same window.
             "0-3": [
                 ["Myotis daubentonii_Daubentons bat", "0.9"],
-                # Above _BATTYBIRDNET_FLOOR (0.05), so this must be cached
-                # too -- proves NOISE isn't specially dropped by this
-                # function (materialize_claims, not this task, is what
-                # turns it into a NOISE verdict).
+                # Below the floor, dropped, and also not this window's winner.
+                ["NOISE", "0.01"],
+            ],
+            "3-6": [
+                # Above _BATTYBIRDNET_FLOOR (0.05), so this must be cached too --
+                # proves NOISE isn't specially dropped by this function
+                # (materialize_claims, not this task, is what turns it into a NOISE
+                # verdict).
                 ["NOISE", "0.85"],
-                # Below the floor, dropped.
                 ["Myotis daubentonii_Daubentons bat", "0.01"],
             ],
         },
