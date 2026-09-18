@@ -18,6 +18,7 @@ def test_peak_lands_near_the_tone_s_frequency() -> None:
     result = compute_sound_level_spectrum(
         _sine(40_000.0, samplerate_hz, 0.02), samplerate_hz
     )
+    assert result.peak_freq_hz is not None
     assert abs(result.peak_freq_hz - 40_000.0) < 2_000.0
 
 
@@ -60,6 +61,7 @@ def test_peak_search_excludes_the_low_frequency_noise_band() -> None:
     result = compute_sound_level_spectrum(
         loud_low_freq + quiet_call, samplerate_hz, peak_min_freq_hz=cutoff_hz
     )
+    assert result.peak_freq_hz is not None
     assert abs(result.peak_freq_hz - 40_000.0) < 2_000.0
 
 
@@ -84,4 +86,27 @@ def test_all_silent_input_raises_no_warning_and_returns_sane_values() -> None:
     # Assert all dB values are finite (no inf or nan).
     assert np.isfinite(result.db).all(), "dB array contains inf or nan"
     # Assert reasonable peak frequency (not inf/nan).
+    assert result.peak_freq_hz is not None
     assert np.isfinite(result.peak_freq_hz), "peak_freq_hz is inf or nan"
+
+
+def test_no_peak_is_reported_when_the_loudest_bin_is_the_search_boundary() -> None:
+    # A loud tone just BELOW the cutoff (within a bin of it) puts the main lobe across the cutoff; the bins above fall away from the
+    # cutoff outward -- so the loudest searched bin is the very first one. That bin marks where the
+    # exclusion cut through a still-falling component, not a peak; reporting it would present the
+    # cutoff itself as a measurement.
+    samplerate_hz = 256_000.0
+    result = compute_sound_level_spectrum(
+        _sine(4_900.0, samplerate_hz, 0.02), samplerate_hz, peak_min_freq_hz=5_000.0
+    )
+    assert result.peak_freq_hz is None
+
+
+def test_a_peak_at_the_first_bin_is_kept_when_nothing_was_excluded() -> None:
+    # Without a cutoff (or one below the first bin) the first bin is DC-side but was not created by
+    # an exclusion boundary, so the boundary rule does not apply.
+    samplerate_hz = 256_000.0
+    result = compute_sound_level_spectrum(
+        _sine(500.0, samplerate_hz, 0.02), samplerate_hz, peak_min_freq_hz=0.0
+    )
+    assert result.peak_freq_hz is not None

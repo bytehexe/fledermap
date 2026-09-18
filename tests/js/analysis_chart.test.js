@@ -27,7 +27,18 @@ test("soundLevelSpectrumToChartData places the peak marker at the peak's own kHz
 
 test("soundLevelSpectrumToChartData states the peak frequency in the legend", () => {
   const peakDataset = soundLevelSpectrumToChartData(SPECTRUM).datasets[1];
-  assert.equal(peakDataset.label, "Peak frequency (20.0 kHz)");
+  assert.match(peakDataset.label, /^Peak frequency \(20\.0 kHz/);
+});
+
+test("the legend states the FFT bin width, since it bounds how precisely the peak is known", () => {
+  const peakDataset = soundLevelSpectrumToChartData(SPECTRUM).datasets[1];
+  assert.equal(peakDataset.label, "Peak frequency (20.0 kHz, bin width 20.00 kHz)");
+});
+
+test("a single-bin spectrum (no bin width to state) still produces a legend", () => {
+  const peakDataset = soundLevelSpectrumToChartData({ freqs_hz: [0], db: [0], peak_freq_hz: 0 })
+    .datasets[1];
+  assert.equal(peakDataset.label, "Peak frequency (0.0 kHz)");
 });
 
 test("soundLevelSpectrumToChartData leaves the main dataset unaffected by the peak marker", () => {
@@ -37,8 +48,20 @@ test("soundLevelSpectrumToChartData leaves the main dataset unaffected by the pe
 });
 
 test("the chart options use a linear x axis and title both axes with their units", () => {
-  const { scales } = soundLevelSpectrumChartOptions();
+  const { scales } = soundLevelSpectrumChartOptions(SPECTRUM);
   assert.equal(scales.x.type, "linear");
   assert.match(scales.x.title.text, /kHz/);
   assert.match(scales.y.title.text, /dB/);
+});
+
+test("the x axis ends at the spectrum's own last bin, not a rounded-up tick", () => {
+  const { scales } = soundLevelSpectrumChartOptions({ freqs_hz: [0, 64000, 128000] });
+  assert.equal(scales.x.max, 128);
+  assert.equal(scales.x.min, 0);
+});
+
+test("a null peak (search-boundary artifact) produces no marker dataset at all", () => {
+  const result = soundLevelSpectrumToChartData({ ...SPECTRUM, peak_freq_hz: null });
+  assert.equal(result.datasets.length, 1);
+  assert.equal(result.datasets[0].label, "Sound level (dB)");
 });

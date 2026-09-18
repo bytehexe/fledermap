@@ -16,7 +16,11 @@ class SoundLevelSpectrum:
     freqs_hz: np.ndarray
     db: np.ndarray  # relative to this spectrum's own peak -- 0 dB at the peak, matching
     # spectrogram.py's self-relative convention (CLAUDE.md's "Derived media rendering").
-    peak_freq_hz: float
+    # None when the search's loudest bin is the FIRST bin above `peak_min_freq_hz`: the low-band
+    # exclusion cut through a component that is still falling there (wind/handling noise skirt),
+    # so that bin reflects where the search window starts, not a spectral peak. Reporting it
+    # would present the cutoff itself (e.g. "5.0 kHz") as a measurement.
+    peak_freq_hz: float | None
 
 
 def compute_sound_level_spectrum(
@@ -41,7 +45,13 @@ def compute_sound_level_spectrum(
     search_psd = psd[above_cutoff] if above_cutoff.any() else psd
     search_freqs_hz = freqs_hz[above_cutoff] if above_cutoff.any() else freqs_hz
     peak_index_in_search = int(np.argmax(search_psd))
-    peak_freq_hz = float(search_freqs_hz[peak_index_in_search])
+    low_band_was_excluded = bool(above_cutoff.any() and not above_cutoff.all())
+    peak_on_search_boundary = low_band_was_excluded and peak_index_in_search == 0
+    peak_freq_hz = (
+        None
+        if peak_on_search_boundary
+        else float(search_freqs_hz[peak_index_in_search])
+    )
     peak_psd = search_psd[peak_index_in_search]
     if peak_psd > 0:
         # Normal case: sound present. Scale relative to peak, matching spectrogram.py's

@@ -660,12 +660,13 @@ document.addEventListener("DOMContentLoaded", () => {
         const chartData = soundLevelSpectrumToChartData(spectrum);
         if (spectrumChart) {
           spectrumChart.data = chartData;
+          Object.assign(spectrumChart.options.scales.x, soundLevelSpectrumChartOptions(spectrum).scales.x);
           spectrumChart.update();
         } else {
           spectrumChart = new Chart(chartCanvas, {
             type: "line",
             data: chartData,
-            options: soundLevelSpectrumChartOptions(),
+            options: soundLevelSpectrumChartOptions(spectrum),
           });
         }
       })
