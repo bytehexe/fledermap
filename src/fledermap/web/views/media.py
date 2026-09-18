@@ -71,7 +71,7 @@ _spectrogram_image_cache: RenderCache[FullSpectrogramImage] = RenderCache()
 # memory regression from audio-domain denoising, uncached" -- `detail_oscillogram` previously had
 # no equivalent to `_spectrogram_image_cache`'s existing per-recording reuse, so every one of a
 # long recording's ~17 tiles re-ran the full-file gate from scratch).
-_denoised_samples_cache: RenderCache[tuple[np.ndarray, int]] = RenderCache()
+_denoised_samples_cache: RenderCache[tuple[np.ndarray, int, int]] = RenderCache()
 
 
 def _denoised_samples_cache_key(
@@ -93,11 +93,11 @@ def _read_denoised_samples(
     *,
     denoise: bool,
     cutoff_hz: float,
-) -> tuple[np.ndarray, int]:
-    samples, samplerate = read_pcm(wav_path)
+) -> tuple[np.ndarray, int, int]:
+    samples, samplerate, full_scale = read_pcm(wav_path)
     if denoise:
         samples = denoised_samples(samples, samplerate, cutoff_hz)
-    return samples, samplerate
+    return samples, samplerate, full_scale
 
 
 # A second, separate cache instance for the TE/HET preview-audio routes below -- deliberately
@@ -339,7 +339,7 @@ def detail_spectrogram(audio_hash: str, tile_index: int) -> ResponseReturnValue:
         # samples entry can be LRU-evicted by unrelated requests while its image entry is still
         # warm -- fetching samples unconditionally before the image-cache lookup would redo the
         # expensive highpass+spectral_gate pass for nothing every time that happens.
-        samples, samplerate = _denoised_samples_cache.get_or_compute(
+        samples, samplerate, _full_scale = _denoised_samples_cache.get_or_compute(
             _denoised_samples_cache_key(
                 wav_path, denoise=denoise, cutoff_hz=spectrogram_params.cutoff_hz
             ),
@@ -390,7 +390,7 @@ def detail_oscillogram(audio_hash: str, tile_index: int) -> ResponseReturnValue:
     oscillogram_params = dataclasses.replace(oscillogram_params, denoise=denoise)
     tile_params = dataclasses.replace(oscillogram_params, width_px=tile.width_px)
     try:
-        samples, samplerate = _denoised_samples_cache.get_or_compute(
+        samples, samplerate, full_scale = _denoised_samples_cache.get_or_compute(
             _denoised_samples_cache_key(
                 wav_path, denoise=denoise, cutoff_hz=oscillogram_params.cutoff_hz
             ),
@@ -406,6 +406,7 @@ def detail_oscillogram(audio_hash: str, tile_index: int) -> ResponseReturnValue:
                 time_range_s=time_range_s,
                 samples=samples,
                 samplerate=samplerate,
+                full_scale=full_scale,
             ),
             suffix=".webp",
             mimetype="image/webp",

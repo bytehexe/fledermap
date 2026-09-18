@@ -297,7 +297,7 @@ def test_render_oscillogram_accepts_precomputed_samples(tmp_path: Path) -> None:
     from fledermap.media.denoise import denoised_samples
     from fledermap.media.wav_pcm import read_pcm
 
-    raw_samples, samplerate = read_pcm(wav_path)
+    raw_samples, samplerate, full_scale = read_pcm(wav_path)
     precomputed_samples = denoised_samples(raw_samples, samplerate, params.cutoff_hz)
     # Deliberately pass a DIFFERENT source file -- if the function ignored the precomputed
     # samples and re-read from `wav_path`, the output could still match by coincidence, so
@@ -311,6 +311,7 @@ def test_render_oscillogram_accepts_precomputed_samples(tmp_path: Path) -> None:
         params=params,
         samples=precomputed_samples,
         samplerate=samplerate,
+        full_scale=full_scale,
     )
 
     with (
@@ -318,6 +319,103 @@ def test_render_oscillogram_accepts_precomputed_samples(tmp_path: Path) -> None:
         Image.open(precomputed_out) as precomputed_img,
     ):
         assert normal_img.tobytes() == precomputed_img.tobytes()
+
+
+def test_render_oscillogram_accepts_precomputed_samples_and_full_scale(
+    tmp_path: Path,
+) -> None:
+    """Companion to the plain precomputed-samples test above: `full_scale` must also be
+    accepted and threaded through when `samples`/`samplerate` are given directly, the same
+    "given together" contract."""
+    wav_path = tmp_path / "call.wav"
+    _sine_wav(wav_path)
+    out_path = tmp_path / "oscillogram.webp"
+
+    from fledermap.media.wav_pcm import read_pcm
+
+    samples, samplerate, full_scale = read_pcm(wav_path)
+
+    render_oscillogram(
+        wav_path,
+        out_path,
+        samples=samples,
+        samplerate=samplerate,
+        full_scale=full_scale,
+    )  # must not raise
+
+
+def _clipped_wav(
+    path: Path,
+    *,
+    n_samples: int = 5000,
+    clip_start: int,
+    clip_end: int,
+    samplerate: int = 256_000,
+) -> None:
+    """A recording whose samples are non-clipped (small) everywhere except one contiguous
+    run alternating +-full-scale amplitude (32767) -- a synthetic worst-case clip, not a
+    real detector artifact. Alternating sign (rather than a constant positive run) fills the
+    bar's whole vertical span rather than a single-pixel-tall line, so the clip highlight
+    survives lossy WebP compression instead of blurring away."""
+    samples = [1000] * n_samples
+    for i in range(clip_start, clip_end):
+        samples[i] = 32767 if i % 2 == 0 else -32767
+    pcm = struct.pack(f"<{n_samples}h", *samples)
+    path.write_bytes(build_wav([(b"fmt ", fmt_payload(samplerate)), (b"data", pcm)]))
+
+
+def test_clipped_samples_render_in_clip_color(tmp_path: Path) -> None:
+    wav_path = tmp_path / "clipped.wav"
+    width = 100
+    n_samples = 5000
+    # Clip only the very last bucket's worth of samples, comfortably inside the last column.
+    bucket_size = n_samples // width
+    _clipped_wav(
+        wav_path,
+        n_samples=n_samples,
+        clip_start=n_samples - bucket_size,
+        clip_end=n_samples,
+    )
+    out_path = tmp_path / "oscillogram.webp"
+    params = OscillogramParams(width_px=width, height_px=40, clip_color=(255, 0, 0))
+
+    render_oscillogram(wav_path, out_path, params=params)
+
+    with Image.open(out_path) as img:
+        pixels = np.asarray(img.convert("RGB")).astype(np.int16)
+
+    # Lossy WebP encoding blends a thin colored bar against its white background, so an exact
+    # or near-exact color match isn't guaranteed -- check for a visibly RED pixel (R channel
+    # well above G and B) rather than a tight distance from (255, 0, 0), matching this test
+    # file's existing lossy-aware style (e.g. the `< 200` brightness threshold elsewhere).
+    last_col = pixels[:, -1, :]
+    reddish = (last_col[:, 0] - last_col[:, 1] > 80) & (
+        last_col[:, 0] - last_col[:, 2] > 80
+    )
+    assert np.any(reddish)
+
+
+def test_non_clipped_samples_do_not_render_in_clip_color(tmp_path: Path) -> None:
+    wav_path = tmp_path / "call.wav"
+    _sine_wav(wav_path, amplitude=1000)  # far below full scale, no clipping
+    out_path = tmp_path / "oscillogram.webp"
+    params = OscillogramParams(clip_color=(255, 0, 0))
+
+    render_oscillogram(wav_path, out_path, params=params)
+
+    with Image.open(out_path) as img:
+        pixels = np.asarray(img.convert("RGB")).astype(np.int16)
+
+    reddish = (pixels[..., 0] - pixels[..., 1] > 80) & (
+        pixels[..., 0] - pixels[..., 2] > 80
+    )
+    assert not np.any(reddish)
+
+
+def test_params_hash_changes_when_clip_color_changes() -> None:
+    base = OscillogramParams()
+    changed = OscillogramParams(clip_color=(1, 2, 3))
+    assert base.params_hash != changed.params_hash
 
 
 def test_params_hash_changes_when_denoise_changes() -> None:

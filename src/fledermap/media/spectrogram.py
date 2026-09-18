@@ -183,7 +183,7 @@ def render_full_spectrogram_image(
     regression from audio-domain denoising, uncached"). Both must be given together, or neither.
     """
     if samples is None or samplerate is None:
-        samples, samplerate = read_pcm(wav_path)
+        samples, samplerate, _full_scale = read_pcm(wav_path)
         if params.denoise:
             samples = denoised_samples(samples, samplerate, params.cutoff_hz)
 

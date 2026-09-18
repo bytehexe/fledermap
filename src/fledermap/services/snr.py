@@ -29,7 +29,7 @@ def backfill_snr(session: OrmSession, archive_roots: tuple[Path, ...]) -> int:
     for recording in recordings:
         try:
             wav_path = resolve_wav_path(archive_roots, recording)
-            samples, samplerate_hz = read_pcm(wav_path)
+            samples, samplerate_hz, _full_scale = read_pcm(wav_path)
         except (FileNotFoundError, OSError, UnreadableWavError):
             continue
         recording.snr_db = compute_snr_db(samples, samplerate_hz)

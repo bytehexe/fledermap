@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from fledermap.media.wav_pcm import UnreadableWavError, read_pcm
+from fledermap.media.wav_pcm import UnreadableWavError, full_scale_amplitude, read_pcm
 from tests.fixtures import build_wav, fmt_payload
 
 
@@ -127,7 +127,19 @@ def test_read_pcm_returns_samples_and_samplerate_for_a_well_formed_file(
     path = tmp_path / "good.wav"
     path.write_bytes(wav_bytes)
 
-    samples, samplerate = read_pcm(path)
+    samples, samplerate, full_scale = read_pcm(path)
 
     assert samplerate == 256_000
     assert samples.size == 5000
+    assert full_scale == 32767
+
+
+def test_full_scale_amplitude_of_16_bit_is_32767() -> None:
+    """32767, not a rounder number like 32768 -- 16-bit signed PCM's positive range tops out
+    one below the negative range's magnitude, so the clipping threshold must match the format's
+    actual representable maximum, not its nominal bit width."""
+    assert full_scale_amplitude(2) == 32767
+
+
+def test_full_scale_amplitude_of_8_bit_is_127() -> None:
+    assert full_scale_amplitude(1) == 127

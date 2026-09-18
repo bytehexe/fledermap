@@ -561,7 +561,7 @@ def test_render_full_spectrogram_image_accepts_precomputed_samples(
     from fledermap.media.denoise import denoised_samples
     from fledermap.media.wav_pcm import read_pcm
 
-    raw_samples, samplerate = read_pcm(wav_path)
+    raw_samples, samplerate, _full_scale = read_pcm(wav_path)
     precomputed_samples = denoised_samples(raw_samples, samplerate, params.cutoff_hz)
     # Deliberately pass a DIFFERENT (silent) file path -- if the function ignored the
     # precomputed samples and re-read from `wav_path`, the output would still match `normal`

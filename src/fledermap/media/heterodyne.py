@@ -52,7 +52,7 @@ def compute_peak_frequency_hz(wav_path: Path) -> float:
     auto-computed value is always user-visible and correctable in the
     frequency spinner, the same tolerance the original Welch-based design
     already accepted for its own failure modes."""
-    samples, samplerate = read_pcm(wav_path)
+    samples, samplerate, _full_scale = read_pcm(wav_path)
     # Clamped rather than left at the default 1024: scipy warns and silently
     # substitutes a shorter window itself for a file with fewer samples than
     # that (e.g. a very short recording) -- clamping up front keeps this
@@ -96,7 +96,7 @@ def render_heterodyne_preview(
     `denoise`, if set, highpass-filters the raw samples first and then applies
     spectral gating (before mixing) -- filtering after mixing would operate in
     the shifted frequency space, the wrong cutoff entirely."""
-    samples, samplerate = read_pcm(wav_path)
+    samples, samplerate, _full_scale = read_pcm(wav_path)
     if samplerate <= 2 * _LOWPASS_CUTOFF_HZ:
         raise UnreadableWavError(
             f"cannot render heterodyne preview for {wav_path}: samplerate "

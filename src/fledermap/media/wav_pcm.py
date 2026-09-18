@@ -24,9 +24,19 @@ class UnreadableWavError(Exception):
     """
 
 
-def read_pcm(wav_path: Path) -> tuple[np.ndarray, int]:
+def full_scale_amplitude(sampwidth: int) -> int:
+    """Maximum representable magnitude for `sampwidth`-byte signed PCM (32767 for 16-bit) --
+    the "clipped" threshold a sample hit its format's ceiling. Computed by formula rather than
+    hardcoded at each call site, so a clipping check (`oscillogram.py`) never carries a
+    bit-depth-specific magic number that would silently go stale if this module ever supports a
+    bit depth other than 16."""
+    return (1 << (sampwidth * 8 - 1)) - 1
+
+
+def read_pcm(wav_path: Path) -> tuple[np.ndarray, int, int]:
     """Read mono or multi-channel 16-bit PCM as a 1-D float array (channels
-    averaged down to mono) plus the file's own sample rate.
+    averaged down to mono) plus the file's own sample rate and full-scale amplitude
+    (see `full_scale_amplitude`).
 
     Raises `UnreadableWavError` for a file that isn't a valid RIFF/WAVE
     container (`wave.open` itself raises `wave.Error`/`EOFError`), one
@@ -80,4 +90,4 @@ def read_pcm(wav_path: Path) -> tuple[np.ndarray, int]:
             f"cannot read PCM from {wav_path}: truncated -- header claims "
             f"{expected_frames} frames, only {samples.size} present"
         )
-    return samples, samplerate
+    return samples, samplerate, full_scale_amplitude(sampwidth)

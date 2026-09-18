@@ -162,7 +162,7 @@ def _scan_one(
     except (NotARiffFileError, MissingAudioChunkError):
         return SkipReason.NOT_A_WAV
     try:
-        samples, samplerate_hz = read_pcm(path)
+        samples, samplerate_hz, _full_scale = read_pcm(path)
         snr_db = compute_snr_db(samples, samplerate_hz)
     except OSError:
         return SkipReason.UNREADABLE

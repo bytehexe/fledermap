@@ -36,6 +36,10 @@ class OscillogramParams:
     height_px: int = 48
     line_color: tuple[int, int, int] = (0, 0, 0)
     background_color: tuple[int, int, int] = (255, 255, 255)
+    # A column whose bucket contains a sample at or past the format's full-scale amplitude
+    # (device clipping, not a design choice) renders entirely in this color instead of
+    # `line_color` -- a visual flag that the recording itself is unreliable there.
+    clip_color: tuple[int, int, int] = (220, 20, 60)
 
     # Same shared cutoff/denoise fields as SpectrogramParams -- see that module's
     # docstring for why both are real dataclass fields, not bare constants.
@@ -59,6 +63,7 @@ def render_oscillogram(
     time_range_s: tuple[float, float] | None = None,
     samples: np.ndarray | None = None,
     samplerate: int | None = None,
+    full_scale: int | None = None,
 ) -> None:
     """Render `wav_path`'s peak-envelope waveform to `out_path` as a WebP
     image: for each output column, the min and max sample in that column's
@@ -81,19 +86,26 @@ def render_oscillogram(
     reason `spectrogram.py` computes its `peak` before slicing: normalisation
     must never drift between tiles of the same recording.
 
-    `samples`/`samplerate`, if given, are used AS-IS -- `wav_path` is not read and
+    `samples`/`samplerate`/`full_scale`, if given, are used AS-IS -- `wav_path` is not read and
     `params.denoise` is not applied again -- for a caller that already read and (if wanted)
     denoised this recording once (`web/views/media.py`'s denoised-samples cache, shared across
     a page view's every oscillogram tile request AND the spectrogram render, v1 backlog
     "render-cost/memory regression from audio-domain denoising, uncached": without this, every
     one of a long recording's tiles re-ran the full-file highpass+spectral_gate pass from
-    scratch). Both must be given together, or neither.
+    scratch). All three must be given together, or none of them -- `full_scale` comes from the
+    same `read_pcm` call as `samples`/`samplerate`, so it can't be supplied independently.
+
+    A sample counts as clipped when its magnitude reaches `full_scale` (the format's own
+    representable maximum -- see `wav_pcm.full_scale_amplitude`), checked against whichever
+    samples are actually plotted (denoised, if `params.denoise` or a caller's precomputed
+    `samples` already were) -- the highlight flags what's visibly drawn, not necessarily the
+    original device-level clipping if denoising has since attenuated it.
 
     Writes atomically via a temp file + `os.replace`, matching
     `spectrogram.py`'s own write path.
     """
     if samples is None or samplerate is None:
-        samples, samplerate = read_pcm(wav_path)
+        samples, samplerate, full_scale = read_pcm(wav_path)
         if params.denoise:
             samples = denoised_samples(samples, samplerate, params.cutoff_hz)
 
@@ -125,7 +137,9 @@ def render_oscillogram(
             hi = mid - (bucket.max() / peak) * mid
             row_lo, row_hi = sorted((int(round(lo)), int(round(hi))))
             row_hi = max(row_hi, row_lo)  # a single-sample bucket: draw 1px
-            canvas[row_lo : row_hi + 1, col] = params.line_color
+            clipped = full_scale is not None and np.abs(bucket).max() >= full_scale
+            color = params.clip_color if clipped else params.line_color
+            canvas[row_lo : row_hi + 1, col] = color
     else:
         # Silence OR a degenerate empty time_range_s slice (a very narrow last tile spanning
         # less time than one sample period) -- both fall through to the same flat centre line
