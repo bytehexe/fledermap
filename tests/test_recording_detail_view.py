@@ -1500,3 +1500,27 @@ def test_toggle_flag_for_review_detail_panel_shows_flag_cog_after_unflagging_whi
 
     html = response.get_data(as_text=True)
     assert "icons-tabler-outline icon-tabler-flag-cog" in html
+
+
+def test_analysis_panel_has_whole_file_and_selection_controls(
+    engine: Engine, tmp_path: Path
+) -> None:
+    app, audio_hash = _create_app_with_one_recording(engine, tmp_path, "ap" * 32)
+    response = app.test_client().get(f"/recordings/{audio_hash}")
+    html = response.get_data(as_text=True)
+    assert 'data-span="whole-file"' in html
+    assert 'data-span="selection"' in html
+    assert 'id="sound-level-spectrum-chart"' in html
+    assert "Call-distance graph" in html
+
+
+def test_selection_span_button_is_disabled_on_load(
+    engine: Engine, tmp_path: Path
+) -> None:
+    app, audio_hash = _create_app_with_one_recording(engine, tmp_path, "sd" * 32)
+    response = app.test_client().get(f"/recordings/{audio_hash}")
+    html = response.get_data(as_text=True)
+    selection_button_start = html.index('data-span="selection"')
+    button_tag_start = html.rindex("<button", 0, selection_button_start)
+    button_tag_end = html.index(">", selection_button_start)
+    assert "disabled" in html[button_tag_start:button_tag_end]

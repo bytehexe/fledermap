@@ -142,7 +142,18 @@
         </div>
       </div>
     </div>
-    <div class="analysis-panel" hidden></div>
+    <div class="analysis-panel" hidden data-spectrum-url="{{ url_for('media.detail_sound_level_spectrum', audio_hash=recording.audio_hash) }}">
+      <div class="analysis-graph">
+        <div class="analysis-graph-controls">
+          <button type="button" class="analysis-span-button" data-span="whole-file" aria-pressed="true">Whole file</button>
+          <button type="button" class="analysis-span-button" data-span="selection" aria-pressed="false" disabled>Selection</button>
+        </div>
+        <canvas id="sound-level-spectrum-chart"></canvas>
+      </div>
+      <div class="analysis-graph analysis-graph-reserved">
+        <p>Call-distance graph — reserved. Needs batdetect2 call annotations (not yet available).</p>
+      </div>
+    </div>
     {# Swapped in by recording_detail.js's fitDetailHeight() whenever the
        computed spectrogram height would fall below a readable minimum
        (Janna, 2026-09-13) -- the toolbar above and playback controls below
@@ -197,9 +208,11 @@
 {% endblock %}
 {% block scripts %}
   <script src="{{ url_for('vendor.static', filename='htmx.min.js') }}"></script>
+  <script src="{{ url_for('vendor.static', filename='chart.js') }}"></script>
   <script src="{{ url_for('static', filename='audio_controls.js') }}"></script>
   <script src="{{ url_for('static', filename='url_params.js') }}"></script>
   <script src="{{ url_for('static', filename='tile_visibility.js') }}"></script>
+  <script src="{{ url_for('static', filename='analysis_chart.js') }}"></script>
   <script src="{{ url_for('static', filename='recording_detail.js') }}"></script>
   <script src="{{ url_for('static', filename='classifier_logic.js') }}"></script>
   <script src="{{ url_for('static', filename='classifier_box.js') }}"></script>

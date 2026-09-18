@@ -561,6 +561,53 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const viewLockToggle = document.getElementById("view-lock-toggle");
 
+  const spanButtons = Array.from(document.querySelectorAll(".analysis-span-button"));
+  const chartCanvas = document.getElementById("sound-level-spectrum-chart");
+  let spectrumChart = null;
+  let activeSpan = "whole-file";
+
+  function updateSelectionButtonAvailability() {
+    const selectionButton = spanButtons.find((btn) => btn.dataset.span === "selection");
+    selectionButton.disabled = currentSelection === null;
+    if (currentSelection === null && activeSpan === "selection") {
+      setActiveSpan("whole-file");
+    }
+  }
+
+  function setActiveSpan(span) {
+    activeSpan = span;
+    spanButtons.forEach((btn) => {
+      btn.setAttribute("aria-pressed", btn.dataset.span === span ? "true" : "false");
+    });
+    fetchAndRenderSpectrum();
+  }
+
+  spanButtons.forEach((btn) => {
+    btn.addEventListener("click", () => setActiveSpan(btn.dataset.span));
+  });
+
+  function fetchAndRenderSpectrum() {
+    if (activeView !== "analysis") return;
+    const params = new URLSearchParams();
+    if (denoiseOn) params.set("denoise", "true");
+    if (activeSpan === "selection" && currentSelection !== null) {
+      params.set("start_s", String(currentSelection.startTimeS));
+      params.set("end_s", String(currentSelection.endTimeS));
+    }
+    const url = `${analysisPanel.dataset.spectrumUrl}?${params}`;
+    fetch(url)
+      .then((response) => response.json())
+      .then((spectrum) => {
+        const chartData = soundLevelSpectrumToChartData(spectrum);
+        if (spectrumChart) {
+          spectrumChart.data = chartData;
+          spectrumChart.update();
+        } else {
+          spectrumChart = new Chart(chartCanvas, { type: "line", data: chartData });
+        }
+      });
+  }
+
   function clearSelectionBox() {
     if (selectionBox) {
       selectionBox.remove();
@@ -568,6 +615,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     currentSelection = null;
     viewLockToggle.disabled = false;
+    updateSelectionButtonAvailability();
   }
 
   function clearRulerBox() {
@@ -745,6 +793,10 @@ document.addEventListener("DOMContentLoaded", () => {
     mainContentEl.classList.toggle("view-analysis", view === "analysis");
     scrollEl.hidden = view !== "playback";
     analysisPanel.hidden = view !== "analysis";
+    if (view === "analysis") {
+      updateSelectionButtonAvailability();
+      fetchAndRenderSpectrum();
+    }
   }
 
   viewToggleButton.addEventListener("click", () => {
