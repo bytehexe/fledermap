@@ -28,8 +28,11 @@ it now would mean guessing at data this project doesn't have.
   label): **Analysis**, showing the sound-level spectrum and a reserved call-distance graph side by
   side. Both views stay under the page's existing, unchanged `<h2>Audio</h2>` heading.
 - A single toggle button, fixed at the right end of the toolbar, same position and size in both
-  states, whose label always names the *other* view ("📊 Analysis view" while in Playback, "🌊
-  Playback" while in Analysis) — an unambiguous, always-in-the-same-place way back.
+  states, whose icon+label always name the *other* view (an icon + "Analysis view" while in
+  Playback, a different icon + "Playback" while in Analysis) — an unambiguous, always-in-the-same-
+  place way back. Icons only, per `docs/style-guide.md`'s "no emoji or Unicode dingbats in the
+  UI" rule — inline Tabler SVGs via the existing `icon()` Jinja global, the same mechanism
+  `view-lock-toggle`/`denoise-toggle` already use (`recording_details.html`).
 - A three-zone toolbar that generalizes to hold Analysis's own future tools without restructuring:
   **left** (view-specific tools — Default/Ruler/Select/View Lock in Playback, empty/reserved in
   Analysis), **middle** (shared controls — Denoise, identical behavior in both views), **right**
@@ -102,11 +105,23 @@ happens to be the exact boundary the toolbar's left zone needs (see §3).
 single button at the toolbar's right edge:
 
 ```html
-<button type="button" id="view-toggle-button" data-target-view="analysis">📊 Analysis view</button>
+<button type="button" id="view-toggle-button" data-target-view="analysis" title="Switch to Analysis view">
+  <span class="view-toggle-icon-to-analysis">{{ icon("chart-histogram") }}</span>
+  <span class="view-toggle-icon-to-playback" hidden>{{ icon("player-play") }}</span>
+  <span class="view-toggle-label">Analysis view</span>
+</button>
 ```
 
+Icons follow the exact pattern `view-lock-toggle` already uses (two icon `<span>`s, one `hidden`,
+toggled by JS) — `chart-histogram`/`player-play` are illustrative choices, to be confirmed against
+Tabler's actual catalog and added to `services/vendor_assets.py`'s `ASSETS` when implemented,
+same as `noise-reduction` was added for Denoise. Unlike View Lock's static "Lock view" label, this
+button's label text itself must also change (it names the *target* view, not a fixed action), so
+`recording_detail.js` additionally rewrites `.view-toggle-label`'s `textContent` on toggle — a
+minor difference from the icon-only swap View Lock does.
+
 `recording_detail.js` tracks `activeView`, and on toggle:
-- flips `data-target-view` and the button's label to name the *other* view,
+- flips `data-target-view`, the visible icon span, and the label text to name the *other* view,
 - toggles a class on the page's main content wrapper (`view-playback` / `view-analysis`) that CSS
   uses to show/hide the two content blocks (`.detail-scroll` for Playback; a new
   `.analysis-panel` for Analysis) and the two toolbar-zone variants (§3),
@@ -143,8 +158,9 @@ the same time), not the "a button silently vanishes while everything else looks 
 **Zone widths are fixed, equal thirds** — `#detail-toolbar { display: grid; grid-template-columns:
 1fr 1fr 1fr; }`, not `1fr auto 1fr`. This is deliberate: an `auto` middle column would size to its
 content, but nothing here should ever resize the toolbar based on what's currently inside a zone —
-the left zone emptying out in Analysis view, the view-toggle button's label changing length ("📊
-Analysis view" vs. "🌊 Playback"), or a future Analysis-specific tool appearing in the left zone
+the left zone emptying out in Analysis view, the view-toggle button's icon+label changing length
+("Analysis view" vs. "Playback", each with its own icon), or a future Analysis-specific tool
+appearing in the left zone
 must never shift where the other zones' contents sit. Equal fixed thirds guarantee that regardless
 of content changes in any zone.
 
