@@ -500,11 +500,11 @@ def test_recording_details_page_renders_the_tool_toolbar(
 
     html = response.get_data(as_text=True)
     assert (
-        '<button type="button" class="tool-button" data-tool="default" '
+        '<button type="button" class="tool-button playback-only" data-tool="default" '
         'aria-pressed="true">Default</button>' in html
     )
     assert (
-        '<button type="button" class="tool-button" data-tool="ruler" '
+        '<button type="button" class="tool-button playback-only" data-tool="ruler" '
         'aria-pressed="false">Ruler</button>' in html
     )
 
@@ -1524,3 +1524,24 @@ def test_selection_span_button_is_disabled_on_load(
     button_tag_start = html.rindex("<button", 0, selection_button_start)
     button_tag_end = html.index(">", selection_button_start)
     assert "disabled" in html[button_tag_start:button_tag_end]
+
+
+def test_playback_only_tools_are_marked_for_hiding_in_analysis_view(
+    engine: Engine, tmp_path: Path
+) -> None:
+    """`.view-analysis .toolbar-zone-tools .playback-only { display: none; }` (app.css) is the
+    CSS hook that hides Default/Ruler/Select/View Lock when the Analysis view is active (design
+    spec section 3) -- this only checks the markup carries the hook; the runtime hide/show
+    behavior itself needs a DOM, which this project's Python test suite doesn't have."""
+    app, audio_hash = _create_app_with_one_recording(engine, tmp_path, "po" * 32)
+    response = app.test_client().get(f"/recordings/{audio_hash}")
+    html = response.get_data(as_text=True)
+
+    for needle in ('data-tool="default"', 'data-tool="ruler"', 'data-tool="select"'):
+        tag_start = html.rindex("<button", 0, html.index(needle))
+        tag_end = html.index(">", tag_start)
+        assert "playback-only" in html[tag_start:tag_end], needle
+
+    lock_tag_start = html.rindex("<button", 0, html.index('id="view-lock-toggle"'))
+    lock_tag_end = html.index(">", lock_tag_start)
+    assert "playback-only" in html[lock_tag_start:lock_tag_end]

@@ -821,6 +821,7 @@ button:disabled { cursor: default; opacity: 0.5; }
 .toolbar-zone { display: flex; gap: 0.4rem; align-items: center; }
 .toolbar-zone-shared { justify-content: center; }
 .toolbar-zone-view { justify-content: flex-end; }
+.view-analysis .toolbar-zone-tools .playback-only { display: none; }
 .tool-button[aria-pressed="true"] {
   background: var(--color-accent);
   color: var(--color-bg);
