@@ -148,8 +148,9 @@ def spectral_gate(samples: np.ndarray, samplerate_hz: float) -> np.ndarray:
     nperseg = min(max(int(samplerate_hz * _GATE_WINDOW_MS / 1000), 8), len(samples))
     noverlap = nperseg // 2
     # float32 before the STFT: measured ~36% less peak memory and ~30% less time than float64
-    # for this step, with no meaningful precision loss -- the source is 16-bit PCM audio, which
-    # float32's 24-bit mantissa represents exactly with enormous headroom to spare.
+    # for this step, with no meaningful precision loss -- the source is 16- or 24-bit signed PCM
+    # audio (`wav_pcm.read_pcm`), and float32's 24-bit mantissa represents either exactly (with
+    # enormous headroom at 16-bit, 2x at 24-bit -- still exact, just a smaller margin).
     _freqs, _times, stft = signal.stft(
         samples.astype(np.float32),
         fs=samplerate_hz,

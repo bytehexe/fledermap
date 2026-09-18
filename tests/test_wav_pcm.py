@@ -85,14 +85,14 @@ def test_read_pcm_rejects_an_8_bit_file(tmp_path: Path) -> None:
         read_pcm(path)
 
 
-def test_read_pcm_rejects_a_24_bit_file(tmp_path: Path) -> None:
+def test_read_pcm_rejects_a_32_bit_file(tmp_path: Path) -> None:
     wav_bytes = build_wav(
         [
-            (b"fmt ", fmt_payload(256_000, bits=24)),
-            (b"data", bytes([0, 0, 1] * 5000)),
+            (b"fmt ", fmt_payload(256_000, bits=32)),
+            (b"data", bytes([0, 0, 0, 1] * 5000)),
         ],
     )
-    path = tmp_path / "twentyfour_bit.wav"
+    path = tmp_path / "thirtytwo_bit.wav"
     path.write_bytes(wav_bytes)
 
     with pytest.raises(UnreadableWavError):
@@ -143,3 +143,37 @@ def test_full_scale_amplitude_of_16_bit_is_32767() -> None:
 
 def test_full_scale_amplitude_of_8_bit_is_127() -> None:
     assert full_scale_amplitude(1) == 127
+
+
+def test_full_scale_amplitude_of_24_bit_is_8388607() -> None:
+    assert full_scale_amplitude(3) == 8_388_607
+
+
+def _pcm24(values: list[int]) -> bytes:
+    """Little-endian signed 24-bit samples -- numpy has no native int24 dtype, so
+    both this fixture and `read_pcm` itself must hand-pack/unpack three raw bytes
+    per sample rather than using a `struct`/`np.dtype` format string."""
+    out = bytearray()
+    for v in values:
+        out += (v & 0xFFFFFF).to_bytes(3, "little")
+    return bytes(out)
+
+
+def test_read_pcm_returns_samples_and_samplerate_for_a_24_bit_file(
+    tmp_path: Path,
+) -> None:
+    values = [1000, -1000, 500, -500, 8_388_607, -8_388_608]
+    wav_bytes = build_wav(
+        [
+            (b"fmt ", fmt_payload(256_000, bits=24)),
+            (b"data", _pcm24(values)),
+        ],
+    )
+    path = tmp_path / "twentyfour_bit.wav"
+    path.write_bytes(wav_bytes)
+
+    samples, samplerate, full_scale = read_pcm(path)
+
+    assert samplerate == 256_000
+    assert samples.tolist() == [float(v) for v in values]
+    assert full_scale == 8_388_607
