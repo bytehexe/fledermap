@@ -465,6 +465,13 @@ def detail_sound_level_spectrum(audio_hash: str) -> ResponseReturnValue:
     if start_s is not None and end_s is not None:
         start_index = max(0, int(start_s * samplerate_hz))
         end_index = min(len(samples), int(end_s * samplerate_hz))
+        # A reversed (start_s > end_s) or out-of-range (start_s beyond the recording's own
+        # duration) span produces an empty slice here -- reject it outright rather than handing
+        # an empty array to compute_sound_level_spectrum, where np.argmax raises on an empty
+        # sequence. Matches het_preview's precedent above: bad client-supplied query params are
+        # a 400, not a silent fallback.
+        if start_index >= end_index:
+            flask.abort(400)
         samples = samples[start_index:end_index]
 
     spectrum = compute_sound_level_spectrum(samples, samplerate_hz)

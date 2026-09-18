@@ -1419,3 +1419,33 @@ def test_sound_level_spectrum_404s_for_unknown_hash(
         f"/recordings/{'s3' * 32}/detail/sound-level-spectrum"
     )
     assert response.status_code == 404
+
+
+def test_sound_level_spectrum_400s_for_a_reversed_span(
+    engine: Engine, tmp_path: Path
+) -> None:
+    archive_root = tmp_path / "archive"
+    archive_root.mkdir()
+    duration_s = 0.02
+    _write_wav(archive_root / "a.wav", duration_s=duration_s, samplerate=256_000)
+
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="s4" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                duration_s=duration_s,
+                samplerate_hz=256_000,
+            ),
+        )
+        session.commit()
+
+    app = create_app(
+        engine, tmp_path / "static", tmp_path / "media", archive_roots=(archive_root,)
+    )
+    response = app.test_client().get(
+        f"/recordings/{'s4' * 32}/detail/sound-level-spectrum?start_s=0.01&end_s=0"
+    )
+
+    assert response.status_code == 400
