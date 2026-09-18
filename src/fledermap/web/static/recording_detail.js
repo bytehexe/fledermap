@@ -76,6 +76,10 @@ document.addEventListener("DOMContentLoaded", () => {
   let currentSelection = null; // {startTimeS, endTimeS} | null -- durable across a view toggle,
   // unlike rulerBox/rulerBoxLocal above, which setActiveTool clears on every tool switch.
   let selectionBox = null;
+  // Same hoisting reason as rulerBox above: fitDetailHeight (called once at page load via
+  // relayout(), before setActiveView's own declarations run) needs to read this without hitting
+  // its `let` temporal dead zone.
+  let activeView = "playback";
 
   // Reveal-on-load (design spec section 3): every tile in a row must load before that row's
   // placeholder clears -- a partially-loaded row (some tiles rendered, others still pending)
@@ -263,6 +267,15 @@ document.addEventListener("DOMContentLoaded", () => {
   const tooSmallMessage = document.getElementById("detail-too-small-message");
 
   function fitDetailHeight() {
+    // Analysis view forces `.detail-scroll` to `display: none` via CSS (app.css's
+    // `.view-analysis .detail-scroll` rule), so every measurement below would read zero height
+    // regardless of the window's real size -- not "genuinely too small", just invisible. Left
+    // unguarded, that zero would make `tooSmall` true on every resize while Analysis is active,
+    // permanently setting `scrollEl.hidden = true` with nothing to undo it on switching back to
+    // Playback (that reset was deliberately removed from setActiveView -- see its own comment).
+    // Skip entirely while hidden by view; setActiveView calls this again on entering Playback so
+    // sizing is always recomputed at least once for whatever the window did while it was away.
+    if (activeView !== "playback") return;
     // Same idea as clearing zoom below, for the OTHER piece of state this function can leave
     // behind: if a previous run hid `scrollEl` (too-small case), it and everything inside it
     // -- including the two wraps measured just below -- report a zero `getBoundingClientRect()`
@@ -809,7 +822,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const viewToggleIconToAnalysis = viewToggleButton.querySelector(".view-toggle-icon-to-analysis");
   const viewToggleIconToPlayback = viewToggleButton.querySelector(".view-toggle-icon-to-playback");
   const viewToggleLabel = viewToggleButton.querySelector(".view-toggle-label");
-  let activeView = "playback";
 
   function setActiveView(view) {
     activeView = view;
@@ -827,6 +839,12 @@ document.addEventListener("DOMContentLoaded", () => {
     // `fitDetailHeight`, which runs on every resize independent of which view is active and would
     // silently re-show Playback's graphs underneath Analysis view.
     analysisPanel.hidden = view !== "analysis";
+    if (view === "playback") {
+      // fitDetailHeight no-ops entirely while Analysis is active (its measurements would all read
+      // zero, forced hidden by CSS) -- recompute now for whatever the window did in the meantime,
+      // since no resize may have fired since returning to Playback.
+      fitDetailHeight();
+    }
     if (view === "analysis") {
       // Order matters: `updateSelectionButtonAvailability` only ever needs to enable/disable
       // the Selection button here (a selection made while in Playback never gets a chance to
