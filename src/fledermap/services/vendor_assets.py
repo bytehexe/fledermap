@@ -192,6 +192,20 @@ ASSETS: tuple[VendorAsset, ...] = (
         sha256="53c3b0f8e6c21ca64faac237065f721a3f2bfaaddcce6731958aa662e351a4c8",
         relative_path="icons/filled/player-skip-back.svg",
     ),
+    # The Analysis-view toggle button's two icons (design spec
+    # docs/superpowers/specs/2026-09-18-fledermap-analysis-view-design.md) -- outline style, to
+    # match the rest of the toolbar's icon-based toggles (Lock, Denoise). A FILLED player-play
+    # already exists above for the play/pause button; this is a separate, outline-style asset.
+    VendorAsset(
+        url="https://unpkg.com/@tabler/icons@3.46.0/icons/outline/player-play.svg",
+        sha256="9726d5358929fbfe4a4cbd08131a5f1b4246ca01125f5108e7221b9c73e101ff",
+        relative_path="icons/outline/player-play.svg",
+    ),
+    VendorAsset(
+        url="https://unpkg.com/@tabler/icons@3.46.0/icons/outline/chart-histogram.svg",
+        sha256="da6052d6f928b5de5975a04f8fa3519edc84b6602513d4c3081cef18e294edeb",
+        relative_path="icons/outline/chart-histogram.svg",
+    ),
     VendorAsset(
         url="https://unpkg.com/@tabler/icons@3.46.0/icons/outline/rotate.svg",
         sha256="27bd2a929eee1460da0948b24156194d65b0a33fb3ba356d6ee18572d4eb76b1",

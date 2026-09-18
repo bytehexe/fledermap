@@ -184,5 +184,7 @@ def test_assets_includes_every_icon_the_app_uses() -> None:
         "icons/outline/check.svg",
         "icons/outline/chevron-down.svg",
         "icons/outline/x.svg",
+        "icons/outline/player-play.svg",
+        "icons/outline/chart-histogram.svg",
     }
     assert expected <= relative_paths
