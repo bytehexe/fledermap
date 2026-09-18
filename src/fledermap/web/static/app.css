@@ -802,7 +802,14 @@ button:disabled { cursor: default; opacity: 0.5; }
 .detail-spectrogram-wrap.tool-default.dragging { cursor: grabbing; }
 .detail-spectrogram-wrap.tool-ruler { cursor: crosshair; }
 
-.detail-toolbar { display: flex; gap: 0.4rem; margin: 0.5rem 0; }
+/* Three fixed, equal-width zones (design spec
+   2026-09-18-fledermap-analysis-view-design.md §3) -- `1fr 1fr 1fr`, never `auto`, so a zone's
+   own content changing (the tools zone emptying out in Analysis view, the view-toggle button's
+   icon+label changing length) never shifts where another zone's contents sit. */
+.detail-toolbar { display: grid; grid-template-columns: 1fr 1fr 1fr; margin: 0.5rem 0; }
+.toolbar-zone { display: flex; gap: 0.4rem; align-items: center; }
+.toolbar-zone-shared { justify-content: center; }
+.toolbar-zone-view { justify-content: flex-end; }
 .tool-button[aria-pressed="true"] {
   background: var(--color-accent);
   color: var(--color-bg);

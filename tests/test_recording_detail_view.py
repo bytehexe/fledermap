@@ -472,6 +472,35 @@ def test_recording_details_page_renders_the_tool_toolbar(
     )
 
 
+def test_toolbar_has_three_zones(engine: Engine, tmp_path: Path) -> None:
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="zn" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                duration_s=0.5,
+                samplerate_hz=256_000,
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/recordings/{'zn' * 32}")
+    html = response.get_data(as_text=True)
+
+    assert 'class="toolbar-zone toolbar-zone-tools"' in html
+    assert 'class="toolbar-zone toolbar-zone-shared"' in html
+    assert 'class="toolbar-zone toolbar-zone-view"' in html
+    # Default/Ruler/View Lock stay in the tools zone; Denoise moves to the shared zone.
+    tools_zone_start = html.index('class="toolbar-zone toolbar-zone-tools"')
+    shared_zone_start = html.index('class="toolbar-zone toolbar-zone-shared"')
+    assert tools_zone_start < html.index('data-tool="default"') < shared_zone_start
+    assert tools_zone_start < html.index('data-tool="ruler"') < shared_zone_start
+    assert tools_zone_start < html.index('id="view-lock-toggle"') < shared_zone_start
+    assert shared_zone_start < html.index('id="denoise-toggle"')
+
+
 def test_recording_details_page_shows_a_link_to_the_map_centered_on_this_recording(
     engine: Engine,
     tmp_path: Path,
