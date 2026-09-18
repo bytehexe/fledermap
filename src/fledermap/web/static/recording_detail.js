@@ -68,6 +68,11 @@ document.addEventListener("DOMContentLoaded", () => {
   // what "fits the viewport" means.
   const audioRow = document.querySelector(".audio-row");
   const rulerReadout = document.getElementById("ruler-readout");
+  // Declared here (rather than beside the rest of the ruler code below) so `relayout()` --
+  // called once at page load, before that code runs -- can safely reference `rulerBox` without
+  // hitting its `let` temporal dead zone.
+  let rulerBox = null;
+  let rulerBoxLocal = null;
 
   // Reveal-on-load (design spec section 3): every tile in a row must load before that row's
   // placeholder clears -- a partially-loaded row (some tiles rendered, others still pending)
@@ -528,6 +533,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (canBuildTimeAxis) buildTimeAxis();
     if (canBuildFreqAxis) buildFreqAxis();
     applyLockedScrollPosition();
+    repositionRulerReadout();
   }
 
   relayout();
@@ -549,14 +555,32 @@ document.addEventListener("DOMContentLoaded", () => {
   // Ruler tool: drag draws a live measurement box; a plain click (no drag) clears it. `rulerBox`
   // is the one live DOM node for the current measurement -- created lazily on first drag, reused
   // (repositioned) on subsequent drags, removed entirely on clear.
-  let rulerBox = null;
 
   function clearRulerBox() {
     if (rulerBox) {
       rulerBox.remove();
       rulerBox = null;
     }
+    rulerBoxLocal = null;
     rulerReadout.hidden = true;
+  }
+
+  // Re-derives the (position: fixed) readout's screen position from the box's last-known LOCAL
+  // (unzoomed, wrap-relative) coordinates and a freshly measured `wrap` rect -- needed any time
+  // `wrap`'s screen position or `currentScale` can have changed without a new drag event, namely
+  // scrolling `.detail-scroll` and a window resize (`relayout()`). `rulerBox` itself needs no such
+  // fix-up: it's a DOM child of `wrap`, positioned in `wrap`-relative CSS, so it scrolls/zooms
+  // with the content automatically -- only the readout's viewport-fixed positioning goes stale.
+  function repositionRulerReadout() {
+    if (!rulerBox || !rulerBoxLocal) return;
+    const rect = wrap.getBoundingClientRect();
+    const { left, top, height } = rulerBoxLocal;
+    rulerReadout.style.left = `${rect.left + left * currentScale}px`;
+    const boxTopPx = rect.top + top * currentScale;
+    const boxBottomPx = rect.top + (top + height) * currentScale;
+    const hasRoomAbove = boxTopPx - rect.top >= rulerReadout.offsetHeight + 4;
+    rulerReadout.classList.toggle("ruler-readout-below", !hasRoomAbove);
+    rulerReadout.style.top = `${hasRoomAbove ? boxTopPx : boxBottomPx}px`;
   }
 
   function updateRulerBox(dragStart, event) {
@@ -588,11 +612,18 @@ document.addEventListener("DOMContentLoaded", () => {
     const height = Math.abs(curY - startY);
 
     const deltaTMs = Math.abs(curX - startX) / pxPerMs;
-    const deltaFKhz = Math.abs(curY - startY) / pxPerKhz;
     // Pulse-repetition-rate reading (bat-call literature convention: inter-pulse interval -> Hz,
     // the same relationship as note-duration -> BPM). A purely vertical drag has deltaTMs === 0
     // -- guard the division rather than showing Infinity.
     const hzText = deltaTMs > 0 ? `${(1000 / deltaTMs).toFixed(1)} Hz` : "—";
+    // Absolute frequency range, not bandwidth -- same conversion the crosshair readout uses
+    // (maxFreqKhz - yPx/pxPerKhz). Reported as min/max because call-ID references (field guides,
+    // species tables) give absolute frequency bands, e.g. "35-45 kHz" -- a bare bandwidth number
+    // is strictly less useful, since min/max still implies it (max - min) but not the reverse.
+    const startFreqKhz = maxFreqKhz - startY / pxPerKhz;
+    const curFreqKhz = maxFreqKhz - curY / pxPerKhz;
+    const minFreqKhz = Math.min(startFreqKhz, curFreqKhz);
+    const maxFreqOfDragKhz = Math.max(startFreqKhz, curFreqKhz);
 
     if (!rulerBox) {
       rulerBox = document.createElement("div");
@@ -603,29 +634,19 @@ document.addEventListener("DOMContentLoaded", () => {
     rulerBox.style.top = `${top}px`;
     rulerBox.style.width = `${width}px`;
     rulerBox.style.height = `${height}px`;
+    rulerBoxLocal = { left, top, width, height };
 
     // The Δt/Δf readout is a SEPARATE, `position: fixed` element (`#ruler-readout`, styled like
     // `#crosshair-readout`) rather than a span nested inside `rulerBox` -- nesting it there
     // would put it inside `wrap`'s zoomed subtree, shrinking the text down to unreadable sizes
     // right along with the image whenever `fitDetailHeight` has scaled the page down (Janna,
-    // 2026-09-04, live screenshot). `rect.left/top + local-px * currentScale` converts the
-    // ruler box's local (unzoomed) top-left corner back to real screen coordinates -- the box
-    // outline itself stays fine to visually shrink with the image it's measuring; only the
-    // number readout needs to stay full-size.
-    rulerReadout.textContent = `Δt: ${deltaTMs.toFixed(2)} ms (${hzText})\nΔf: ${deltaFKhz.toFixed(1)} kHz`;
-    rulerReadout.style.left = `${rect.left + left * currentScale}px`;
+    // 2026-09-04, live screenshot). Its screen position (from `rulerBoxLocal`) is computed by
+    // `repositionRulerReadout`, shared with the scroll/resize fix-up paths below.
+    rulerReadout.textContent = `Δt: ${deltaTMs.toFixed(2)} ms (${hzText})\nMin/Max: ${minFreqKhz.toFixed(1)}–${maxFreqOfDragKhz.toFixed(1)} kHz`;
     rulerReadout.hidden = false;
-
-    // The label normally sits above the box (`.ruler-readout`'s `translateY(-100%-4px)`), but
-    // for a measurement started near the top of the spectrogram there's no room for that above
-    // `wrap`'s own top edge -- it would overlap the oscillogram strip drawn above it instead.
-    // `offsetHeight` needs the element unhidden first (just done above), before either the
-    // room check or the position it decides on.
-    const boxTopPx = rect.top + top * currentScale;
-    const boxBottomPx = rect.top + (top + height) * currentScale;
-    const hasRoomAbove = boxTopPx - rect.top >= rulerReadout.offsetHeight + 4;
-    rulerReadout.classList.toggle("ruler-readout-below", !hasRoomAbove);
-    rulerReadout.style.top = `${hasRoomAbove ? boxTopPx : boxBottomPx}px`;
+    // `offsetHeight` (read inside `repositionRulerReadout`, for the above/below room check)
+    // needs the element unhidden first -- done above.
+    repositionRulerReadout();
   }
 
   const toolbar = document.getElementById("detail-toolbar");
@@ -685,6 +706,7 @@ document.addEventListener("DOMContentLoaded", () => {
   );
   scrollEl.addEventListener("scroll", () => {
     if (viewLocked) applyLockedScrollPosition();
+    repositionRulerReadout();
   });
 
   const tools = {
