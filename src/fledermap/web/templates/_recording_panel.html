@@ -49,9 +49,9 @@
 
   <div class="axis-freq">
     {% if max_freq_khz %}
-    <span>{{ "%.0f"|format(max_freq_khz) }} kHz</span>
-    <span>{{ "%.0f"|format(max_freq_khz / 2) }} kHz</span>
-    <span>0 kHz</span>
+    <span style="--f: 0">{{ "%.0f"|format(max_freq_khz) }} kHz</span>
+    <span style="--f: 0.5">{{ "%.0f"|format(max_freq_khz / 2) }} kHz</span>
+    <span style="--f: 1">0 kHz</span>
     {% endif %}
   </div>
   <div class="spectrogram-wrap">

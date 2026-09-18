@@ -302,6 +302,51 @@ def test_recording_details_page_reserves_the_final_wrap_sizes_up_front(
     )  # spectrogram wrap
 
 
+@pytest.mark.parametrize("samplerate_hz", [256_000, 44_100, 192_000])
+def test_recording_details_page_exposes_the_rasters_native_size_for_the_axis_math(
+    engine: Engine,
+    tmp_path: Path,
+    samplerate_hz: int,
+) -> None:
+    """recording_detail.js derives every px <-> time/kHz conversion (axis ticks, Ruler,
+    crosshair) from the spectrogram wrap's `data-native-*-px` and the tiles' real
+    duration/max-frequency -- so those must equal the size the wrap is actually reserved at.
+    44.1 kHz and 192 kHz matter: their `max_freq * 4.7` is not a whole number of pixels, so a
+    scale taken from the nominal 4.7 px/kHz constant instead of the rounded raster height puts
+    the bottom edge off 0 kHz."""
+    audio_hash = f"{samplerate_hz:064x}"
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash=audio_hash,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                duration_s=0.5,
+                samplerate_hz=samplerate_hz,
+            ),
+        )
+        session.commit()
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+
+    html = app.test_client().get(f"/recordings/{audio_hash}").get_data(as_text=True)
+
+    wrap = re.search(
+        r'<div\s+class="detail-spectrogram-wrap".*?>', html, flags=re.DOTALL
+    )
+    assert wrap is not None
+    wrap_tag = wrap.group(0)
+    inline = re.search(r"width: (\d+)px; height: (\d+)px", wrap_tag)
+    native_w = re.search(r'data-native-width-px="(\d+)"', wrap_tag)
+    native_h = re.search(r'data-native-height-px="(\d+)"', wrap_tag)
+    assert inline and native_w and native_h
+    assert (native_w.group(1), native_h.group(1)) == inline.groups()
+    tile = re.search(r"<img\s+class=\"detail-spectrogram-tile\".*?>", html, re.DOTALL)
+    assert tile is not None
+    max_freq = re.search(r'data-max-freq-khz="([\d.]+)"', tile.group(0))
+    assert max_freq is not None
+    assert float(max_freq.group(1)) == min(120.0, samplerate_hz / 2000)
+
+
 def test_recording_details_page_puts_oscillogram_above_spectrogram(
     engine: Engine,
     tmp_path: Path,

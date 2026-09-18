@@ -299,6 +299,20 @@ it needs nothing installed beyond `node` itself, which this project already assu
   reference the consuming file. `marker_colors.js` (extracted from `app.js`) and
   `classifier_logic.js` (extracted from `classifier_box.js`) are the two examples of this pattern
   today — follow it for the next one rather than inventing a different shape.
+- **Axis ticks and measurement readouts share one mapping, and ticks are placed from measured
+  geometry.** `plot_coords.js`'s `makePlotCoords` is the only place raster pixels convert to
+  time/kHz and back (axis ticks, Ruler, crosshair, seek, cursor); its scale comes from the raster's
+  real width/height, not a nominal px-per-unit constant (the server rounds the raster size, so the
+  constant drifts from it). Tick offsets come from `getBoundingClientRect()` of the spectrogram wrap
+  itself, and `recording_detail.js`'s `ResizeObserver` rebuilds them whenever the wrap, oscillogram
+  or time axis changes size -- never from cached numbers or a hand-summed list of row heights, and
+  never by remembering to call the builder from each code path (a resize while Analysis view was
+  showing left every freq tick 34-48px off: the graphs measure 0 there). A new axis or readout on a
+  plot must use `coords` and be covered by the live check below. **Before shipping any change to
+  axes/ruler/crosshair, verify live** (headless Chrome, see the verification technique above): every
+  tick within ~0.5px of `(max - value) / max` of the wrap's rect, and a real Ruler drag between two
+  ticks reading exactly those ticks' values, at several viewport sizes, after a resize, and after
+  a resize while in Analysis view.
 - Pre-commit's `js-tests` hook (`types: [javascript]`) runs `node --test tests/js/` only when a
   staged file is JS — it does not run on every commit, matching `ruff-check`/`mypy`'s existing
   `types:`-filtered pattern for Python-only files.

@@ -18,8 +18,6 @@ from fledermap.services.current_best import (
 )
 from fledermap.services.manual_classification import current_manual_state
 from fledermap.services.recording_detail import (
-    DETAIL_PX_PER_KHZ,
-    DETAIL_PX_PER_MS,
     detail_params,
 )
 from fledermap.services.review_flags import (
@@ -187,8 +185,6 @@ def recording_details_page(audio_hash: str) -> flask.Response:
             duration_s=recording.duration_s,
             params=params,
             preview_ready=preview_ready,
-            px_per_ms=DETAIL_PX_PER_MS,
-            px_per_khz=DETAIL_PX_PER_KHZ,
             time_expansion_factor=TIME_EXPANSION_FACTOR,
             back_label=back_label,
             back_url=back_url,

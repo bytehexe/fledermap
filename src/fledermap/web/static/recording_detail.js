@@ -205,8 +205,21 @@ document.addEventListener("DOMContentLoaded", () => {
   const firstTile = spectrogramTiles[0];
   const durationS = parseFloat(firstTile.dataset.durationS);
   const maxFreqKhz = parseFloat(firstTile.dataset.maxFreqKhz);
-  const pxPerMs = parseFloat(firstTile.dataset.pxPerMs);
-  const pxPerKhz = parseFloat(firstTile.dataset.pxPerKhz);
+  // Native (unzoomed) raster size the server reserved on the wrap -- the same numbers the tiles
+  // were rendered at. All time/frequency <-> pixel conversions on this page go through `coords`
+  // (plot_coords.js), derived from these real dimensions; see that file for why the scale is not
+  // a separate nominal constant.
+  const nativeWidthPx = parseFloat(wrap.dataset.nativeWidthPx);
+  const nativeHeightPx = parseFloat(wrap.dataset.nativeHeightPx);
+  const coordsValid = [nativeWidthPx, nativeHeightPx, durationS, maxFreqKhz].every(
+    (v) => Number.isFinite(v) && v > 0,
+  );
+  const coords = makePlotCoords({
+    widthPx: nativeWidthPx,
+    heightPx: nativeHeightPx,
+    durationS,
+    maxFreqKhz,
+  });
 
   // Shrink-to-fit (backlog "Eliminate vertical scrollbar"): `main.main-content` scrolls
   // vertically (app.css) whenever the locked-scale render is taller than the viewport minus
@@ -221,8 +234,8 @@ document.addEventListener("DOMContentLoaded", () => {
   // size regardless of how small the image gets, same as a real DAW's ruler never shrinks its
   // own numerals just because you zoomed out on the waveform. `.detail-axis-time` and
   // `.detail-axis-freq` are therefore never zoomed; `buildTimeAxis`/`buildFreqAxis` below
-  // position their ticks in real screen pixels directly (`* currentScale`) and widen the tick
-  // interval as the image shrinks, so labels remain both full-size AND non-overlapping.
+  // position their ticks in real screen pixels directly (scaled by the wrap's measured on-screen
+  // size) and widen the tick interval as the image shrinks, so labels remain both full-size AND non-overlapping.
   // Deliberately a uniform x/y scale (not a height-only squash): the render itself keeps its
   // exact locked-scale pixel fidelity (design spec "the exact 1:1 point"), only the on-screen
   // DISPLAY size changes, same as zooming out on an image viewer -- an independent x/y squash
@@ -356,14 +369,14 @@ document.addEventListener("DOMContentLoaded", () => {
     tooSmallMessage.hidden = !tooSmall;
   }
 
-  // Dense axis (design spec section 3): fixed ms/kHz intervals, built from
-  // the exact same data attributes the crosshair/cursor math below uses --
-  // the labels can never drift out of sync with the actual rendered scale.
+  // Dense axis (design spec section 3): fixed ms/kHz intervals, positioned from the spectrogram
+  // wrap's real on-screen geometry and `coords` (plot_coords.js) -- the same mapping the Ruler and
+  // crosshair use, so a tick and a Ruler reading of that tick's own position cannot disagree.
   // 50ms was too sparse to be useful at the current 19px/ms scale (~950px
   // between labels -- one or two per screen at typical zoom); 20ms lands a
   // label roughly every 380px, still with comfortable room for the "0.02s"-
   // style text to not collide with its neighbours. Both base intervals widen
-  // by whole multiples as `currentScale` shrinks (see `fitDetailHeight`), so
+  // by whole multiples as the on-screen scale shrinks (see `fitDetailHeight`), so
   // the on-screen gap between labels stays roughly constant even though the
   // image itself is smaller -- the label text is never scaled, only thinned
   // out. MIN_LABEL_SPACING_PX is chosen below the natural (scale===1)
@@ -373,23 +386,36 @@ document.addEventListener("DOMContentLoaded", () => {
   const FREQ_TICK_KHZ = 10;
   const MIN_LABEL_SPACING_PX = 40;
 
-  // Grows `baseInterval` by whole multiples of itself until consecutive labels would be at
-  // least `MIN_LABEL_SPACING_PX` apart on screen. Deliberately NOT `baseInterval *
-  // Math.ceil(1 / currentScale)`: that multiplier is discontinuous right around
-  // currentScale===1 -- a real but tiny shrink (currentScale, say, 0.97, from a few px of
-  // genuine overflow) already rounds `1/0.97` up to 2, doubling the label density for an
-  // imperceptible size change. Growing by a fixed screen-space threshold instead only widens
-  // once labels would actually start crowding.
-  function adaptiveTickInterval(baseInterval, pxPerUnit) {
-    let interval = baseInterval;
-    while (interval * pxPerUnit * currentScale < MIN_LABEL_SPACING_PX) interval += baseInterval;
-    return interval;
+  // The spectrogram wrap's box and on-screen scale, measured from the DOM right now -- or null
+  // while it has no size (Analysis view forces `.detail-scroll` to `display: none`, and the
+  // too-small message hides it too). Ticks are always placed from THIS, never from a cached
+  // `currentScale` or from a sum of assumed row heights: an earlier version placed them from the
+  // heights of the rows above the spectrogram at whatever moment `relayout()` last ran, so a
+  // window resize while Analysis view was showing (everything measures 0 there) left every freq
+  // tick 34-48px off after switching back -- the axis said 20kHz where the Ruler said 29kHz.
+  // Measuring the wrap itself means the offset is whatever the layout really is.
+  //
+  // The scale comes from `rect / native size`, where native size is the server-reserved raster
+  // size, not `offsetHeight`: Chromium's `offsetHeight` on a `zoom`ed element has reported both
+  // pre- and post-zoom values across versions.
+  function measureSpectrogram() {
+    const rect = wrap.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return null;
+    return { rect, scaleX: rect.width / nativeWidthPx, scaleY: rect.height / nativeHeightPx };
   }
 
   function buildTimeAxis() {
+    const m = measureSpectrogram();
+    // Hidden: leave the (invisible) old ticks alone; the ResizeObserver below rebuilds them the
+    // moment the graphs have a size again.
+    if (!m) return;
     timeAxis.innerHTML = "";
+    // Where the spectrogram's left edge sits within the time axis' own box -- 0 today (same
+    // flex column) but measured, not assumed, for the same reason as the freq axis' top offset.
+    const leftOffsetPx = m.rect.left - timeAxis.getBoundingClientRect().left;
+    const screenPxPerMs = coords.pxPerMs * m.scaleX;
     const totalMs = durationS * 1000;
-    const tickMs = adaptiveTickInterval(TIME_TICK_MS, pxPerMs);
+    const tickMs = adaptiveTickInterval(TIME_TICK_MS, screenPxPerMs, MIN_LABEL_SPACING_PX);
     // The LAST tick drawn is `tickMs`-aligned, so it lands a few ms (and therefore a few px)
     // short of the recording's true end. Previously this tick was right-aligned instead of
     // centered like every other one, specifically so its bled-right half wouldn't stick out
@@ -400,18 +426,18 @@ document.addEventListener("DOMContentLoaded", () => {
     // fix (Janna, 2026-09-13): drop the special alignment entirely -- every tick is centered,
     // same as the rest, and the last one just isn't drawn at all when there isn't room for it
     // to bleed right without crossing the true content edge.
-    const lastMs = Math.floor(totalMs / tickMs) * tickMs;
-    const trailingGapPx = (totalMs - lastMs) * pxPerMs * currentScale;
+    const ticks = tickValues(totalMs, tickMs);
+    const lastMs = ticks[ticks.length - 1];
+    const trailingGapPx = (totalMs - lastMs) * screenPxPerMs;
     const showLastTick = lastMs === 0 || trailingGapPx >= MIN_LABEL_SPACING_PX / 2;
-    for (let ms = 0; ms <= totalMs; ms += tickMs) {
+    for (const ms of ticks) {
       if (ms === lastMs && ms !== 0 && !showLastTick) continue;
       const tick = document.createElement("span");
       tick.className = "detail-axis-tick detail-axis-tick-time";
-      // `ms * pxPerMs` is the tick's NATIVE (unzoomed) pixel position -- `* currentScale`
-      // converts to the real screen pixels this tick, living OUTSIDE the zoomed wraps, actually
-      // needs (its own font-size is never zoomed, so its position can't rely on an ancestor's
-      // `zoom` to place it the way `.detail-axis-freq`'s old zoomed ticks used to).
-      tick.style.left = `${ms * pxPerMs * currentScale}px`;
+      // `sToX` gives the tick's NATIVE (unzoomed) pixel position -- `* scaleX` converts to the
+      // real screen pixels this tick, living OUTSIDE the zoomed wraps, actually needs (its own
+      // font-size is never zoomed, so its position can't rely on an ancestor's `zoom`).
+      tick.style.left = `${leftOffsetPx + coords.sToX(ms / 1000) * m.scaleX}px`;
       // Every tick is centered on its mark via `.detail-axis-tick-time`'s own
       // `transform: translateX(-50%)` (CSS default), which is fine -- adjacent labels' bled-
       // over halves just share the empty gap between marks. The 0ms tick sits at `left: 0`,
@@ -426,47 +452,45 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function buildFreqAxis() {
+    const m = measureSpectrogram();
+    if (!m) return;
     freqAxis.innerHTML = "";
-    const tickKhz = adaptiveTickInterval(FREQ_TICK_KHZ, pxPerKhz);
-    // `.detail-axis-freq` and `.detail-graphs` are flex siblings that both
-    // start at the top of `.detail-body` -- but the spectrogram image
-    // itself starts lower than that, below `.detail-axis-time`'s row AND
-    // the oscillogram row that now sits above the spectrogram (compact
-    // strip above the main view, matching the drawer panel's convention).
-    // A tick's `top` has to include all of that offset or it aligns
-    // against the wrong origin. `oscillogramWrap`'s real ON-SCREEN height
-    // must come from `getBoundingClientRect().height`, NOT `.offsetHeight`
-    // -- confirmed live (Obsidian: "axis labels ... completely off for
-    // kHz"): `oscillogramWrap` is zoomed by `fitDetailHeight` via CSS
-    // `zoom`, and Chromium's `offsetHeight` on a zoomed element reports its
-    // PRE-zoom/native size, not the rendered one -- the opposite of what
-    // the removed comment here used to assume. That silently added the
-    // FULL native oscillogram height instead of its shrunk on-screen
-    // height, pushing every freq tick down by the difference (native minus
-    // scaled) -- 27px too low at this page's typical zoom, confirmed by
-    // comparing tick screen position against the spectrogram image's own
-    // `getBoundingClientRect()`. `timeAxis` is never zoomed, so its
-    // `offsetHeight` was never wrong, but it's read the same way here for
-    // consistency with the same reasoning. `oscillogramWrap`'s template-
-    // reserved inline height (`style="height: ...px"`, so it doesn't
-    // collapse to 0 before its tiles load) is what `getBoundingClientRect()`
-    // measures too, so this still reads correctly pre-load.
-    const spectrogramTop =
-      timeAxis.getBoundingClientRect().height + oscillogramWrap.getBoundingClientRect().height;
-    for (let khz = 0; khz <= maxFreqKhz; khz += tickKhz) {
+    // `.detail-axis-freq` and `.detail-graphs` are flex siblings that both start at the top of
+    // `.detail-body`, but the spectrogram starts lower -- below the time axis row and the
+    // oscillogram strip. A tick's `top` is relative to `.detail-axis-freq`, so it has to include
+    // that distance; measuring the two boxes directly gives it without listing what sits in
+    // between (which is exactly what went stale before, see `measureSpectrogram`).
+    const topOffsetPx = m.rect.top - freqAxis.getBoundingClientRect().top;
+    const tickKhz = adaptiveTickInterval(
+      FREQ_TICK_KHZ,
+      coords.pxPerKhz * m.scaleY,
+      MIN_LABEL_SPACING_PX,
+    );
+    for (const khz of tickValues(maxFreqKhz, tickKhz)) {
       const tick = document.createElement("span");
       tick.className = "detail-axis-tick detail-axis-tick-freq";
-      // Row 0 (top) is the highest frequency -- render_spectrogram flips
-      // vertically so low frequencies sit at the bottom, matching every
-      // other spectrogram viewer's convention (media/spectrogram.py).
-      tick.style.top = `${spectrogramTop + (maxFreqKhz - khz) * pxPerKhz * currentScale}px`;
+      tick.style.top = `${topOffsetPx + coords.khzToY(khz) * m.scaleY}px`;
       tick.textContent = `${khz}kHz`;
       freqAxis.appendChild(tick);
     }
   }
 
-  const canBuildTimeAxis = timeAxis && !Number.isNaN(durationS) && !Number.isNaN(pxPerMs);
-  const canBuildFreqAxis = freqAxis && !Number.isNaN(maxFreqKhz) && !Number.isNaN(pxPerKhz);
+  const canBuildTimeAxis = timeAxis && coordsValid;
+  const canBuildFreqAxis = freqAxis && coordsValid;
+
+  // The guarantee that the axes stay aligned, independent of which code path changed the layout:
+  // rebuild whenever anything they are positioned against changes size. That covers a window
+  // resize, the fit-to-viewport zoom, switching Playback <-> Analysis (the graphs go from 0 size
+  // to real size), the toolbar re-wrapping, and whatever future feature moves things -- none of
+  // which needs to remember to call the builders. Building only reads layout and writes
+  // absolutely-positioned children of fixed-size boxes, so it cannot retrigger this observer.
+  if (typeof ResizeObserver !== "undefined") {
+    const axisObserver = new ResizeObserver(() => {
+      if (canBuildTimeAxis) buildTimeAxis();
+      if (canBuildFreqAxis) buildFreqAxis();
+    });
+    for (const el of [wrap, oscillogramWrap, timeAxis]) if (el) axisObserver.observe(el);
+  }
 
   // View lock: locks the current field of view -- no scrolling, and playback is limited to
   // that field of view, stopping at its end. An independent toggle, not a third exclusive
@@ -502,7 +526,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function nativeXPxToTimeS(nativeXPx) {
-    return nativeXPx / pxPerMs / 1000;
+    return coords.xToS(nativeXPx);
   }
 
   // Re-derives `scrollEl.scrollLeft` from `lockedStartS` and the CURRENT `currentScale` --
@@ -510,7 +534,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // (wheel, scrollbar drag, keyboard) is being blocked below.
   function applyLockedScrollPosition() {
     if (!isViewLockActive() || lockedStartS === null) return;
-    scrollEl.scrollLeft = lockedStartS * 1000 * pxPerMs * currentScale;
+    scrollEl.scrollLeft = coords.sToX(lockedStartS) * currentScale;
   }
 
   function currentViewEndTimeS() {
@@ -558,6 +582,8 @@ document.addEventListener("DOMContentLoaded", () => {
   audio.addEventListener("pause", stopCursorRaf);
   audio.addEventListener("ended", stopCursorRaf);
 
+  // The axis builders are called here for a deterministic first paint, but `axisObserver` above is
+  // what keeps them correct -- don't rely on this function being the only thing that rebuilds them.
   function relayout() {
     fitDetailHeight();
     if (canBuildTimeAxis) buildTimeAxis();
@@ -636,7 +662,11 @@ document.addEventListener("DOMContentLoaded", () => {
           spectrumChart.data = chartData;
           spectrumChart.update();
         } else {
-          spectrumChart = new Chart(chartCanvas, { type: "line", data: chartData });
+          spectrumChart = new Chart(chartCanvas, {
+            type: "line",
+            data: chartData,
+            options: soundLevelSpectrumChartOptions(),
+          });
         }
       })
       // A recording whose source WAV is missing from disk (or `missing_since` is set) still
@@ -716,17 +746,17 @@ document.addEventListener("DOMContentLoaded", () => {
     const width = Math.abs(curX - startX);
     const height = Math.abs(curY - startY);
 
-    const deltaTMs = Math.abs(curX - startX) / pxPerMs;
+    const deltaTMs = Math.abs(curX - startX) / coords.pxPerMs;
     // Pulse-repetition-rate reading (bat-call literature convention: inter-pulse interval -> Hz,
     // the same relationship as note-duration -> BPM). A purely vertical drag has deltaTMs === 0
     // -- guard the division rather than showing Infinity.
     const hzText = deltaTMs > 0 ? `${(1000 / deltaTMs).toFixed(1)} Hz` : "—";
     // Absolute frequency range, not bandwidth -- same conversion the crosshair readout uses
-    // (maxFreqKhz - yPx/pxPerKhz). Reported as min/max because call-ID references (field guides,
+    // (`coords.yToKhz`). Reported as min/max because call-ID references (field guides,
     // species tables) give absolute frequency bands, e.g. "35-45 kHz" -- a bare bandwidth number
     // is strictly less useful, since min/max still implies it (max - min) but not the reverse.
-    const startFreqKhz = maxFreqKhz - startY / pxPerKhz;
-    const curFreqKhz = maxFreqKhz - curY / pxPerKhz;
+    const startFreqKhz = coords.yToKhz(startY);
+    const curFreqKhz = coords.yToKhz(curY);
     const minFreqKhz = Math.min(startFreqKhz, curFreqKhz);
     const maxFreqOfDragKhz = Math.max(startFreqKhz, curFreqKhz);
 
@@ -770,8 +800,8 @@ document.addEventListener("DOMContentLoaded", () => {
     selectionBox.style.left = `${left}px`;
     selectionBox.style.width = `${width}px`;
 
-    const startTimeS = Math.min(startX, curX) / pxPerMs / 1000;
-    const endTimeS = Math.max(startX, curX) / pxPerMs / 1000;
+    const startTimeS = coords.xToS(Math.min(startX, curX));
+    const endTimeS = coords.xToS(Math.max(startX, curX));
     currentSelection = { startTimeS, endTimeS };
     viewLockToggle.disabled = true;
     scrollEl.classList.toggle("view-locked", isViewLockActive());
@@ -891,7 +921,7 @@ document.addEventListener("DOMContentLoaded", () => {
       onClick(event) {
         const rect = wrap.getBoundingClientRect();
         const xPx = (event.clientX - rect.left) / currentScale;
-        const spectrogramTimeS = xPx / pxPerMs / 1000;
+        const spectrogramTimeS = coords.xToS(xPx);
         let targetTimeS = spectrogramTimeS * audioControls.getTimeExpansionFactor();
         // Clamp below `audio.duration`, not just non-negative: a click at or past the
         // spectrogram's own right edge -- including the cursor's OWN resting position once
@@ -1000,8 +1030,8 @@ document.addEventListener("DOMContentLoaded", () => {
       readout.hidden = true;
       return;
     }
-    const timeS = xPx / pxPerMs / 1000;
-    const freqKhz = maxFreqKhz - yPx / pxPerKhz;
+    const timeS = coords.xToS(xPx);
+    const freqKhz = coords.yToKhz(yPx);
     readout.textContent = `${timeS.toFixed(3)} s\n${freqKhz.toFixed(1)} kHz`;
     readout.style.left = `${event.clientX + 12}px`;
     readout.style.top = `${event.clientY - 12}px`;
@@ -1044,7 +1074,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // `xPx` is in `wrap`'s local/unzoomed coordinate space (pxPerMs is a native, unscaled
     // constant) -- correct as-is for positioning `cursor` (a descendant of `wrap`, so `wrap`'s
     // own `zoom` re-scales it visually automatically).
-    const xPx = displayTimeS * 1000 * pxPerMs;
+    const xPx = coords.sToX(displayTimeS);
     cursor.style.left = `${xPx}px`;
     cursor.hidden = false;
 

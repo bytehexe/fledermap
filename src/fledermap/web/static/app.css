@@ -492,14 +492,27 @@ button:disabled { cursor: default; opacity: 0.5; }
   color: var(--color-muted);
   white-space: nowrap;
 }
-.axis-freq {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  align-items: flex-end;
-  padding-right: 0.3em;
+.axis-freq { position: relative; }
+/* Each label is CENTERED on its own frequency (`--f` = fraction of the way down, 0 = top edge),
+   the same as the detail page's freq axis -- not laid out with `space-between`, which put the
+   text BOXES on the edges and so left the "128 kHz"/"0 kHz" labels' centers half a line inside
+   the image, reading ~10 kHz off at this size. The 1px offsets are the spectrogram <img>'s own
+   border: the raster is drawn inside it, so 0 and max sit 1px in from the grid row's edges. The
+   half-line overhang at the top/bottom lands in the empty `.axis-spacer` cells, not on any
+   other content. */
+.axis-freq span {
+  position: absolute;
+  right: 0.3em;
+  top: calc(1px + (100% - 2px) * var(--f));
+  transform: translateY(-50%);
 }
-.axis-time { display: flex; justify-content: space-between; }
+/* Three columns with equal outer `1fr` tracks, so the middle label is centered on the image's
+   midpoint no matter how different the end labels' widths are -- `space-between` centered it
+   between its neighbours' inner edges instead, ~4px off ("0.0s" vs "3.89s"). The end labels stay
+   anchored to their own edges, like the detail page's left-aligned 0s. */
+.axis-time { display: grid; grid-template-columns: 1fr auto 1fr; }
+.axis-time span:first-child { justify-self: start; }
+.axis-time span:last-child { justify-self: end; }
 .oscillogram-wrap, .spectrogram-wrap { min-width: 0; min-height: 0; }
 /* `.playback-cursor` (position: absolute, task 7) needs a positioned ancestor to anchor
    against -- the detail page's equivalent `.detail-spectrogram-wrap` already has one, but
@@ -508,6 +521,10 @@ button:disabled { cursor: default; opacity: 0.5; }
 .spectrogram-wrap { position: relative; }
 .oscillogram, .spectrogram {
   display: block;
+  /* `border-box`: with the default `content-box`, `width/height: 100%` PLUS the 1px border made
+     the image 2px larger than its grid cell, so the freq/time axis labels (positioned against
+     the cell) and the raster (drawn inside the overflowing image) disagreed by a pixel or two. */
+  box-sizing: border-box;
   width: 100%;
   height: 100%;
   object-fit: fill;
@@ -774,7 +791,13 @@ button:disabled { cursor: default; opacity: 0.5; }
    `.detail-axis-freq`'s `position: sticky` below is bounded by ITS containing block --
    `.detail-body` -- so a too-narrow `.detail-body` caps how far the sticky column can travel
    before it hits that edge and un-sticks, well short of the actual scrollable range. */
-.detail-body { display: flex; width: max-content; }
+.detail-body {
+  display: flex;
+  width: max-content;
+  /* Room for the freq axis' 0kHz label, which is centered on the spectrogram's bottom edge and so
+     overhangs it by half a line -- `.detail-scroll`'s `overflow-y: hidden` clipped it in half. */
+  padding-bottom: 0.4rem;
+}
 /* Sticky, not scrolled with the graphs -- pinned on the left the same way
    a DAW's own frequency ruler stays put while the timeline scrolls under
    it. Cheap: one CSS property, no JS. */

@@ -489,9 +489,12 @@ document.addEventListener("DOMContentLoaded", () => {
       readout.hidden = true;
       return;
     }
+    // The raster is drawn inside the <img>'s border (`box-sizing: content-box`), so its edges
+    // are `clientLeft`/`clientTop` in from the bounding rect -- measuring against the border box
+    // instead read up to ~1.5 kHz / ~4 ms off at the image's edges.
     const rect = img.getBoundingClientRect();
-    const relX = (event.clientX - rect.left) / rect.width;
-    const relY = (event.clientY - rect.top) / rect.height;
+    const relX = (event.clientX - rect.left - img.clientLeft) / img.clientWidth;
+    const relY = (event.clientY - rect.top - img.clientTop) / img.clientHeight;
     const timeS = relX * durationS;
     const freqKhz = (1 - relY) * maxFreqKhz;
     readout.textContent = `${timeS.toFixed(3)} s\n${freqKhz.toFixed(1)} kHz`;
@@ -553,7 +556,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (Number.isNaN(durationS) || durationS <= 0) return;
       const spectrogramTimeS = audioEl.currentTime / drawerAudioControls.getTimeExpansionFactor();
       const relX = spectrogramTimeS / durationS;
-      cursor.style.left = `${relX * 100}%`;
+      // The wrap is the <img>'s border box; the raster spans its inner 100% minus the 1px borders.
+      cursor.style.left = `calc(1px + (100% - 2px) * ${relX})`;
       cursor.hidden = false;
     });
   });
@@ -566,7 +570,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const durationS = parseFloat(img.dataset.durationS);
     if (Number.isNaN(durationS)) return;
     const rect = img.getBoundingClientRect();
-    const relX = (event.clientX - rect.left) / rect.width;
+    // Content box, not border box -- see the crosshair handler above.
+    const relX = (event.clientX - rect.left - img.clientLeft) / img.clientWidth;
     const spectrogramTimeS = relX * durationS;
     audioEl.currentTime = spectrogramTimeS * drawerAudioControls.getTimeExpansionFactor();
     audioEl.play();
