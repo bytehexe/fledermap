@@ -861,6 +861,130 @@ def test_manual_classification_route_sets_a_species_claim(
     assert "classifier-tags" in html
 
 
+def test_manual_classification_response_refreshes_the_title_and_identifications_table(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """Saving in the Classify box must also refresh the page's headline and its identifications
+    table (both derive from the current-best result, which a manual claim outranks). The response
+    is the box fragment first -- classifier_box.js swaps it in as before -- followed by
+    id-keyed fragments it swaps into the page wherever the same id already exists."""
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
+        session.add(taxon)
+        session.flush()
+        session.add(
+            Recording(
+                audio_hash="m" * 64,
+                path="m.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            )
+        )
+        session.commit()
+        taxon_id = taxon.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().post(
+        f"/recordings/{'m' * 64}/manual-classification",
+        data={"verdict": "species", "taxon_ids": [str(taxon_id)]},
+    )
+
+    html = response.get_data(as_text=True)
+    assert html.lstrip().startswith("<div")
+    assert 'id="classifier-box"' in html[:200]
+    assert '<h1 id="entity-title">Pipistrellus pipistrellus</h1>' in html
+    matrix_html = html.split('id="identifications"')[1]
+    assert "identification-matrix" in matrix_html
+    assert f'href="/species/{taxon_id}"' in matrix_html
+
+
+def test_manual_classification_response_refreshes_the_flag_and_review_reasons(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """A manual classification is a human review, which suppresses every computed review reason
+    (review_flags._has_human_review) -- so after a save the page's "Flagged for review" reasons
+    and the flag button's auto-flag (flag-cog) icon are stale unless they are refreshed too."""
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Rare species")
+        session.add(taxon)
+        session.flush()
+        recording = Recording(
+            audio_hash="o" * 64,
+            path="o.wav",
+            recorded_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+        )
+        session.add(recording)
+        session.flush()
+        session.add(
+            Identification(
+                recording_id=recording.id,
+                source=IdSource.EMT_GUANO,
+                verdict=Verdict.SPECIES,
+                taxon_id=taxon.id,
+                first_seen_at=recording.recorded_at,
+            ),
+        )
+        session.commit()
+        taxon_id = taxon.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+    before = client.get(f"/recordings/{'o' * 64}").get_data(as_text=True)
+    # Precondition: the automatic claim alone makes the page show a computed reason.
+    assert "Flagged for review" in before
+    assert "icons-tabler-outline icon-tabler-flag-cog" in before
+
+    html = client.post(
+        f"/recordings/{'o' * 64}/manual-classification",
+        data={"verdict": "species", "taxon_ids": [str(taxon_id)]},
+    ).get_data(as_text=True)
+
+    reasons_html = html.split('id="review-reasons-slot"')[1].split('id="detail-flag"')[
+        0
+    ]
+    assert "Flagged for review" not in reasons_html
+    flag_html = html.split('id="detail-flag"')[1]
+    assert "icon-tabler-flag-cog" not in flag_html
+
+
+def test_manual_classification_response_headline_follows_a_no_id_verdict(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="n" * 64,
+                path="n.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            )
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().post(
+        f"/recordings/{'n' * 64}/manual-classification",
+        data={"verdict": "no_id"},
+    )
+
+    assert '<h1 id="entity-title">no_id</h1>' in response.get_data(as_text=True)
+
+
+def test_details_page_marks_the_title_and_identifications_for_in_place_refresh(
+    engine: Engine, tmp_path: Path
+) -> None:
+    """The ids the classify save's response targets must exist on the page itself."""
+    app, audio_hash = _create_app_with_one_recording(engine, tmp_path, "ti" * 32)
+    html = app.test_client().get(f"/recordings/{audio_hash}").get_data(as_text=True)
+    assert '<h1 id="entity-title">' in html
+    assert 'id="identifications"' in html
+    # Present even when there are no reasons to show (an empty slot), or a save that clears them
+    # would have nothing to swap into.
+    assert 'id="review-reasons-slot"' in html
+    assert 'id="detail-flag"' in html
+
+
 def test_manual_classification_route_sets_no_id_as_a_sentinel_chip(
     engine: Engine,
     tmp_path: Path,

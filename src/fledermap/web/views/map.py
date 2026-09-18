@@ -18,6 +18,7 @@ from fledermap.media.spectrogram import (
 from fledermap.services.current_best import (
     current_best_identification,
     identification_matrix,
+    recording_headline,
 )
 from fledermap.services.manual_classification import (
     current_manual_state,
@@ -45,7 +46,10 @@ from fledermap.web.params import (
     parse_taxon_filter,
     parse_verdict,
 )
-from fledermap.web.views.recording_detail import _taxon_search_index
+from fledermap.web.views.recording_detail import (
+    _current_classification,
+    _taxon_search_index,
+)
 
 views_bp = flask.Blueprint("views", __name__, template_folder="../templates")
 
@@ -284,14 +288,38 @@ def post_manual_classification(audio_hash: str) -> flask.Response:
                 ).all(),
             )
 
-        html = flask.render_template(
-            "_classifier_box.html",
-            recording=recording,
-            manual_verdict=manual_verdict,
-            current_taxa=current_taxa,
-            taxon_search_index=_taxon_search_index(session),
-        )
-        response = flask.make_response(html)
+        # A manual claim outranks every automatic one, so it can change everything on the page
+        # that derives from the current-best result: the headline and the identifications
+        # table -- and, since a manual classification counts as a human review and suppresses the
+        # computed review reasons, the "Flagged for review" section and the flag button's
+        # auto-flag icon. They ride along after the box as extra top-level fragments; the box is
+        # always FIRST (classifier_box.js swaps it in as before) and every fragment after it
+        # replaces the page element with the same id -- so each of these templates' root element
+        # must carry the id the page's own copy has.
+        best, taxon, matrix = _current_classification(session, recording)
+        reasons = review_reasons(recording, ReviewContext.build(session))
+        fragments = [
+            flask.render_template(
+                "_classifier_box.html",
+                recording=recording,
+                manual_verdict=manual_verdict,
+                current_taxa=current_taxa,
+                taxon_search_index=_taxon_search_index(session),
+            ),
+            flask.render_template(
+                "_entity_title.html", title=recording_headline(taxon, best)
+            ),
+            flask.render_template(
+                "_identifications_box.html", recording=recording, matrix=matrix
+            ),
+            flask.render_template(
+                "_review_reasons.html", recording=recording, reasons=reasons
+            ),
+            flask.render_template(
+                "_detail_flag_button.html", recording=recording, reasons=reasons
+            ),
+        ]
+        response = flask.make_response("\n".join(fragments))
 
     return response
 

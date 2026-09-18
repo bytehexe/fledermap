@@ -6,8 +6,11 @@
    already replaced an even earlier per-row "shadowed by emt.guano" text annotation. This
    wrapper stays a separate template rather than folding into the drawer's version: it's the
    spot a future manual-classification pick would hang off (spec: manual classification is
-   details-page-only), the drawer's own wrapper is read-only. #}
-<div class="col identifications">
+   details-page-only), the drawer's own wrapper is read-only.
+
+   The id is how a manual-classification save refreshes this table in place: the save's response
+   re-renders this template and classifier_box.js swaps it in for the element with the same id. #}
+<div class="col identifications" id="identifications">
   <h3>Identifications</h3>
   {% include "_identification_matrix.html" %}
 </div>

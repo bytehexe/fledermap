@@ -20,7 +20,7 @@
 <p><a href="{{ back_url }}">{{ icon("chevron-left") }} {{ back_label }}</a></p>
 {% endif %}
 <div class="entity-header">
-  <h1>{{ title }}</h1>
+  {% include "_entity_title.html" %}
   {% if actions or header_extra %}
   <div class="entity-header-actions">
     {% for action in actions %}

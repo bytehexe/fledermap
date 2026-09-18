@@ -13,6 +13,8 @@ from sqlalchemy.orm import Session as OrmSession
 from fledermap.media.paths import preview_path
 from fledermap.media.preview import TIME_EXPANSION_FACTOR
 from fledermap.services.current_best import (
+    CurrentIdentification,
+    IdentificationMatrix,
     current_best_identification,
     identification_matrix,
 )
@@ -80,6 +82,25 @@ def _resolve_back_link(return_to: str | None) -> tuple[str, str]:
     return ("Back", return_to)
 
 
+def _current_classification(
+    session: OrmSession, recording: Recording
+) -> tuple[CurrentIdentification | None, Taxon | None, IdentificationMatrix]:
+    """What the page's headline and identifications table show: the recording's current-best
+    identification, its resolved taxon (single-taxon results only) and the classifier matrix.
+    Shared by the details page and by the Classify box's save response, which re-renders the
+    headline and the table -- both derive from this, so the two can never disagree."""
+    best = current_best_identification(recording)
+    taxon = None
+    if best is not None and not best.is_multi and best.primary.taxon_id is not None:
+        taxon = session.get(Taxon, best.primary.taxon_id)
+    matrix = identification_matrix(
+        recording.identifications,
+        best,
+        combine_emt=flask.current_app.config["COMBINE_EMT_DISPLAY"],
+    )
+    return best, taxon, matrix
+
+
 @recording_detail_bp.get("/recordings/<audio_hash>")
 def recording_details_page(audio_hash: str) -> flask.Response:
     engine = flask.current_app.config["ENGINE"]
@@ -91,16 +112,8 @@ def recording_details_page(audio_hash: str) -> flask.Response:
         if recording is None:
             flask.abort(404)
 
-        best = current_best_identification(recording)
+        best, taxon, matrix = _current_classification(session, recording)
         reasons = review_reasons(recording, ReviewContext.build(session))
-        taxon = None
-        if best is not None and not best.is_multi and best.primary.taxon_id is not None:
-            taxon = session.get(Taxon, best.primary.taxon_id)
-        matrix = identification_matrix(
-            recording.identifications,
-            best,
-            combine_emt=flask.current_app.config["COMBINE_EMT_DISPLAY"],
-        )
         taxon_search_index = _taxon_search_index(session)
 
         # The classifier box's own state -- deliberately NOT derived from

@@ -159,11 +159,12 @@ function initClassifierBox(box) {
       .then((html) => {
         const wrapper = document.createElement("div");
         wrapper.innerHTML = html;
-        const newBox = wrapper.firstElementChild;
+        const [newBox, ...refreshedFragments] = wrapper.children;
         box.replaceWith(newBox);
         classifierBoxDirty = false;
         initClassifierBox(newBox);
         showSaveConfirmation(newBox);
+        refreshDependentFragments(refreshedFragments);
       })
       .catch((error) => {
         errorEl.textContent = "Could not save: " + error.message;
@@ -177,6 +178,25 @@ function initClassifierBox(box) {
 
   searchEl.addEventListener("input", () => renderSuggestions(searchEl.value));
   saveButton.addEventListener("click", save);
+}
+
+// A manual claim outranks every automatic one, so a save can change other parts of the page that
+// derive from the current-best result -- the headline, the identifications table, the "Flagged
+// for review" section, the flag button (post_manual_classification in views/map.py). The server
+// sends each one as an extra top-level fragment after the box; each replaces the page element
+// with the same id. A fragment with no matching element is skipped rather than an error: the
+// server does not know which of these the page it is answering actually renders.
+//
+// htmx only wires up `hx-*` attributes on elements it swapped in itself, so a fragment inserted
+// here (the flag button carries `hx-post`) has to be handed to `htmx.process` -- without it the
+// button looks right but clicking it does nothing.
+function refreshDependentFragments(fragments) {
+  for (const fragment of fragments) {
+    const target = fragment.id ? document.getElementById(fragment.id) : null;
+    if (!target) continue;
+    target.replaceWith(fragment);
+    if (window.htmx) window.htmx.process(fragment);
+  }
 }
 
 // A successful save swaps in a freshly server-rendered box (see

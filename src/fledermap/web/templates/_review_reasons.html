@@ -1,0 +1,21 @@
+{# src/fledermap/web/templates/_review_reasons.html -- the recording-details page's "Flagged for
+   review" section (docs/style-guide.md drawer/detail parity: the drawer deliberately omits it).
+   Always rendered inside a stable `#review-reasons-slot`, empty when there is nothing to show,
+   so the Classify box's save (views/map.py's post_manual_classification) has a target to swap
+   whichever way the state flips: a manual classification is a human review and suppresses every
+   computed reason (services/review_flags.py's `_has_human_review`), so a save can remove this
+   section -- which a `{% if %}` around the whole block could not be swapped back into. #}
+<div id="review-reasons-slot">
+  {% if recording.flagged_for_review or reasons %}
+  <div class="review-reasons">
+    <strong>Flagged for review</strong>
+    {% if reasons %}
+    <ul>
+      {% for reason in reasons %}
+      <li>{{ reason }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>

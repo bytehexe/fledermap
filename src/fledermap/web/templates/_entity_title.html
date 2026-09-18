@@ -1,0 +1,5 @@
+{# src/fledermap/web/templates/_entity_title.html -- an entity page's own h1, in its own partial
+   so the recording-details page's manual-classification save can re-render JUST the title
+   (views/map.py's post_manual_classification) from the same markup `_entity_header.html` uses,
+   instead of a second copy that could drift. The id is what classifier_box.js swaps on. #}
+<h1 id="entity-title">{{ title }}</h1>
