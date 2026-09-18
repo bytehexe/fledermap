@@ -501,6 +501,30 @@ def test_toolbar_has_three_zones(engine: Engine, tmp_path: Path) -> None:
     assert shared_zone_start < html.index('id="denoise-toggle"')
 
 
+def test_view_toggle_button_is_present_and_targets_analysis(
+    engine: Engine, tmp_path: Path
+) -> None:
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="vt" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                duration_s=0.5,
+                samplerate_hz=256_000,
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/recordings/{'vt' * 32}")
+    html = response.get_data(as_text=True)
+
+    assert 'id="view-toggle-button"' in html
+    assert 'data-target-view="analysis"' in html
+    assert 'class="analysis-panel"' in html
+
+
 def test_recording_details_page_shows_a_link_to_the_map_centered_on_this_recording(
     engine: Engine,
     tmp_path: Path,

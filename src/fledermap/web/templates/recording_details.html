@@ -74,6 +74,11 @@
         </button>
       </div>
       <div class="toolbar-zone toolbar-zone-view">
+        <button type="button" id="view-toggle-button" data-target-view="analysis" title="Switch to Analysis view">
+          <span class="view-toggle-icon-to-analysis">{{ icon("chart-histogram") }}</span>
+          <span class="view-toggle-icon-to-playback" hidden>{{ icon("player-play") }}</span>
+          <span class="view-toggle-label">Analysis view</span>
+        </button>
       </div>
     </div>
     <div class="detail-scroll" id="detail-scroll">
@@ -136,6 +141,7 @@
         </div>
       </div>
     </div>
+    <div class="analysis-panel" hidden></div>
     {# Swapped in by recording_detail.js's fitDetailHeight() whenever the
        computed spectrogram height would fall below a readable minimum
        (Janna, 2026-09-13) -- the toolbar above and playback controls below

@@ -685,6 +685,33 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  const mainContentEl = document.getElementById("recording-detail");
+  const viewToggleButton = document.getElementById("view-toggle-button");
+  const analysisPanel = document.querySelector(".analysis-panel");
+  const viewToggleIconToAnalysis = viewToggleButton.querySelector(".view-toggle-icon-to-analysis");
+  const viewToggleIconToPlayback = viewToggleButton.querySelector(".view-toggle-icon-to-playback");
+  const viewToggleLabel = viewToggleButton.querySelector(".view-toggle-label");
+  let activeView = "playback";
+
+  function setActiveView(view) {
+    activeView = view;
+    const targetView = view === "playback" ? "analysis" : "playback";
+    viewToggleButton.dataset.targetView = targetView;
+    viewToggleButton.title = `Switch to ${targetView === "analysis" ? "Analysis" : "Playback"} view`;
+    viewToggleIconToAnalysis.hidden = view !== "playback";
+    viewToggleIconToPlayback.hidden = view !== "analysis";
+    viewToggleLabel.textContent = targetView === "analysis" ? "Analysis view" : "Playback";
+    mainContentEl.classList.toggle("view-playback", view === "playback");
+    mainContentEl.classList.toggle("view-analysis", view === "analysis");
+    scrollEl.hidden = view !== "playback";
+    analysisPanel.hidden = view !== "analysis";
+  }
+
+  viewToggleButton.addEventListener("click", () => {
+    setActiveView(viewToggleButton.dataset.targetView);
+  });
+  setActiveView("playback");
+
   // Scroll prevention while locked, entirely JS-driven (Janna, 2026-09-04: keep the scrollbar
   // itself visible rather than switching `overflow-x` to `hidden` -- "disable the scrollbar
   // instead of removing it, noisy UI" -- so `.detail-scroll` stays `overflow-x: auto` at all
