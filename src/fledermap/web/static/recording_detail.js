@@ -51,8 +51,8 @@ document.addEventListener("DOMContentLoaded", () => {
   // above this point, not further down like `viewLocked` gets away with.
   const audioControls = audioControlsEl
     ? initAudioControls(audioControlsEl, audio, {
-        getSeekFloorS: () => (viewLocked && lockedStartS !== null ? lockedStartS : 0),
-        getSeekCeilingS: () => (viewLocked ? currentViewEndTimeS() : null),
+        getSeekFloorS: () => (isViewLockActive() && lockedStartS !== null ? lockedStartS : 0),
+        getSeekCeilingS: () => (isViewLockActive() ? currentViewEndTimeS() : null),
         getPreviewUrl: () =>
           denoiseOn ? withQueryParam(detailPreviewUrl, "denoise", "true") : previewUrl,
         getHetExtraQuery: () => (denoiseOn ? "&denoise=true" : ""),
@@ -192,6 +192,9 @@ document.addEventListener("DOMContentLoaded", () => {
       denoiseToggle.setAttribute("aria-pressed", denoiseOn ? "true" : "false");
       reloadTilesWithDenoise();
       audioControls.refreshSource();
+      // No-ops when Analysis view isn't active (fetchAndRenderSpectrum's own early return) --
+      // safe to call unconditionally so a stale, pre-toggle chart is never left on screen.
+      fetchAndRenderSpectrum();
     });
   }
 
@@ -474,6 +477,17 @@ document.addEventListener("DOMContentLoaded", () => {
   let viewLocked = false;
   let lockedStartS = null;
 
+  // A Select-tool selection *suppresses* View Lock's clamp entirely while it exists -- it does
+  // NOT replace it with a clamp to the selection's own range (the spec's Non-goals section rules
+  // out playback-limited-to-selection). Clearing the selection reactivates whatever View Lock's
+  // own window was: View Lock's own state (`viewLocked`, `lockedStartS`) is never touched by a
+  // selection, only its effect here is gated off. Every read of `viewLocked` that gates seek/
+  // scroll/playback-boundary behavior goes through this helper instead of `viewLocked` directly,
+  // so the suppression check lives in exactly one place.
+  function isViewLockActive() {
+    return viewLocked && currentSelection === null;
+  }
+
   function nativeXPxToTimeS(nativeXPx) {
     return nativeXPx / pxPerMs / 1000;
   }
@@ -482,7 +496,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // `scrollLeft` still works programmatically even while every USER-driven way of changing it
   // (wheel, scrollbar drag, keyboard) is being blocked below.
   function applyLockedScrollPosition() {
-    if (!viewLocked || lockedStartS === null) return;
+    if (!isViewLockActive() || lockedStartS === null) return;
     scrollEl.scrollLeft = lockedStartS * 1000 * pxPerMs * currentScale;
   }
 
@@ -563,6 +577,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const spanButtons = Array.from(document.querySelectorAll(".analysis-span-button"));
   const chartCanvas = document.getElementById("sound-level-spectrum-chart");
+  const chartError = document.getElementById("sound-level-spectrum-error");
   let spectrumChart = null;
   let activeSpan = "whole-file";
 
@@ -596,8 +611,13 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     const url = `${analysisPanel.dataset.spectrumUrl}?${params}`;
     fetch(url)
-      .then((response) => response.json())
+      .then((response) => {
+        if (!response.ok) throw new Error(`sound-level-spectrum request failed: ${response.status}`);
+        return response.json();
+      })
       .then((spectrum) => {
+        chartCanvas.hidden = false;
+        chartError.hidden = true;
         const chartData = soundLevelSpectrumToChartData(spectrum);
         if (spectrumChart) {
           spectrumChart.data = chartData;
@@ -605,6 +625,15 @@ document.addEventListener("DOMContentLoaded", () => {
         } else {
           spectrumChart = new Chart(chartCanvas, { type: "line", data: chartData });
         }
+      })
+      // A recording whose source WAV is missing from disk (or `missing_since` is set) still
+      // shows the Analysis toggle, but the endpoint 404s -- without this, that left a permanently
+      // blank canvas with an unhandled promise rejection and no explanation (found in final
+      // whole-branch review).
+      .catch((error) => {
+        console.error("Failed to fetch/render the sound-level spectrum", error);
+        chartCanvas.hidden = true;
+        chartError.hidden = false;
       });
   }
 
@@ -773,7 +802,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  const mainContentEl = document.getElementById("recording-detail");
   const viewToggleButton = document.getElementById("view-toggle-button");
   const analysisPanel = document.querySelector(".analysis-panel");
   const viewToggleIconToAnalysis = viewToggleButton.querySelector(".view-toggle-icon-to-analysis");
@@ -789,13 +817,23 @@ document.addEventListener("DOMContentLoaded", () => {
     viewToggleIconToAnalysis.hidden = view !== "playback";
     viewToggleIconToPlayback.hidden = view !== "analysis";
     viewToggleLabel.textContent = targetView === "analysis" ? "Analysis view" : "Playback";
-    mainContentEl.classList.toggle("view-playback", view === "playback");
-    mainContentEl.classList.toggle("view-analysis", view === "analysis");
-    scrollEl.hidden = view !== "playback";
+    mainContent.classList.toggle("view-playback", view === "playback");
+    mainContent.classList.toggle("view-analysis", view === "analysis");
+    // `scrollEl.hidden`/the too-small message are owned entirely by `fitDetailHeight` (app.css's
+    // `.view-analysis .detail-scroll`/`#detail-too-small-message` rules make the view class win
+    // at the display level regardless of execution order) -- setting it here too used to race
+    // `fitDetailHeight`, which runs on every resize independent of which view is active and would
+    // silently re-show Playback's graphs underneath Analysis view.
     analysisPanel.hidden = view !== "analysis";
     if (view === "analysis") {
+      // Order matters: `updateSelectionButtonAvailability` only ever needs to enable/disable
+      // the Selection button here (a selection made while in Playback never gets a chance to
+      // flip it otherwise) -- it must not also be the thing that decides `activeSpan`, or a
+      // stale "selection" span from before the selection was cleared would fetch once via its
+      // own downgrade-to-whole-file path and again via the explicit call below. Defaulting to
+      // Selection when one exists, else Whole file (spec §7), is decided explicitly here instead.
       updateSelectionButtonAvailability();
-      fetchAndRenderSpectrum();
+      setActiveSpan(currentSelection !== null ? "selection" : "whole-file");
     }
   }
 
@@ -819,12 +857,12 @@ document.addEventListener("DOMContentLoaded", () => {
   scrollEl.addEventListener(
     "wheel",
     (event) => {
-      if (viewLocked) event.preventDefault();
+      if (isViewLockActive()) event.preventDefault();
     },
     { passive: false },
   );
   scrollEl.addEventListener("scroll", () => {
-    if (viewLocked) applyLockedScrollPosition();
+    if (isViewLockActive()) applyLockedScrollPosition();
     repositionRulerReadout();
   });
 
@@ -851,7 +889,7 @@ document.addEventListener("DOMContentLoaded", () => {
       onDrag(event, dragStart) {
         // `overflow-x: hidden` (app.css) only blocks NATIVE scroll input -- this sets
         // `scrollLeft` directly via JS, so it needs its own guard while the view is locked.
-        if (viewLocked) return;
+        if (isViewLockActive()) return;
         scrollEl.scrollLeft = dragStart.scrollLeft - (event.clientX - dragStart.x);
       },
       onDragEnd() {},
@@ -978,7 +1016,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // to one `timeupdate` interval's worth of playback short of the true edge, which on a narrow
     // locked view can be a large fraction of what's even on screen. Clamping instead means the
     // very last frame drawn is always the edge itself, matching where playback actually stopped.
-    const locked = viewLocked;
+    const locked = isViewLockActive();
     const viewEndS = locked ? currentViewEndTimeS() : null;
     const pastEdge = locked && viewEndS !== null && spectrogramTimeS >= viewEndS;
     const displayTimeS = pastEdge ? viewEndS : spectrogramTimeS;
@@ -1010,7 +1048,11 @@ document.addEventListener("DOMContentLoaded", () => {
     // its own `timeupdate` (the correctly-restored one, past `isRestoringPosition`'s guard
     // above), and without this check it would snap the view to wherever the cursor happens to
     // sit even though the user had deliberately scrolled elsewhere and nothing is playing.
-    if (!audio.paused && !viewLocked && (visualXPx < visibleLeft || visualXPx > visibleRight)) {
+    if (
+      !audio.paused &&
+      !isViewLockActive() &&
+      (visualXPx < visibleLeft || visualXPx > visibleRight)
+    ) {
       scrollEl.scrollLeft = Math.max(0, visualXPx - scrollEl.clientWidth / 2);
     }
   }

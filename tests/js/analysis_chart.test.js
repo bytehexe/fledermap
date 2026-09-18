@@ -30,3 +30,22 @@ test("soundLevelSpectrumToChartData names the dataset", () => {
   });
   assert.equal(result.datasets[0].label, "Sound level (dB)");
 });
+
+test("soundLevelSpectrumToChartData marks the peak frequency's own index with a 0 dB point", () => {
+  const result = soundLevelSpectrumToChartData({
+    freqs_hz: [0, 20000, 40000],
+    db: [-80, -20, 0],
+    peak_freq_hz: 20000,
+  });
+  const peakDataset = result.datasets[1];
+  assert.deepEqual(peakDataset.data, [null, 0, null]);
+});
+
+test("soundLevelSpectrumToChartData leaves the main dataset unaffected by the peak marker", () => {
+  const result = soundLevelSpectrumToChartData({
+    freqs_hz: [0, 20000, 40000],
+    db: [-80, -20, 0],
+    peak_freq_hz: 20000,
+  });
+  assert.deepEqual(result.datasets[0].data, [-80, -20, 0]);
+});
