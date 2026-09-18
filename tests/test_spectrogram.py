@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import dataclasses
 import math
 import struct
+import wave
 from pathlib import Path
 
 import numpy as np
@@ -586,3 +588,144 @@ def test_denoise_true_changes_spectrogram_pixels(tmp_path: Path) -> None:
 
     with Image.open(plain_out) as a, Image.open(denoised_out) as b:
         assert a.tobytes() != b.tobytes()
+
+
+# --- Axis alignment: what a pixel says must match what the axes say ------------------------
+#
+# The recording-detail page converts a pixel to a time/frequency with `x / width * duration` and
+# `max_freq * (1 - y / height)` (static/plot_coords.js). These tests render known signals through
+# the real detail-page params and read the position back with that same mapping, so a renderer
+# that stretches the STFT's edge cells to the image edges (an earlier version did: up to half a
+# bin / half a window off, growing across the image) fails here instead of on a user's ruler.
+
+
+def _levels(path: Path) -> np.ndarray:
+    """Palette level (0-255) of each pixel, by inverting the render's own colour LUT. Grayscale
+    luminance is NOT usable: the rainbow palette is not monotonic in luminance (red, the loudest,
+    is darker than yellow), which biases any peak position read from it."""
+    from fledermap.media.spectrogram import _palette_lut
+
+    lut = _palette_lut(SpectrogramParams().palette).astype(int)
+    pixels = np.asarray(Image.open(path).convert("RGB")).astype(int)
+    colours, inverse = np.unique(pixels.reshape(-1, 3), axis=0, return_inverse=True)
+    nearest = np.argmin(((colours[:, None, :] - lut[None, :, :]) ** 2).sum(-1), axis=1)
+    return nearest[inverse.reshape(-1)].reshape(pixels.shape[:2]).astype(float)
+
+
+def _write_wav(path: Path, samples: np.ndarray, samplerate: int) -> None:
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(samplerate)
+        w.writeframes(samples.astype("<i2").tobytes())
+
+
+def _peak_centre_px(profile: np.ndarray) -> float:
+    """Level-weighted centre of the strongest feature in a 1-D profile, in pixel-EDGE
+    coordinates (a feature filling pixel 0 alone is centred at 0.5)."""
+    profile = profile - profile.min()
+    peak = int(profile.argmax())
+    lo, hi = max(peak - 6, 0), min(peak + 7, len(profile))
+    window = np.where(profile[lo:hi] >= 0.5 * profile[peak], profile[lo:hi], 0.0)
+    return float((window * (np.arange(lo, hi) + 0.5)).sum() / window.sum())
+
+
+def _detail_spectrogram_params(duration_s: float, samplerate: int) -> SpectrogramParams:
+    from fledermap.services.recording_detail import detail_params
+
+    return detail_params(duration_s, samplerate).spectrogram
+
+
+def test_spectrogram_places_clicks_at_their_true_time_across_the_whole_width(
+    tmp_path: Path,
+) -> None:
+    samplerate, duration_s = 256_000, 1.5
+    params = _detail_spectrogram_params(duration_s, samplerate)
+    click_times_s = np.linspace(0.02, duration_s - 0.02, 12)
+    samples = np.zeros(int(samplerate * duration_s))
+    burst = np.arange(20)
+    for t in click_times_s:
+        start = int(t * samplerate)
+        samples[start : start + 20] += (
+            20000 * np.sin(2 * np.pi * 40e3 * burst / samplerate) * np.hanning(20)
+        )
+    wav_path = tmp_path / "clicks.wav"
+    _write_wav(wav_path, samples, samplerate)
+    out = tmp_path / "s.webp"
+    render_spectrogram(wav_path, out, params=params)
+
+    levels = _levels(out)
+    # Rows covering the click's own band only, so background elsewhere cannot outweigh it.
+    top = int((1 - 48 / (params.max_freq_hz / 1000)) * params.height_px)
+    bottom = int((1 - 32 / (params.max_freq_hz / 1000)) * params.height_px)
+    per_column = levels[top:bottom].sum(axis=0)
+    px_per_s = params.width_px / duration_s
+    errors_ms = []
+    for t in click_times_s:
+        centre_s = t + 10 / samplerate  # middle of the 20-sample burst
+        expected_px = centre_s * px_per_s
+        lo = int(expected_px) - 8
+        column_profile = np.zeros_like(per_column)
+        column_profile[lo : lo + 17] = per_column[lo : lo + 17]
+        errors_ms.append((_peak_centre_px(column_profile) / px_per_s - centre_s) * 1000)
+    # One pixel is ~0.23 ms here. The stretched-edge render measured up to ~0.7 ms off, growing
+    # from one end of the image to the other; aligned, every click is within ~0.1 ms.
+    assert max(abs(e) for e in errors_ms) < 0.3, errors_ms
+
+
+def test_spectrogram_places_a_bin_centred_tone_at_its_true_frequency_near_both_edges(
+    tmp_path: Path,
+) -> None:
+    samplerate, duration_s = 384_000, 0.2
+    params = _detail_spectrogram_params(duration_s, samplerate)
+    nperseg = int(samplerate * params.window_ms / 1000)
+    bin_hz = samplerate / nperseg
+    max_freq_khz = params.max_freq_hz / 1000
+    px_per_khz = params.height_px / max_freq_khz
+    top_bin = int(params.max_freq_hz / bin_hz)
+    # Just above the low-band peak-exclusion cutoff, and just below the top edge -- where a cell
+    # stretched to the image edge is furthest from where the axis puts it (half a bin, ~1.2 px).
+    for bin_index in (int(5500 / bin_hz) + 2, top_bin - 3):
+        freq_hz = bin_index * bin_hz
+        tone = 20000 * np.sin(
+            2 * np.pi * freq_hz * np.arange(int(samplerate * duration_s)) / samplerate
+        )
+        wav_path = tmp_path / f"tone{bin_index}.wav"
+        _write_wav(wav_path, tone, samplerate)
+        out = tmp_path / f"tone{bin_index}.webp"
+        render_spectrogram(wav_path, out, params=params)
+
+        centre_px = _peak_centre_px(_levels(out).sum(axis=1))
+        read_khz = max_freq_khz - centre_px / px_per_khz
+        error_px = (read_khz - freq_hz / 1000) * px_per_khz
+        assert abs(error_px) < 0.6, (bin_index, error_px)
+
+
+def test_a_later_tile_places_a_click_at_its_true_time(tmp_path: Path) -> None:
+    """Tiles are rendered independently from a `time_range_s`; the second tile's box must be
+    offset by exactly its own start, or every click in it lands early/late by the offset."""
+    samplerate, duration_s = 256_000, 1.0
+    params = _detail_spectrogram_params(duration_s, samplerate)
+    half = params.width_px // 2
+    click_t = 0.75
+    samples = np.zeros(int(samplerate * duration_s))
+    start = int(click_t * samplerate)
+    samples[start : start + 20] = (
+        20000 * np.sin(2 * np.pi * 40e3 * np.arange(20) / samplerate) * np.hanning(20)
+    )
+    wav_path = tmp_path / "click.wav"
+    _write_wav(wav_path, samples, samplerate)
+    out = tmp_path / "tile2.webp"
+    px_per_s = params.width_px / duration_s
+    render_spectrogram(
+        wav_path,
+        out,
+        params=dataclasses.replace(params, width_px=params.width_px - half),
+        time_range_s=(half / px_per_s, duration_s),
+    )
+
+    top = int((1 - 48 / (params.max_freq_hz / 1000)) * params.height_px)
+    bottom = int((1 - 32 / (params.max_freq_hz / 1000)) * params.height_px)
+    centre_px = _peak_centre_px(_levels(out)[top:bottom].sum(axis=0))
+    centre_s = (half + centre_px) / px_per_s
+    assert abs(centre_s - (click_t + 10 / samplerate)) * 1000 < 0.3

@@ -156,3 +156,23 @@ def test_detail_params_spectrogram_uses_the_detail_only_fft_constants() -> None:
     # unaffected by this task.
     assert SpectrogramParams().window_ms == 3.0
     assert SpectrogramParams().overlap == 0.5
+
+
+def test_tile_time_ranges_tile_the_recording_exactly_on_the_pages_own_px_to_time_scale() -> (
+    None
+):
+    """The renderer places pixel x at `x / total_width * duration`, the same mapping the page's
+    axis/ruler use -- so the last tile must end at exactly the recording's duration and adjacent
+    tiles must share their boundary, whatever rounding `total_width_px` carries (the nominal
+    `DETAIL_PX_PER_MS` scale would leave up to half a pixel unaccounted for)."""
+    from fledermap.services.recording_detail import tile_time_range_s
+
+    duration_s = 4.0003
+    params = detail_params(duration_s=duration_s, samplerate_hz=256_000)
+    total = params.spectrogram.width_px
+    ranges = [tile_time_range_s(t, total, duration_s) for t in params.tiles]
+    assert len(ranges) > 1
+    assert ranges[0][0] == 0.0
+    assert ranges[-1][1] == pytest.approx(duration_s, abs=1e-12)
+    for (_, end), (start, _) in zip(ranges, ranges[1:], strict=False):
+        assert end == pytest.approx(start, abs=1e-12)

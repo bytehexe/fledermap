@@ -10,6 +10,7 @@ mkmapdiary's LocalProjection/GeoCluster were in Phase 2.
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 import tempfile
 from dataclasses import dataclass, fields
@@ -67,6 +68,13 @@ class SpectrogramParams:
     # existing cached renders if this value is ever revisited.
     cutoff_hz: float = DEFAULT_CUTOFF_HZ
     denoise: bool = False
+    # Bump whenever the pixel <-> time/frequency geometry of the render changes, so the on-disk
+    # cache (named by `params_hash`) re-renders instead of serving old pixels under new axes.
+    # 1: the STFT's first/last bin and column were stretched to the image edges, so a bin sat up
+    #    to half a bin (0.33 kHz at the detail page's 1.5 ms window) and a column up to ~0.6 ms
+    #    away from where the axes place its frequency/time.
+    # 2: bin and column CENTRES sit exactly on the axes (`_resample_onto_axes`).
+    geometry_version: int = 2
 
     @property
     def params_hash(self) -> str:
@@ -141,14 +149,18 @@ def stft_hop_samples(samplerate_hz: float, window_ms: float, overlap: float) -> 
 
 
 class FullSpectrogramImage(NamedTuple):
-    """`render_full_spectrogram_image`'s result: the rendered image plus the STFT's own `times`
-    array, which `render_spectrogram` needs to translate a `time_range_s` into a pixel `box`.
-    A plain typed pair rather than stashing `times` as an attribute on the `Image.Image` --
-    keeps both call sites free of `# type: ignore`s for an attribute PIL's own stubs don't know
-    about."""
+    """`render_full_spectrogram_image`'s result: the rendered image plus what
+    `render_spectrogram` needs to place it on real time/frequency axes -- the STFT's own `times`
+    (column centres, seconds) and `freqs` (bin centres, Hz, ascending from 0), the recording's
+    `duration_s`, and the top of the frequency axis (`max_freq_hz`, already clamped to Nyquist).
+    A plain typed tuple rather than attributes stashed on the `Image.Image` -- keeps both call
+    sites free of `# type: ignore`s for attributes PIL's own stubs don't know about."""
 
     image: Image.Image
     times: np.ndarray
+    freqs: np.ndarray
+    duration_s: float
+    max_freq_hz: float
 
 
 def render_full_spectrogram_image(
@@ -260,7 +272,66 @@ def render_full_spectrogram_image(
     rgb = lut[indices]
 
     full_image = Image.fromarray(rgb, mode="RGB")
-    return FullSpectrogramImage(image=full_image, times=times)
+    return FullSpectrogramImage(
+        image=full_image,
+        times=times,
+        freqs=freqs,
+        duration_s=len(samples) / samplerate,
+        max_freq_hz=max_freq,
+    )
+
+
+def _resample_onto_axes(
+    full: FullSpectrogramImage,
+    out_size: tuple[int, int],
+    *,
+    time_range_s: tuple[float, float],
+) -> Image.Image:
+    """Resample the native-resolution STFT image so output pixel edges sit exactly on real
+    time/frequency: x = 0 is `time_range_s[0]`, x = width is `time_range_s[1]`, y = height is
+    0 Hz and y = 0 is `full.max_freq_hz`.
+
+    The STFT image is a grid of CELLS whose centres are at `times[i]` / `freqs[b]`. A plain
+    resize of the whole image stretches the first and last cell to the image edges instead, which
+    put every reading up to half a cell off: a bin up to 0.33 kHz (1.5 ms window) from where the
+    frequency axis places its frequency, and a column up to ~0.6 ms from where the time axis (and
+    the oscillogram, which is exact) places its instant -- growing linearly from one edge of the
+    image to the other. Here the source box is derived from the STFT's own `times`/`freqs`, so a
+    cell centre lands on its own axis value; the source region lies partly outside the image at
+    the ends (the first window is centred at window/2, not 0), so it is edge-replicated there.
+
+    Only the crop the box needs is materialised, plus a margin for the resampling kernel: the
+    kernel must see real neighbouring pixels just outside a tile's box, or two independently
+    rendered tiles disagree at their seam (each would clamp its own edge column instead)."""
+    stft_image = full.image
+    out_w, out_h = out_size
+    n_rows, n_cols = stft_image.height, stft_image.width
+    if n_cols < 2 or n_rows < 2:
+        # A single column/bin has no hop/bin width to place it by -- nothing to align.
+        return stft_image.resize(out_size)
+
+    first_time_s = float(full.times[0])
+    hop_s = float(full.times[1] - full.times[0])
+    bin_hz = float(full.freqs[1] - full.freqs[0])
+    start_s, end_s = time_range_s
+
+    # Source coordinates where cell i's CENTRE is at i + 0.5 (columns left->right; rows top->
+    # bottom, the image being flipped so row 0 is the highest kept bin).
+    left = (start_s - first_time_s) / hop_s + 0.5
+    right = (end_s - first_time_s) / hop_s + 0.5
+    top = n_rows - (full.max_freq_hz / bin_hz + 0.5)
+    bottom = n_rows - 0.5
+
+    margin_cols = math.ceil(2 * max(1.0, (right - left) / out_w)) + 2
+    margin_rows = math.ceil(2 * max(1.0, (bottom - top) / out_h)) + 2
+    col0 = math.floor(left) - margin_cols
+    row0 = math.floor(top) - margin_rows
+    cols = np.clip(np.arange(col0, math.ceil(right) + margin_cols), 0, n_cols - 1)
+    rows = np.clip(np.arange(row0, math.ceil(bottom) + margin_rows), 0, n_rows - 1)
+    crop = np.asarray(stft_image)[np.ix_(rows, cols)]
+    return Image.fromarray(crop).resize(
+        out_size, box=(left - col0, top - row0, right - col0, bottom - row0)
+    )
 
 
 def render_spectrogram(
@@ -302,39 +373,13 @@ def render_spectrogram(
     """
     if full_image is None:
         full_image = render_full_spectrogram_image(wav_path, params)
-    stft_image, times = full_image
-
-    box = None
-    if time_range_s is not None:
-        # `stft_image.width` (the STFT's own column count) is always >= 1 for any
-        # nonzero-length signal (the `nperseg` clamp in `render_full_spectrogram_image`
-        # guarantees at least one window fits). Clamping `end_idx` to be at least
-        # `start_idx + 1` guarantees a non-empty region even for a very narrow tile (the last
-        # tile in a recording whose width doesn't divide evenly by `DETAIL_MAX_TILE_WIDTH_PX`
-        # can be as little as 1px wide -- narrower than a single STFT column's own time
-        # resolution) -- without this, `resize(box=...)` on a zero-width box raises rather than
-        # degrading gracefully.
-        start_s, end_s = time_range_s
-        start_idx = max(
-            0, min(int(np.searchsorted(times, start_s)), stft_image.width - 1)
-        )
-        end_idx = max(
-            start_idx + 1, min(int(np.searchsorted(times, end_s)), stft_image.width)
-        )
-        box = (start_idx, 0, end_idx, stft_image.height)
-
-    # `box`, not a manual `rgb[:, start_idx:end_idx, :]` slice-then-resize: resizing a
-    # pre-sliced array independently per tile starves the resampling kernel of real pixels
-    # just past each tile's own edge, so it falls back to clamping/replicating its own edge
-    # column instead -- two independently-resized tiles then don't quite agree at the seam
-    # between them, visible as a faint vertical line at every tile boundary (confirmed against
-    # a real field recording 2026-09-02; reproduced in isolation with a synthetic gradient:
-    # crop-then-resize left neighbouring boundary pixels off by ~2, `resize(box=...)` on the
-    # full (unsliced) image made them agree exactly). `box` instead tells Pillow which *region*
-    # of the FULL, un-sliced image to resample -- the kernel can then sample real pixels from
-    # just outside the box, the same way it would if this tile weren't being rendered
-    # separately at all.
-    image = stft_image.resize((params.width_px, params.height_px), box=box)
+    if time_range_s is None:
+        time_range_s = (0.0, full_image.duration_s)
+    image = _resample_onto_axes(
+        full_image,
+        (params.width_px, params.height_px),
+        time_range_s=time_range_s,
+    )
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(dir=out_path.parent, suffix=".webp.tmp")

@@ -103,6 +103,19 @@ def detail_tiles(total_width_px: int) -> list[DetailTile]:
     return tiles
 
 
+def tile_time_range_s(
+    tile: DetailTile, total_width_px: int, duration_s: float
+) -> tuple[float, float]:
+    """The `(start_s, end_s)` a tile covers, on the same scale the page converts pixels to time
+    with: `total_width_px` spans exactly `duration_s`. Derived from the rounded total width, not
+    from the nominal `DETAIL_PX_PER_MS` -- that rounding leaves the raster up to half a pixel
+    (~0.1 ms) longer or shorter than the recording, and renderer and page must agree on which."""
+    return (
+        tile.start_px / total_width_px * duration_s,
+        (tile.start_px + tile.width_px) / total_width_px * duration_s,
+    )
+
+
 @dataclass(frozen=True)
 class DetailParams:
     spectrogram: SpectrogramParams

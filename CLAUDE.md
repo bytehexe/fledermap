@@ -568,6 +568,20 @@ emits), never derived from `scientific_name` — resolution is by exact
   envelope has the analogous gotcha for amplitude: it normalises to the recording's own peak
   amplitude too, deliberately, so a quiet call is still visible rather than a flat, near-invisible
   line — do not "fix" that into a fixed int16-range reference.
+- **A spectrogram's pixels must sit on the axes' time/frequency, cell CENTRES included.**
+  `media/spectrogram.py`'s `_resample_onto_axes` resamples the native STFT image so a bin/column
+  centre lands exactly at its `freqs`/`times` value (x = 0 is the tile's start time, y = height is
+  0 Hz, y = 0 is `max_freq_hz`), edge-replicating past the ends. A plain resize of the whole image
+  stretched the first/last cell to the image edges and put every reading up to half a cell off:
+  ~0.33 kHz at the detail page's 1.5 ms window, and up to ~0.7 ms in time, growing across the
+  image, so the spectrogram also disagreed with the (exact) oscillogram. Tile time ranges come from
+  `services/recording_detail.py`'s `tile_time_range_s` (`width_px` spans exactly the duration), the
+  same scale `plot_coords.js` uses. Any change to the render's pixel geometry must bump
+  `SpectrogramParams.geometry_version` so the on-disk cache re-renders (`fledermap enqueue-media`,
+  then `fledermap clean-media` for the orphans), and must keep the ground-truth tests in
+  `tests/test_spectrogram.py` (known tone / known click, read back through the page's own mapping)
+  passing. When measuring peaks in a rendered image, invert the palette LUT -- do not use
+  grayscale luminance, which is not monotonic in level for this rainbow palette.
 - **Every `SpectrogramParams`/`OscillogramParams` field must be something `params_hash` actually
   hashes** (it iterates `dataclasses.fields(self)` generically) — a rendering-affecting knob added
   outside that dataclass (e.g. a module-level constant) would silently break the

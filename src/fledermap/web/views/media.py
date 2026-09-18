@@ -46,9 +46,9 @@ from fledermap.media.spectrogram import (
 from fledermap.media.wav_pcm import UnreadableWavError, read_pcm
 from fledermap.services.media import resolve_recording, resolve_wav_path
 from fledermap.services.recording_detail import (
-    DETAIL_PX_PER_MS,
     DetailTile,
     detail_params,
+    tile_time_range_s,
 )
 from fledermap.store.models import Recording
 from fledermap.web.params import parse_bool
@@ -217,9 +217,12 @@ def _resolve_detail_wav(audio_hash: str) -> tuple[Path, float] | None:
 def _detail_tile_context(
     audio_hash: str,
     tile_index: int,
-) -> tuple[Path, SpectrogramParams, OscillogramParams, DetailTile] | None:
+) -> (
+    tuple[Path, SpectrogramParams, OscillogramParams, DetailTile, tuple[float, float]]
+    | None
+):
     """Resolves `audio_hash` and `tile_index` to (wav_path, spectrogram_params,
-    oscillogram_params, tile) for the two detail-render routes below, or None for any of: unknown
+    oscillogram_params, tile, time_range_s) for the two detail-render routes below, or None for any of: unknown
     recording, no source file (`missing_since` set OR the file simply isn't on disk -- design
     spec section 2 step 2's "missing file" case covers both, only the first of which Task 3
     originally handled), missing duration/samplerate metadata, or an out-of-range `tile_index`."""
@@ -238,11 +241,13 @@ def _detail_tile_context(
             return None
         if not wav_path.exists():
             return None
-        params = detail_params(recording.duration_s, recording.samplerate_hz)
+        duration_s = recording.duration_s
+        params = detail_params(duration_s, recording.samplerate_hz)
     if tile_index < 0 or tile_index >= len(params.tiles):
         return None
     tile = params.tiles[tile_index]
-    return wav_path, params.spectrogram, params.oscillogram, tile
+    time_range_s = tile_time_range_s(tile, params.spectrogram.width_px, duration_s)
+    return wav_path, params.spectrogram, params.oscillogram, tile, time_range_s
 
 
 def _serve_temp_render(
@@ -346,11 +351,7 @@ def detail_spectrogram(audio_hash: str, tile_index: int) -> ResponseReturnValue:
     context = _detail_tile_context(audio_hash, tile_index)
     if context is None:
         flask.abort(404)
-    wav_path, spectrogram_params, _oscillogram_params, tile = context
-    time_range_s = (
-        tile.start_px / DETAIL_PX_PER_MS / 1000,
-        (tile.start_px + tile.width_px) / DETAIL_PX_PER_MS / 1000,
-    )
+    wav_path, spectrogram_params, _oscillogram_params, tile, time_range_s = context
     denoise = parse_bool(flask.request.args.get("denoise"))
     spectrogram_params = dataclasses.replace(spectrogram_params, denoise=denoise)
     tile_params = dataclasses.replace(spectrogram_params, width_px=tile.width_px)
@@ -404,11 +405,7 @@ def detail_oscillogram(audio_hash: str, tile_index: int) -> ResponseReturnValue:
     context = _detail_tile_context(audio_hash, tile_index)
     if context is None:
         flask.abort(404)
-    wav_path, _spectrogram_params, oscillogram_params, tile = context
-    time_range_s = (
-        tile.start_px / DETAIL_PX_PER_MS / 1000,
-        (tile.start_px + tile.width_px) / DETAIL_PX_PER_MS / 1000,
-    )
+    wav_path, _spectrogram_params, oscillogram_params, tile, time_range_s = context
     denoise = parse_bool(flask.request.args.get("denoise"))
     oscillogram_params = dataclasses.replace(oscillogram_params, denoise=denoise)
     tile_params = dataclasses.replace(oscillogram_params, width_px=tile.width_px)
