@@ -78,6 +78,14 @@ _MULTI_SUPPORT_SOURCES: frozenset[IdSource] = frozenset(
     {IdSource.MANUAL, IdSource.BATDETECT2, IdSource.BATTYBIRDNET},
 )
 
+# The three on-device auto-ID materializations of the same underlying detector result --
+# distinct from EMT_MANUAL (a human's own on-device correction). Drives
+# services/current_best.py's combined-EMT display grouping and services/map_query.py's
+# combined-EMT source filter, both gated by Config.combine_emt_display.
+EMT_AUTOMATIC_SOURCES: frozenset[IdSource] = frozenset(
+    {IdSource.EMT_GUANO, IdSource.EMT_WAMD, IdSource.EMT_FILENAME},
+)
+
 
 def is_manual(source: IdSource) -> bool:
     """A human's deliberate judgment -- either in-app (`MANUAL`) or the on-device correction
@@ -103,6 +111,12 @@ def is_multi_support(source: IdSource) -> bool:
     an error. Drives both `current_best.py`'s multi-support containment override and
     `review_flags.py`'s equality/containment disagreement rule."""
     return source in _MULTI_SUPPORT_SOURCES
+
+
+def is_emt_automatic(source: IdSource) -> bool:
+    """One of the three EMT auto-ID materializations (GUANO/wamd/filename) -- see
+    `EMT_AUTOMATIC_SOURCES` above."""
+    return source in EMT_AUTOMATIC_SOURCES
 
 
 class VisualSighting(StrEnum):

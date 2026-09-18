@@ -322,6 +322,24 @@ def test_source_filters_recordings_by_that_source_identification(
     assert [r.id for r in results] == [matching.id]
 
 
+def test_source_emt_matches_any_of_the_three_automatic_emt_sources(
+    engine: Engine,
+) -> None:
+    with OrmSession(engine) as session:
+        guano = _recording(session, audio_hash="a" * 64, source=IdSource.EMT_GUANO)
+        wamd = _recording(session, audio_hash="b" * 64, source=IdSource.EMT_WAMD)
+        filename = _recording(
+            session, audio_hash="c" * 64, source=IdSource.EMT_FILENAME
+        )
+        _recording(session, audio_hash="d" * 64, source=IdSource.EMT_MANUAL)
+        _recording(session, audio_hash="e" * 64, source=IdSource.BATDETECT2)
+        session.commit()
+
+        results = filtered_recordings(session, source="emt")
+
+        assert {r.id for r in results} == {guano.id, wamd.id, filename.id}
+
+
 def test_filtered_sites_by_bbox_and_date(engine: Engine) -> None:
     with OrmSession(engine) as session:
         inside = Site(

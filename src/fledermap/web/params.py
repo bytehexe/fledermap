@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, time
 from typing import Literal
 
-from fledermap.domain.codes import Verdict
+from fledermap.domain.codes import IdSource, Verdict
 
 BBox = tuple[float, float, float, float]  # (min_lon, min_lat, max_lon, max_lat)
 
@@ -91,6 +91,19 @@ def parse_verdict(raw: str | None) -> Verdict | Literal["all", "unidentified"] |
     if raw == "unidentified":
         return "unidentified"
     return Verdict(raw)
+
+
+def parse_source(raw: str | None) -> IdSource | Literal["emt"] | None:
+    """The `source` query param on the map page and its GeoJSON endpoint -- shared here so
+    the two callers (`web/views/map.py`, `web/api/geojson.py`) can't drift on what "emt", the
+    combined-EMT filter's sentinel value (`map.html`'s single "EMT" dropdown option, only
+    shown when `Config.combine_emt_display` is on), means. A real `IdSource` value raises
+    `ValueError` on an invalid string, same as before this helper existed."""
+    if not raw:
+        return None
+    if raw == "emt":
+        return "emt"
+    return IdSource(raw)
 
 
 def parse_int(raw: str | None) -> int | None:

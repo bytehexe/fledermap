@@ -31,9 +31,13 @@
       <label>Source
         <select name="source" x-model="source">
           <option value="">Any</option>
+          {% if combine_emt_display %}
+          <option value="emt">EMT</option>
+          {% else %}
           <option value="emt.guano">EMT GUANO</option>
           <option value="emt.wamd">EMT WAMD</option>
           <option value="emt.filename">EMT filename</option>
+          {% endif %}
           <option value="emt.manual">EMT manual</option>
           <option value="manual">Manual</option>
           <option value="fledermap.noise">Noise</option>

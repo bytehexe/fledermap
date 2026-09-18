@@ -22,7 +22,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Literal
 
-from fledermap.domain.codes import IdSource, Verdict, is_manual, is_multi_support
+from fledermap.domain.codes import (
+    IdSource,
+    Verdict,
+    is_emt_automatic,
+    is_manual,
+    is_multi_support,
+)
 from fledermap.store.models import Identification, Recording, Taxon
 
 _PRECEDENCE: tuple[IdSource, ...] = (
@@ -285,3 +291,68 @@ def sort_identifications_by_precedence(
             return len(_PRECEDENCE)
 
     return sorted(identifications, key=key)
+
+
+@dataclass(frozen=True)
+class IdentificationRow:
+    """One rendered row of the "Identifications" breakdown box
+    (`_recording_panel.html`, `_identifications_box.html`) -- `source_label` is what the
+    template shows, which may differ from `ident.source.value` when `combine_emt` folded
+    the row into the group label `"emt"` (see `display_identifications` below)."""
+
+    source_label: str
+    ident: Identification
+    status: IdentificationStatus
+
+
+def display_identifications(
+    identifications: Sequence[Identification],
+    best: CurrentIdentification | None,
+    *,
+    combine_emt: bool,
+) -> list[IdentificationRow]:
+    """Precedence-ordered rows for the "Identifications" breakdown box, optionally folding
+    the three EMT auto-ID materializations (`domain.codes.is_emt_automatic` --
+    emt.guano/emt.wamd/emt.filename) into a single `"emt"` row (Config.combine_emt_display,
+    an operator-facing display choice: the three sources are different materializations of
+    the same underlying detector result, not independent evidence). `emt.manual` is never
+    folded in -- it's a human's own on-device correction, not another auto-ID
+    materialization.
+
+    Sorting by precedence (`sort_identifications_by_precedence`) already puts
+    emt.guano/emt.wamd/emt.filename consecutively when present. Within that run, the combined
+    row represents whichever claim is `"current"` (the one `current_best_identification`
+    actually picked) if any -- NOT simply the highest-precedence row in the group, since a
+    higher-precedence source's own automatic NO_ID falls through to the next EMT source
+    (`_live_claims` above) without becoming that group's winner. Absent a `"current"` claim in
+    the group (the whole group lost to a higher-precedence non-EMT source, or is a pure NO_ID
+    fallthrough with nothing else live), the highest-precedence row stands in as before. The
+    database still keeps all three `Identification` rows; this only changes what's displayed."""
+    ordered = [
+        (ident, identification_status(ident, best))
+        for ident in sort_identifications_by_precedence(identifications)
+    ]
+    if not combine_emt:
+        return [
+            IdentificationRow(ident.source.value, ident, status)
+            for ident, status in ordered
+        ]
+
+    rows: list[IdentificationRow] = []
+    index = 0
+    while index < len(ordered):
+        ident, status = ordered[index]
+        if not is_emt_automatic(ident.source):
+            rows.append(IdentificationRow(ident.source.value, ident, status))
+            index += 1
+            continue
+        group = []
+        while index < len(ordered) and is_emt_automatic(ordered[index][0].source):
+            group.append(ordered[index])
+            index += 1
+        rep_ident, rep_status = next(
+            (row for row in group if row[1] == "current"),
+            group[0],
+        )
+        rows.append(IdentificationRow("emt", rep_ident, rep_status))
+    return rows

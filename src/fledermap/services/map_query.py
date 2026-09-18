@@ -28,7 +28,7 @@ from typing import Literal
 from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
 
-from fledermap.domain.codes import IdSource, Verdict
+from fledermap.domain.codes import EMT_AUTOMATIC_SOURCES, IdSource, Verdict
 from fledermap.services.current_best import (
     CurrentIdentification,
     current_best_identification,
@@ -100,7 +100,7 @@ def filtered_recordings(
     verdict: Verdict | Literal["all", "unidentified"] | None = None,
     session_id: int | None = None,
     site_id: int | None = None,
-    source: IdSource | None = None,
+    source: IdSource | Literal["emt"] | None = None,
     favourite_only: bool = False,
     needs_review: bool = False,
 ) -> Sequence[Recording]:
@@ -124,7 +124,17 @@ def filtered_recordings(
         stmt = stmt.where(Recording.site_id == site_id)
     if favourite_only:
         stmt = stmt.where(Recording.favourite.is_(True))
-    if source is not None:
+    if source == "emt":
+        # The combined-EMT filter (map.html's single "EMT" dropdown option, only shown when
+        # Config.combine_emt_display is on) -- matches any recording with a live claim from
+        # any of the three EMT auto-ID materializations, same "any Identification row"
+        # semantics as the plain single-source filter below, just OR'd across the three.
+        stmt = stmt.where(
+            Recording.identifications.any(
+                Identification.source.in_(EMT_AUTOMATIC_SOURCES)
+            ),
+        )
+    elif source is not None:
         stmt = stmt.where(
             Recording.identifications.any(Identification.source == source),
         )

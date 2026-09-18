@@ -6,7 +6,6 @@ import flask
 from flask.typing import ResponseReturnValue
 from sqlalchemy.orm import Session as OrmSession
 
-from fledermap.domain.codes import IdSource
 from fledermap.services.current_best import current_best_identification
 from fledermap.services.map_query import (
     MAX_FEATURES,
@@ -21,6 +20,7 @@ from fledermap.web.params import (
     parse_bool,
     parse_datetime,
     parse_int,
+    parse_source,
     parse_taxon_filter,
     parse_verdict,
 )
@@ -77,8 +77,7 @@ def _site_feature(site: Site) -> dict[str, object]:
 def recordings_geojson() -> ResponseReturnValue:
     try:
         bbox = parse_bbox(flask.request.args.get("bbox"))
-        source_raw = flask.request.args.get("source")
-        source = IdSource(source_raw) if source_raw else None
+        source = parse_source(flask.request.args.get("source"))
         date_from = parse_datetime(flask.request.args.get("from"))
         date_to = parse_datetime(flask.request.args.get("to"), end_of_day=True)
         taxon_id = parse_taxon_filter(flask.request.args.get("taxon"))

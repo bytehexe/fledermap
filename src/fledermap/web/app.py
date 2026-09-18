@@ -57,6 +57,7 @@ def create_app(
     archive_roots: tuple[Path, ...] = (),
     batdetect2_enabled: bool = False,
     battybirdnet_enabled: bool = False,
+    combine_emt_display: bool = True,
 ) -> flask.Flask:
     """`static_root` is `Config.static_root` -- where
     `services/vendor_assets.py`'s `ensure_vendor_assets` fetches Leaflet/HTMX/Alpine.
@@ -83,6 +84,11 @@ def create_app(
     filter to match; defaults to `False`, same reasoning as `archive_roots`
     above. `battybirdnet_enabled` is `Config.battybirdnet_enabled` and gates
     the "battybirdnet" filter option the same way.
+
+    `combine_emt_display` is `Config.combine_emt_display` -- when true (the default), the
+    map's Source filter shows one combined "EMT" option instead of separate emt.guano/
+    emt.wamd/emt.filename options, and the "Identifications" breakdown box folds those same
+    three sources into one `"emt"` row (`services/current_best.py`'s `display_identifications`).
     """
     app = flask.Flask(__name__)
     app.config["ENGINE"] = engine
@@ -90,6 +96,7 @@ def create_app(
     app.config["ARCHIVE_ROOTS"] = archive_roots
     app.config["BATDETECT2_ENABLED"] = batdetect2_enabled
     app.config["BATTYBIRDNET_ENABLED"] = battybirdnet_enabled
+    app.config["COMBINE_EMT_DISPLAY"] = combine_emt_display
 
     with OrmSession(engine) as session:
         display_timezone_name = session.execute(

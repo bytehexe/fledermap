@@ -3,6 +3,7 @@ from __future__ import annotations
 from fledermap.domain.codes import (
     IdSource,
     Verdict,
+    is_emt_automatic,
     is_manual,
     is_multi_support,
     is_only_noise,
@@ -63,3 +64,19 @@ def test_is_multi_support_false_for_plain_sources() -> None:
     assert is_multi_support(IdSource.EMT_WAMD) is False
     assert is_multi_support(IdSource.EMT_FILENAME) is False
     assert is_multi_support(IdSource.FLEDERMAP_NOISE) is False
+
+
+def test_is_emt_automatic_true_for_the_three_device_materializations() -> None:
+    assert is_emt_automatic(IdSource.EMT_GUANO) is True
+    assert is_emt_automatic(IdSource.EMT_WAMD) is True
+    assert is_emt_automatic(IdSource.EMT_FILENAME) is True
+
+
+def test_is_emt_automatic_false_for_emt_manual_and_other_sources() -> None:
+    """`emt.manual` is a human's on-device correction, not another
+    materialization of the device's own auto-ID -- it must stay outside the
+    combined-EMT display/filter grouping."""
+    assert is_emt_automatic(IdSource.EMT_MANUAL) is False
+    assert is_emt_automatic(IdSource.MANUAL) is False
+    assert is_emt_automatic(IdSource.BATDETECT2) is False
+    assert is_emt_automatic(IdSource.FLEDERMAP_NOISE) is False

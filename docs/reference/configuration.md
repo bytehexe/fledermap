@@ -37,6 +37,7 @@ also rejected at startup rather than silently ignored.
 | BattyBirdNET classifier enabled | `battybirdnet_enabled` | `FLEDERMAP_BATTYBIRDNET_ENABLED` | no | `false` |
 | BattyBirdNET-Analyzer server URL | `battybirdnet_url` | `FLEDERMAP_BATTYBIRDNET_URL` | only if enabled | unset |
 | BattyBirdNET detection threshold | `battybirdnet_threshold` | `FLEDERMAP_BATTYBIRDNET_THRESHOLD` | no | `0.6` |
+| Combine EMT sources in the UI | `combine_emt_display` | `FLEDERMAP_COMBINE_EMT_DISPLAY` | no | `true` |
 
 Notes on individual settings:
 
@@ -98,6 +99,13 @@ Notes on individual settings:
   bar, valid range `0.0`–`1.0`) is compared against the returned per-species confidence the same
   way `batdetect2_threshold` is, and is likewise re-applied to stored raw scores on every ingest
   cycle with no re-classification needed.
+- **`combine_emt_display`** (default `true`) folds the map's three on-device EMT auto-ID sources
+  (`emt.guano`/`emt.wamd`/`emt.filename` — different materializations of the same underlying
+  detector result) into a single combined "EMT" option in the Source filter dropdown and a single
+  "emt" row in a recording's Identifications breakdown. The three `Identification` rows stay
+  separate in the database either way; this only changes what the UI shows. `emt.manual` (a
+  human's on-device correction) is never folded in. Set to `false` to see each of the three
+  sources on its own.
 
 ## Example config file
 

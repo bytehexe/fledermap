@@ -6,6 +6,7 @@ from fledermap.domain.codes import IdSource, Verdict
 from fledermap.services.current_best import (
     CurrentIdentification,
     current_best_identification,
+    display_identifications,
     identification_label,
     identification_status,
     recording_headline,
@@ -375,6 +376,103 @@ def test_sort_identifications_by_precedence_puts_an_unranked_source_last() -> No
     future = _ident(IdSource.KALEIDOSCOPE)
 
     assert sort_identifications_by_precedence([future, manual]) == [manual, future]
+
+
+def test_display_identifications_combines_the_three_emt_sources_into_one_row() -> None:
+    guano = _ident(IdSource.EMT_GUANO, taxon_id=1)
+    wamd = _ident(IdSource.EMT_WAMD, taxon_id=1)
+    filename = _ident(IdSource.EMT_FILENAME, taxon_id=1)
+    r = _recording(filename, wamd, guano)
+    best = current_best_identification(r)
+
+    rows = display_identifications(r.identifications, best, combine_emt=True)
+
+    assert [row.source_label for row in rows] == ["emt"]
+    assert rows[0].ident is guano  # highest-precedence claim represents the group
+    assert rows[0].status == "current"
+
+
+def test_display_identifications_combining_represents_the_group_by_the_actual_winner() -> (
+    None
+):
+    """guano's own automatic NO_ID falls through to wamd (services/current_best.py's
+    `_live_claims`), so wamd -- not guano, despite outranking it in raw precedence order --
+    is the claim that actually drives the shown result. The combined row must represent
+    that winner, not just whichever EMT source sorts first."""
+    guano_no_id = _ident(IdSource.EMT_GUANO, verdict=Verdict.NO_ID, taxon_id=None)
+    wamd_species = _ident(IdSource.EMT_WAMD, taxon_id=1)
+    r = _recording(wamd_species, guano_no_id)
+    best = current_best_identification(r)
+
+    rows = display_identifications(r.identifications, best, combine_emt=True)
+
+    assert [row.source_label for row in rows] == ["emt"]
+    assert rows[0].ident is wamd_species
+    assert rows[0].status == "current"
+
+
+def test_display_identifications_keeps_emt_sources_separate_when_flag_is_off() -> None:
+    guano = _ident(IdSource.EMT_GUANO, taxon_id=1)
+    wamd = _ident(IdSource.EMT_WAMD, taxon_id=1)
+    r = _recording(wamd, guano)
+    best = current_best_identification(r)
+
+    rows = display_identifications(r.identifications, best, combine_emt=False)
+
+    assert [row.source_label for row in rows] == ["emt.guano", "emt.wamd"]
+
+
+def test_display_identifications_combining_shows_the_winning_claim_on_disagreement() -> (
+    None
+):
+    """Precedence winner represents the combined row even when the sources disagree --
+    guano wins outright over a conflicting wamd claim, matching current_best_identification's
+    own precedence walk (§ combine-emt design decision: "show winning claim only")."""
+    guano = _ident(IdSource.EMT_GUANO, taxon_id=1)
+    wamd = _ident(IdSource.EMT_WAMD, taxon_id=2)
+    r = _recording(wamd, guano)
+    best = current_best_identification(r)
+
+    rows = display_identifications(r.identifications, best, combine_emt=True)
+
+    assert [row.source_label for row in rows] == ["emt"]
+    assert rows[0].ident is guano
+
+
+def test_display_identifications_combining_a_single_emt_source_still_labels_it_emt() -> (
+    None
+):
+    guano = _ident(IdSource.EMT_GUANO, taxon_id=1)
+    r = _recording(guano)
+    best = current_best_identification(r)
+
+    rows = display_identifications(r.identifications, best, combine_emt=True)
+
+    assert [row.source_label for row in rows] == ["emt"]
+
+
+def test_display_identifications_never_combines_emt_manual_with_the_others() -> None:
+    guano = _ident(IdSource.EMT_GUANO, taxon_id=1)
+    manual = _ident(IdSource.EMT_MANUAL, taxon_id=1)
+    r = _recording(guano, manual)
+    best = current_best_identification(r)
+
+    rows = display_identifications(r.identifications, best, combine_emt=True)
+
+    assert [row.source_label for row in rows] == ["emt.manual", "emt"]
+
+
+def test_display_identifications_leaves_non_emt_sources_labeled_by_their_own_source() -> (
+    None
+):
+    manual = _ident(IdSource.MANUAL, taxon_id=1)
+    noise = _ident(IdSource.FLEDERMAP_NOISE, verdict=Verdict.NOISE, taxon_id=None)
+    r = _recording(manual, noise)
+    best = current_best_identification(r)
+
+    rows = display_identifications(r.identifications, best, combine_emt=True)
+
+    assert [row.source_label for row in rows] == ["manual", "fledermap.noise"]
 
 
 def test_batdetect2_outranks_fledermap_noise_but_not_emt_sources() -> None:

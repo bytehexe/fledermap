@@ -95,6 +95,43 @@ def test_map_page_includes_batdetect2_source_option_when_enabled(
     assert 'value="batdetect2"' in html
 
 
+def test_map_page_shows_a_combined_emt_source_option_by_default(
+    engine: Engine, tmp_path: Path
+) -> None:
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    client = app.test_client()
+
+    response = client.get("/")
+
+    html = response.get_data(as_text=True)
+    assert 'value="emt"' in html
+    assert 'value="emt.guano"' not in html
+    assert 'value="emt.wamd"' not in html
+    assert 'value="emt.filename"' not in html
+    # emt.manual is a human's own on-device correction, never folded into the combined option.
+    assert 'value="emt.manual"' in html
+
+
+def test_map_page_shows_individual_emt_source_options_when_combine_emt_display_is_off(
+    engine: Engine, tmp_path: Path
+) -> None:
+    app = create_app(
+        engine,
+        tmp_path / "static",
+        tmp_path / "media",
+        combine_emt_display=False,
+    )
+    client = app.test_client()
+
+    response = client.get("/")
+
+    html = response.get_data(as_text=True)
+    assert 'value="emt"' not in html
+    assert 'value="emt.guano"' in html
+    assert 'value="emt.wamd"' in html
+    assert 'value="emt.filename"' in html
+
+
 def test_map_page_omits_battybirdnet_source_option_when_disabled(
     engine: Engine, tmp_path: Path
 ) -> None:
@@ -432,7 +469,12 @@ def test_recording_panel_renders_identification_list_content(
         )
         session.commit()
 
-    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    app = create_app(
+        engine,
+        tmp_path / "static",
+        tmp_path / "media",
+        combine_emt_display=False,
+    )
     response = app.test_client().get(f"/recordings/{'e' * 64}/panel")
 
     assert response.status_code == 200
@@ -485,7 +527,12 @@ def test_recording_panel_orders_identifications_by_precedence_and_styles_status(
         )
         session.commit()
 
-    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    app = create_app(
+        engine,
+        tmp_path / "static",
+        tmp_path / "media",
+        combine_emt_display=False,
+    )
     html = (
         app.test_client()
         .get(f"/recordings/{'k' * 64}/panel?verdict=all")
@@ -498,6 +545,82 @@ def test_recording_panel_orders_identifications_by_precedence_and_styles_status(
     assert "identification-passive" in html
     assert "identification-current" in html
     assert "shadowed by" not in html
+
+
+def test_recording_panel_combines_emt_sources_into_one_row_by_default(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Eptesicus serotinus")
+        session.add(taxon)
+        session.flush()
+        recording = Recording(
+            audio_hash="m" * 64,
+            path="m.wav",
+            recorded_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+            geom=WKTElement("POINT(10 50)", srid=4326),
+        )
+        session.add(recording)
+        session.flush()
+        session.add_all(
+            [
+                Identification(
+                    recording_id=recording.id,
+                    source=IdSource.EMT_WAMD,
+                    verdict=Verdict.SPECIES,
+                    taxon_id=taxon.id,
+                    first_seen_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+                ),
+                Identification(
+                    recording_id=recording.id,
+                    source=IdSource.EMT_GUANO,
+                    verdict=Verdict.SPECIES,
+                    taxon_id=taxon.id,
+                    first_seen_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+                ),
+            ],
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    html = app.test_client().get(f"/recordings/{'m' * 64}/panel").get_data(as_text=True)
+
+    assert "emt:" in html
+    assert "emt.guano" not in html
+    assert "emt.wamd" not in html
+
+
+def test_recording_panel_source_filter_emt_matches_any_automatic_emt_source(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        recording = Recording(
+            audio_hash="n" * 64,
+            path="n.wav",
+            recorded_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+            geom=WKTElement("POINT(10 50)", srid=4326),
+        )
+        session.add(recording)
+        session.flush()
+        session.add(
+            Identification(
+                recording_id=recording.id,
+                source=IdSource.EMT_FILENAME,
+                verdict=Verdict.SPECIES,
+                first_seen_at=datetime(2026, 8, 25, 21, 0, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(
+        f"/recordings/{'n' * 64}/panel?source=emt&verdict=all",
+    )
+
+    assert response.status_code == 200
+    assert "Identifications" in response.get_data(as_text=True)
 
 
 def test_recording_panel_explains_a_missing_site_as_an_outlier(

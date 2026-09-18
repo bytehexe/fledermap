@@ -47,6 +47,7 @@ ENV_BATDETECT2_THRESHOLD = "FLEDERMAP_BATDETECT2_THRESHOLD"
 ENV_BATTYBIRDNET_ENABLED = "FLEDERMAP_BATTYBIRDNET_ENABLED"
 ENV_BATTYBIRDNET_URL = "FLEDERMAP_BATTYBIRDNET_URL"
 ENV_BATTYBIRDNET_THRESHOLD = "FLEDERMAP_BATTYBIRDNET_THRESHOLD"
+ENV_COMBINE_EMT_DISPLAY = "FLEDERMAP_COMBINE_EMT_DISPLAY"
 
 # Every key the config file is allowed to set -- one entry per `Config` field
 # that has a `FLEDERMAP_*` env var above. Checked in `_load_config_file` so a
@@ -69,6 +70,7 @@ _KNOWN_FILE_KEYS = frozenset(
         "battybirdnet_enabled",
         "battybirdnet_url",
         "battybirdnet_threshold",
+        "combine_emt_display",
         "media_root",
         "static_root",
         "port",
@@ -297,6 +299,14 @@ class Config:
     # (config.py's MIN_CONFIDENCE = 0.6), even though that constant is never
     # actually enforced server-side for the /analyze API path (spec §3/§5).
     battybirdnet_threshold: float = 0.6
+    # On by default (unlike batdetect2_enabled/battybirdnet_enabled above): emt.guano/
+    # emt.wamd/emt.filename are three materializations of the same underlying EMT detector
+    # result, not independent classifiers, so folding them into one "emt" line/filter option
+    # is the more accurate default display rather than an opt-in. The database still keeps
+    # the three Identification rows separate either way -- this only affects the classifier
+    # list template and the map's Source filter dropdown/query (domain/codes.py's
+    # EMT_AUTOMATIC_SOURCES, services/current_best.py, services/map_query.py).
+    combine_emt_display: bool = True
     site_eps_m: float = 75.0
     site_min_points: int = 3
     # Optional (design spec 2026-08-28-fledermap-poiidx-site-naming-design.md,
@@ -579,6 +589,30 @@ class Config:
                 msg = f"{label}={battybirdnet_enabled_raw!r} is not a boolean (true/false)."
                 raise ConfigError(msg)
 
+        combine_emt_display_raw = _lookup(
+            ENV_COMBINE_EMT_DISPLAY,
+            "combine_emt_display",
+            file_values,
+        )
+        if combine_emt_display_raw is None:
+            combine_emt_display = True
+        elif isinstance(combine_emt_display_raw, bool):
+            combine_emt_display = combine_emt_display_raw
+        else:
+            label = _source_label(
+                ENV_COMBINE_EMT_DISPLAY,
+                "combine_emt_display",
+                config_path,
+            )
+            text = _as_str(combine_emt_display_raw, label).strip().lower()
+            if text in ("true", "1", "yes"):
+                combine_emt_display = True
+            elif text in ("false", "0", "no"):
+                combine_emt_display = False
+            else:
+                msg = f"{label}={combine_emt_display_raw!r} is not a boolean (true/false)."
+                raise ConfigError(msg)
+
         battybirdnet_url_raw = _lookup(
             ENV_BATTYBIRDNET_URL,
             "battybirdnet_url",
@@ -712,6 +746,7 @@ class Config:
             battybirdnet_enabled=battybirdnet_enabled,
             battybirdnet_url=battybirdnet_url,
             battybirdnet_threshold=battybirdnet_threshold,
+            combine_emt_display=combine_emt_display,
             site_eps_m=site_eps_m,
             site_min_points=site_min_points,
             poiidx_database_url=poiidx_database_url,

@@ -11,10 +11,10 @@
 <div class="col identifications">
   <h3>Identifications</h3>
   <ul>
-    {% for ident, status in identifications_with_status %}
-    <li class="identification-{{ status }}">
-      {{ ident.source.value }}:
-      {% if ident.taxon %}<a href="/species/{{ ident.taxon.id }}">{{ identification_label(ident, ident.taxon) }}</a>{% else %}{{ identification_label(ident, ident.taxon) }}{% endif %}
+    {% for row in identifications_with_status %}
+    <li class="identification-{{ row.status }}">
+      {{ row.source_label }}:
+      {% if row.ident.taxon %}<a href="/species/{{ row.ident.taxon.id }}">{{ identification_label(row.ident, row.ident.taxon) }}</a>{% else %}{{ identification_label(row.ident, row.ident.taxon) }}{% endif %}
     </li>
     {% endfor %}
   </ul>

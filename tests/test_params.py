@@ -1,11 +1,36 @@
 from __future__ import annotations
 
+import pytest
+
+from fledermap.domain.codes import IdSource
 from fledermap.web.params import (
     detector_label,
     parse_bool,
+    parse_source,
     parse_taxon_filter,
     parse_verdict,
 )
+
+
+def test_parse_source_absent_is_none() -> None:
+    assert parse_source(None) is None
+
+
+def test_parse_source_empty_string_is_none() -> None:
+    assert parse_source("") is None
+
+
+def test_parse_source_real_id_source_value() -> None:
+    assert parse_source("emt.guano") is IdSource.EMT_GUANO
+
+
+def test_parse_source_emt_sentinel() -> None:
+    assert parse_source("emt") == "emt"
+
+
+def test_parse_source_invalid_value_raises() -> None:
+    with pytest.raises(ValueError, match="emt.nonsense"):
+        parse_source("emt.nonsense")
 
 
 def test_parse_bool_absent_is_false() -> None:

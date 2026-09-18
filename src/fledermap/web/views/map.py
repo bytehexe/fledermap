@@ -8,7 +8,7 @@ import flask
 from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
 
-from fledermap.domain.codes import IdSource, Verdict
+from fledermap.domain.codes import Verdict
 from fledermap.media.paths import oscillogram_path, preview_path, spectrogram_path
 from fledermap.media.preview import TIME_EXPANSION_FACTOR
 from fledermap.media.spectrogram import (
@@ -17,8 +17,7 @@ from fledermap.media.spectrogram import (
 )
 from fledermap.services.current_best import (
     current_best_identification,
-    identification_status,
-    sort_identifications_by_precedence,
+    display_identifications,
 )
 from fledermap.services.manual_classification import (
     current_manual_state,
@@ -42,6 +41,7 @@ from fledermap.web.params import (
     parse_bool,
     parse_datetime,
     parse_int,
+    parse_source,
     parse_taxon_filter,
     parse_verdict,
 )
@@ -62,6 +62,7 @@ def map_page() -> str:
             max_features=MAX_FEATURES,
             batdetect2_enabled=flask.current_app.config["BATDETECT2_ENABLED"],
             battybirdnet_enabled=flask.current_app.config["BATTYBIRDNET_ENABLED"],
+            combine_emt_display=flask.current_app.config["COMBINE_EMT_DISPLAY"],
         )
 
 
@@ -84,8 +85,7 @@ def _render_recording_panel(
         verdict = parse_verdict(flask.request.args.get("verdict"))
         session_id = parse_int(flask.request.args.get("session"))
         site_id = parse_int(flask.request.args.get("site"))
-        source_raw = flask.request.args.get("source")
-        source = IdSource(source_raw) if source_raw else None
+        source = parse_source(flask.request.args.get("source"))
         favourite_only = parse_bool(flask.request.args.get("favourite_only"))
         needs_review_only = parse_bool(flask.request.args.get("needs_review_only"))
     except ValueError as exc:
@@ -122,10 +122,11 @@ def _render_recording_panel(
         taxon = None
         if best is not None and not best.is_multi and best.primary.taxon_id is not None:
             taxon = session.get(Taxon, best.primary.taxon_id)
-        identifications_with_status = [
-            (ident, identification_status(ident, best))
-            for ident in sort_identifications_by_precedence(recording.identifications)
-        ]
+        identifications_with_status = display_identifications(
+            recording.identifications,
+            best,
+            combine_emt=flask.current_app.config["COMBINE_EMT_DISPLAY"],
+        )
         point = decode_point(recording.geom)
 
         recording_session = (

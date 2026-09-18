@@ -14,8 +14,7 @@ from fledermap.media.paths import preview_path
 from fledermap.media.preview import TIME_EXPANSION_FACTOR
 from fledermap.services.current_best import (
     current_best_identification,
-    identification_status,
-    sort_identifications_by_precedence,
+    display_identifications,
 )
 from fledermap.services.manual_classification import current_manual_state
 from fledermap.services.recording_detail import (
@@ -99,10 +98,11 @@ def recording_details_page(audio_hash: str) -> flask.Response:
         taxon = None
         if best is not None and not best.is_multi and best.primary.taxon_id is not None:
             taxon = session.get(Taxon, best.primary.taxon_id)
-        identifications_with_status = [
-            (ident, identification_status(ident, best))
-            for ident in sort_identifications_by_precedence(recording.identifications)
-        ]
+        identifications_with_status = display_identifications(
+            recording.identifications,
+            best,
+            combine_emt=flask.current_app.config["COMBINE_EMT_DISPLAY"],
+        )
         taxon_search_index = _taxon_search_index(session)
 
         # The classifier box's own state -- deliberately NOT derived from

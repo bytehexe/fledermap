@@ -13,6 +13,7 @@ from fledermap.config import (
     ENV_BATTYBIRDNET_ENABLED,
     ENV_BATTYBIRDNET_THRESHOLD,
     ENV_BATTYBIRDNET_URL,
+    ENV_COMBINE_EMT_DISPLAY,
     ENV_CONFIG_FILE,
     ENV_DATABASE_URL,
     ENV_DEFAULT_TIMEZONE,
@@ -433,6 +434,42 @@ def test_battybirdnet_enabled_accepts_the_same_truthy_spellings_as_batdetect2(
     monkeypatch.setenv(ENV_BATTYBIRDNET_URL, "http://localhost:7667")
     config = Config.from_env()
     assert config.battybirdnet_enabled is True
+
+
+def test_combine_emt_display_defaults_to_true(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+    monkeypatch.delenv(ENV_COMBINE_EMT_DISPLAY, raising=False)
+    config = Config.from_env()
+    assert config.combine_emt_display is True
+
+
+def test_combine_emt_display_is_configurable_via_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+    monkeypatch.setenv(ENV_COMBINE_EMT_DISPLAY, "false")
+    config = Config.from_env()
+    assert config.combine_emt_display is False
+
+
+def test_invalid_combine_emt_display_raises_config_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+    monkeypatch.setenv(ENV_COMBINE_EMT_DISPLAY, "maybe")
+    with pytest.raises(ConfigError, match="not a boolean"):
+        Config.from_env()
 
 
 def test_default_site_eps_and_min_points(
