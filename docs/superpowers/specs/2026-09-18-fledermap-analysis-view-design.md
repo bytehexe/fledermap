@@ -23,9 +23,10 @@ it now would mean guessing at data this project doesn't have.
 
 ## Goals
 
-- A second, mutually-exclusive **view** on the recording details page, alongside today's view
-  (renamed **Playback**): **Analysis**, showing the sound-level spectrum and a reserved
-  call-distance graph side by side.
+- A second, mutually-exclusive **view** on the recording details page, alongside today's
+  oscillogram+spectrogram view (newly named **Playback** — see §1, not a rename of any existing
+  label): **Analysis**, showing the sound-level spectrum and a reserved call-distance graph side by
+  side. Both views stay under the page's existing, unchanged `<h2>Audio</h2>` heading.
 - A single toggle button, fixed at the right end of the toolbar, same position and size in both
   states, whose label always names the *other* view ("📊 Analysis view" while in Playback, "🌊
   Playback" while in Analysis) — an unambiguous, always-in-the-same-place way back.
@@ -67,15 +68,20 @@ it now would mean guessing at data this project doesn't have.
 
 ## Design
 
-### 1. Renaming the existing view to "Playback"
+### 1. Naming the existing view: "Playback"
 
-"Overview" was considered and rejected: this project already uses "overview" to mean the map
-drawer's lower-fidelity, stretched spectrogram/oscillogram, explicitly contrasted with the details
-page's higher-fidelity, locked-scale rendering (`docs/superpowers/specs/2026-09-01-*` and the
-DAW-style-call-view research). Reusing it here for the details page's *own* oscillogram+spectrogram
-pair would collide with that established meaning. **Playback** names it by what a user does there —
-click-to-play, drag-to-pan, Ruler, Select, View Lock, HET/TE controls all live only in this view —
-which also happens to be the exact boundary the toolbar's left zone needs (see §3).
+There is no rename here — nothing in `recording_details.html` currently labels the
+oscillogram+spectrogram pair "Overview" or anything else; the page's existing `<h2>Audio</h2>`
+heading (unchanged by this spec) wraps both views. "Overview" was only this spec's own shorthand
+during brainstorming for "today's oscillogram+spectrogram thing," and was rejected as the actual
+name for exactly that reason it could be confused for one: this project already uses "overview" to
+mean the map drawer's lower-fidelity, stretched spectrogram/oscillogram, explicitly contrasted with
+the details page's higher-fidelity, locked-scale rendering (`docs/superpowers/specs/2026-09-01-*`
+and the DAW-style-call-view research). Introducing "Overview" as a real, on-screen label here would
+collide with that established meaning. **Playback** is the new name introduced by this spec for
+what was previously unnamed UI — chosen because it names what a user *does* there: click-to-play,
+drag-to-pan, Ruler, Select, View Lock, HET/TE controls all live only in this view — which also
+happens to be the exact boundary the toolbar's left zone needs (see §3).
 
 ### 2. View toggle
 
