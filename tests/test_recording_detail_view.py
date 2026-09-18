@@ -1559,6 +1559,30 @@ def test_analysis_panel_has_whole_file_and_selection_controls(
     assert "Call-distance graph" in html
 
 
+def test_sound_level_canvas_sits_alone_in_a_dedicated_chart_wrapper(
+    engine: Engine, tmp_path: Path
+) -> None:
+    """Chart.js needs the canvas in its own container whose size does not come from the canvas
+    (app.css gives `.analysis-chart-wrap` a fixed aspect ratio) -- otherwise the chart resizes
+    down with its panel but never grows back. The actual resizing needs a real browser; this pins
+    the markup the CSS depends on."""
+    app, audio_hash = _create_app_with_one_recording(engine, tmp_path, "cw" * 32)
+    html = app.test_client().get(f"/recordings/{audio_hash}").get_data(as_text=True)
+
+    canvas_at = html.index('id="sound-level-spectrum-chart"')
+    wrap_at = html.rindex('<div class="analysis-chart-wrap">', 0, canvas_at)
+    assert (
+        "</div>" not in html[wrap_at:canvas_at]
+    )  # the canvas is the wrapper's direct child
+    wrap_end = html.index("</div>", canvas_at)
+    assert (
+        "<"
+        not in html[
+            html.index("</canvas>", canvas_at) + len("</canvas>") : wrap_end
+        ].strip()
+    )
+
+
 def test_span_buttons_live_in_the_toolbar_tools_zone_as_analysis_only(
     engine: Engine, tmp_path: Path
 ) -> None:

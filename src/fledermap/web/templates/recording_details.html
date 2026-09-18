@@ -150,7 +150,9 @@
     </div>
     <div class="analysis-panel" hidden data-spectrum-url="{{ url_for('media.detail_sound_level_spectrum', audio_hash=recording.audio_hash) }}">
       <div class="analysis-graph">
-        <canvas id="sound-level-spectrum-chart"></canvas>
+        <div class="analysis-chart-wrap">
+          <canvas id="sound-level-spectrum-chart"></canvas>
+        </div>
         <p class="media-placeholder" id="sound-level-spectrum-error" hidden>Could not compute the spectrum for this recording.</p>
       </div>
       <div class="analysis-graph analysis-graph-reserved">

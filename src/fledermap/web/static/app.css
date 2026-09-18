@@ -1143,8 +1143,19 @@ button:disabled { cursor: default; opacity: 0.5; }
    the "could not compute" error visible underneath a successfully-rendered chart. */
 #sound-level-spectrum-error[hidden] { display: none; }
 
-.analysis-panel { display: flex; gap: 1rem; margin: 0.5rem 0; }
-.analysis-graph { flex: 1; display: flex; flex-direction: column; gap: 0.4rem; }
+/* Two equal tracks, not `flex: 1` items: with flex, the reserved box's padding and border sat on
+   top of its share, leaving the chart's half 34px narrower than the other. `minmax(0, 1fr)` (not
+   plain `1fr`, whose minimum is the content's width) also lets a half shrink below the canvas's
+   current pixel width -- Chart.js pins the canvas to an explicit width, so a content-sized
+   minimum let the chart grow with the window but never shrink back. */
+.analysis-panel { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin: 0.5rem 0; }
+.analysis-graph { display: flex; flex-direction: column; gap: 0.4rem; }
+/* Chart.js requires a dedicated, relatively positioned parent for a responsive canvas whose size
+   does NOT come from the canvas itself: it caps the chart's height at the container's observed
+   height, so a wrapper that is merely as tall as the canvas lets the chart shrink but never grow
+   again. `aspect-ratio` (matching the line chart's default of 2) gives the wrapper a height
+   derived from its width instead. */
+.analysis-chart-wrap { position: relative; aspect-ratio: 2 / 1; }
 .analysis-graph-reserved {
   align-items: center;
   justify-content: center;
