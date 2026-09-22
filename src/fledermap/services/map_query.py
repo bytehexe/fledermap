@@ -20,6 +20,7 @@ for the same reason: it needs `current_best_identification` plus
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -63,11 +64,36 @@ MAX_FEATURES = 10000
 BBox = tuple[float, float, float, float]  # (min_lon, min_lat, max_lon, max_lat)
 
 
-def _within_bbox(point: tuple[float, float] | None, bbox: BBox) -> bool:
+#: Meters per degree of latitude, WGS84 mean -- good enough for the same reason the bbox
+#: filter itself is a plain lat/lon rectangle test rather than a geodesic one (module
+#: docstring: "simpler ... at this project's established scale").
+_METERS_PER_DEGREE_LAT = 111_320.0
+
+
+def _within_bbox(
+    point: tuple[float, float] | None, bbox: BBox, radius_m: float = 0.0
+) -> bool:
+    """`radius_m` inflates `bbox` by that many meters on every side before testing the
+    point -- a site is a circle, not a point, so testing only its centroid against the
+    unmodified bbox drops a site whose circle still overlaps the viewport but whose
+    centroid happens to sit just outside it (found live: a site straddling the edge of a
+    zoomed-out viewport disappeared entirely). Degrees-per-meter for longitude scales
+    with latitude (meridians converge toward the poles); `max(..., 0.1)` keeps that
+    factor from blowing up if a site's latitude were ever near a pole, not a real case
+    for this project's data but cheap to guard against."""
     if point is None:
         return False
     lon, lat = point
     min_lon, min_lat, max_lon, max_lat = bbox
+    if radius_m:
+        lat_deg = radius_m / _METERS_PER_DEGREE_LAT
+        lon_deg = radius_m / (
+            _METERS_PER_DEGREE_LAT * max(math.cos(math.radians(lat)), 0.1)
+        )
+        min_lon -= lon_deg
+        max_lon += lon_deg
+        min_lat -= lat_deg
+        max_lat += lat_deg
     return min_lon <= lon <= max_lon and min_lat <= lat <= max_lat
 
 
@@ -239,7 +265,11 @@ def filtered_sites(
     sites = list(session.scalars(stmt).all())
 
     if bbox is not None:
-        sites = [s for s in sites if _within_bbox(decode_point(s.centroid), bbox)]
+        sites = [
+            s
+            for s in sites
+            if _within_bbox(decode_point(s.centroid), bbox, radius_m=s.radius_m)
+        ]
     return sites
 
 

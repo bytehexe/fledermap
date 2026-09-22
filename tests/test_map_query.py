@@ -364,6 +364,35 @@ def test_filtered_sites_by_bbox_and_date(engine: Engine) -> None:
     assert [s.id for s in results] == [inside.id]
 
 
+def test_filtered_sites_by_bbox_includes_a_site_whose_circle_overlaps_but_whose_centroid_is_outside(
+    engine: Engine,
+) -> None:
+    """A site is a circle, not a point -- one whose centroid sits just past the bbox edge but
+    whose radius still reaches into it must not disappear. Found live: sites straddling a
+    zoomed-out viewport's edge vanished because the old bbox check only tested the centroid."""
+    with OrmSession(engine) as session:
+        straddling = Site(
+            centroid=WKTElement("POINT(20.5 50)", srid=4326),
+            radius_m=50_000.0,
+            recording_count=1,
+            first_at=datetime(2026, 1, 1, tzinfo=UTC),
+            last_at=datetime(2026, 1, 2, tzinfo=UTC),
+        )
+        far_outside = Site(
+            centroid=WKTElement("POINT(100 50)", srid=4326),
+            radius_m=50_000.0,
+            recording_count=1,
+            first_at=datetime(2026, 1, 1, tzinfo=UTC),
+            last_at=datetime(2026, 1, 2, tzinfo=UTC),
+        )
+        session.add_all([straddling, far_outside])
+        session.commit()
+
+        results = filtered_sites(session, bbox=(0.0, 40.0, 20.0, 60.0))
+
+    assert [s.id for s in results] == [straddling.id]
+
+
 def test_list_taxa_orders_alphabetically_by_scientific_name(engine: Engine) -> None:
     with OrmSession(engine) as session:
         pip = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
