@@ -717,7 +717,14 @@ document.addEventListener("DOMContentLoaded", () => {
   document.body.addEventListener("site-selected", (event) => {
     const { latitude, longitude, radius_m } = event.detail;
     if (latitude == null || longitude == null) return;
-    const bounds = L.circle([latitude, longitude], { radius: radius_m || 0 }).getBounds();
+    // L.circle(...).getBounds() throws (`Cannot read properties of undefined (reading
+    // 'layerPointToLatLng')`) unless the circle has already been added to the map -- it
+    // projects its pixel radius via `this._map`, which a throwaway, never-added Circle
+    // doesn't have. Found live: every site-marker click on the main map crashed here and
+    // silently never fitBounds()'d, so the map never actually zoomed to the site.
+    // `LatLng.toBounds` computes the same geographic bounding box directly from a size in
+    // meters, with no map/layer involved at all.
+    const bounds = L.latLng(latitude, longitude).toBounds(radius_m || 0);
     map.fitBounds(bounds, { maxZoom: 15 });
   });
 
