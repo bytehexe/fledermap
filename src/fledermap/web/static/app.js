@@ -159,6 +159,18 @@ document.addEventListener("DOMContentLoaded", () => {
   const recordingLayersByHash = new Map();
   let highlightedRecordingLayer = null;
 
+  // Incremented on every refreshRecordings()/refreshSites() call and captured as
+  // `requestId` in each -- refresh() (filter edit), the popstate handler, and
+  // scheduleViewportRefresh can all independently trigger a refetch of the same layer, and
+  // nothing otherwise stops two in-flight fetches from resolving out of order: a fetch
+  // scoped to an OLDER viewport/filter state resolving AFTER a newer one would silently
+  // overwrite the correct, newer marker set with the stale one (matches an Obsidian report
+  // of markers sometimes not loading after zooming out further). Comparing the captured id
+  // against the counter's current value right before applying a response lets a request
+  // recognize it's been superseded and discard itself instead.
+  let recordingsRequestId = 0;
+  let sitesRequestId = 0;
+
   // Whether a recording-selected reveal (panTo + zoomToShowLayer) is
   // currently under way -- see scheduleViewportRefresh and that handler below.
   // Cleared by zoomToShowLayer's OWN completion callback (the library's
@@ -191,6 +203,25 @@ document.addEventListener("DOMContentLoaded", () => {
   // refresh.
   let revealInFlight = false;
   let revealInFlightTimeout = null;
+  // Resolved (in order, then cleared) the moment revealInFlight next goes false -- lets a
+  // refresh triggered by something OTHER than the reveal itself (a filter edit, a
+  // back/forward navigation) wait for the reveal's animation to finish before mutating
+  // recordingsLayer, instead of either racing it (the crash below) or being silently
+  // dropped the way scheduleViewportRefresh's own `if (revealInFlight) return` is allowed
+  // to be -- unlike a viewport refetch, a filter change or history navigation has no later
+  // event that would otherwise re-trigger it.
+  let revealSettledCallbacks = [];
+
+  // See refreshRecordings' own comment for why this exists: clearLayers()+rebuild while
+  // zoomToShowLayer's spiderfy/zoom animation is still running corrupts
+  // leaflet.markercluster's internal bookkeeping (`Cannot use 'in' operator to search for
+  // '_leaflet_id' in undefined`, thrown from its own `_animationEnd`/`hasLayer`) -- the
+  // same class of bug `revealInFlight` already exists to prevent for the viewport-refetch
+  // path, just not yet for every path that can mutate the layer.
+  function waitForRevealToSettle() {
+    if (!revealInFlight) return Promise.resolve();
+    return new Promise((resolve) => revealSettledCallbacks.push(resolve));
+  }
 
   // Clearing revealInFlight is delayed past scheduleViewportRefresh's own
   // 300ms debounce window, rather than dropped the instant zoomToShowLayer's
@@ -223,6 +254,9 @@ document.addEventListener("DOMContentLoaded", () => {
     revealInFlightTimeout = setTimeout(() => {
       revealInFlight = false;
       revealInFlightTimeout = null;
+      const callbacks = revealSettledCallbacks;
+      revealSettledCallbacks = [];
+      callbacks.forEach((resolve) => resolve());
     }, REVEAL_SETTLE_MS);
   }
 
@@ -245,6 +279,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   async function refreshRecordings(params) {
+    const requestId = ++recordingsRequestId;
     let response;
     try {
       response = await fetch(`/api/recordings.geojson?${params}`);
@@ -257,6 +292,15 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
     const recordingsData = await response.json();
+    // Superseded by a later refreshRecordings() call started after this one -- that call's
+    // own response (whenever it lands) is the one that should apply, not this stale one.
+    if (requestId !== recordingsRequestId) return;
+    // Never clearLayers() the marker-cluster layer while a reveal's zoom/spiderfy
+    // animation is still running -- see waitForRevealToSettle's own comment. Re-check
+    // requestId afterward: a newer refreshRecordings() could have started (and even
+    // finished) while this one was waiting.
+    await waitForRevealToSettle();
+    if (requestId !== recordingsRequestId) return;
     recordingsTruncated = Boolean(recordingsData.truncated);
     updateTruncationWarning();
     recordingsLayer.clearLayers();
@@ -320,6 +364,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   async function refreshSites(params) {
+    const requestId = ++sitesRequestId;
     let response;
     try {
       response = await fetch(`/api/sites.geojson?${params}`);
@@ -332,6 +377,9 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
     const sitesData = await response.json();
+    // See refreshRecordings' identical check above -- a later refreshSites() call
+    // supersedes this one.
+    if (requestId !== sitesRequestId) return;
     sitesTruncated = Boolean(sitesData.truncated);
     updateTruncationWarning();
     sitesLayer.clearLayers();
