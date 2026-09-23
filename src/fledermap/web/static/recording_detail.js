@@ -496,7 +496,12 @@ document.addEventListener("DOMContentLoaded", () => {
       const inputRect = commentSpeciesInput.getBoundingClientRect();
       commentSpeciesSuggestions.style.left = `${inputRect.left}px`;
       commentSpeciesSuggestions.style.top = `${inputRect.bottom}px`;
-      commentSpeciesSuggestions.style.width = `${inputRect.width}px`;
+      // `min-width`, not `width`: the species input is narrower than most scientific names, and
+      // a fixed `width` equal to it forced every longer name to wrap mid-word. `min-width` keeps
+      // the dropdown at least as wide as the input for a short/empty query, while
+      // `white-space: nowrap` (app.css) plus the element's own natural shrink-to-fit sizing lets
+      // it grow to whatever the longest visible match actually needs.
+      commentSpeciesSuggestions.style.minWidth = `${inputRect.width}px`;
     }
     for (const taxon of matches) {
       const item = document.createElement("div");

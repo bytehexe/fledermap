@@ -1223,6 +1223,10 @@ button:disabled { cursor: default; opacity: 0.5; }
   border: 1px solid var(--color-border);
   border-radius: 4px;
   max-height: 8em;
+  /* Only `min-width` is set from JS (a longer scientific name can need more than the species
+     input's own width, see recording_detail.js) -- this clamp keeps that natural shrink-to-fit
+     growth from ever pushing the dropdown past the right edge of the viewport. */
+  max-width: calc(100vw - 16px);
   overflow-y: auto;
   z-index: 1003; /* above .comment-popup (1002) */
 }
@@ -1230,6 +1234,10 @@ button:disabled { cursor: default; opacity: 0.5; }
 .comment-popup-suggestions > div {
   padding: 2px 6px;
   cursor: pointer;
+  /* A scientific name easily exceeds the species input's own width (it sets this dropdown's
+     `min-width`, not its `width` -- see recording_detail.js) -- without this, a wrap mid-name
+     read as broken layout rather than a long species name. */
+  white-space: nowrap;
 }
 /* Failed-request feedback (a non-2xx save/delete response, or the fetch itself rejecting) --
    same treatment as .classifier-error: a message the user can act on (retry, or give up and
