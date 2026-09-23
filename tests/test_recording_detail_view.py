@@ -1874,3 +1874,23 @@ def test_delete_annotation_removes_it(engine: Engine, tmp_path: Path) -> None:
     assert response.status_code == 200
     with OrmSession(engine) as session:
         assert list_annotations(session, recording_id) == []
+
+
+def test_comment_tool_button_is_present(engine: Engine, tmp_path: Path) -> None:
+    app, audio_hash = _create_app_with_one_recording(engine, tmp_path, "at" * 32)
+    html = app.test_client().get(f"/recordings/{audio_hash}").get_data(as_text=True)
+    assert 'data-tool="comment"' in html
+
+
+def test_layers_button_and_menu_are_present(engine: Engine, tmp_path: Path) -> None:
+    app, audio_hash = _create_app_with_one_recording(engine, tmp_path, "au" * 32)
+    html = app.test_client().get(f"/recordings/{audio_hash}").get_data(as_text=True)
+    assert 'id="layers-button"' in html
+    assert 'id="layers-menu"' in html
+
+
+def test_comment_popup_markup_is_present(engine: Engine, tmp_path: Path) -> None:
+    app, audio_hash = _create_app_with_one_recording(engine, tmp_path, "av" * 32)
+    html = app.test_client().get(f"/recordings/{audio_hash}").get_data(as_text=True)
+    assert 'id="comment-popup"' in html
+    assert 'id="comment-popup-save"' in html

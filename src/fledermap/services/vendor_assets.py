@@ -177,6 +177,16 @@ ASSETS: tuple[VendorAsset, ...] = (
         sha256="b8b0946430cc541c8bb8e473cab0e57eaf5d06f31fd46e5e21f7dd47b6ce355d",
         relative_path="icons/filled/lock.svg",
     ),
+    # The Layers menu button's icon (design spec docs/superpowers/specs/
+    # 2026-09-23-fledermap-annotations-design.md §4.1) -- no filled variant needed, the button
+    # has no pressed/toggled state of its own (it opens a menu; the menu's checkboxes carry the
+    # real on/off state). Fetched and hashed directly against unpkg.com before this plan was
+    # written -- not invented.
+    VendorAsset(
+        url="https://unpkg.com/@tabler/icons@3.46.0/icons/outline/stack-2.svg",
+        sha256="729d3e264f4e2e9670cd86f4531141baa78eb94e975198228a8167c8a1eb0572",
+        relative_path="icons/outline/stack-2.svg",
+    ),
     VendorAsset(
         url="https://unpkg.com/@tabler/icons@3.46.0/icons/filled/player-play.svg",
         sha256="2ba08da4e3f0d78b6a957e355c948bf8d5cd4241286aa8bb48a54d97e767929b",

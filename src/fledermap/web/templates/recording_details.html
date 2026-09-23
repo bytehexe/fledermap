@@ -48,6 +48,13 @@
         <button type="button" class="tool-button playback-only" data-tool="default" aria-pressed="true">Default</button>
         <button type="button" class="tool-button playback-only" data-tool="ruler" aria-pressed="false">Ruler</button>
         <button type="button" class="tool-button playback-only" data-tool="select" aria-pressed="false">Select</button>
+        <button type="button" class="tool-button playback-only" data-tool="comment" aria-pressed="false">Comment</button>
+        <div class="layers-control playback-only">
+          <button type="button" id="layers-button" title="Show/hide annotation layers" disabled>
+            {{ icon("stack-2") }}
+          </button>
+          <div id="layers-menu" class="layers-menu" hidden></div>
+        </div>
         {# recording_detail.js toggles `hidden` on the two icon spans -- it never rewrites
            .textContent here any more (that couldn't carry SVG markup anyway), and the label
            text is now static, never touched by JS at all. #}
@@ -199,6 +206,18 @@
      kept OUTSIDE the zoomed spectrogram wrap so the Δt/Δf readout text stays full-size even
      when `fitDetailHeight` has shrunk the image itself to fit the viewport. #}
   <div id="ruler-readout" class="floating-readout ruler-readout" hidden></div>
+  <div id="comment-popup" class="floating-readout comment-popup" hidden>
+    <div class="comment-popup-species">
+      <input type="text" id="comment-popup-species-input" placeholder="Species (optional)" autocomplete="off">
+      <div id="comment-popup-species-suggestions" class="comment-popup-suggestions" hidden></div>
+    </div>
+    <textarea id="comment-popup-text" placeholder="Note (optional)"></textarea>
+    <div class="comment-popup-actions">
+      <button type="button" id="comment-popup-delete" hidden>Delete</button>
+      <button type="button" id="comment-popup-cancel">Cancel</button>
+      <button type="button" id="comment-popup-save" disabled>Save</button>
+    </div>
+  </div>
 {% endblock %}
 {% block scripts %}
   <script src="{{ url_for('vendor.static', filename='htmx.min.js') }}"></script>
