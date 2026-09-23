@@ -1170,10 +1170,16 @@ button:disabled { cursor: default; opacity: 0.5; }
      "fixed" position still tracked the popup instead of the viewport, and the double-scrollbar bug
      this was meant to fix was still there. `inset`+`margin: auto` centers a fixed box with an
      explicit width and auto height the same way, without establishing a containing block for
-     anything. */
+     anything.
+     `height: fit-content` is required alongside this trick, not optional: with `top`/`bottom`
+     both `0` and height left at its default `auto`, CSS resolves that as "stretch to fill the
+     inset gap" (the classic centering trick only shrink-wraps when height is pinned to content
+     some other way) -- without it the popup rendered as a nearly-full-viewport blank box with
+     its actual content stranded at the top (found live, screenshot, Janna 2026-09-24). */
   position: fixed;
   inset: 0;
   margin: auto;
+  height: fit-content;
   z-index: 1002; /* above .comment-popup-backdrop */
   padding: 0.6rem;
   color: var(--color-text);
