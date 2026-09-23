@@ -235,6 +235,55 @@ document.addEventListener("DOMContentLoaded", () => {
   const taxonById = new Map(taxonSearchIndex.map((t) => [t.id, t]));
   const recordingAnnotationsUrl = document.getElementById("detail-toolbar").dataset.annotationsUrl;
 
+  // Tracks the currently hover-highlighted annotation by id, not by element reference: elements
+  // are torn down and rebuilt wholesale on every renderAnnotations() call (layer toggle, tool
+  // switch, CRUD save), which would leave a stale reference pointing at a detached node.
+  let hoveredAnnotationId = null;
+
+  function annotationAtPoint(xPx, yPx) {
+    // Later (later-rendered, i.e. later in the array) annotations paint on top, so hit-test from
+    // the end -- an overlapping pair should highlight whichever one is actually visible on top.
+    for (let i = annotations.length - 1; i >= 0; i--) {
+      const annotation = annotations[i];
+      const forceVisible = annotation.source === "comment" && activeTool === "comment";
+      if (!forceVisible && !isLayerVisible(annotation.source)) continue;
+      if (annotationShape(annotation) === "point") {
+        const { x, y } = annotationPointPx(annotation, coords);
+        const dx = xPx - x;
+        const dy = yPx - y;
+        if (dx * dx + dy * dy <= 36) return annotation;
+      } else {
+        const box = annotationBoxPx(annotation, coords);
+        if (
+          xPx >= box.left &&
+          xPx <= box.left + box.width &&
+          yPx >= box.top &&
+          yPx <= box.top + box.height
+        ) {
+          return annotation;
+        }
+      }
+    }
+    return null;
+  }
+
+  // Purely a visual highlight (app.css's .annotation-hover), never gated by pointer-events/tool
+  // the way click-to-edit is -- hovering must work under every tool, not just Comment, since it
+  // never intercepts anything the active tool needs.
+  function updateAnnotationHover(annotation) {
+    const id = annotation ? annotation.id : null;
+    if (id === hoveredAnnotationId) return;
+    if (hoveredAnnotationId !== null) {
+      annotationLayer
+        .querySelector(`[data-annotation-id="${hoveredAnnotationId}"]`)
+        ?.classList.remove("annotation-hover");
+    }
+    if (id !== null) {
+      annotationLayer.querySelector(`[data-annotation-id="${id}"]`)?.classList.add("annotation-hover");
+    }
+    hoveredAnnotationId = id;
+  }
+
   const LAYER_STORAGE_PREFIX = "fledermap-annotation-layer-";
 
   function isLayerVisible(source) {
@@ -281,6 +330,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function renderAnnotations() {
     annotationLayer.innerHTML = "";
+    // Elements are rebuilt from scratch below, so any element the current hover class was on is
+    // gone -- reset the tracked id rather than leaving it pointing at a detached node; the next
+    // mousemove naturally re-applies the class if the cursor is still over the same annotation.
+    hoveredAnnotationId = null;
     for (const annotation of annotations) {
       const forceVisible = annotation.source === "comment" && activeTool === "comment";
       if (!forceVisible && !isLayerVisible(annotation.source)) continue;
@@ -436,6 +489,15 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     const matches = taxonSearchIndex.filter((t) => matchesQuery(t, query)).slice(0, 8);
     commentSpeciesSuggestions.hidden = matches.length === 0;
+    // `position: fixed` (app.css) needs an explicit screen position -- computed fresh on every
+    // keystroke rather than once on focus, since nothing else repositions it and the input's own
+    // rect can't move while the modal is open anyway, so this is cheap and always correct.
+    if (matches.length > 0) {
+      const inputRect = commentSpeciesInput.getBoundingClientRect();
+      commentSpeciesSuggestions.style.left = `${inputRect.left}px`;
+      commentSpeciesSuggestions.style.top = `${inputRect.bottom}px`;
+      commentSpeciesSuggestions.style.width = `${inputRect.width}px`;
+    }
     for (const taxon of matches) {
       const item = document.createElement("div");
       item.textContent = taxon.scientific_name;
@@ -446,6 +508,18 @@ document.addEventListener("DOMContentLoaded", () => {
         updateSaveEnabled();
       });
       commentSpeciesSuggestions.appendChild(item);
+    }
+  });
+  // Mouse-driven dismiss for the suggestions dropdown alone (Escape closes the whole modal, see
+  // onCommentPopupKeydown above -- deliberately not duplicated here as a second, narrower Escape
+  // handler). Same outside-click pattern as the Layers menu's own listener earlier in this file.
+  document.addEventListener("click", (event) => {
+    if (
+      !commentSpeciesSuggestions.hidden &&
+      !commentSpeciesSuggestions.contains(event.target) &&
+      event.target !== commentSpeciesInput
+    ) {
+      commentSpeciesSuggestions.hidden = true;
     }
   });
 
@@ -695,6 +769,11 @@ document.addEventListener("DOMContentLoaded", () => {
       oscillogramWrap.style.zoom = zoomValue;
       wrap.style.zoom = zoomValue;
     }
+    // Read by .annotation-label's `scale(calc(1 / var(--zoom-scale, 1)))` (app.css) to cancel
+    // out `wrap`'s own zoom above -- set unconditionally (not just inside the `< 1` branch) so a
+    // later call that returns to `currentScale === 1` overwrites a stale shrunk value from an
+    // earlier one instead of leaving annotation labels permanently oversized.
+    wrap.style.setProperty("--zoom-scale", String(currentScale));
 
     // Checked after applying the final scale (not per-constraint above) so
     // it catches every path that can produce a too-small result, viewport-
@@ -1451,6 +1530,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // scale to compare against the local-space xPx/yPx above.
     if (xPx < 0 || yPx < 0 || xPx > rect.width / currentScale || yPx > rect.height / currentScale) {
       readout.hidden = true;
+      updateAnnotationHover(null);
       return;
     }
     const timeS = coords.xToS(xPx);
@@ -1459,9 +1539,11 @@ document.addEventListener("DOMContentLoaded", () => {
     readout.style.left = `${event.clientX + 12}px`;
     readout.style.top = `${event.clientY - 12}px`;
     readout.hidden = false;
+    updateAnnotationHover(annotationAtPoint(xPx, yPx));
   });
   wrap.addEventListener("mouseleave", () => {
     readout.hidden = true;
+    updateAnnotationHover(null);
   });
 
   // Playback cursor (design spec section 4 + "Future slots"): tracks

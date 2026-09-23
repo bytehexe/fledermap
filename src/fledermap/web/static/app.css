@@ -1043,31 +1043,28 @@ button:disabled { cursor: default; opacity: 0.5; }
   z-index: 2; /* same reason as .ruler-box -- see its own comment */
 }
 /* Species-tagged annotations get a `colorForTaxon` border/fill (recording_detail.js sets
-   `--annotation-color` per element so both the border/fill below AND the hover rule further down
-   derive from one source instead of duplicating the species color). A dark halo immediately
-   outside the border, same technique `.selection-box`'s box-shadow already uses for exactly this
-   problem, keeps the boundary readable everywhere without changing the color that carries the
-   species meaning. A second, wider light halo outside that follows: dark alone still washed out
-   against the spectrogram's own dark-palette regions, so pairing a dark ring against light content
-   with a light ring against dark content guarantees contrast against whatever's underneath either
-   one. */
+   `--annotation-color` per element so the border/fill below, the hover tint, AND the label all
+   derive from one source instead of duplicating the species color). A single white halo just
+   outside the border -- a dark halo was tried too (paired with this one, like `.selection-box`'s
+   own box-shadow), but against this rainbow spectrogram palette the white ring alone already
+   covers both light- and dark-content cases well enough on its own, and looked cleaner without
+   the second ring. */
 .annotation-box {
   border: 1px solid var(--annotation-color, var(--color-annotation));
   background: color-mix(in srgb, var(--annotation-color, var(--color-annotation)) 12%, transparent);
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, black 65%, transparent),
-    0 0 0 3px color-mix(in srgb, white 65%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, white 65%, transparent);
 }
 .annotation-point {
   width: 12px;
   height: 12px;
   border-radius: 50%;
   transform: translate(-50%, -50%);
-  background: var(--annotation-color, var(--color-annotation));
-  border: 1px solid var(--color-bg);
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, black 65%, transparent),
-    0 0 0 3px color-mix(in srgb, white 65%, transparent);
+  /* Same tinted-fill treatment as `.annotation-box` (a solid fill made the color read as a plain
+     dot rather than matching the box's look) -- a 2px border rather than the box's 1px, since a
+     thin ring is much harder to read on a tiny 12px circle than around a whole box's edge. */
+  background: color-mix(in srgb, var(--annotation-color, var(--color-annotation)) 20%, transparent);
+  border: 2px solid var(--annotation-color, var(--color-annotation));
+  box-shadow: 0 0 0 1px color-mix(in srgb, white 65%, transparent);
 }
 /* Only `comment`-source elements become clickable under the Comment tool: only comment
    annotations are ever editable (recording_detail.js's renderAnnotations() only wires up
@@ -1080,33 +1077,50 @@ button:disabled { cursor: default; opacity: 0.5; }
   pointer-events: auto;
   cursor: pointer;
 }
-/* A stronger tint of the same species color on hover, requested to make low-contrast species
-   colors easier to spot while scanning -- only reachable on a `comment`-source box, since that's
-   the only annotation with pointer-events enabled (see rule above) for :hover to ever fire on. */
-.comment-interactive .annotation-box[data-source="comment"]:hover {
+/* A stronger tint of the same species color on hover, to make low-contrast species colors easier
+   to spot while scanning. Driven by a JS-toggled class (recording_detail.js's
+   `updateAnnotationHover`, hit-tested from `wrap`'s own mousemove handler) rather than `:hover`
+   itself, deliberately: `:hover` only fires where `pointer-events` is `auto`, which the rule above
+   restricts to `comment`-source boxes under the Comment tool -- this highlight is meant to work
+   for any annotation under any tool, since (unlike a click) it never intercepts anything the
+   active tool needs. */
+.annotation-box.annotation-hover {
   background: color-mix(in srgb, var(--annotation-color, var(--color-annotation)) 30%, transparent);
 }
+/* Positioned just above the shape (`bottom: 100%` of the absolutely-positioned box/point --
+   its own top edge -- rather than a `translateY(-100%)` transform) so the `scale()` below, which
+   IS a transform, doesn't have to compose with a second one. Outside rather than inside the box:
+   inside crowded the box's own content area and made a narrow/short box unreadable; a point has no
+   "inside" to place a label in regardless. `transform-origin: bottom left` anchors growth at the
+   shape's own top-left corner, so scaling up doesn't visibly drift the label away from what it's
+   labeling.
+   `font-size` matches `.detail-axis-tick` -- both are reference text that must stay legible
+   regardless of the spectrogram's own display size. `.detail-axis-tick` never shrinks because it
+   lives outside the zoomed `.detail-spectrogram-wrap`; the label lives INSIDE it (a child of the
+   annotation shape, so it scrolls/positions with it), so `fitDetailHeight()` writes the wrap's
+   current shrink factor to `--zoom-scale`, and `scale(calc(1 / var(--zoom-scale, 1)))` cancels it
+   back out -- the same "text stays full-size regardless of image shrink" rule `.ruler-readout`/the
+   axes already follow, applied here without needing to move the label out of the zoomed subtree
+   the way those two do. */
 .annotation-label {
   position: absolute;
-  font-size: 0.75rem;
+  bottom: 100%;
+  /* -1.5px, not the mathematically exact -1px (1px border + 1px box-shadow spread, both measured
+     from the box's own `left: 0` edge): annotationBoxPx's coordinates are real-valued time/kHz
+     conversions, essentially never landing on an integer device pixel, so the 1px border and
+     halo's edges are themselves antialiased across two physical pixels rather than falling on a
+     crisp boundary -- confirmed by eye (Janna, 2026-09-24) against the exact math value, which
+     visibly undershot. */
+  left: -1.5px;
+  margin-bottom: 2px;
+  font-size: 0.7rem;
   line-height: 1.2;
   white-space: nowrap;
-  color: var(--annotation-color, var(--color-text));
-  background: color-mix(in srgb, var(--color-bg) 85%, transparent);
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--annotation-color, var(--color-annotation)) 25%, var(--color-bg));
   padding: 1px 3px;
-}
-/* A box has room to hold its label inside its own top-left corner -- keeps the label attached to
-   what it annotates without extending the annotation's footprint upward past the box itself. */
-.annotation-box .annotation-label {
-  top: 2px;
-  left: 2px;
-}
-/* A point is a small dot with no "inside" to place a label in -- keep it above, like the box's
-   label used to sit before boxes moved theirs inside. */
-.annotation-point .annotation-label {
-  top: 0;
-  left: 0;
-  transform: translateY(-100%);
+  transform-origin: bottom left;
+  transform: scale(calc(1 / var(--zoom-scale, 1)));
 }
 
 .layers-control { position: relative; }
@@ -1147,11 +1161,19 @@ button:disabled { cursor: default; opacity: 0.5; }
      coordinates at all; this fixed centering is the only positioning. (An earlier version tried
      to keep the anchored-popup pattern and just add `position: fixed` -- the bug it was missing
      entirely -- but live verification found the anchored popup clipped off-screen at a viewport
-     edge with no flip/clamp logic, which is what led to the modal instead.) */
+     edge with no flip/clamp logic, which is what led to the modal instead.)
+     `inset: 0; margin: auto;`, not `top/left: 50%; transform: translate(-50%, -50%)` -- `transform`
+     (any non-`none` value) makes its element the containing block for its own `position: fixed`
+     descendants, not just `absolute` ones. `.comment-popup-species-suggestions` is `position:
+     fixed` specifically to escape this popup's own `overflow-y: auto` (see its own comment), which
+     a `transform` on this element would silently defeat -- confirmed live: the dropdown's
+     "fixed" position still tracked the popup instead of the viewport, and the double-scrollbar bug
+     this was meant to fix was still there. `inset`+`margin: auto` centers a fixed box with an
+     explicit width and auto height the same way, without establishing a containing block for
+     anything. */
   position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+  inset: 0;
+  margin: auto;
   z-index: 1002; /* above .comment-popup-backdrop */
   padding: 0.6rem;
   color: var(--color-text);
@@ -1180,16 +1202,29 @@ button:disabled { cursor: default; opacity: 0.5; }
   min-height: 3em;
   font: inherit;
 }
+/* `position: fixed`, not `absolute` -- `.comment-popup` (its would-be containing block) is
+   itself `overflow-y: auto`, and an absolutely-positioned box that extends past the popup's own
+   padding box still counts toward THAT element's scrollable overflow even though it's a sibling's
+   dropdown, not popup content -- opening the list showed two nested scrollbars (found live:
+   Janna, 2026-09-24). `position: fixed` escapes that ancestor entirely, the same reason
+   `.ruler-readout` is fixed rather than a child of the zoomed wrap; recording_detail.js positions
+   it explicitly (`left`/`top`/`width` from the input's own `getBoundingClientRect()`) whenever it
+   opens, and a z-index above `.comment-popup` itself keeps it drawn in front rather than possibly
+   behind the popup's own edge. */
 .comment-popup-suggestions {
-  position: absolute;
+  position: fixed;
   background: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: 4px;
   max-height: 8em;
   overflow-y: auto;
-  z-index: 1;
+  z-index: 1003; /* above .comment-popup (1002) */
 }
 .comment-popup-suggestions[hidden] { display: none; }
+.comment-popup-suggestions > div {
+  padding: 2px 6px;
+  cursor: pointer;
+}
 /* Failed-request feedback (a non-2xx save/delete response, or the fetch itself rejecting) --
    same treatment as .classifier-error: a message the user can act on (retry, or give up and
    Cancel), shown inline rather than via the project's alert() fallback. */
