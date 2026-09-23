@@ -28,7 +28,7 @@ document.addEventListener("DOMContentLoaded", () => {
     .then((data) => {
       L.geoJSON(data, {
         pointToLayer: (feature, latlng) =>
-          L.circleMarker(latlng, { color: "#333333" }),
+          L.circleMarker(latlng, { color: colorForFeature(feature.properties) }),
       }).addTo(map);
     })
     .catch((err) => console.error("site mini-map fetch failed", err));

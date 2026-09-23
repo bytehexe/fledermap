@@ -22,7 +22,7 @@ document.addEventListener("DOMContentLoaded", () => {
     .then((data) => {
       const layer = L.geoJSON(data, {
         pointToLayer: (feature, latlng) =>
-          L.circleMarker(latlng, { color: "#333333" }),
+          L.circleMarker(latlng, { color: colorForFeature(feature.properties) }),
       }).addTo(map);
       // No markers (a session with no GPS-bearing recordings) is not an
       // error -- design spec section 10, same "degrade in place" convention
