@@ -1044,14 +1044,19 @@ button:disabled { cursor: default; opacity: 0.5; }
 }
 /* Species-tagged annotations get a `colorForTaxon` border/fill (recording_detail.js sets
    `--annotation-color` per element so both the border/fill below AND the hover rule further down
-   derive from one source instead of duplicating the species color). A thin dark halo just outside
-   the border, same technique `.selection-box`'s box-shadow already uses for exactly this problem,
-   keeps the boundary readable everywhere without changing the color that carries the species
-   meaning. */
+   derive from one source instead of duplicating the species color). A dark halo immediately
+   outside the border, same technique `.selection-box`'s box-shadow already uses for exactly this
+   problem, keeps the boundary readable everywhere without changing the color that carries the
+   species meaning. A second, wider light halo outside that follows: dark alone still washed out
+   against the spectrogram's own dark-palette regions, so pairing a dark ring against light content
+   with a light ring against dark content guarantees contrast against whatever's underneath either
+   one. */
 .annotation-box {
   border: 1px solid var(--annotation-color, var(--color-annotation));
   background: color-mix(in srgb, var(--annotation-color, var(--color-annotation)) 12%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, black 65%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, black 65%, transparent),
+    0 0 0 3px color-mix(in srgb, white 65%, transparent);
 }
 .annotation-point {
   width: 12px;
@@ -1060,7 +1065,9 @@ button:disabled { cursor: default; opacity: 0.5; }
   transform: translate(-50%, -50%);
   background: var(--annotation-color, var(--color-annotation));
   border: 1px solid var(--color-bg);
-  box-shadow: 0 0 0 1px color-mix(in srgb, black 65%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, black 65%, transparent),
+    0 0 0 3px color-mix(in srgb, white 65%, transparent);
 }
 /* Only `comment`-source elements become clickable under the Comment tool: only comment
    annotations are ever editable (recording_detail.js's renderAnnotations() only wires up
@@ -1084,7 +1091,7 @@ button:disabled { cursor: default; opacity: 0.5; }
   font-size: 0.75rem;
   line-height: 1.2;
   white-space: nowrap;
-  color: var(--color-text);
+  color: var(--annotation-color, var(--color-text));
   background: color-mix(in srgb, var(--color-bg) 85%, transparent);
   padding: 1px 3px;
 }
