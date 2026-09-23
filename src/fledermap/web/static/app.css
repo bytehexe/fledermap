@@ -1024,7 +1024,8 @@ button:disabled { cursor: default; opacity: 0.5; }
    `none` by default: an annotation must never intercept Default's click-to-play/drag-to-pan or
    Ruler's drag-to-measure, and must not even change the cursor under any tool but Comment
    (recording_detail.js toggles a `comment-interactive` class on `wrap` while the Comment tool is
-   active, which re-enables pointer-events on .annotation-box/.annotation-point). */
+   active, which re-enables pointer-events on .annotation-box/.annotation-point -- but only for
+   `comment`-source elements, see the rule below). */
 .annotation-box, .annotation-point {
   position: absolute;
   pointer-events: none;
@@ -1042,8 +1043,14 @@ button:disabled { cursor: default; opacity: 0.5; }
   background: var(--color-accent);
   border: 1px solid var(--color-bg);
 }
-.comment-interactive .annotation-box,
-.comment-interactive .annotation-point {
+/* Only `comment`-source elements become clickable under the Comment tool: only comment
+   annotations are ever editable (recording_detail.js's renderAnnotations() only wires up
+   mousedown/click listeners for `annotation.source === "comment"`). A future non-comment
+   annotation source (e.g. a batdetect2 producer) must stay click-through under every tool,
+   Comment included, or its boxes would intercept clicks meant for the spectrogram while doing
+   nothing when clicked themselves. */
+.comment-interactive .annotation-box[data-source="comment"],
+.comment-interactive .annotation-point[data-source="comment"] {
   pointer-events: auto;
   cursor: pointer;
 }
@@ -1080,8 +1087,8 @@ button:disabled { cursor: default; opacity: 0.5; }
 /* Full-viewport dimmed backdrop behind the comment popup modal -- intercepts every click over
    the spectrogram while a draft is open (see recording_detail.js's comment popup section for
    why: an anchored, click-through popup let a click meant for a NEW point on the spectrogram
-   silently reach `wrap` and discard/misattribute the current draft, found live in Task 8's
-   required post-implementation UX check, spec section 4.5). Deliberately has no click handler
+   silently reach `wrap` and discard/misattribute the current draft, found during live
+   verification against the real page, spec section 4.5). Deliberately has no click handler
    of its own -- see the template's comment on why backdrop-click-to-dismiss is not used here. */
 .comment-popup-backdrop {
   position: fixed;
@@ -1093,11 +1100,12 @@ button:disabled { cursor: default; opacity: 0.5; }
 
 .comment-popup {
   /* A centered modal, not an anchored floating-readout like `.crosshair-readout`/`.ruler-readout`
-     -- `positionCommentPopup` (recording_detail.js) no longer sets `style.left`/`style.top` from
-     click coordinates at all; this fixed centering is the only positioning. (An earlier version
-     tried to keep the anchored-popup pattern and just add `position: fixed` -- the bug it was
-     missing entirely -- but Task 8's required UX check found the anchored popup clipped off-screen
-     at a viewport edge with no flip/clamp logic, which is what led to the modal instead.) */
+     -- recording_detail.js's comment popup open functions (openCommentPopupForCreate/
+     openCommentPopupForEdit, via openCommentModal) never set `style.left`/`style.top` from click
+     coordinates at all; this fixed centering is the only positioning. (An earlier version tried
+     to keep the anchored-popup pattern and just add `position: fixed` -- the bug it was missing
+     entirely -- but live verification found the anchored popup clipped off-screen at a viewport
+     edge with no flip/clamp logic, which is what led to the modal instead.) */
   position: fixed;
   top: 50%;
   left: 50%;
@@ -1117,11 +1125,11 @@ button:disabled { cursor: default; opacity: 0.5; }
   max-height: calc(100vh - 32px);
   overflow-y: auto;
 }
-/* Without this, the popup was rendered at all times (found live in Task 8's verification pass):
+/* Without this, the popup was rendered at all times (found during live verification):
    `[hidden]` and `.comment-popup` are equal-specificity author-vs-UA-stylesheet selectors, and
    the UA stylesheet always loses to ANY same-specificity author rule -- `display: flex` above
    beat the browser's own `[hidden] { display: none }` on every page load, a bug present since
-   this popup was first added (Task 3) and invisible under its old `position: static` layout.
+   this popup was first added and invisible under its old `position: static` layout.
    Same pattern already used for `.layers-menu[hidden]`/`.ruler-readout[hidden]`/
    `.comment-popup-suggestions[hidden]` elsewhere in this file. */
 .comment-popup[hidden] { display: none; }
@@ -1140,6 +1148,15 @@ button:disabled { cursor: default; opacity: 0.5; }
   z-index: 1;
 }
 .comment-popup-suggestions[hidden] { display: none; }
+/* Failed-request feedback (a non-2xx save/delete response, or the fetch itself rejecting) --
+   same treatment as .classifier-error: a message the user can act on (retry, or give up and
+   Cancel), shown inline rather than via the project's alert() fallback. */
+.comment-popup-error {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--color-warning);
+}
+.comment-popup-error[hidden] { display: none; }
 .comment-popup-actions {
   display: flex;
   justify-content: flex-end;

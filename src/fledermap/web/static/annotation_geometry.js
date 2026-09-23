@@ -53,6 +53,18 @@ function annotationPointPx(annotation, coords) {
   };
 }
 
+// Confines a native-pixel drag/click position to the plot's own raster before it's converted to
+// time/frequency (coords.xToS/yToKhz) -- mouseup/mousemove are tracked on `document`, not `wrap`,
+// so a drag that ends past the spectrogram's edge would otherwise convert to a negative
+// time_start_s, a negative freq_min_hz, or a frequency above the plot's own max, and that invalid
+// geometry would get saved via the API with nothing rejecting it.
+function clampToPlot(xPx, yPx, widthPx, heightPx) {
+  return {
+    x: Math.max(0, Math.min(xPx, widthPx)),
+    y: Math.max(0, Math.min(yPx, heightPx)),
+  };
+}
+
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     normalizeDragBounds,
@@ -60,5 +72,6 @@ if (typeof module !== "undefined" && module.exports) {
     abbreviateScientificName,
     annotationBoxPx,
     annotationPointPx,
+    clampToPlot,
   };
 }

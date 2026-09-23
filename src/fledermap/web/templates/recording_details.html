@@ -206,14 +206,14 @@
      kept OUTSIDE the zoomed spectrogram wrap so the Δt/Δf readout text stays full-size even
      when `fitDetailHeight` has shrunk the image itself to fit the viewport. #}
   <div id="ruler-readout" class="floating-readout ruler-readout" hidden></div>
-  {# Modal, not an anchored floating-readout like crosshair/ruler above -- see recording_detail.js's
-     `openCommentPopupForCreate`/`openCommentPopupForEdit` docstring-comment for why (Task 8
-     live-verification finding: the anchored popup clipped off-screen at a viewport edge with no
-     flip/clamp logic, and had no backdrop to stop a click meant for a NEW spot on the spectrogram
-     from silently reaching `wrap` and discarding/misattributing an in-progress draft). The backdrop
-     intercepts every click over the spectrogram while a draft is open; it deliberately has no
-     click-to-dismiss handler of its own -- only Cancel/Delete/Escape close the modal, so a draft
-     can never be lost by an accidental click. #}
+  {# Modal, not an anchored floating-readout like crosshair/ruler above -- see the comment block
+     above `const commentPopup` in recording_detail.js for why: the anchored popup this originally
+     shipped with clipped off-screen at a viewport edge with no flip/clamp logic, and had no
+     backdrop to stop a click meant for a NEW spot on the spectrogram from silently reaching `wrap`
+     and discarding/misattributing an in-progress draft. The backdrop intercepts every click over
+     the spectrogram while a draft is open; it deliberately has no click-to-dismiss handler of its
+     own -- only Cancel/Delete/Escape close the modal, so a draft can never be lost by an
+     accidental click. #}
   <div id="comment-popup-backdrop" class="comment-popup-backdrop" hidden></div>
   <div id="comment-popup" class="comment-popup" hidden>
     <div class="comment-popup-species">
@@ -221,6 +221,7 @@
       <div id="comment-popup-species-suggestions" class="comment-popup-suggestions" hidden></div>
     </div>
     <textarea id="comment-popup-text" placeholder="Note (optional)"></textarea>
+    <p class="comment-popup-error" id="comment-popup-error" hidden></p>
     <div class="comment-popup-actions">
       <button type="button" id="comment-popup-delete" hidden>Delete</button>
       <button type="button" id="comment-popup-cancel">Cancel</button>

@@ -6,6 +6,7 @@ const {
   abbreviateScientificName,
   annotationBoxPx,
   annotationPointPx,
+  clampToPlot,
 } = require("../../src/fledermap/web/static/annotation_geometry.js");
 
 test("normalizeDragBounds orders start<=end regardless of drag direction", () => {
@@ -66,4 +67,20 @@ test("annotationPointPx converts a point to native pixel coordinates", () => {
     coords,
   );
   assert.deepEqual(point, { x: 150, y: 230 });
+});
+
+test("clampToPlot leaves an in-bounds position unchanged", () => {
+  assert.deepEqual(clampToPlot(50, 60, 200, 100), { x: 50, y: 60 });
+});
+
+test("clampToPlot clamps negative coordinates to the plot's origin", () => {
+  assert.deepEqual(clampToPlot(-10, -5, 200, 100), { x: 0, y: 0 });
+});
+
+test("clampToPlot clamps coordinates past the plot's far edge", () => {
+  assert.deepEqual(clampToPlot(250, 150, 200, 100), { x: 200, y: 100 });
+});
+
+test("clampToPlot clamps each axis independently", () => {
+  assert.deepEqual(clampToPlot(-10, 150, 200, 100), { x: 0, y: 100 });
 });

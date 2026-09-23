@@ -223,9 +223,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Annotations (design spec docs/superpowers/specs/2026-09-23-fledermap-annotations-design.md).
   // Deliberately reads #detail-toolbar directly here rather than via the `toolbar` const --
-  // that const isn't declared until the tool-switching section further down (~line 812), and
-  // this block runs earlier (right after `coords`); introducing a second `const toolbar` there
-  // would be a duplicate-declaration SyntaxError in the same scope.
+  // that const isn't declared until the tool-switching section further down, and this block
+  // runs earlier (right after `coords`); introducing a second `const toolbar` there would be a
+  // duplicate-declaration SyntaxError in the same scope.
   let annotations = JSON.parse(
     document.getElementById("detail-toolbar").dataset.annotations || "[]",
   );
@@ -288,6 +288,11 @@ document.addEventListener("DOMContentLoaded", () => {
       const shape = annotationShape(annotation);
       const el = document.createElement("div");
       el.dataset.annotationId = String(annotation.id);
+      // Scopes app.css's `.comment-interactive` pointer-events re-enable to comment-source
+      // elements only -- a future non-comment annotation source (e.g. a batdetect2 producer)
+      // must stay click-through under every tool, including Comment, since only comment
+      // annotations are ever editable via this popup.
+      el.dataset.source = annotation.source;
       if (shape === "point") {
         const { x, y } = annotationPointPx(annotation, coords);
         el.className = "annotation-point";
@@ -314,7 +319,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const lines = [];
         if (taxon) lines.push(abbreviateScientificName(taxon.scientific_name));
         if (annotation.literal) lines.push(annotation.literal);
-        // textContent, never innerHTML: `literal` is user-authored free text (Review Focus).
+        // textContent, never innerHTML: `literal` is user-authored free text.
         label.textContent = lines.join("\n");
         label.style.whiteSpace = "pre-line";
         el.appendChild(label);
@@ -338,11 +343,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
   rebuildLayersMenu();
   // No initial renderAnnotations() call here: it reads `activeTool`, which is a `let` declared
-  // later in the tool-switching section (~line 814) and not yet initialized at this point in the
+  // later, in the tool-switching section below, and not yet initialized at this point in the
   // script's top-to-bottom execution -- calling it now would throw "Cannot access 'activeTool'
-  // before initialization". Step 3 makes `setActiveTool("default")` (already called once at
-  // ~line 835, after `activeTool` exists) call renderAnnotations() as part of every tool switch,
-  // which covers the first render for free -- no separate bootstrap call needed.
+  // before initialization". `setActiveTool("default")`, called once in that section after
+  // `activeTool` exists, itself calls renderAnnotations() as part of every tool switch, which
+  // covers the first render for free -- no separate bootstrap call needed.
 
   // Comment tool: popup state and CRUD wiring (design spec section on the Comment tool, section
   // 4.5's required post-implementation UX check). A centered MODAL with a backdrop, not an
@@ -350,8 +355,9 @@ document.addEventListener("DOMContentLoaded", () => {
   // with (a) never actually anchored anywhere -- `.comment-popup` had no `position: fixed`, so
   // its `style.left`/`style.top` (set from click coordinates) had no effect and it rendered
   // wherever normal document flow put it -- and (b), once that was fixed, still clipped
-  // off-screen at a viewport edge with no flip/clamp logic (found live in Task 8's required UX
-  // check). The backdrop additionally fixes a real correctness bug the anchored version had: with
+  // off-screen at a viewport edge with no flip/clamp logic (found during live verification
+  // against the real page). The backdrop additionally fixes a real correctness bug the anchored
+  // version had: with
   // no backdrop, a click meant for a NEW point on the spectrogram while a draft popup was still
   // open reached `wrap` underneath, silently opening a second draft that inherited the first
   // draft's never-cleared text/species -- the note you were typing for one point could end up
@@ -365,10 +371,22 @@ document.addEventListener("DOMContentLoaded", () => {
   const commentDeleteBtn = document.getElementById("comment-popup-delete");
   const commentCancelBtn = document.getElementById("comment-popup-cancel");
   const commentSaveBtn = document.getElementById("comment-popup-save");
+  const commentErrorEl = document.getElementById("comment-popup-error");
 
   let pendingDraft = null; // { time_start_s, time_end_s, freq_min_hz, freq_max_hz } while creating
   let editingAnnotationId = null; // set while editing an existing annotation, else null
   let selectedTaxonId = null;
+
+  // A non-ok response's body is the API's JSON `{"error": "..."}` (recording_annotations.py),
+  // but a 404/500 that never reaches the view (a proxy, a stack trace page) may not be JSON at
+  // all -- fall back to a generic message rather than letting a second failed `.json()` call
+  // replace the real error.
+  function describeFetchError(response) {
+    return response
+      .json()
+      .then((body) => (body && body.error) || `Request failed (${response.status})`)
+      .catch(() => `Request failed (${response.status})`);
+  }
 
   function updateSaveEnabled() {
     commentSaveBtn.disabled = !selectedTaxonId && commentText.value.trim() === "";
@@ -385,6 +403,11 @@ document.addEventListener("DOMContentLoaded", () => {
     commentSpeciesInput.value = "";
     commentText.value = "";
     commentSpeciesSuggestions.hidden = true;
+    commentErrorEl.hidden = true;
+    // Reset in case a request was still in flight (e.g. Escape pressed before the response
+    // arrived) -- the next open re-derives the real disabled state via updateSaveEnabled().
+    commentSaveBtn.disabled = false;
+    commentDeleteBtn.disabled = false;
   }
 
   // Escape is a deliberate keypress, unlike a stray click on the backdrop -- the backdrop
@@ -428,45 +451,80 @@ document.addEventListener("DOMContentLoaded", () => {
 
   commentDeleteBtn.addEventListener("click", () => {
     if (editingAnnotationId === null) return;
-    fetch(`${recordingAnnotationsUrl}/${editingAnnotationId}`, { method: "DELETE" })
+    // Captured now, not read back out of `editingAnnotationId` inside `.then` below -- closing
+    // the popup (e.g. Escape) before the response arrives resets that variable to null, which
+    // would otherwise make the deletion silently no-op against the in-memory `annotations` array
+    // even though the row is already gone server-side.
+    const id = editingAnnotationId;
+    commentDeleteBtn.disabled = true;
+    commentSaveBtn.disabled = true;
+    fetch(`${recordingAnnotationsUrl}/${id}`, { method: "DELETE" })
       .then((response) => {
-        if (!response.ok) throw new Error(`delete failed: ${response.status}`);
-        annotations = annotations.filter((a) => a.id !== editingAnnotationId);
+        if (!response.ok) {
+          return describeFetchError(response).then((message) => {
+            throw new Error(message);
+          });
+        }
+        annotations = annotations.filter((a) => a.id !== id);
         rebuildLayersMenu();
         renderAnnotations();
         closeCommentPopup();
+      })
+      .catch((error) => {
+        commentErrorEl.textContent = `Could not delete: ${error.message}`;
+        commentErrorEl.hidden = false;
+        commentDeleteBtn.disabled = false;
+        updateSaveEnabled();
       });
   });
 
   commentSaveBtn.addEventListener("click", () => {
     const literal = commentText.value.trim() || null;
     const taxonId = selectedTaxonId;
-    if (editingAnnotationId !== null) {
-      fetch(`${recordingAnnotationsUrl}/${editingAnnotationId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ taxon_id: taxonId, literal }),
+    // Same reasoning as the Delete handler above: capture before the request, not read back out
+    // of the `let` afterwards.
+    const id = editingAnnotationId;
+    // Disabling Save up front also stops a fast double-click from firing two identical requests
+    // (two POSTs would create two duplicate annotations; two PATCHes are merely redundant).
+    commentSaveBtn.disabled = true;
+    commentDeleteBtn.disabled = true;
+    const request =
+      id !== null
+        ? fetch(`${recordingAnnotationsUrl}/${id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ taxon_id: taxonId, literal }),
+          })
+        : fetch(recordingAnnotationsUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...pendingDraft, taxon_id: taxonId, literal }),
+          });
+    request
+      .then((response) => {
+        if (!response.ok) {
+          return describeFetchError(response).then((message) => {
+            throw new Error(message);
+          });
+        }
+        return response.json();
       })
-        .then((response) => response.json())
-        .then((updated) => {
-          annotations = annotations.map((a) => (a.id === updated.id ? updated : a));
-          renderAnnotations();
-          closeCommentPopup();
-        });
-    } else {
-      fetch(recordingAnnotationsUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...pendingDraft, taxon_id: taxonId, literal }),
-      })
-        .then((response) => response.json())
-        .then((created) => {
-          annotations = [...annotations, created];
+      .then((saved) => {
+        if (id !== null) {
+          annotations = annotations.map((a) => (a.id === saved.id ? saved : a));
+        } else {
+          annotations = [...annotations, saved];
           rebuildLayersMenu();
-          renderAnnotations();
-          closeCommentPopup();
-        });
-    }
+        }
+        renderAnnotations();
+        closeCommentPopup();
+      })
+      .catch((error) => {
+        commentErrorEl.textContent = `Could not save: ${error.message}`;
+        commentErrorEl.hidden = false;
+        updateSaveEnabled();
+        commentDeleteBtn.disabled = false;
+      });
   });
 
   function openCommentPopupForCreate(draft) {
@@ -1090,10 +1148,27 @@ document.addEventListener("DOMContentLoaded", () => {
   function updateCommentDragBox(dragStart, event) {
     const rect = wrap.getBoundingClientRect();
     const scrollDriftPx = scrollEl.scrollLeft - dragStart.scrollLeft;
-    const startX = (dragStart.x - scrollDriftPx - rect.left) / currentScale;
-    const startY = (dragStart.y - rect.top) / currentScale;
-    const curX = (event.clientX - rect.left) / currentScale;
-    const curY = (event.clientY - rect.top) / currentScale;
+    // mousemove/mouseup are tracked on `document`, not `wrap` (see the shared drag-vs-click state
+    // machine below), so either end of the drag can land past the spectrogram's edges -- clamp
+    // both to the plot's native-pixel bounds before they're converted to time/frequency, or a
+    // release outside the image would save an out-of-range annotation (negative time, a
+    // frequency past maxFreqKhz) with nothing rejecting it.
+    const start = clampToPlot(
+      (dragStart.x - scrollDriftPx - rect.left) / currentScale,
+      (dragStart.y - rect.top) / currentScale,
+      nativeWidthPx,
+      nativeHeightPx,
+    );
+    const cur = clampToPlot(
+      (event.clientX - rect.left) / currentScale,
+      (event.clientY - rect.top) / currentScale,
+      nativeWidthPx,
+      nativeHeightPx,
+    );
+    const startX = start.x;
+    const startY = start.y;
+    const curX = cur.x;
+    const curY = cur.y;
 
     if (!pendingDragBox) {
       const el = document.createElement("div");
@@ -1280,8 +1355,14 @@ document.addEventListener("DOMContentLoaded", () => {
     comment: {
       onClick(event) {
         const rect = wrap.getBoundingClientRect();
-        const xPx = (event.clientX - rect.left) / currentScale;
-        const yPx = (event.clientY - rect.top) / currentScale;
+        // Clamped for the same reason as updateCommentDragBox above: `event` here comes through
+        // the document-level mouseup listener, not a `wrap`-scoped one.
+        const { x: xPx, y: yPx } = clampToPlot(
+          (event.clientX - rect.left) / currentScale,
+          (event.clientY - rect.top) / currentScale,
+          nativeWidthPx,
+          nativeHeightPx,
+        );
         const timeS = coords.xToS(xPx);
         const freqHz = coords.yToKhz(yPx) * 1000;
         openCommentPopupForCreate({
