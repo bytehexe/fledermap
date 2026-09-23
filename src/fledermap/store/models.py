@@ -7,6 +7,7 @@ from datetime import datetime
 from geoalchemy2 import Geography
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     DateTime,
     Float,
     ForeignKey,
@@ -26,6 +27,7 @@ from sqlalchemy.orm import (
 )
 
 from fledermap.domain.codes import (
+    AnnotationSource,
     IdSource,
     MergeResolution,
     Verdict,
@@ -262,6 +264,64 @@ class ClassifierDetection(Base):
     # nothing", and the model is never re-run once a detection row exists.
     raw_label: Mapped[str | None] = mapped_column(String(128))
     confidence: Mapped[float] = mapped_column(Float)
+
+    recording: Mapped[Recording] = relationship()
+    taxon: Mapped[Taxon | None] = relationship()
+
+
+class Annotation(Base):
+    """A user- or classifier-produced marker pointing at a place in a recording -- a time range,
+    a frequency band, a point, or a rectangle of both. See docs/superpowers/specs/2026-09-23-
+    fledermap-annotations-design.md.
+
+    `source` has no CHECK constraint, mirroring `Identification.source`/
+    `ClassifierDetection.source`: more producers are coming, a CHECK would force a migration per
+    one.
+
+    Geometry is four independently-nullable bound columns rather than a separate shape/kind
+    column -- a point is `time_start_s == time_end_s` (and/or `freq_min_hz == freq_max_hz`); no
+    read code infers intent from which columns are null vs. which are equal, both are meaningful.
+    `ck_annotation_has_bound` rejects the one truly invalid state: every bound null, an annotation
+    pointing at nothing.
+
+    `taxon_id`/`confidence`/`literal` are all nullable on every source. For a `comment` row,
+    `services/annotations.py`'s `create_comment_annotation`/`update_comment_annotation` enforce
+    that at least one of `taxon_id`/`literal` is set (an annotation naming neither is pointless
+    data) -- not a DB constraint, since a future non-comment source may legitimately have
+    neither. `confidence` is classifier-only; nothing writes it for a `comment` row.
+    """
+
+    __tablename__ = "annotation"
+    __table_args__ = (
+        CheckConstraint(
+            "time_start_s IS NOT NULL OR freq_min_hz IS NOT NULL",
+            name="ck_annotation_has_bound",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    recording_id: Mapped[int] = mapped_column(
+        ForeignKey("recording.id", ondelete="CASCADE"),
+        index=True,
+    )
+    source: Mapped[AnnotationSource] = mapped_column(
+        SAEnum(
+            AnnotationSource,
+            native_enum=False,
+            length=32,
+            create_constraint=False,
+            values_callable=lambda enum_cls: [e.value for e in enum_cls],
+        ),
+        index=True,
+    )
+    time_start_s: Mapped[float | None] = mapped_column(Float)
+    time_end_s: Mapped[float | None] = mapped_column(Float)
+    freq_min_hz: Mapped[float | None] = mapped_column(Float)
+    freq_max_hz: Mapped[float | None] = mapped_column(Float)
+    taxon_id: Mapped[int | None] = mapped_column(ForeignKey("taxon.id"))
+    confidence: Mapped[float | None] = mapped_column(Float)
+    literal: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
     recording: Mapped[Recording] = relationship()
     taxon: Mapped[Taxon | None] = relationship()

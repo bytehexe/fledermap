@@ -65,6 +65,18 @@ class IdSource(StrEnum):
     FLEDERMAP_NOISE = "fledermap.noise"
 
 
+class AnnotationSource(StrEnum):
+    """Where an annotation came from -- deliberately separate from IdSource: `comment` has no
+    meaning as an identification-claim source, and IdSource carries precedence/disagreement
+    semantics (current_best.py, review_flags.py) that annotations don't participate in. See
+    docs/superpowers/specs/2026-09-23-fledermap-annotations-design.md §2."""
+
+    COMMENT = "comment"
+    # Reserved for later specs, not produced by any code yet.
+    BATDETECT2 = "batdetect2"
+    BATTYBIRDNET = "battybirdnet"
+
+
 # Declarative classifier properties -- consumed by services/current_best.py's precedence walk
 # and services/review_flags.py's disagreement check, so a future classifier participates
 # correctly by declaring its properties here instead of needing new code in either function
