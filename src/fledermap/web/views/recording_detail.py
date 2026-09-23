@@ -10,8 +10,15 @@ import flask
 from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
 
+from fledermap.domain.codes import AnnotationSource
 from fledermap.media.paths import preview_path
 from fledermap.media.preview import TIME_EXPANSION_FACTOR
+from fledermap.services.annotations import (
+    create_comment_annotation,
+    delete_comment_annotation,
+    list_annotations,
+    update_comment_annotation,
+)
 from fledermap.services.current_best import (
     CurrentIdentification,
     IdentificationMatrix,
@@ -29,7 +36,7 @@ from fledermap.services.review_flags import (
     review_reasons,
 )
 from fledermap.store.geo import decode_point
-from fledermap.store.models import Recording, Site, Taxon, TaxonCode
+from fledermap.store.models import Annotation, Recording, Site, Taxon, TaxonCode
 from fledermap.store.models import Session as AnnotationSession
 from fledermap.web.params import fallback_site_label, is_safe_relative_path
 
@@ -60,6 +67,19 @@ def _taxon_search_index(session: OrmSession) -> list[dict[str, object]]:
         }
         for t in taxa
     ]
+
+
+def _serialize_annotation(a: Annotation) -> dict[str, object]:
+    return {
+        "id": a.id,
+        "source": a.source.value,
+        "time_start_s": a.time_start_s,
+        "time_end_s": a.time_end_s,
+        "freq_min_hz": a.freq_min_hz,
+        "freq_max_hz": a.freq_max_hz,
+        "taxon_id": a.taxon_id,
+        "literal": a.literal,
+    }
 
 
 _DEFAULT_BACK_LINK = ("Back to map", "/")
@@ -115,6 +135,9 @@ def recording_details_page(audio_hash: str) -> flask.Response:
         best, taxon, matrix = _current_classification(session, recording)
         reasons = review_reasons(recording, ReviewContext.build(session))
         taxon_search_index = _taxon_search_index(session)
+        annotations = [
+            _serialize_annotation(a) for a in list_annotations(session, recording.id)
+        ]
 
         # The classifier box's own state -- deliberately NOT derived from
         # `best` (see current_manual_state's docstring).
@@ -191,6 +214,7 @@ def recording_details_page(audio_hash: str) -> flask.Response:
             current_taxa=current_taxa,
             manual_verdict=manual_verdict,
             taxon_search_index=taxon_search_index,
+            annotations=annotations,
             matrix=matrix,
             site=site,
             site_label=site_label,
@@ -208,3 +232,76 @@ def recording_details_page(audio_hash: str) -> flask.Response:
             review_position=review_position,
         )
     return flask.make_response(html)
+
+
+def _find_recording_or_404(session: OrmSession, audio_hash: str) -> Recording:
+    recording = session.scalars(
+        select(Recording).where(Recording.audio_hash == audio_hash),
+    ).one_or_none()
+    if recording is None:
+        flask.abort(404)
+    return recording
+
+
+def _find_comment_annotation_or_404(
+    session: OrmSession,
+    recording: Recording,
+    annotation_id: int,
+) -> Annotation:
+    annotation = session.get(Annotation, annotation_id)
+    if annotation is None or annotation.recording_id != recording.id:
+        flask.abort(404)
+    if annotation.source != AnnotationSource.COMMENT:
+        flask.abort(404)
+    return annotation
+
+
+@recording_detail_bp.post("/recordings/<audio_hash>/annotations")
+def post_annotation(audio_hash: str) -> flask.Response:
+    engine = flask.current_app.config["ENGINE"]
+    body = flask.request.get_json(silent=True) or {}
+    with OrmSession(engine) as session:
+        recording = _find_recording_or_404(session, audio_hash)
+        try:
+            annotation = create_comment_annotation(
+                session,
+                recording,
+                time_start_s=body.get("time_start_s"),
+                time_end_s=body.get("time_end_s"),
+                freq_min_hz=body.get("freq_min_hz"),
+                freq_max_hz=body.get("freq_max_hz"),
+                taxon_id=body.get("taxon_id"),
+                literal=body.get("literal"),
+            )
+        except ValueError as exc:
+            return flask.make_response((flask.jsonify({"error": str(exc)}), 400))
+        return flask.jsonify(_serialize_annotation(annotation))
+
+
+@recording_detail_bp.patch("/recordings/<audio_hash>/annotations/<int:annotation_id>")
+def patch_annotation(audio_hash: str, annotation_id: int) -> flask.Response:
+    engine = flask.current_app.config["ENGINE"]
+    body = flask.request.get_json(silent=True) or {}
+    with OrmSession(engine) as session:
+        recording = _find_recording_or_404(session, audio_hash)
+        annotation = _find_comment_annotation_or_404(session, recording, annotation_id)
+        try:
+            update_comment_annotation(
+                session,
+                annotation,
+                taxon_id=body.get("taxon_id"),
+                literal=body.get("literal"),
+            )
+        except ValueError as exc:
+            return flask.make_response((flask.jsonify({"error": str(exc)}), 400))
+        return flask.jsonify(_serialize_annotation(annotation))
+
+
+@recording_detail_bp.delete("/recordings/<audio_hash>/annotations/<int:annotation_id>")
+def delete_annotation(audio_hash: str, annotation_id: int) -> flask.Response:
+    engine = flask.current_app.config["ENGINE"]
+    with OrmSession(engine) as session:
+        recording = _find_recording_or_404(session, audio_hash)
+        annotation = _find_comment_annotation_or_404(session, recording, annotation_id)
+        delete_comment_annotation(session, annotation)
+        return flask.jsonify({"ok": True})
