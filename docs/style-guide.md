@@ -35,6 +35,7 @@ Defined in `app.css`'s `:root`:
 | `--color-success` | `#2f855a` | `#48bb78` | `.save-confirmation`'s "✓ Saved" text — see "Positive save feedback" below |
 | `--color-overlay` | `#ff2fd6` | `#ff2fd6` | Playback cursor and Ruler-tool measurement box — deliberately theme-invariant for visibility against both light and dark spectrograms |
 | `--color-selection` | `#ffffff` | `#ffffff` | Select-tool box on the spectrogram — theme-invariant like `--color-overlay`, drawn with a dark halo (`.selection-box`) so it also reads over yellow/red call cores. Never `--color-accent` on the spectrogram: blue-on-blue |
+| `--color-annotation` | `#9aa0a6` | `#9aa0a6` | An untagged (no species) comment annotation's box/point on the spectrogram — theme-invariant like `--color-overlay`/`--color-selection`. Never `--color-border`: that token is calibrated for UI chrome, not spectrogram contrast, and reads as easily confused with the Select tool's white box there |
 
 Never hardcode a hex color in a new rule — use the token. If a new color is genuinely needed,
 add it to `:root` and document it here in the same change.

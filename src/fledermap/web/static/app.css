@@ -29,6 +29,13 @@
      keeps the selection visibly a different tool from the ruler. White alone fades where a
      boundary crosses a yellow/red call core, so `.selection-box` pairs it with a dark halo. */
   --color-selection: #ffffff;
+  /* An untagged (no species) annotation box/point's neutral color -- deliberately its own
+     theme-invariant token rather than reusing `--color-border`: that token is calibrated for UI
+     chrome (panel/input borders), not for contrast against the spectrogram's own palette, and
+     read as easily confused with the Select tool's white box there. A clear mid-grey keeps
+     annotations visually distinct from Select at a glance while staying legible on both light
+     and dark spectrogram content. */
+  --color-annotation: #9aa0a6;
   --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color-scheme: light;
 }
@@ -814,7 +821,12 @@ button:disabled { cursor: default; opacity: 0.5; }
   width: 3.5em;
   flex-shrink: 0;
   background: var(--color-bg);
-  z-index: 1;
+  /* Above every drawn box/point (.ruler-box/.selection-box/.annotation-box/.annotation-point,
+     all z-index: 2) so the axis labels stay legible when a box is drawn near the left edge and
+     the view is scrolled there -- the axis is reference chrome that must always be readable,
+     even at the cost of a box's outline being visually covered where it overlaps this column
+     (its geometry is unaffected, only the paint order). */
+  z-index: 3;
   /* Purely a label column -- no click/drag handler of its own -- but being sticky at the
      LEFT edge means it sits directly on top of the spectrogram/oscillogram there whenever the
      view is scrolled near time 0 (always true on load, and again whenever a user scrolls back
@@ -994,10 +1006,9 @@ button:disabled { cursor: default; opacity: 0.5; }
   border: 1px dashed var(--color-overlay);
   background: color-mix(in srgb, var(--color-overlay) 12%, transparent);
   pointer-events: none;
-  /* Same class of issue as `.playback-cursor`: `.detail-axis-freq`'s sticky left column has
-     `z-index: 1`, which otherwise paints over a measurement box drawn near the left edge while
-     scrolled right. `.ruler-box` has no other positioned sibling to compete with here, so any
-     value above 1 clears it. */
+  /* `.detail-axis-freq` is `z-index: 3` -- deliberately above this, so the axis labels stay
+     legible over a box drawn near the left edge while scrolled there; this box's own paint
+     order just needs to clear ordinary same-level content, hence any value above the default. */
   z-index: 2;
 }
 .ruler-readout {
@@ -1029,18 +1040,18 @@ button:disabled { cursor: default; opacity: 0.5; }
 .annotation-box, .annotation-point {
   position: absolute;
   pointer-events: none;
-  z-index: 2; /* same reason as .ruler-box: clears .detail-axis-freq's sticky z-index: 1 */
+  z-index: 2; /* same reason as .ruler-box -- see its own comment */
 }
 .annotation-box {
-  border: 1px solid var(--color-border);
-  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  border: 1px solid var(--color-annotation);
+  background: color-mix(in srgb, var(--color-annotation) 12%, transparent);
 }
 .annotation-point {
-  width: 8px;
-  height: 8px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   transform: translate(-50%, -50%);
-  background: var(--color-accent);
+  background: var(--color-annotation);
   border: 1px solid var(--color-bg);
 }
 /* Only `comment`-source elements become clickable under the Comment tool: only comment
@@ -1056,22 +1067,32 @@ button:disabled { cursor: default; opacity: 0.5; }
 }
 .annotation-label {
   position: absolute;
-  top: 0;
-  left: 0;
-  transform: translateY(-100%);
-  font-size: 0.65rem;
+  font-size: 0.75rem;
   line-height: 1.2;
   white-space: nowrap;
   color: var(--color-text);
   background: color-mix(in srgb, var(--color-bg) 85%, transparent);
-  padding: 0 2px;
+  padding: 1px 3px;
+}
+/* A box has room to hold its label inside its own top-left corner -- keeps the label attached to
+   what it annotates without extending the annotation's footprint upward past the box itself. */
+.annotation-box .annotation-label {
+  top: 2px;
+  left: 2px;
+}
+/* A point is a small dot with no "inside" to place a label in -- keep it above, like the box's
+   label used to sit before boxes moved theirs inside. */
+.annotation-point .annotation-label {
+  top: 0;
+  left: 0;
+  transform: translateY(-100%);
 }
 
 .layers-control { position: relative; }
 .layers-menu {
   position: absolute;
   top: 100%;
-  right: 0;
+  left: 0;
   z-index: 1001; /* matches .crosshair-readout/.ruler-readout */
   background: var(--color-bg);
   border: 1px solid var(--color-border);
