@@ -221,6 +221,116 @@ document.addEventListener("DOMContentLoaded", () => {
     maxFreqKhz,
   });
 
+  // Annotations (design spec docs/superpowers/specs/2026-09-23-fledermap-annotations-design.md).
+  // Deliberately reads #detail-toolbar directly here rather than via the `toolbar` const --
+  // that const isn't declared until the tool-switching section further down (~line 812), and
+  // this block runs earlier (right after `coords`); introducing a second `const toolbar` there
+  // would be a duplicate-declaration SyntaxError in the same scope.
+  let annotations = JSON.parse(
+    document.getElementById("detail-toolbar").dataset.annotations || "[]",
+  );
+  const taxonSearchIndex = JSON.parse(
+    document.getElementById("classifier-box")?.dataset.taxonSearchIndex || "[]",
+  );
+  const taxonById = new Map(taxonSearchIndex.map((t) => [t.id, t]));
+
+  const LAYER_STORAGE_PREFIX = "fledermap-annotation-layer-";
+
+  function isLayerVisible(source) {
+    return localStorage.getItem(LAYER_STORAGE_PREFIX + source) === "true";
+  }
+
+  function setLayerVisible(source, visible) {
+    localStorage.setItem(LAYER_STORAGE_PREFIX + source, visible ? "true" : "false");
+    renderAnnotations();
+  }
+
+  const layersButton = document.getElementById("layers-button");
+  const layersMenu = document.getElementById("layers-menu");
+
+  function rebuildLayersMenu() {
+    const sources = [...new Set(annotations.map((a) => a.source))].sort();
+    layersMenu.innerHTML = "";
+    layersButton.disabled = sources.length === 0;
+    for (const source of sources) {
+      const label = document.createElement("label");
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = isLayerVisible(source);
+      checkbox.addEventListener("change", () => setLayerVisible(source, checkbox.checked));
+      label.appendChild(checkbox);
+      label.append(` ${source[0].toUpperCase()}${source.slice(1)}`);
+      layersMenu.appendChild(label);
+    }
+  }
+
+  layersButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    layersMenu.hidden = !layersMenu.hidden;
+  });
+  document.addEventListener("click", (event) => {
+    if (!layersMenu.hidden && !layersMenu.contains(event.target) && event.target !== layersButton) {
+      layersMenu.hidden = true;
+    }
+  });
+
+  const annotationLayer = document.createElement("div");
+  annotationLayer.className = "annotation-layer";
+  wrap.appendChild(annotationLayer);
+
+  function renderAnnotations() {
+    annotationLayer.innerHTML = "";
+    for (const annotation of annotations) {
+      const forceVisible = annotation.source === "comment" && activeTool === "comment";
+      if (!forceVisible && !isLayerVisible(annotation.source)) continue;
+
+      const shape = annotationShape(annotation);
+      const el = document.createElement("div");
+      el.dataset.annotationId = String(annotation.id);
+      if (shape === "point") {
+        const { x, y } = annotationPointPx(annotation, coords);
+        el.className = "annotation-point";
+        el.style.left = `${x}px`;
+        el.style.top = `${y}px`;
+        el.style.background =
+          annotation.taxon_id !== null ? colorForTaxon(annotation.taxon_id) : "";
+      } else {
+        const box = annotationBoxPx(annotation, coords);
+        el.className = "annotation-box";
+        el.style.left = `${box.left}px`;
+        el.style.top = `${box.top}px`;
+        el.style.width = `${box.width}px`;
+        el.style.height = `${box.height}px`;
+        if (annotation.taxon_id !== null) {
+          el.style.borderColor = colorForTaxon(annotation.taxon_id);
+        }
+      }
+
+      const taxon = annotation.taxon_id !== null ? taxonById.get(annotation.taxon_id) : null;
+      if (taxon || annotation.literal) {
+        const label = document.createElement("span");
+        label.className = "annotation-label";
+        const lines = [];
+        if (taxon) lines.push(abbreviateScientificName(taxon.scientific_name));
+        if (annotation.literal) lines.push(annotation.literal);
+        // textContent, never innerHTML: `literal` is user-authored free text (Review Focus).
+        label.textContent = lines.join("\n");
+        label.style.whiteSpace = "pre-line";
+        el.appendChild(label);
+      }
+
+      annotationLayer.appendChild(el);
+    }
+  }
+
+  rebuildLayersMenu();
+  // No initial renderAnnotations() call here: it reads `activeTool`, which is a `let` declared
+  // later in the tool-switching section (~line 814) and not yet initialized at this point in the
+  // script's top-to-bottom execution -- calling it now would throw "Cannot access 'activeTool'
+  // before initialization". Step 3 makes `setActiveTool("default")` (already called once at
+  // ~line 835, after `activeTool` exists) call renderAnnotations() as part of every tool switch,
+  // which covers the first render for free -- no separate bootstrap call needed.
+
   // Shrink-to-fit (backlog "Eliminate vertical scrollbar"): `main.main-content` scrolls
   // vertically (app.css) whenever the locked-scale render is taller than the viewport minus
   // the page's other chrome (nav, header, toolbar, audio row) -- a real recording easily
@@ -822,11 +932,14 @@ document.addEventListener("DOMContentLoaded", () => {
     wrap.classList.toggle("tool-default", tool === "default");
     wrap.classList.toggle("tool-ruler", tool === "ruler");
     wrap.classList.toggle("tool-select", tool === "select");
+    wrap.classList.toggle("tool-comment", tool === "comment");
+    wrap.classList.toggle("comment-interactive", tool === "comment");
     clearRulerBox();
     // Avoids clearing the selection you're actively mid-drag-creating the instant you click the
     // Select button itself -- setActiveTool("select") runs once, on the click that activates the
     // tool, before any drag has happened.
     if (tool !== "select") clearSelectionBox();
+    renderAnnotations();
   }
 
   toolButtons.forEach((btn) => {
