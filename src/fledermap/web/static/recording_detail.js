@@ -330,7 +330,7 @@ document.addEventListener("DOMContentLoaded", () => {
         el.addEventListener("click", (event) => {
           if (activeTool !== "comment") return;
           event.stopPropagation();
-          openCommentPopupForEdit(annotation, event.clientX, event.clientY);
+          openCommentPopupForEdit(annotation);
         });
       }
     }
@@ -344,8 +344,21 @@ document.addEventListener("DOMContentLoaded", () => {
   // ~line 835, after `activeTool` exists) call renderAnnotations() as part of every tool switch,
   // which covers the first render for free -- no separate bootstrap call needed.
 
-  // Comment tool: popup state and CRUD wiring (design spec section on the Comment tool).
+  // Comment tool: popup state and CRUD wiring (design spec section on the Comment tool, section
+  // 4.5's required post-implementation UX check). A centered MODAL with a backdrop, not an
+  // anchored floating-readout like crosshair/ruler: the anchored popup this originally shipped
+  // with (a) never actually anchored anywhere -- `.comment-popup` had no `position: fixed`, so
+  // its `style.left`/`style.top` (set from click coordinates) had no effect and it rendered
+  // wherever normal document flow put it -- and (b), once that was fixed, still clipped
+  // off-screen at a viewport edge with no flip/clamp logic (found live in Task 8's required UX
+  // check). The backdrop additionally fixes a real correctness bug the anchored version had: with
+  // no backdrop, a click meant for a NEW point on the spectrogram while a draft popup was still
+  // open reached `wrap` underneath, silently opening a second draft that inherited the first
+  // draft's never-cleared text/species -- the note you were typing for one point could end up
+  // attached to a different one with no warning. The backdrop makes that impossible: while the
+  // modal is open, every click over the spectrogram hits the backdrop, not `wrap`.
   const commentPopup = document.getElementById("comment-popup");
+  const commentPopupBackdrop = document.getElementById("comment-popup-backdrop");
   const commentSpeciesInput = document.getElementById("comment-popup-species-input");
   const commentSpeciesSuggestions = document.getElementById("comment-popup-species-suggestions");
   const commentText = document.getElementById("comment-popup-text");
@@ -364,6 +377,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function closeCommentPopup() {
     commentPopup.hidden = true;
+    commentPopupBackdrop.hidden = true;
+    document.removeEventListener("keydown", onCommentPopupKeydown);
     pendingDraft = null;
     editingAnnotationId = null;
     selectedTaxonId = null;
@@ -372,10 +387,17 @@ document.addEventListener("DOMContentLoaded", () => {
     commentSpeciesSuggestions.hidden = true;
   }
 
-  function positionCommentPopup(clientX, clientY) {
-    commentPopup.style.left = `${clientX}px`;
-    commentPopup.style.top = `${clientY}px`;
+  // Escape is a deliberate keypress, unlike a stray click on the backdrop -- the backdrop
+  // itself has no click-to-dismiss handler (see the section comment above for why), but Escape
+  // is still offered as the standard modal-dismiss affordance.
+  function onCommentPopupKeydown(event) {
+    if (event.key === "Escape") closeCommentPopup();
+  }
+
+  function openCommentModal() {
     commentPopup.hidden = false;
+    commentPopupBackdrop.hidden = false;
+    document.addEventListener("keydown", onCommentPopupKeydown);
   }
 
   commentSpeciesInput.addEventListener("input", () => {
@@ -447,15 +469,23 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  function openCommentPopupForCreate(draft, clientX, clientY) {
+  function openCommentPopupForCreate(draft) {
     editingAnnotationId = null;
     pendingDraft = draft;
+    // Defense in depth alongside the backdrop (see the section comment above): even though the
+    // backdrop now stops a spectrogram click from reaching this while a draft is open, explicitly
+    // clearing any leftover species/text here means a stale draft can never surface even if this
+    // is reached some other way in the future.
+    selectedTaxonId = null;
+    commentSpeciesInput.value = "";
+    commentText.value = "";
+    commentSpeciesSuggestions.hidden = true;
     commentDeleteBtn.hidden = true;
     updateSaveEnabled();
-    positionCommentPopup(clientX, clientY);
+    openCommentModal();
   }
 
-  function openCommentPopupForEdit(annotation, clientX, clientY) {
+  function openCommentPopupForEdit(annotation) {
     editingAnnotationId = annotation.id;
     pendingDraft = null;
     const taxon = annotation.taxon_id !== null ? taxonById.get(annotation.taxon_id) : null;
@@ -464,7 +494,7 @@ document.addEventListener("DOMContentLoaded", () => {
     commentText.value = annotation.literal || "";
     commentDeleteBtn.hidden = false;
     updateSaveEnabled();
-    positionCommentPopup(clientX, clientY);
+    openCommentModal();
   }
 
   // Shrink-to-fit (backlog "Eliminate vertical scrollbar"): `main.main-content` scrolls
@@ -1254,21 +1284,22 @@ document.addEventListener("DOMContentLoaded", () => {
         const yPx = (event.clientY - rect.top) / currentScale;
         const timeS = coords.xToS(xPx);
         const freqHz = coords.yToKhz(yPx) * 1000;
-        openCommentPopupForCreate(
-          { time_start_s: timeS, time_end_s: timeS, freq_min_hz: freqHz, freq_max_hz: freqHz },
-          event.clientX,
-          event.clientY,
-        );
+        openCommentPopupForCreate({
+          time_start_s: timeS,
+          time_end_s: timeS,
+          freq_min_hz: freqHz,
+          freq_max_hz: freqHz,
+        });
       },
       onDrag(event, dragStart) {
         updateCommentDragBox(dragStart, event);
       },
-      onDragEnd(event) {
+      onDragEnd() {
         if (!pendingDragBox) return;
         const bounds = pendingDragBox.bounds;
         pendingDragBox.el.remove();
         pendingDragBox = null;
-        openCommentPopupForCreate(bounds, event.clientX, event.clientY);
+        openCommentPopupForCreate(bounds);
       },
     },
   };
