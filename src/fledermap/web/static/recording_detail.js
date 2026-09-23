@@ -293,13 +293,18 @@ document.addEventListener("DOMContentLoaded", () => {
       // must stay click-through under every tool, including Comment, since only comment
       // annotations are ever editable via this popup.
       el.dataset.source = annotation.source;
+      // Set once as a custom property, rather than directly on `background`/`border-color`
+      // separately per shape, so app.css can derive the box's border, fill, AND hover-fill
+      // (a stronger tint of the same color, on request) from one source instead of duplicating
+      // the species color into three places that could drift out of sync.
+      if (annotation.taxon_id !== null) {
+        el.style.setProperty("--annotation-color", colorForTaxon(annotation.taxon_id));
+      }
       if (shape === "point") {
         const { x, y } = annotationPointPx(annotation, coords);
         el.className = "annotation-point";
         el.style.left = `${x}px`;
         el.style.top = `${y}px`;
-        el.style.background =
-          annotation.taxon_id !== null ? colorForTaxon(annotation.taxon_id) : "";
       } else {
         const box = annotationBoxPx(annotation, coords);
         el.className = "annotation-box";
@@ -307,9 +312,6 @@ document.addEventListener("DOMContentLoaded", () => {
         el.style.top = `${box.top}px`;
         el.style.width = `${box.width}px`;
         el.style.height = `${box.height}px`;
-        if (annotation.taxon_id !== null) {
-          el.style.borderColor = colorForTaxon(annotation.taxon_id);
-        }
       }
 
       const taxon = annotation.taxon_id !== null ? taxonById.get(annotation.taxon_id) : null;

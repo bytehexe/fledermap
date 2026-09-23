@@ -1042,14 +1042,15 @@ button:disabled { cursor: default; opacity: 0.5; }
   pointer-events: none;
   z-index: 2; /* same reason as .ruler-box -- see its own comment */
 }
-/* Species-tagged annotations get a `colorForTaxon` border/fill (recording_detail.js) -- some
-   generated hues are low-contrast against parts of the spectrogram's own palette. A thin dark
-   halo just outside the border, same technique `.selection-box`'s box-shadow already uses for
-   exactly this problem, keeps the boundary readable everywhere without changing the color that
-   carries the species meaning. */
+/* Species-tagged annotations get a `colorForTaxon` border/fill (recording_detail.js sets
+   `--annotation-color` per element so both the border/fill below AND the hover rule further down
+   derive from one source instead of duplicating the species color). A thin dark halo just outside
+   the border, same technique `.selection-box`'s box-shadow already uses for exactly this problem,
+   keeps the boundary readable everywhere without changing the color that carries the species
+   meaning. */
 .annotation-box {
-  border: 1px solid var(--color-annotation);
-  background: color-mix(in srgb, var(--color-annotation) 12%, transparent);
+  border: 1px solid var(--annotation-color, var(--color-annotation));
+  background: color-mix(in srgb, var(--annotation-color, var(--color-annotation)) 12%, transparent);
   box-shadow: 0 0 0 1px color-mix(in srgb, black 65%, transparent);
 }
 .annotation-point {
@@ -1057,7 +1058,7 @@ button:disabled { cursor: default; opacity: 0.5; }
   height: 12px;
   border-radius: 50%;
   transform: translate(-50%, -50%);
-  background: var(--color-annotation);
+  background: var(--annotation-color, var(--color-annotation));
   border: 1px solid var(--color-bg);
   box-shadow: 0 0 0 1px color-mix(in srgb, black 65%, transparent);
 }
@@ -1071,6 +1072,12 @@ button:disabled { cursor: default; opacity: 0.5; }
 .comment-interactive .annotation-point[data-source="comment"] {
   pointer-events: auto;
   cursor: pointer;
+}
+/* A stronger tint of the same species color on hover, requested to make low-contrast species
+   colors easier to spot while scanning -- only reachable on a `comment`-source box, since that's
+   the only annotation with pointer-events enabled (see rule above) for :hover to ever fire on. */
+.comment-interactive .annotation-box[data-source="comment"]:hover {
+  background: color-mix(in srgb, var(--annotation-color, var(--color-annotation)) 30%, transparent);
 }
 .annotation-label {
   position: absolute;
