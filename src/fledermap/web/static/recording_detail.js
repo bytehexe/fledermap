@@ -233,6 +233,7 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("classifier-box")?.dataset.taxonSearchIndex || "[]",
   );
   const taxonById = new Map(taxonSearchIndex.map((t) => [t.id, t]));
+  const recordingAnnotationsUrl = document.getElementById("detail-toolbar").dataset.annotationsUrl;
 
   const LAYER_STORAGE_PREFIX = "fledermap-annotation-layer-";
 
@@ -320,6 +321,18 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       annotationLayer.appendChild(el);
+
+      if (annotation.source === "comment") {
+        el.addEventListener("mousedown", (event) => {
+          if (activeTool !== "comment") return;
+          event.stopPropagation();
+        });
+        el.addEventListener("click", (event) => {
+          if (activeTool !== "comment") return;
+          event.stopPropagation();
+          openCommentPopupForEdit(annotation, event.clientX, event.clientY);
+        });
+      }
     }
   }
 
@@ -330,6 +343,129 @@ document.addEventListener("DOMContentLoaded", () => {
   // before initialization". Step 3 makes `setActiveTool("default")` (already called once at
   // ~line 835, after `activeTool` exists) call renderAnnotations() as part of every tool switch,
   // which covers the first render for free -- no separate bootstrap call needed.
+
+  // Comment tool: popup state and CRUD wiring (design spec section on the Comment tool).
+  const commentPopup = document.getElementById("comment-popup");
+  const commentSpeciesInput = document.getElementById("comment-popup-species-input");
+  const commentSpeciesSuggestions = document.getElementById("comment-popup-species-suggestions");
+  const commentText = document.getElementById("comment-popup-text");
+  const commentDeleteBtn = document.getElementById("comment-popup-delete");
+  const commentCancelBtn = document.getElementById("comment-popup-cancel");
+  const commentSaveBtn = document.getElementById("comment-popup-save");
+
+  let pendingDraft = null; // { time_start_s, time_end_s, freq_min_hz, freq_max_hz } while creating
+  let editingAnnotationId = null; // set while editing an existing annotation, else null
+  let selectedTaxonId = null;
+
+  function updateSaveEnabled() {
+    commentSaveBtn.disabled = !selectedTaxonId && commentText.value.trim() === "";
+  }
+  commentText.addEventListener("input", updateSaveEnabled);
+
+  function closeCommentPopup() {
+    commentPopup.hidden = true;
+    pendingDraft = null;
+    editingAnnotationId = null;
+    selectedTaxonId = null;
+    commentSpeciesInput.value = "";
+    commentText.value = "";
+    commentSpeciesSuggestions.hidden = true;
+  }
+
+  function positionCommentPopup(clientX, clientY) {
+    commentPopup.style.left = `${clientX}px`;
+    commentPopup.style.top = `${clientY}px`;
+    commentPopup.hidden = false;
+  }
+
+  commentSpeciesInput.addEventListener("input", () => {
+    selectedTaxonId = null;
+    updateSaveEnabled();
+    const query = commentSpeciesInput.value.trim();
+    commentSpeciesSuggestions.innerHTML = "";
+    if (query === "") {
+      commentSpeciesSuggestions.hidden = true;
+      return;
+    }
+    const matches = taxonSearchIndex.filter((t) => matchesQuery(t, query)).slice(0, 8);
+    commentSpeciesSuggestions.hidden = matches.length === 0;
+    for (const taxon of matches) {
+      const item = document.createElement("div");
+      item.textContent = taxon.scientific_name;
+      item.addEventListener("click", () => {
+        selectedTaxonId = taxon.id;
+        commentSpeciesInput.value = taxon.scientific_name;
+        commentSpeciesSuggestions.hidden = true;
+        updateSaveEnabled();
+      });
+      commentSpeciesSuggestions.appendChild(item);
+    }
+  });
+
+  commentCancelBtn.addEventListener("click", closeCommentPopup);
+
+  commentDeleteBtn.addEventListener("click", () => {
+    if (editingAnnotationId === null) return;
+    fetch(`${recordingAnnotationsUrl}/${editingAnnotationId}`, { method: "DELETE" })
+      .then((response) => {
+        if (!response.ok) throw new Error(`delete failed: ${response.status}`);
+        annotations = annotations.filter((a) => a.id !== editingAnnotationId);
+        rebuildLayersMenu();
+        renderAnnotations();
+        closeCommentPopup();
+      });
+  });
+
+  commentSaveBtn.addEventListener("click", () => {
+    const literal = commentText.value.trim() || null;
+    const taxonId = selectedTaxonId;
+    if (editingAnnotationId !== null) {
+      fetch(`${recordingAnnotationsUrl}/${editingAnnotationId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taxon_id: taxonId, literal }),
+      })
+        .then((response) => response.json())
+        .then((updated) => {
+          annotations = annotations.map((a) => (a.id === updated.id ? updated : a));
+          renderAnnotations();
+          closeCommentPopup();
+        });
+    } else {
+      fetch(recordingAnnotationsUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...pendingDraft, taxon_id: taxonId, literal }),
+      })
+        .then((response) => response.json())
+        .then((created) => {
+          annotations = [...annotations, created];
+          rebuildLayersMenu();
+          renderAnnotations();
+          closeCommentPopup();
+        });
+    }
+  });
+
+  function openCommentPopupForCreate(draft, clientX, clientY) {
+    editingAnnotationId = null;
+    pendingDraft = draft;
+    commentDeleteBtn.hidden = true;
+    updateSaveEnabled();
+    positionCommentPopup(clientX, clientY);
+  }
+
+  function openCommentPopupForEdit(annotation, clientX, clientY) {
+    editingAnnotationId = annotation.id;
+    pendingDraft = null;
+    const taxon = annotation.taxon_id !== null ? taxonById.get(annotation.taxon_id) : null;
+    selectedTaxonId = annotation.taxon_id;
+    commentSpeciesInput.value = taxon ? taxon.scientific_name : "";
+    commentText.value = annotation.literal || "";
+    commentDeleteBtn.hidden = false;
+    updateSaveEnabled();
+    positionCommentPopup(clientX, clientY);
+  }
 
   // Shrink-to-fit (backlog "Eliminate vertical scrollbar"): `main.main-content` scrolls
   // vertically (app.css) whenever the locked-scale render is taller than the viewport minus
@@ -919,6 +1055,37 @@ document.addEventListener("DOMContentLoaded", () => {
     scrollEl.classList.toggle("view-locked", isViewLockActive());
   }
 
+  let pendingDragBox = null;
+
+  function updateCommentDragBox(dragStart, event) {
+    const rect = wrap.getBoundingClientRect();
+    const scrollDriftPx = scrollEl.scrollLeft - dragStart.scrollLeft;
+    const startX = (dragStart.x - scrollDriftPx - rect.left) / currentScale;
+    const startY = (dragStart.y - rect.top) / currentScale;
+    const curX = (event.clientX - rect.left) / currentScale;
+    const curY = (event.clientY - rect.top) / currentScale;
+
+    if (!pendingDragBox) {
+      const el = document.createElement("div");
+      el.className = "annotation-box";
+      wrap.appendChild(el);
+      pendingDragBox = { el, bounds: null };
+    }
+    const left = Math.min(startX, curX);
+    const top = Math.min(startY, curY);
+    pendingDragBox.el.style.left = `${left}px`;
+    pendingDragBox.el.style.top = `${top}px`;
+    pendingDragBox.el.style.width = `${Math.abs(curX - startX)}px`;
+    pendingDragBox.el.style.height = `${Math.abs(curY - startY)}px`;
+
+    pendingDragBox.bounds = normalizeDragBounds(
+      coords.xToS(startX),
+      coords.xToS(curX),
+      coords.yToKhz(startY) * 1000,
+      coords.yToKhz(curY) * 1000,
+    );
+  }
+
   const toolbar = document.getElementById("detail-toolbar");
   const toolButtons = Array.from(toolbar.querySelectorAll(".tool-button"));
   let activeTool = "default";
@@ -1080,6 +1247,30 @@ document.addEventListener("DOMContentLoaded", () => {
       },
       onDragEnd() {},
     },
+    comment: {
+      onClick(event) {
+        const rect = wrap.getBoundingClientRect();
+        const xPx = (event.clientX - rect.left) / currentScale;
+        const yPx = (event.clientY - rect.top) / currentScale;
+        const timeS = coords.xToS(xPx);
+        const freqHz = coords.yToKhz(yPx) * 1000;
+        openCommentPopupForCreate(
+          { time_start_s: timeS, time_end_s: timeS, freq_min_hz: freqHz, freq_max_hz: freqHz },
+          event.clientX,
+          event.clientY,
+        );
+      },
+      onDrag(event, dragStart) {
+        updateCommentDragBox(dragStart, event);
+      },
+      onDragEnd(event) {
+        if (!pendingDragBox) return;
+        const bounds = pendingDragBox.bounds;
+        pendingDragBox.el.remove();
+        pendingDragBox = null;
+        openCommentPopupForCreate(bounds, event.clientX, event.clientY);
+      },
+    },
   };
 
   // Shared drag-vs-click state machine: mousedown starts tracking, then mousemove/mouseup are
@@ -1125,7 +1316,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function onUp(upEvent) {
       if (dragging) {
-        tools[activeTool].onDragEnd();
+        tools[activeTool].onDragEnd(upEvent);
       } else {
         tools[activeTool].onClick(upEvent);
       }

@@ -43,7 +43,7 @@
     {% include "_review_reasons.html" %}
     {% if params %}
     <h2>Audio</h2>
-    <div class="detail-toolbar" id="detail-toolbar" data-annotations='{{ annotations | tojson }}'>
+    <div class="detail-toolbar" id="detail-toolbar" data-annotations='{{ annotations | tojson }}' data-annotations-url="{{ url_for('recording_detail.post_annotation', audio_hash=recording.audio_hash) }}">
       <div class="toolbar-zone toolbar-zone-tools">
         <button type="button" class="tool-button playback-only" data-tool="default" aria-pressed="true">Default</button>
         <button type="button" class="tool-button playback-only" data-tool="ruler" aria-pressed="false">Ruler</button>
