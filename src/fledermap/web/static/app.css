@@ -1042,9 +1042,15 @@ button:disabled { cursor: default; opacity: 0.5; }
   pointer-events: none;
   z-index: 2; /* same reason as .ruler-box -- see its own comment */
 }
+/* Species-tagged annotations get a `colorForTaxon` border/fill (recording_detail.js) -- some
+   generated hues are low-contrast against parts of the spectrogram's own palette. A thin dark
+   halo just outside the border, same technique `.selection-box`'s box-shadow already uses for
+   exactly this problem, keeps the boundary readable everywhere without changing the color that
+   carries the species meaning. */
 .annotation-box {
   border: 1px solid var(--color-annotation);
   background: color-mix(in srgb, var(--color-annotation) 12%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, black 65%, transparent);
 }
 .annotation-point {
   width: 12px;
@@ -1053,6 +1059,7 @@ button:disabled { cursor: default; opacity: 0.5; }
   transform: translate(-50%, -50%);
   background: var(--color-annotation);
   border: 1px solid var(--color-bg);
+  box-shadow: 0 0 0 1px color-mix(in srgb, black 65%, transparent);
 }
 /* Only `comment`-source elements become clickable under the Comment tool: only comment
    annotations are ever editable (recording_detail.js's renderAnnotations() only wires up
