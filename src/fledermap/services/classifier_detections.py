@@ -308,7 +308,7 @@ def materialize_claims(
 class PurgeReport:
     detections_removed: int
     identifications_removed: int
-    annotations_removed: int = 0
+    annotations_removed: int
 
 
 def purge_source(session: OrmSession, source: IdSource) -> PurgeReport:

@@ -448,7 +448,9 @@ def test_purge_source_removes_detections_and_identifications_for_that_source_onl
         report = purge_source(session, IdSource.BATDETECT2)
         session.commit()
 
-        assert report == PurgeReport(detections_removed=1, identifications_removed=1)
+        assert report == PurgeReport(
+            detections_removed=1, identifications_removed=1, annotations_removed=0
+        )
         assert (
             session.scalars(
                 select(ClassifierDetection).where(
@@ -467,7 +469,9 @@ def test_purge_source_removes_detections_and_identifications_for_that_source_onl
 def test_purge_source_is_idempotent(engine: Engine) -> None:
     with OrmSession(engine) as session:
         report = purge_source(session, IdSource.BATDETECT2)
-        assert report == PurgeReport(detections_removed=0, identifications_removed=0)
+        assert report == PurgeReport(
+            detections_removed=0, identifications_removed=0, annotations_removed=0
+        )
 
 
 def test_purge_source_removes_annotations_for_that_source_only(engine: Engine) -> None:
