@@ -7,6 +7,10 @@ const {
   annotationBoxPx,
   annotationPointPx,
   clampToPlot,
+  annotationLabelLines,
+  isBelowThreshold,
+  sortAnnotationsForPaint,
+  layerMenuSources,
 } = require("../../src/fledermap/web/static/annotation_geometry.js");
 
 test("normalizeDragBounds orders start<=end regardless of drag direction", () => {
@@ -83,4 +87,74 @@ test("clampToPlot clamps coordinates past the plot's far edge", () => {
 
 test("clampToPlot clamps each axis independently", () => {
   assert.deepEqual(clampToPlot(-10, 150, 200, 100), { x: 0, y: 100 });
+});
+
+test("annotationLabelLines shows the abbreviated species and rounded confidence", () => {
+  const annotation = { confidence: 0.823, literal: null };
+  const taxon = { scientific_name: "Pipistrellus pipistrellus" };
+  assert.deepEqual(annotationLabelLines(annotation, taxon), ["P. pipistrellus 82%"]);
+});
+
+test("annotationLabelLines omits confidence when the annotation has none (a comment)", () => {
+  const annotation = { confidence: null, literal: null };
+  const taxon = { scientific_name: "Pipistrellus pipistrellus" };
+  assert.deepEqual(annotationLabelLines(annotation, taxon), ["P. pipistrellus"]);
+});
+
+test("annotationLabelLines includes the literal note as its own line", () => {
+  const annotation = { confidence: null, literal: "roosting nearby" };
+  assert.deepEqual(annotationLabelLines(annotation, null), ["roosting nearby"]);
+});
+
+test("annotationLabelLines falls back to the raw label when the species is unmapped", () => {
+  const annotation = { confidence: 0.5, literal: null, raw_label: "Unknown call" };
+  assert.deepEqual(annotationLabelLines(annotation, null), ["Unknown call 50%"]);
+});
+
+test("isBelowThreshold is true strictly below the source's configured threshold", () => {
+  const thresholds = { batdetect2: 0.8 };
+  assert.equal(isBelowThreshold({ source: "batdetect2", confidence: 0.79 }, thresholds), true);
+});
+
+test("isBelowThreshold is false exactly at the threshold", () => {
+  const thresholds = { batdetect2: 0.8 };
+  assert.equal(isBelowThreshold({ source: "batdetect2", confidence: 0.8 }, thresholds), false);
+});
+
+test("isBelowThreshold is false when the source has no configured threshold (e.g. comment)", () => {
+  const thresholds = { batdetect2: 0.8 };
+  assert.equal(isBelowThreshold({ source: "comment", confidence: 0.1 }, thresholds), false);
+});
+
+test("isBelowThreshold is false when the annotation has no confidence", () => {
+  const thresholds = { batdetect2: 0.8 };
+  assert.equal(isBelowThreshold({ source: "batdetect2", confidence: null }, thresholds), false);
+});
+
+test("sortAnnotationsForPaint moves comment entries after every other source", () => {
+  const annotations = [
+    { id: 1, source: "comment" },
+    { id: 2, source: "batdetect2" },
+    { id: 3, source: "batdetect2" },
+    { id: 4, source: "comment" },
+  ];
+  const sorted = sortAnnotationsForPaint(annotations);
+  assert.deepEqual(sorted.map((a) => a.id), [2, 3, 1, 4]);
+});
+
+test("sortAnnotationsForPaint leaves a single-source list unchanged", () => {
+  const annotations = [{ id: 1, source: "batdetect2" }, { id: 2, source: "batdetect2" }];
+  assert.deepEqual(sortAnnotationsForPaint(annotations).map((a) => a.id), [1, 2]);
+});
+
+test("layerMenuSources puts comment first, batdetect2 next, others alphabetically after", () => {
+  assert.deepEqual(
+    layerMenuSources(["battybirdnet", "batdetect2", "comment"]),
+    ["comment", "batdetect2", "battybirdnet"],
+  );
+});
+
+test("layerMenuSources handles a subset of sources", () => {
+  assert.deepEqual(layerMenuSources(["batdetect2"]), ["batdetect2"]);
+  assert.deepEqual(layerMenuSources(["comment"]), ["comment"]);
 });

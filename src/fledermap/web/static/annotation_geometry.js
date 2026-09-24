@@ -65,6 +65,64 @@ function clampToPlot(xPx, yPx, widthPx, heightPx) {
   };
 }
 
+// The species line, abbreviated the same way as every annotation source, with confidence
+// appended for any source that carries one (comment annotations never set confidence, so their
+// species line has no percentage). `taxon` is the recording-detail page's own lookup-by-id result
+// (null for an unmapped species, where `raw_label` -- if the annotation carries one -- is the only
+// name available); `literal` is a separate, free-text line, never merged into the species line.
+function annotationLabelLines(annotation, taxon) {
+  const lines = [];
+  const name = taxon
+    ? abbreviateScientificName(taxon.scientific_name)
+    : annotation.raw_label || null;
+  if (name) {
+    const confidence =
+      annotation.confidence !== null && annotation.confidence !== undefined
+        ? ` ${Math.round(annotation.confidence * 100)}%`
+        : "";
+    lines.push(`${name}${confidence}`);
+  }
+  if (annotation.literal) lines.push(annotation.literal);
+  return lines;
+}
+
+// Strictly below (`<`, not `<=`) the configured threshold for the annotation's own source --
+// matching `materialize_claims`'s own "clears the threshold" semantics elsewhere in this
+// codebase. A source with no configured threshold (comment) or an annotation with no confidence
+// (also comment) is never below-threshold; there is nothing to compare.
+function isBelowThreshold(annotation, thresholds) {
+  const threshold = thresholds[annotation.source];
+  if (threshold === undefined) return false;
+  if (annotation.confidence === null || annotation.confidence === undefined) return false;
+  return annotation.confidence < threshold;
+}
+
+// A stable partition, not a sort by source name: every non-comment annotation keeps its original
+// relative order, followed by every comment annotation in its original relative order. Comments
+// must paint (and hit-test, since `annotationAtPoint` walks from the end) on top of any other
+// source, since only comments are ever user-editable via the popup.
+function sortAnnotationsForPaint(annotations) {
+  const others = annotations.filter((a) => a.source !== "comment");
+  const comments = annotations.filter((a) => a.source === "comment");
+  return [...others, ...comments];
+}
+
+// Comments lead the Layers menu, batdetect2 next, battybirdnet after that, anything else
+// (a future source) alphabetically at the end -- not a plain alphabetical sort, which would put
+// "batdetect2" ahead of "comment".
+const _LAYER_MENU_PRIORITY = ["comment", "batdetect2", "battybirdnet"];
+function layerMenuSources(sources) {
+  return [...sources].sort((a, b) => {
+    const ia = _LAYER_MENU_PRIORITY.indexOf(a);
+    const ib = _LAYER_MENU_PRIORITY.indexOf(b);
+    if (ia !== -1 || ib !== -1) {
+      return (ia === -1 ? _LAYER_MENU_PRIORITY.length : ia) -
+        (ib === -1 ? _LAYER_MENU_PRIORITY.length : ib);
+    }
+    return a.localeCompare(b);
+  });
+}
+
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     normalizeDragBounds,
@@ -73,5 +131,9 @@ if (typeof module !== "undefined" && module.exports) {
     annotationBoxPx,
     annotationPointPx,
     clampToPlot,
+    annotationLabelLines,
+    isBelowThreshold,
+    sortAnnotationsForPaint,
+    layerMenuSources,
   };
 }
