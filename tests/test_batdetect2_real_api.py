@@ -114,3 +114,27 @@ def test_the_floor_gates_on_det_prob_not_class_prob(
     detections = annotations_to_detections(real_annotations, lambda _label: None)
     by_det_prob = [a for a in real_annotations if a["det_prob"] >= _BATDETECT2_FLOOR]
     assert len(detections) == len(by_det_prob)
+
+
+def test_every_real_annotation_has_the_geometry_fields_the_parser_reads(
+    real_annotations: list[dict],
+) -> None:
+    for annotation in real_annotations:
+        assert isinstance(annotation["start_time"], float)
+        assert isinstance(annotation["end_time"], float)
+        assert isinstance(annotation["low_freq"], (int, float))
+        assert isinstance(annotation["high_freq"], (int, float))
+        assert annotation["end_time"] >= annotation["start_time"]
+        assert annotation["high_freq"] >= annotation["low_freq"]
+
+
+def test_parsing_real_output_keeps_the_call_geometry(
+    real_annotations: list[dict],
+) -> None:
+    detections = annotations_to_detections(real_annotations, lambda _label: None)
+    by_det_prob = [a for a in real_annotations if a["det_prob"] >= _BATDETECT2_FLOOR]
+    for detection, annotation in zip(detections, by_det_prob, strict=True):
+        assert detection.time_start_s == annotation["start_time"]
+        assert detection.time_end_s == annotation["end_time"]
+        assert detection.freq_min_hz == annotation["low_freq"]
+        assert detection.freq_max_hz == annotation["high_freq"]
