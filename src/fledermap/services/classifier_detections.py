@@ -29,9 +29,14 @@ from typing import cast
 from sqlalchemy import CursorResult, delete, select
 from sqlalchemy.orm import Session as OrmSession
 
-from fledermap.domain.codes import IdSource, Verdict, sentinel_verdict
+from fledermap.domain.codes import AnnotationSource, IdSource, Verdict, sentinel_verdict
 from fledermap.services.identifications import ClaimInput, replace_claims
-from fledermap.store.models import ClassifierDetection, Identification, Recording
+from fledermap.store.models import (
+    Annotation,
+    ClassifierDetection,
+    Identification,
+    Recording,
+)
 from fledermap.store.seed import resolve_code
 
 # Stored when a classifier ran and found nothing above its floor. `sentinel_verdict` reads it as
@@ -89,11 +94,28 @@ def record_detections(
     is confidence 0.0 so it never clears a threshold as a detection; `materialize_claims` turns it
     (or, at threshold 0, its sentinel label) into the same NO_ID claim as any other recording
     whose detections all fall below the threshold.
+
+    A `DetectionInput` that carries call geometry (`time_start_s is not None` --
+    batdetect2 today, see its own docstring) also gets a matching `Annotation` row,
+    replaced the same full-delete-then-insert way as the `classifier_detection` rows
+    above it -- one write path shared by every geometry-bearing classifier source, so a
+    future BattyBirdNET producer needs no code here, only geometry on its own
+    `DetectionInput`s. `AnnotationSource(source.value)` is a direct construction, not a
+    lookup: `IdSource`/`AnnotationSource` deliberately share the same literal string
+    values for `batdetect2`/`battybirdnet` (domain/codes.py). The synthesized empty-run
+    NoID marker (see below) has no geometry and therefore produces no annotation --
+    "found nothing" must not draw a fake box.
     """
     session.execute(
         delete(ClassifierDetection).where(
             ClassifierDetection.recording_id == recording.id,
             ClassifierDetection.source == source,
+        ),
+    )
+    session.execute(
+        delete(Annotation).where(
+            Annotation.recording_id == recording.id,
+            Annotation.source == AnnotationSource(source.value),
         ),
     )
     rows = detections or [
@@ -109,6 +131,21 @@ def record_detections(
                 confidence=detection.confidence,
             ),
         )
+        if detection.time_start_s is not None:
+            session.add(
+                Annotation(
+                    recording_id=recording.id,
+                    source=AnnotationSource(source.value),
+                    time_start_s=detection.time_start_s,
+                    time_end_s=detection.time_end_s,
+                    freq_min_hz=detection.freq_min_hz,
+                    freq_max_hz=detection.freq_max_hz,
+                    taxon_id=detection.taxon_id,
+                    confidence=detection.confidence,
+                    literal=None,
+                    created_at=datetime.now(UTC),
+                ),
+            )
 
 
 @dataclass(frozen=True)

@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session as OrmSession
 
-from fledermap.domain.codes import IdSource, Verdict
+from fledermap.domain.codes import AnnotationSource, IdSource, Verdict
 from fledermap.services.classifier_detections import (
     DetectionInput,
     MaterializeReport,
@@ -16,6 +16,7 @@ from fledermap.services.classifier_detections import (
     record_detections,
 )
 from fledermap.store.models import (
+    Annotation,
     ClassifierDetection,
     Identification,
     Recording,
@@ -573,3 +574,145 @@ def test_materialize_claims_lets_an_unmapped_species_win_the_null_taxon_slot_by_
         assert claims[0].verdict == Verdict.SPECIES
         assert claims[0].taxon_id is None
         assert claims[0].raw_label == "Not A Real Species"
+
+
+def test_record_detections_writes_an_annotation_for_a_geometry_bearing_detection(
+    engine: Engine,
+) -> None:
+    with OrmSession(engine) as session:
+        recording = Recording(
+            audio_hash="bd" * 32,
+            path="bd.wav",
+            recorded_at=datetime(2026, 9, 24, tzinfo=UTC),
+        )
+        session.add(recording)
+        session.commit()
+
+        record_detections(
+            session,
+            recording,
+            IdSource.BATDETECT2,
+            [
+                DetectionInput(
+                    taxon_id=None,
+                    raw_label="Pipistrellus pipistrellus",
+                    confidence=0.85,
+                    time_start_s=0.1,
+                    time_end_s=0.13,
+                    freq_min_hz=40000.0,
+                    freq_max_hz=55000.0,
+                ),
+            ],
+        )
+        session.commit()
+
+        annotations = session.scalars(select(Annotation)).all()
+        assert len(annotations) == 1
+        annotation = annotations[0]
+        assert annotation.source == AnnotationSource.BATDETECT2
+        assert annotation.recording_id == recording.id
+        assert annotation.time_start_s == 0.1
+        assert annotation.time_end_s == 0.13
+        assert annotation.freq_min_hz == 40000.0
+        assert annotation.freq_max_hz == 55000.0
+        assert annotation.confidence == 0.85
+        assert annotation.literal is None
+
+
+def test_record_detections_writes_no_annotation_for_a_detection_without_geometry(
+    engine: Engine,
+) -> None:
+    with OrmSession(engine) as session:
+        recording = Recording(
+            audio_hash="bn" * 32,
+            path="bn.wav",
+            recorded_at=datetime(2026, 9, 24, tzinfo=UTC),
+        )
+        session.add(recording)
+        session.commit()
+
+        record_detections(
+            session,
+            recording,
+            IdSource.BATTYBIRDNET,
+            [
+                DetectionInput(
+                    taxon_id=None, raw_label="Pipistrellus pipistrellus", confidence=0.7
+                )
+            ],
+        )
+        session.commit()
+
+        assert session.scalars(select(Annotation)).all() == []
+
+
+def test_record_detections_writes_no_annotation_for_the_empty_run_noid_marker(
+    engine: Engine,
+) -> None:
+    with OrmSession(engine) as session:
+        recording = Recording(
+            audio_hash="nm" * 32,
+            path="nm.wav",
+            recorded_at=datetime(2026, 9, 24, tzinfo=UTC),
+        )
+        session.add(recording)
+        session.commit()
+
+        record_detections(session, recording, IdSource.BATDETECT2, [])
+        session.commit()
+
+        assert session.scalars(select(Annotation)).all() == []
+
+
+def test_record_detections_replaces_prior_annotation_rows_on_rerun(
+    engine: Engine,
+) -> None:
+    with OrmSession(engine) as session:
+        recording = Recording(
+            audio_hash="rr" * 32,
+            path="rr.wav",
+            recorded_at=datetime(2026, 9, 24, tzinfo=UTC),
+        )
+        session.add(recording)
+        session.commit()
+
+        record_detections(
+            session,
+            recording,
+            IdSource.BATDETECT2,
+            [
+                DetectionInput(
+                    taxon_id=None,
+                    raw_label="old",
+                    confidence=0.5,
+                    time_start_s=0.0,
+                    time_end_s=0.01,
+                    freq_min_hz=10000.0,
+                    freq_max_hz=20000.0,
+                ),
+            ],
+        )
+        session.commit()
+
+        record_detections(
+            session,
+            recording,
+            IdSource.BATDETECT2,
+            [
+                DetectionInput(
+                    taxon_id=None,
+                    raw_label="new",
+                    confidence=0.9,
+                    time_start_s=1.0,
+                    time_end_s=1.01,
+                    freq_min_hz=30000.0,
+                    freq_max_hz=40000.0,
+                ),
+            ],
+        )
+        session.commit()
+
+        annotations = session.scalars(select(Annotation)).all()
+        assert len(annotations) == 1
+        assert annotations[0].literal is None
+        assert annotations[0].time_start_s == 1.0
