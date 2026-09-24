@@ -308,18 +308,20 @@ def materialize_claims(
 class PurgeReport:
     detections_removed: int
     identifications_removed: int
+    annotations_removed: int = 0
 
 
 def purge_source(session: OrmSession, source: IdSource) -> PurgeReport:
-    """Delete every `classifier_detection` and `Identification` row for
-    `source`, scoped precisely to that source -- never touches any other
-    source's rows, and never cascades into recording/session/site.
+    """Delete every `classifier_detection`, `Identification`, and (geometry-bearing
+    producer's) `Annotation` row for `source` -- scoped precisely to that source, never
+    touches any other source's rows, and never cascades into recording/session/site.
 
-    Used when a classifier is disabled after having run: both the raw cache
-    and the materialized claims from a disabled source must disappear, or a
-    stale claim would keep winning `current_best.py`'s precedence ordering
-    forever. Idempotent -- called every ingest cycle while disabled, so it
-    must be a no-op on rows that don't exist.
+    Used when a classifier is disabled after having run: the raw cache, the materialized
+    claims, AND any annotation boxes from a disabled source must all disappear together --
+    a stale claim would keep winning `current_best.py`'s precedence ordering forever, and a
+    stale box would keep showing a call from a classifier the operator turned off.
+    Idempotent -- called every ingest cycle while disabled, so it must be a no-op on rows
+    that don't exist.
     """
     detections_removed = cast(
         "CursorResult[tuple[()]]",
@@ -331,7 +333,16 @@ def purge_source(session: OrmSession, source: IdSource) -> PurgeReport:
         "CursorResult[tuple[()]]",
         session.execute(delete(Identification).where(Identification.source == source)),
     ).rowcount
+    annotations_removed = cast(
+        "CursorResult[tuple[()]]",
+        session.execute(
+            delete(Annotation).where(
+                Annotation.source == AnnotationSource(source.value)
+            )
+        ),
+    ).rowcount
     return PurgeReport(
         detections_removed=detections_removed,
         identifications_removed=identifications_removed,
+        annotations_removed=annotations_removed,
     )

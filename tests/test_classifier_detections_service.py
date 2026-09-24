@@ -7,6 +7,7 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import AnnotationSource, IdSource, Verdict
+from fledermap.services.annotations import create_comment_annotation
 from fledermap.services.classifier_detections import (
     DetectionInput,
     MaterializeReport,
@@ -467,6 +468,53 @@ def test_purge_source_is_idempotent(engine: Engine) -> None:
     with OrmSession(engine) as session:
         report = purge_source(session, IdSource.BATDETECT2)
         assert report == PurgeReport(detections_removed=0, identifications_removed=0)
+
+
+def test_purge_source_removes_annotations_for_that_source_only(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        recording = Recording(
+            audio_hash="ps" * 32,
+            path="ps.wav",
+            recorded_at=datetime(2026, 9, 24, tzinfo=UTC),
+        )
+        session.add(recording)
+        session.commit()
+
+        record_detections(
+            session,
+            recording,
+            IdSource.BATDETECT2,
+            [
+                DetectionInput(
+                    taxon_id=None,
+                    raw_label="x",
+                    confidence=0.9,
+                    time_start_s=0.0,
+                    time_end_s=0.01,
+                    freq_min_hz=10000.0,
+                    freq_max_hz=20000.0,
+                ),
+            ],
+        )
+        create_comment_annotation(
+            session,
+            recording,
+            time_start_s=2.0,
+            time_end_s=2.0,
+            freq_min_hz=None,
+            freq_max_hz=None,
+            taxon_id=None,
+            literal="keep me",
+        )
+        session.commit()
+
+        report = purge_source(session, IdSource.BATDETECT2)
+        session.commit()
+
+        assert report.annotations_removed == 1
+        remaining = session.scalars(select(Annotation)).all()
+        assert len(remaining) == 1
+        assert remaining[0].source == AnnotationSource.COMMENT
 
 
 def test_materialize_claims_writes_a_noise_verdict_for_a_sentinel_label(
