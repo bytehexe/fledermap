@@ -229,6 +229,9 @@ document.addEventListener("DOMContentLoaded", () => {
   let annotations = JSON.parse(
     document.getElementById("detail-toolbar").dataset.annotations || "[]",
   );
+  const classifierThresholds = JSON.parse(
+    document.getElementById("detail-toolbar").dataset.classifierThresholds || "{}",
+  );
   const taxonSearchIndex = JSON.parse(
     document.getElementById("classifier-box")?.dataset.taxonSearchIndex || "[]",
   );
@@ -243,8 +246,11 @@ document.addEventListener("DOMContentLoaded", () => {
   function annotationAtPoint(xPx, yPx) {
     // Later (later-rendered, i.e. later in the array) annotations paint on top, so hit-test from
     // the end -- an overlapping pair should highlight whichever one is actually visible on top.
-    for (let i = annotations.length - 1; i >= 0; i--) {
-      const annotation = annotations[i];
+    // sortAnnotationsForPaint puts comments last regardless of DB insertion order, since only
+    // comments are user-editable and must win an overlap.
+    const ordered = sortAnnotationsForPaint(annotations);
+    for (let i = ordered.length - 1; i >= 0; i--) {
+      const annotation = ordered[i];
       const forceVisible = annotation.source === "comment" && activeTool === "comment";
       if (!forceVisible && !isLayerVisible(annotation.source)) continue;
       if (annotationShape(annotation) === "point") {
@@ -299,7 +305,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const layersMenu = document.getElementById("layers-menu");
 
   function rebuildLayersMenu() {
-    const sources = [...new Set(annotations.map((a) => a.source))].sort();
+    const sources = layerMenuSources([...new Set(annotations.map((a) => a.source))]);
     layersMenu.innerHTML = "";
     layersButton.disabled = sources.length === 0;
     for (const source of sources) {
@@ -334,7 +340,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // gone -- reset the tracked id rather than leaving it pointing at a detached node; the next
     // mousemove naturally re-applies the class if the cursor is still over the same annotation.
     hoveredAnnotationId = null;
-    for (const annotation of annotations) {
+    for (const annotation of sortAnnotationsForPaint(annotations)) {
       const forceVisible = annotation.source === "comment" && activeTool === "comment";
       if (!forceVisible && !isLayerVisible(annotation.source)) continue;
 
@@ -366,15 +372,19 @@ document.addEventListener("DOMContentLoaded", () => {
         el.style.width = `${box.width}px`;
         el.style.height = `${box.height}px`;
       }
+      // Must be added after el.className is set above -- className replaces the whole class
+      // list, so adding this before either shape branch would get silently wiped out.
+      if (isBelowThreshold(annotation, classifierThresholds)) {
+        el.classList.add("below-threshold");
+      }
 
       const taxon = annotation.taxon_id !== null ? taxonById.get(annotation.taxon_id) : null;
-      if (taxon || annotation.literal) {
+      const lines = annotationLabelLines(annotation, taxon);
+      if (lines.length > 0) {
         const label = document.createElement("span");
         label.className = "annotation-label";
-        const lines = [];
-        if (taxon) lines.push(abbreviateScientificName(taxon.scientific_name));
-        if (annotation.literal) lines.push(annotation.literal);
-        // textContent, never innerHTML: `literal` is user-authored free text.
+        // textContent, never innerHTML: `literal` is user-authored free text, and `raw_label`
+        // (the unmapped-species fallback) is the model's own string, neither sanitized as HTML.
         label.textContent = lines.join("\n");
         label.style.whiteSpace = "pre-line";
         el.appendChild(label);

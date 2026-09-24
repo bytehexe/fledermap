@@ -1054,6 +1054,13 @@ button:disabled { cursor: default; opacity: 0.5; }
   background: color-mix(in srgb, var(--annotation-color, var(--color-annotation)) 12%, transparent);
   box-shadow: 0 0 0 1px color-mix(in srgb, white 65%, transparent);
 }
+/* A classifier detection below the operator's configured species-confidence threshold is still
+   shown (the model DID detect a call there), but visually marked provisional -- the call is real,
+   the species guess is the part that's unconfirmed. Comment annotations never get this class
+   (isBelowThreshold is always false when a source has no configured threshold). */
+.annotation-box.below-threshold {
+  border-style: dashed;
+}
 .annotation-point {
   width: 12px;
   height: 12px;
@@ -1065,6 +1072,9 @@ button:disabled { cursor: default; opacity: 0.5; }
   background: color-mix(in srgb, var(--annotation-color, var(--color-annotation)) 20%, transparent);
   border: 2px solid var(--annotation-color, var(--color-annotation));
   box-shadow: 0 0 0 1px color-mix(in srgb, white 65%, transparent);
+}
+.annotation-point.below-threshold {
+  border-style: dashed;
 }
 /* Only `comment`-source elements become clickable under the Comment tool: only comment
    annotations are ever editable (recording_detail.js's renderAnnotations() only wires up
