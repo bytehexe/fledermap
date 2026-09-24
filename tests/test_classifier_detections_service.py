@@ -671,6 +671,77 @@ def test_record_detections_writes_an_annotation_for_a_geometry_bearing_detection
         assert annotation.literal is None
 
 
+def test_record_detections_clamps_geometry_past_the_recording_s_duration(
+    engine: Engine,
+) -> None:
+    with OrmSession(engine) as session:
+        recording = Recording(
+            audio_hash="cl" * 32,
+            path="cl.wav",
+            recorded_at=datetime(2026, 9, 24, tzinfo=UTC),
+            duration_s=21.303,
+        )
+        session.add(recording)
+        session.commit()
+
+        record_detections(
+            session,
+            recording,
+            IdSource.BATDETECT2,
+            [
+                DetectionInput(
+                    taxon_id=None,
+                    raw_label="Pipistrellus pipistrellus",
+                    confidence=0.06,
+                    time_start_s=21.28,
+                    time_end_s=21.35,
+                    freq_min_hz=40000.0,
+                    freq_max_hz=55000.0,
+                ),
+            ],
+        )
+        session.commit()
+
+        annotation = session.scalars(select(Annotation)).one()
+        assert annotation.time_start_s == 21.28
+        assert annotation.time_end_s == 21.303
+
+
+def test_record_detections_leaves_geometry_unclamped_when_duration_is_unknown(
+    engine: Engine,
+) -> None:
+    with OrmSession(engine) as session:
+        recording = Recording(
+            audio_hash="un" * 32,
+            path="un.wav",
+            recorded_at=datetime(2026, 9, 24, tzinfo=UTC),
+        )
+        session.add(recording)
+        session.commit()
+
+        record_detections(
+            session,
+            recording,
+            IdSource.BATDETECT2,
+            [
+                DetectionInput(
+                    taxon_id=None,
+                    raw_label="Pipistrellus pipistrellus",
+                    confidence=0.06,
+                    time_start_s=21.28,
+                    time_end_s=21.35,
+                    freq_min_hz=40000.0,
+                    freq_max_hz=55000.0,
+                ),
+            ],
+        )
+        session.commit()
+
+        annotation = session.scalars(select(Annotation)).one()
+        assert annotation.time_start_s == 21.28
+        assert annotation.time_end_s == 21.35
+
+
 def test_record_detections_writes_no_annotation_for_a_detection_without_geometry(
     engine: Engine,
 ) -> None:

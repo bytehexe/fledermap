@@ -8,6 +8,7 @@ import pytest
 
 from fledermap.config import (
     ENV_ARCHIVE_ROOTS,
+    ENV_BATDETECT2_ANNOTATION_DISPLAY_THRESHOLD,
     ENV_BATDETECT2_ENABLED,
     ENV_BATDETECT2_THRESHOLD,
     ENV_BATTYBIRDNET_ENABLED,
@@ -372,6 +373,42 @@ def test_batdetect2_threshold_out_of_range_raises_config_error(
     monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
     monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
     monkeypatch.setenv(ENV_BATDETECT2_THRESHOLD, "1.5")
+    with pytest.raises(ConfigError, match="between 0 and 1"):
+        Config.from_env()
+
+
+def test_batdetect2_annotation_display_threshold_defaults_to_point_two(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+    monkeypatch.delenv(ENV_BATDETECT2_ANNOTATION_DISPLAY_THRESHOLD, raising=False)
+    config = Config.from_env()
+    assert config.batdetect2_annotation_display_threshold == 0.20
+
+
+def test_batdetect2_annotation_display_threshold_is_configurable(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+    monkeypatch.setenv(ENV_BATDETECT2_ANNOTATION_DISPLAY_THRESHOLD, "0.35")
+    config = Config.from_env()
+    assert config.batdetect2_annotation_display_threshold == 0.35
+
+
+def test_batdetect2_annotation_display_threshold_out_of_range_raises_config_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+    monkeypatch.setenv(ENV_BATDETECT2_ANNOTATION_DISPLAY_THRESHOLD, "-0.1")
     with pytest.raises(ConfigError, match="between 0 and 1"):
         Config.from_env()
 

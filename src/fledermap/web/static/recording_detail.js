@@ -232,6 +232,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const classifierThresholds = JSON.parse(
     document.getElementById("detail-toolbar").dataset.classifierThresholds || "{}",
   );
+  const classifierDisplayThresholds = JSON.parse(
+    document.getElementById("detail-toolbar").dataset.classifierDisplayThresholds || "{}",
+  );
   const taxonSearchIndex = JSON.parse(
     document.getElementById("classifier-box")?.dataset.taxonSearchIndex || "[]",
   );
@@ -253,6 +256,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const annotation = ordered[i];
       const forceVisible = annotation.source === "comment" && activeTool === "comment";
       if (!forceVisible && !isLayerVisible(annotation.source)) continue;
+      if (!forceVisible && isBelowThreshold(annotation, classifierDisplayThresholds)) continue;
       if (annotationShape(annotation) === "point") {
         const { x, y } = annotationPointPx(annotation, coords);
         const dx = xPx - x;
@@ -343,6 +347,11 @@ document.addEventListener("DOMContentLoaded", () => {
     for (const annotation of sortAnnotationsForPaint(annotations)) {
       const forceVisible = annotation.source === "comment" && activeTool === "comment";
       if (!forceVisible && !isLayerVisible(annotation.source)) continue;
+      // Below the display threshold: stored (so materialize_claims/the species-confidence
+      // threshold still sees it), but not drawn at all -- distinct from `below-threshold`
+      // below, which is still drawn (dashed) for a box that clears this display floor but not
+      // the higher species-confidence threshold.
+      if (!forceVisible && isBelowThreshold(annotation, classifierDisplayThresholds)) continue;
 
       const shape = annotationShape(annotation);
       const el = document.createElement("div");
@@ -386,7 +395,10 @@ document.addEventListener("DOMContentLoaded", () => {
         // textContent, never innerHTML: `literal` is user-authored free text, and `raw_label`
         // (the unmapped-species fallback) is the model's own string, neither sanitized as HTML.
         label.textContent = lines.join("\n");
-        label.style.whiteSpace = "pre-line";
+        // "pre", not "pre-line": pre-line still soft-wraps a long line when the box is
+        // narrow, which line-wrapped a label mid-word. These labels are short and meant
+        // to stay on one line per `\n`-separated piece (species line, literal/comment line).
+        label.style.whiteSpace = "pre";
         el.appendChild(label);
       }
 

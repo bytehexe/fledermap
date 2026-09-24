@@ -132,12 +132,31 @@ def record_detections(
             ),
         )
         if detection.time_start_s is not None:
+            # batdetect2 pads audio with zeros to a downsampling-factor boundary before
+            # running its model (its own `compute_spectrogram`/`pad_audio`), and never
+            # clips its predicted box times back to the true pre-padding duration -- so it
+            # occasionally emits a low-confidence box extending a few ms into that silent
+            # padding. Clamping here is storage-side, not a display-only clip, because the
+            # box genuinely doesn't correspond to any audio past `duration_s`. `duration_s`
+            # is nullable (D17 -- ingest can leave it unset), so clamping only applies once
+            # a real bound is known.
+            duration_s = recording.duration_s
+            clamped_start = (
+                min(max(detection.time_start_s, 0.0), duration_s)
+                if duration_s is not None
+                else detection.time_start_s
+            )
+            clamped_end = (
+                min(max(detection.time_end_s, 0.0), duration_s)
+                if detection.time_end_s is not None and duration_s is not None
+                else detection.time_end_s
+            )
             session.add(
                 Annotation(
                     recording_id=recording.id,
                     source=AnnotationSource(source.value),
-                    time_start_s=detection.time_start_s,
-                    time_end_s=detection.time_end_s,
+                    time_start_s=clamped_start,
+                    time_end_s=clamped_end,
                     freq_min_hz=detection.freq_min_hz,
                     freq_max_hz=detection.freq_max_hz,
                     taxon_id=detection.taxon_id,

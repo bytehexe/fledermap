@@ -34,6 +34,7 @@ also rejected at startup rather than silently ignored.
 | Web server's port | `port` | `FLEDERMAP_PORT` | no | `5000` |
 | batdetect2 classifier enabled | `batdetect2_enabled` | `FLEDERMAP_BATDETECT2_ENABLED` | no | `false` |
 | batdetect2 detection threshold | `batdetect2_threshold` | `FLEDERMAP_BATDETECT2_THRESHOLD` | no | `0.8` |
+| batdetect2 annotation display threshold | `batdetect2_annotation_display_threshold` | `FLEDERMAP_BATDETECT2_ANNOTATION_DISPLAY_THRESHOLD` | no | `0.20` |
 | BattyBirdNET classifier enabled | `battybirdnet_enabled` | `FLEDERMAP_BATTYBIRDNET_ENABLED` | no | `false` |
 | BattyBirdNET-Analyzer server URL | `battybirdnet_url` | `FLEDERMAP_BATTYBIRDNET_URL` | only if enabled | unset |
 | BattyBirdNET detection threshold | `battybirdnet_threshold` | `FLEDERMAP_BATTYBIRDNET_THRESHOLD` | no | `0.6` |
@@ -87,6 +88,13 @@ Notes on individual settings:
   true`. Enabling it without that extra installed doesn't break the rest of
   the application — it fails only the classification job itself, at run
   time.
+- **`batdetect2_annotation_display_threshold`** (default `0.20`, valid range `0.0`–`1.0`) gates
+  whether a batdetect2 annotation box is *drawn on the recording-detail page at all* — separate
+  from `batdetect2_threshold` above, which only affects whether a detection becomes a species
+  claim and whether its box is drawn dashed vs. solid. Every detection above the model's own fixed
+  5% storage floor is always cached, regardless of this setting; this only controls what the
+  detail page renders, and can be set below `batdetect2_threshold` to show boxes the species
+  threshold isn't confident enough to claim.
 - **`battybirdnet_enabled`/`battybirdnet_url`/`battybirdnet_threshold`** turn on a third,
   optional species classifier ([BattyBirdNET-Analyzer](https://github.com/rdz-oss/BattyBirdNET-Analyzer)),
   reached over HTTP rather than run in-process. `battybirdnet_enabled` defaults to `false`;

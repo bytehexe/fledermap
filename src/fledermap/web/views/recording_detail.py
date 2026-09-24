@@ -217,6 +217,9 @@ def recording_details_page(audio_hash: str) -> flask.Response:
             taxon_search_index=taxon_search_index,
             annotations=annotations,
             classifier_thresholds=flask.current_app.config["CLASSIFIER_THRESHOLDS"],
+            classifier_display_thresholds=flask.current_app.config[
+                "CLASSIFIER_DISPLAY_THRESHOLDS"
+            ],
             matrix=matrix,
             site=site,
             site_label=site_label,

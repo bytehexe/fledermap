@@ -44,6 +44,9 @@ ENV_PORT = "FLEDERMAP_PORT"
 ENV_HOST = "FLEDERMAP_HOST"
 ENV_BATDETECT2_ENABLED = "FLEDERMAP_BATDETECT2_ENABLED"
 ENV_BATDETECT2_THRESHOLD = "FLEDERMAP_BATDETECT2_THRESHOLD"
+ENV_BATDETECT2_ANNOTATION_DISPLAY_THRESHOLD = (
+    "FLEDERMAP_BATDETECT2_ANNOTATION_DISPLAY_THRESHOLD"
+)
 ENV_BATTYBIRDNET_ENABLED = "FLEDERMAP_BATTYBIRDNET_ENABLED"
 ENV_BATTYBIRDNET_URL = "FLEDERMAP_BATTYBIRDNET_URL"
 ENV_BATTYBIRDNET_THRESHOLD = "FLEDERMAP_BATTYBIRDNET_THRESHOLD"
@@ -67,6 +70,7 @@ _KNOWN_FILE_KEYS = frozenset(
         "site_naming_radius_m",
         "batdetect2_enabled",
         "batdetect2_threshold",
+        "batdetect2_annotation_display_threshold",
         "battybirdnet_enabled",
         "battybirdnet_url",
         "battybirdnet_threshold",
@@ -284,6 +288,15 @@ class Config:
     # 0.8 is this project's own conservative starting point; batdetect2 itself documents no
     # default for its `--detection-threshold` CLI argument.
     batdetect2_threshold: float = 0.8
+    # Gates whether an annotation box is DISPLAYED at all, distinct from both
+    # `_BATDETECT2_FLOOR` (jobs/tasks.py's fixed, non-configurable 0.05 storage floor --
+    # every detection above that floor is always cached) and `batdetect2_threshold`
+    # above (gates species-claim materialization/box styling). A display threshold can
+    # sit anywhere above the floor, including below the species threshold, since a
+    # detection can be worth showing as a box without being confident enough to
+    # materialize as an identification. 0.20 default per direct user request after a
+    # live production screenshot showed the map cluttered with near-floor boxes.
+    batdetect2_annotation_display_threshold: float = 0.20
     # Off by default, same disable=delete/enable=regenerate contract as
     # batdetect2 -- see docs/superpowers/specs/2026-09-16-fledermap-
     # battybirdnet-classifier-design.md §1/§5. Unlike batdetect2, there is no
@@ -565,6 +578,44 @@ class Config:
                 msg = f"{label}={batdetect2_threshold_raw!r} must be between 0 and 1."
                 raise ConfigError(msg)
 
+        batdetect2_annotation_display_threshold_raw = _lookup(
+            ENV_BATDETECT2_ANNOTATION_DISPLAY_THRESHOLD,
+            "batdetect2_annotation_display_threshold",
+            file_values,
+        )
+        if batdetect2_annotation_display_threshold_raw is None:
+            batdetect2_annotation_display_threshold = 0.20
+        else:
+            label = _source_label(
+                ENV_BATDETECT2_ANNOTATION_DISPLAY_THRESHOLD,
+                "batdetect2_annotation_display_threshold",
+                config_path,
+            )
+            if isinstance(
+                batdetect2_annotation_display_threshold_raw, bool
+            ):  # see session_gap_hours above
+                msg = (
+                    f"{label}={batdetect2_annotation_display_threshold_raw!r} "
+                    "is not a number."
+                )
+                raise ConfigError(msg)
+            try:
+                batdetect2_annotation_display_threshold = float(
+                    batdetect2_annotation_display_threshold_raw
+                )
+            except (TypeError, ValueError) as exc:
+                msg = (
+                    f"{label}={batdetect2_annotation_display_threshold_raw!r} "
+                    "is not a number."
+                )
+                raise ConfigError(msg) from exc
+            if not 0.0 <= batdetect2_annotation_display_threshold <= 1.0:
+                msg = (
+                    f"{label}={batdetect2_annotation_display_threshold_raw!r} "
+                    "must be between 0 and 1."
+                )
+                raise ConfigError(msg)
+
         battybirdnet_enabled_raw = _lookup(
             ENV_BATTYBIRDNET_ENABLED,
             "battybirdnet_enabled",
@@ -743,6 +794,7 @@ class Config:
             noise_snr_threshold_db=noise_snr_threshold_db,
             batdetect2_enabled=batdetect2_enabled,
             batdetect2_threshold=batdetect2_threshold,
+            batdetect2_annotation_display_threshold=batdetect2_annotation_display_threshold,
             battybirdnet_enabled=battybirdnet_enabled,
             battybirdnet_url=battybirdnet_url,
             battybirdnet_threshold=battybirdnet_threshold,
