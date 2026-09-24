@@ -58,6 +58,8 @@ def create_app(
     batdetect2_enabled: bool = False,
     battybirdnet_enabled: bool = False,
     combine_emt_display: bool = True,
+    batdetect2_threshold: float = 0.8,
+    battybirdnet_threshold: float = 0.6,
 ) -> flask.Flask:
     """`static_root` is `Config.static_root` -- where
     `services/vendor_assets.py`'s `ensure_vendor_assets` fetches Leaflet/HTMX/Alpine.
@@ -89,6 +91,13 @@ def create_app(
     map's Source filter shows one combined "EMT" option instead of separate emt.guano/
     emt.wamd/emt.filename options, and the "Identifications" breakdown box folds those same
     three sources into one `"emt"` row (`services/current_best.py`'s `display_identifications`).
+
+    `batdetect2_threshold`/`battybirdnet_threshold` are `Config.batdetect2_threshold`/
+    `Config.battybirdnet_threshold` -- exposed on `app.config["CLASSIFIER_THRESHOLDS"]` so the
+    recording-detail page can draw a batdetect2/battybirdnet annotation box's border dashed when
+    its confidence falls below the operator's configured species-confidence threshold (design spec
+    2026-09-24-fledermap-batdetect2-annotation-layer-design.md §4). Defaults match `Config`'s own
+    defaults, same reasoning as `combine_emt_display`'s default above.
     """
     app = flask.Flask(__name__)
     app.config["ENGINE"] = engine
@@ -97,6 +106,10 @@ def create_app(
     app.config["BATDETECT2_ENABLED"] = batdetect2_enabled
     app.config["BATTYBIRDNET_ENABLED"] = battybirdnet_enabled
     app.config["COMBINE_EMT_DISPLAY"] = combine_emt_display
+    app.config["CLASSIFIER_THRESHOLDS"] = {
+        "batdetect2": batdetect2_threshold,
+        "battybirdnet": battybirdnet_threshold,
+    }
 
     with OrmSession(engine) as session:
         display_timezone_name = session.execute(

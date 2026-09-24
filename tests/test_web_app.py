@@ -50,6 +50,32 @@ def test_create_app_discovers_the_display_timezone_from_postgres(
     )
 
 
+def test_create_app_stores_classifier_thresholds_on_config(
+    tmp_path: Path, engine: Engine
+) -> None:
+    app = create_app(
+        engine,
+        tmp_path / "static",
+        tmp_path / "media",
+        batdetect2_threshold=0.75,
+        battybirdnet_threshold=0.55,
+    )
+    assert app.config["CLASSIFIER_THRESHOLDS"] == {
+        "batdetect2": 0.75,
+        "battybirdnet": 0.55,
+    }
+
+
+def test_create_app_defaults_classifier_thresholds(
+    tmp_path: Path, engine: Engine
+) -> None:
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    assert app.config["CLASSIFIER_THRESHOLDS"] == {
+        "batdetect2": 0.8,
+        "battybirdnet": 0.6,
+    }
+
+
 def test_create_app_registers_local_datetime_and_local_date_filters(
     tmp_path: Path,
     engine: Engine,

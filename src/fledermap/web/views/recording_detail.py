@@ -78,6 +78,7 @@ def _serialize_annotation(a: Annotation) -> dict[str, object]:
         "freq_min_hz": a.freq_min_hz,
         "freq_max_hz": a.freq_max_hz,
         "taxon_id": a.taxon_id,
+        "confidence": a.confidence,
         "literal": a.literal,
     }
 
@@ -215,6 +216,7 @@ def recording_details_page(audio_hash: str) -> flask.Response:
             manual_verdict=manual_verdict,
             taxon_search_index=taxon_search_index,
             annotations=annotations,
+            classifier_thresholds=flask.current_app.config["CLASSIFIER_THRESHOLDS"],
             matrix=matrix,
             site=site,
             site_label=site_label,

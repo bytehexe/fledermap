@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import IdSource, Verdict
 from fledermap.services.annotations import create_comment_annotation, list_annotations
+from fledermap.services.classifier_detections import DetectionInput, record_detections
 from fledermap.store.models import Identification, Recording, Site, Taxon
 from fledermap.store.models import Session as AnnotationSession
 from fledermap.web.app import create_app
@@ -1781,6 +1782,63 @@ def test_annotations_are_embedded_in_the_page(engine: Engine, tmp_path: Path) ->
     html = response.get_data(as_text=True)
     assert "embedded note" in html
     assert "data-annotations=" in html
+
+
+def test_serialized_annotation_includes_confidence(
+    engine: Engine, tmp_path: Path
+) -> None:
+    app, audio_hash = _create_app_with_one_recording(engine, tmp_path, "cf" * 32)
+    with OrmSession(engine) as session:
+        recording = session.scalars(select(Recording)).one()
+        record_detections(
+            session,
+            recording,
+            IdSource.BATDETECT2,
+            [
+                DetectionInput(
+                    taxon_id=None,
+                    raw_label="x",
+                    confidence=0.77,
+                    time_start_s=0.0,
+                    time_end_s=0.01,
+                    freq_min_hz=10000.0,
+                    freq_max_hz=20000.0,
+                ),
+            ],
+        )
+        session.commit()
+
+    response = app.test_client().get(f"/recordings/{audio_hash}")
+    html = response.get_data(as_text=True)
+    assert '"confidence": 0.77' in html
+
+
+def test_classifier_thresholds_are_embedded_in_the_page(
+    engine: Engine, tmp_path: Path
+) -> None:
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="th" * 32,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                duration_s=0.5,
+                samplerate_hz=256_000,
+            ),
+        )
+        session.commit()
+    app = create_app(
+        engine,
+        tmp_path / "static",
+        tmp_path / "media",
+        batdetect2_threshold=0.75,
+        battybirdnet_threshold=0.55,
+    )
+
+    response = app.test_client().get(f"/recordings/{'th' * 32}")
+    html = response.get_data(as_text=True)
+    assert "data-classifier-thresholds=" in html
+    assert "0.75" in html
 
 
 def test_post_annotation_creates_a_comment(engine: Engine, tmp_path: Path) -> None:

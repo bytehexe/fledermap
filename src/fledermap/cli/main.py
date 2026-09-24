@@ -438,6 +438,8 @@ def serve(host: str | None, port: int | None) -> None:
         config.batdetect2_enabled,
         config.battybirdnet_enabled,
         config.combine_emt_display,
+        config.batdetect2_threshold,
+        config.battybirdnet_threshold,
     )
     app.run(
         host=host if host is not None else config.host,
