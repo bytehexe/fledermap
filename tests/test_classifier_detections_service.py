@@ -768,3 +768,91 @@ def test_record_detections_replaces_prior_annotation_rows_on_rerun(
         assert len(annotations) == 1
         assert annotations[0].literal is None
         assert annotations[0].time_start_s == 1.0
+
+
+def test_record_detections_does_not_touch_other_recordings_or_sources_annotations(
+    engine: Engine,
+) -> None:
+    with OrmSession(engine) as session:
+        target = Recording(
+            audio_hash="rt" * 32,
+            path="rt.wav",
+            recorded_at=datetime(2026, 9, 24, tzinfo=UTC),
+        )
+        other = Recording(
+            audio_hash="ro" * 32,
+            path="ro.wav",
+            recorded_at=datetime(2026, 9, 24, tzinfo=UTC),
+        )
+        session.add_all([target, other])
+        session.commit()
+
+        # A comment on the SAME recording as the batdetect2 run.
+        create_comment_annotation(
+            session,
+            target,
+            time_start_s=0.5,
+            time_end_s=0.5,
+            freq_min_hz=None,
+            freq_max_hz=None,
+            taxon_id=None,
+            literal="do not delete me",
+        )
+        # A batdetect2 annotation on a DIFFERENT recording.
+        record_detections(
+            session,
+            other,
+            IdSource.BATDETECT2,
+            [
+                DetectionInput(
+                    taxon_id=None,
+                    raw_label="other recording's call",
+                    confidence=0.9,
+                    time_start_s=0.0,
+                    time_end_s=0.01,
+                    freq_min_hz=10000.0,
+                    freq_max_hz=20000.0,
+                ),
+            ],
+        )
+        session.commit()
+
+        # Now run batdetect2 on the target recording -- this must not touch either row above.
+        record_detections(
+            session,
+            target,
+            IdSource.BATDETECT2,
+            [
+                DetectionInput(
+                    taxon_id=None,
+                    raw_label="target recording's call",
+                    confidence=0.8,
+                    time_start_s=1.0,
+                    time_end_s=1.01,
+                    freq_min_hz=15000.0,
+                    freq_max_hz=25000.0,
+                ),
+            ],
+        )
+        session.commit()
+
+        all_annotations = session.scalars(select(Annotation)).all()
+        assert len(all_annotations) == 3
+        by_source_and_recording = {
+            (a.source, a.recording_id): a for a in all_annotations
+        }
+        assert (AnnotationSource.COMMENT, target.id) in by_source_and_recording
+        assert (
+            by_source_and_recording[(AnnotationSource.COMMENT, target.id)].literal
+            == "do not delete me"
+        )
+        assert (AnnotationSource.BATDETECT2, other.id) in by_source_and_recording
+        assert (
+            by_source_and_recording[(AnnotationSource.BATDETECT2, other.id)].confidence
+            == 0.9
+        )
+        assert (AnnotationSource.BATDETECT2, target.id) in by_source_and_recording
+        assert (
+            by_source_and_recording[(AnnotationSource.BATDETECT2, target.id)].confidence
+            == 0.8
+        )

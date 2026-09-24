@@ -1078,10 +1078,10 @@ button:disabled { cursor: default; opacity: 0.5; }
 }
 /* Only `comment`-source elements become clickable under the Comment tool: only comment
    annotations are ever editable (recording_detail.js's renderAnnotations() only wires up
-   mousedown/click listeners for `annotation.source === "comment"`). A future non-comment
-   annotation source (e.g. a batdetect2 producer) must stay click-through under every tool,
-   Comment included, or its boxes would intercept clicks meant for the spectrogram while doing
-   nothing when clicked themselves. */
+   mousedown/click listeners for `annotation.source === "comment"`). A non-comment annotation
+   source (e.g. batdetect2's boxes) must stay click-through under every tool, Comment included,
+   or its boxes would intercept clicks meant for the spectrogram while doing nothing when
+   clicked themselves. */
 .comment-interactive .annotation-box[data-source="comment"],
 .comment-interactive .annotation-point[data-source="comment"] {
   pointer-events: auto;

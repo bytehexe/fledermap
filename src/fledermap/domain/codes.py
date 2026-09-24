@@ -72,8 +72,10 @@ class AnnotationSource(StrEnum):
     docs/superpowers/specs/2026-09-23-fledermap-annotations-design.md §2."""
 
     COMMENT = "comment"
-    # Reserved for later specs, not produced by any code yet.
+    # Produced by services/classifier_detections.py's record_detections, which writes one
+    # Annotation row per detected call geometry alongside its classifier_detection cache row.
     BATDETECT2 = "batdetect2"
+    # Reserved for later specs -- no code produces battybirdnet call geometry yet.
     BATTYBIRDNET = "battybirdnet"
 
 

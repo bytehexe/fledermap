@@ -1,7 +1,8 @@
 """Comment-annotation CRUD (design spec docs/superpowers/specs/2026-09-23-
 fledermap-annotations-design.md §3). The only place `AnnotationSource.COMMENT` rows are ever
-written or removed -- a future batdetect2/battybirdnet annotation producer writes/deletes its
-own rows directly against the `Annotation` model, never through this module, mirroring how
+written or removed -- `services/classifier_detections.py`'s `record_detections`/`purge_source`
+writes/deletes batdetect2's own rows directly against the `Annotation` model, never through this
+module (battybirdnet still has no geometry producer), mirroring how
 `services/manual_classification.py` and `services/identifications.py`'s `replace_claims` split
 user-written from classifier-written `Identification` rows."""
 

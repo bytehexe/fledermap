@@ -106,7 +106,10 @@ test("annotationLabelLines includes the literal note as its own line", () => {
   assert.deepEqual(annotationLabelLines(annotation, null), ["roosting nearby"]);
 });
 
-test("annotationLabelLines falls back to the raw label when the species is unmapped", () => {
+// `Annotation` carries no `raw_label` column today, and the server's `_serialize_annotation`
+// never emits a `raw_label` key -- no production data reaches this fallback yet. It's kept
+// so the function still handles the field correctly if a future caller ever supplies one.
+test("annotationLabelLines falls back to the raw_label field when the caller supplies one and there is no taxon", () => {
   const annotation = { confidence: 0.5, literal: null, raw_label: "Unknown call" };
   assert.deepEqual(annotationLabelLines(annotation, null), ["Unknown call 50%"]);
 });

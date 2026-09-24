@@ -348,9 +348,9 @@ document.addEventListener("DOMContentLoaded", () => {
       const el = document.createElement("div");
       el.dataset.annotationId = String(annotation.id);
       // Scopes app.css's `.comment-interactive` pointer-events re-enable to comment-source
-      // elements only -- a future non-comment annotation source (e.g. a batdetect2 producer)
-      // must stay click-through under every tool, including Comment, since only comment
-      // annotations are ever editable via this popup.
+      // elements only -- a non-comment annotation source (e.g. batdetect2's boxes) must stay
+      // click-through under every tool, including Comment, since only comment annotations are
+      // ever editable via this popup.
       el.dataset.source = annotation.source;
       // Set once as a custom property, rather than directly on `background`/`border-color`
       // separately per shape, so app.css can derive the box's border, fill, AND hover-fill
