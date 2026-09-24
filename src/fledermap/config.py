@@ -50,6 +50,9 @@ ENV_BATDETECT2_ANNOTATION_DISPLAY_THRESHOLD = (
 ENV_BATTYBIRDNET_ENABLED = "FLEDERMAP_BATTYBIRDNET_ENABLED"
 ENV_BATTYBIRDNET_URL = "FLEDERMAP_BATTYBIRDNET_URL"
 ENV_BATTYBIRDNET_THRESHOLD = "FLEDERMAP_BATTYBIRDNET_THRESHOLD"
+ENV_BATTYBIRDNET_ANNOTATION_DISPLAY_THRESHOLD = (
+    "FLEDERMAP_BATTYBIRDNET_ANNOTATION_DISPLAY_THRESHOLD"
+)
 ENV_COMBINE_EMT_DISPLAY = "FLEDERMAP_COMBINE_EMT_DISPLAY"
 
 # Every key the config file is allowed to set -- one entry per `Config` field
@@ -74,6 +77,7 @@ _KNOWN_FILE_KEYS = frozenset(
         "battybirdnet_enabled",
         "battybirdnet_url",
         "battybirdnet_threshold",
+        "battybirdnet_annotation_display_threshold",
         "combine_emt_display",
         "media_root",
         "static_root",
@@ -312,6 +316,10 @@ class Config:
     # (config.py's MIN_CONFIDENCE = 0.6), even though that constant is never
     # actually enforced server-side for the /analyze API path (spec §3/§5).
     battybirdnet_threshold: float = 0.6
+    # Same display-gate shape as batdetect2_annotation_display_threshold above, for a
+    # merged BattyBirdNET window-run's annotation box -- gates whether it's DRAWN at all,
+    # independent of both the fixed 5% storage floor and battybirdnet_threshold above.
+    battybirdnet_annotation_display_threshold: float = 0.20
     # On by default (unlike batdetect2_enabled/battybirdnet_enabled above): emt.guano/
     # emt.wamd/emt.filename are three materializations of the same underlying EMT detector
     # result, not independent classifiers, so folding them into one "emt" line/filter option
@@ -716,6 +724,42 @@ class Config:
                 msg = f"{label}={battybirdnet_threshold_raw!r} must be between 0 and 1."
                 raise ConfigError(msg)
 
+        battybirdnet_annotation_display_threshold_raw = _lookup(
+            ENV_BATTYBIRDNET_ANNOTATION_DISPLAY_THRESHOLD,
+            "battybirdnet_annotation_display_threshold",
+            file_values,
+        )
+        if battybirdnet_annotation_display_threshold_raw is None:
+            battybirdnet_annotation_display_threshold = 0.20
+        else:
+            label = _source_label(
+                ENV_BATTYBIRDNET_ANNOTATION_DISPLAY_THRESHOLD,
+                "battybirdnet_annotation_display_threshold",
+                config_path,
+            )
+            if isinstance(battybirdnet_annotation_display_threshold_raw, bool):
+                msg = (
+                    f"{label}={battybirdnet_annotation_display_threshold_raw!r} "
+                    "is not a number."
+                )
+                raise ConfigError(msg)
+            try:
+                battybirdnet_annotation_display_threshold = float(
+                    battybirdnet_annotation_display_threshold_raw
+                )
+            except (TypeError, ValueError) as exc:
+                msg = (
+                    f"{label}={battybirdnet_annotation_display_threshold_raw!r} "
+                    "is not a number."
+                )
+                raise ConfigError(msg) from exc
+            if not 0.0 <= battybirdnet_annotation_display_threshold <= 1.0:
+                msg = (
+                    f"{label}={battybirdnet_annotation_display_threshold_raw!r} "
+                    "must be between 0 and 1."
+                )
+                raise ConfigError(msg)
+
         port_raw = _lookup(ENV_PORT, "port", file_values)
         if port_raw is None:
             port = 5000
@@ -798,6 +842,7 @@ class Config:
             battybirdnet_enabled=battybirdnet_enabled,
             battybirdnet_url=battybirdnet_url,
             battybirdnet_threshold=battybirdnet_threshold,
+            battybirdnet_annotation_display_threshold=battybirdnet_annotation_display_threshold,
             combine_emt_display=combine_emt_display,
             site_eps_m=site_eps_m,
             site_min_points=site_min_points,

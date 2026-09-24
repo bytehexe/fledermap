@@ -53,12 +53,17 @@ class DetectionInput:
     including when `taxon_id` is None because the label has no code mapping
     yet -- see `ClassifierDetection.raw_label`.
 
-    The four geometry fields are populated only by a source whose model output is
-    genuinely per-call (batdetect2); a source that only has fixed-width analysis
-    windows (BattyBirdNET) leaves them `None` -- a window is not a call box. See
-    docs/superpowers/specs/2026-09-24-fledermap-batdetect2-annotation-layer-design.md §2.
-    `record_detections` uses their presence to decide whether to also write a matching
-    `Annotation` row.
+    `time_start_s`/`time_end_s` are populated by every geometry-bearing source, but
+    `freq_min_hz`/`freq_max_hz` only by one whose model output carries a genuine per-call
+    frequency range (batdetect2). BattyBirdNET's fixed-width analysis windows carry no
+    per-call frequency information at all, so `jobs/tasks.py`'s `results_to_detections`
+    sets time bounds (the window's, or several consecutive same-label windows' merged
+    span) but leaves both frequency fields `None` -- rendered as a full-height vertical
+    band rather than a box confined to a frequency range (`annotation_geometry.js`'s
+    `annotationBoxPx`). See docs/superpowers/specs/2026-09-24-fledermap-batdetect2-
+    annotation-layer-design.md §2. `record_detections` uses `time_start_s`'s presence
+    (not the frequency fields') to decide whether to also write a matching `Annotation`
+    row.
     """
 
     taxon_id: int | None

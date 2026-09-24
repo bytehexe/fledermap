@@ -11,6 +11,7 @@ commands, tests) must `app.open(engine)` before deferring, or
 from __future__ import annotations
 
 import logging
+import math
 from collections.abc import Callable, Iterable, Mapping
 from datetime import timedelta
 from pathlib import Path
@@ -193,28 +194,74 @@ def results_to_detections(
     precedent for the sibling classifier (which exists precisely because a
     source-read-only assumption about batdetect2's own output shape once
     shipped wrong).
+
+    Each surviving window's `"{start}-{end}"` key is also parsed into
+    `time_start_s`/`time_end_s`, so the annotation layer (design spec
+    2026-09-24-fledermap-batdetect2-annotation-layer-design.md, extended to
+    this source per Janna's 2026-09-24 request) has geometry to draw. Unlike
+    batdetect2's genuinely per-call boxes, a raw window is an arbitrary tile
+    of the recording, not a call boundary -- so CONSECUTIVE windows (the
+    previous window's end exactly equals the next window's start) sharing
+    the same winning raw label are merged into one wider `DetectionInput`
+    spanning their combined time range, rather than emitting one box per
+    ~0.56s tile regardless of whether neighbours agree. A gap (an
+    intervening window that was empty, below the floor, or won by a
+    different label) breaks the run -- merging across a gap would claim
+    detection across audio nothing actually says the species was calling in.
+    The merged detection's `confidence` is the highest of its constituent
+    windows', not an average: mirrors `materialize_claims`'s own
+    keep-the-highest-confidence rule for collapsing several detections into
+    one, and represents "this span contains a window BattyBirdNET was this
+    confident about" rather than diluting a strong center window's score
+    with its quieter attack/decay neighbours. No frequency bounds are set
+    (BattyBirdNET's fixed-width windows carry no per-call frequency
+    information at all) -- `record_detections` still writes an `Annotation`
+    for a `None`-frequency detection, and the frontend (`annotation_geometry.js`'s
+    `annotationBoxPx`) renders it as a full-height vertical band instead of
+    a point.
     """
-    resolved: dict[str, int | None] = {}
-    detections: list[DetectionInput] = []
-    for candidates in results.values():
+    windows: list[tuple[float, float, str, float]] = []
+    for key, candidates in results.items():
         if not candidates:
             continue
         label, score_str = max(candidates, key=lambda candidate: float(candidate[1]))
         confidence = float(score_str)
         if confidence < _BATTYBIRDNET_FLOOR:
             continue
+        start_str, end_str = key.split("-", 1)
+        windows.append((float(start_str), float(end_str), label, confidence))
+    windows.sort(key=lambda w: w[0])
+
+    resolved: dict[str, int | None] = {}
+    merged: list[tuple[float, float, str, float]] = []
+    for start, end, label, confidence in windows:
+        if (
+            merged
+            and merged[-1][2] == label
+            and math.isclose(merged[-1][1], start, abs_tol=1e-6)
+        ):
+            prev_start, _prev_end, _prev_label, prev_confidence = merged[-1]
+            merged[-1] = (prev_start, end, label, max(prev_confidence, confidence))
+        else:
+            merged.append((start, end, label, confidence))
+
+    detections: list[DetectionInput] = []
+    for start, end, label, confidence in merged:
         if label not in resolved:
-            # A label repeats across different windows of a recording, so
-            # the same lookup would otherwise run once per window instead of
-            # once per distinct label. Scoped to one call, like
-            # annotations_to_detections's identical cache: a longer-lived
-            # one would go stale the moment a code mapping is added.
+            # A label repeats across different (merged) windows of a
+            # recording, so the same lookup would otherwise run once per
+            # window instead of once per distinct label. Scoped to one call,
+            # like annotations_to_detections's identical cache: a
+            # longer-lived one would go stale the moment a code mapping is
+            # added.
             resolved[label] = resolve_label(label)
         detections.append(
             DetectionInput(
                 taxon_id=resolved[label],
                 raw_label=label,
                 confidence=confidence,
+                time_start_s=start,
+                time_end_s=end,
             ),
         )
     return detections

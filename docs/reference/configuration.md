@@ -38,6 +38,7 @@ also rejected at startup rather than silently ignored.
 | BattyBirdNET classifier enabled | `battybirdnet_enabled` | `FLEDERMAP_BATTYBIRDNET_ENABLED` | no | `false` |
 | BattyBirdNET-Analyzer server URL | `battybirdnet_url` | `FLEDERMAP_BATTYBIRDNET_URL` | only if enabled | unset |
 | BattyBirdNET detection threshold | `battybirdnet_threshold` | `FLEDERMAP_BATTYBIRDNET_THRESHOLD` | no | `0.6` |
+| BattyBirdNET annotation display threshold | `battybirdnet_annotation_display_threshold` | `FLEDERMAP_BATTYBIRDNET_ANNOTATION_DISPLAY_THRESHOLD` | no | `0.20` |
 | Combine EMT sources in the UI | `combine_emt_display` | `FLEDERMAP_COMBINE_EMT_DISPLAY` | no | `true` |
 
 Notes on individual settings:
@@ -107,6 +108,12 @@ Notes on individual settings:
   bar, valid range `0.0`–`1.0`) is compared against the returned per-species confidence the same
   way `batdetect2_threshold` is, and is likewise re-applied to stored raw scores on every ingest
   cycle with no re-classification needed.
+- **`battybirdnet_annotation_display_threshold`** (default `0.20`, valid range `0.0`–`1.0`) is the
+  same display-only gate as `batdetect2_annotation_display_threshold` above, applied to
+  BattyBirdNET's annotation boxes. Unlike batdetect2's genuinely per-call boxes, a BattyBirdNET box
+  spans one or more of its fixed-width analysis windows merged together (consecutive windows the
+  model gave the same winning species) and carries no frequency range — it renders as a
+  full-height vertical band rather than a box confined to a call's actual frequency span.
 - **`combine_emt_display`** (default `true`) folds the map's three on-device EMT auto-ID sources
   (`emt.guano`/`emt.wamd`/`emt.filename` — different materializations of the same underlying
   detector result) into a single combined "EMT" option in the Source filter dropdown and a single

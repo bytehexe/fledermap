@@ -61,6 +61,7 @@ def create_app(
     batdetect2_threshold: float = 0.8,
     battybirdnet_threshold: float = 0.6,
     batdetect2_annotation_display_threshold: float = 0.20,
+    battybirdnet_annotation_display_threshold: float = 0.20,
 ) -> flask.Flask:
     """`static_root` is `Config.static_root` -- where
     `services/vendor_assets.py`'s `ensure_vendor_assets` fetches Leaflet/HTMX/Alpine.
@@ -100,12 +101,14 @@ def create_app(
     2026-09-24-fledermap-batdetect2-annotation-layer-design.md §4). Defaults match `Config`'s own
     defaults, same reasoning as `combine_emt_display`'s default above.
 
-    `batdetect2_annotation_display_threshold` is `Config.batdetect2_annotation_display_threshold`
-    -- exposed on `app.config["CLASSIFIER_DISPLAY_THRESHOLDS"]`, gating whether an annotation box
-    is rendered at all (below the fixed, non-configurable storage floor everything already clears
-    just to be cached -- see `jobs/tasks.py`'s `_BATDETECT2_FLOOR` -- but independent of
-    `batdetect2_threshold` above, which only affects claim materialization/box styling, not
-    visibility).
+    `batdetect2_annotation_display_threshold`/`battybirdnet_annotation_display_threshold` are
+    `Config.batdetect2_annotation_display_threshold`/
+    `Config.battybirdnet_annotation_display_threshold` -- exposed on
+    `app.config["CLASSIFIER_DISPLAY_THRESHOLDS"]`, gating whether an annotation box is rendered
+    at all (below the fixed, non-configurable storage floor everything already clears just to be
+    cached -- see `jobs/tasks.py`'s `_BATDETECT2_FLOOR`/`_BATTYBIRDNET_FLOOR` -- but independent
+    of `batdetect2_threshold`/`battybirdnet_threshold` above, which only affect claim
+    materialization/box styling, not visibility).
     """
     app = flask.Flask(__name__)
     app.config["ENGINE"] = engine
@@ -120,6 +123,7 @@ def create_app(
     }
     app.config["CLASSIFIER_DISPLAY_THRESHOLDS"] = {
         "batdetect2": batdetect2_annotation_display_threshold,
+        "battybirdnet": battybirdnet_annotation_display_threshold,
     }
 
     with OrmSession(engine) as session:

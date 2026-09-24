@@ -38,12 +38,19 @@ function abbreviateScientificName(name) {
 
 // `coords` is a plot_coords.js `makePlotCoords()` result -- `sToX`/`khzToY` take seconds/kHz, so
 // callers pass Hz-valued annotation fields divided by 1000.
+//
+// A source with no per-call frequency information (BattyBirdNET's fixed-width analysis windows,
+// unlike batdetect2's genuinely per-call boxes) leaves `freq_min_hz`/`freq_max_hz` both `None` --
+// rendered as a full-height vertical band (`top: 0`, `height: coords.khzToY(0)`, the plot's full
+// pixel height) rather than dividing `null / 1000` into `0`, which would silently collapse the
+// box to a zero-height sliver pinned to the bottom edge instead of a visible band.
 function annotationBoxPx(annotation, coords) {
   const left = coords.sToX(annotation.time_start_s);
   const width = coords.sToX(annotation.time_end_s) - left;
-  const top = coords.khzToY(annotation.freq_max_hz / 1000);
-  const height = coords.khzToY(annotation.freq_min_hz / 1000) - top;
-  return { left, top, width, height };
+  const hasFreq = annotation.freq_min_hz !== null && annotation.freq_max_hz !== null;
+  const top = hasFreq ? coords.khzToY(annotation.freq_max_hz / 1000) : 0;
+  const bottom = hasFreq ? coords.khzToY(annotation.freq_min_hz / 1000) : coords.khzToY(0);
+  return { left, top, width, height: bottom - top };
 }
 
 function annotationPointPx(annotation, coords) {

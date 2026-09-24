@@ -11,6 +11,7 @@ from fledermap.config import (
     ENV_BATDETECT2_ANNOTATION_DISPLAY_THRESHOLD,
     ENV_BATDETECT2_ENABLED,
     ENV_BATDETECT2_THRESHOLD,
+    ENV_BATTYBIRDNET_ANNOTATION_DISPLAY_THRESHOLD,
     ENV_BATTYBIRDNET_ENABLED,
     ENV_BATTYBIRDNET_THRESHOLD,
     ENV_BATTYBIRDNET_URL,
@@ -456,6 +457,42 @@ def test_battybirdnet_url_and_threshold_are_configurable_via_env(
     assert config.battybirdnet_enabled is True
     assert config.battybirdnet_url == "http://localhost:7667"
     assert config.battybirdnet_threshold == 0.75
+
+
+def test_battybirdnet_annotation_display_threshold_defaults_to_point_two(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+    monkeypatch.delenv(ENV_BATTYBIRDNET_ANNOTATION_DISPLAY_THRESHOLD, raising=False)
+    config = Config.from_env()
+    assert config.battybirdnet_annotation_display_threshold == 0.20
+
+
+def test_battybirdnet_annotation_display_threshold_is_configurable(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+    monkeypatch.setenv(ENV_BATTYBIRDNET_ANNOTATION_DISPLAY_THRESHOLD, "0.4")
+    config = Config.from_env()
+    assert config.battybirdnet_annotation_display_threshold == 0.4
+
+
+def test_battybirdnet_annotation_display_threshold_out_of_range_raises_config_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+    monkeypatch.setenv(ENV_BATTYBIRDNET_ANNOTATION_DISPLAY_THRESHOLD, "1.1")
+    with pytest.raises(ConfigError, match="between 0 and 1"):
+        Config.from_env()
 
 
 @pytest.mark.parametrize("value", ["1", "yes"])

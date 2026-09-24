@@ -123,3 +123,81 @@ def test_results_to_detections_keeps_a_detection_just_above_the_floor() -> None:
 
     assert len(detections) == 1
     assert detections[0].confidence == 0.051
+
+
+def test_results_to_detections_sets_geometry_from_the_window_key() -> None:
+    results = {"3-6": [["Myotis daubentonii_Daubentons bat", "0.9"]]}
+
+    detections = results_to_detections(results, lambda _label: None)
+
+    assert len(detections) == 1
+    assert detections[0].time_start_s == 3.0
+    assert detections[0].time_end_s == 6.0
+    assert detections[0].freq_min_hz is None
+    assert detections[0].freq_max_hz is None
+
+
+def test_results_to_detections_merges_consecutive_windows_sharing_the_same_label() -> (
+    None
+):
+    results = {
+        "0-3": [["Myotis daubentonii_Daubentons bat", "0.6"]],
+        "3-6": [["Myotis daubentonii_Daubentons bat", "0.9"]],
+        "6-9": [["Myotis daubentonii_Daubentons bat", "0.7"]],
+    }
+
+    detections = results_to_detections(results, lambda _label: None)
+
+    assert len(detections) == 1
+    assert detections[0].time_start_s == 0.0
+    assert detections[0].time_end_s == 9.0
+    # The merged detection's confidence is the highest of its constituent windows',
+    # not an average -- see results_to_detections's own docstring for why.
+    assert detections[0].confidence == 0.9
+
+
+def test_results_to_detections_does_not_merge_across_a_label_change() -> None:
+    results = {
+        "0-3": [["Myotis daubentonii_Daubentons bat", "0.6"]],
+        "3-6": [["NOISE", "0.9"]],
+        "6-9": [["Myotis daubentonii_Daubentons bat", "0.7"]],
+    }
+
+    detections = results_to_detections(results, lambda _label: None)
+
+    spans = sorted((d.time_start_s, d.time_end_s, d.raw_label) for d in detections)
+    assert spans == [
+        (0.0, 3.0, "Myotis daubentonii_Daubentons bat"),
+        (3.0, 6.0, "NOISE"),
+        (6.0, 9.0, "Myotis daubentonii_Daubentons bat"),
+    ]
+
+
+def test_results_to_detections_does_not_merge_across_a_dropped_window() -> None:
+    """The middle window is below the floor and dropped entirely, leaving a real time
+    gap between the two surviving same-label windows -- they must NOT merge, since
+    nothing says the species was calling through the gap itself."""
+    results = {
+        "0-3": [["Myotis daubentonii_Daubentons bat", "0.6"]],
+        "3-6": [["Myotis daubentonii_Daubentons bat", "0.01"]],
+        "6-9": [["Myotis daubentonii_Daubentons bat", "0.7"]],
+    }
+
+    detections = results_to_detections(results, lambda _label: None)
+
+    spans = sorted((d.time_start_s, d.time_end_s) for d in detections)
+    assert spans == [(0.0, 3.0), (6.0, 9.0)]
+
+
+def test_results_to_detections_merges_regardless_of_input_dict_order() -> None:
+    results = {
+        "6-9": [["Myotis daubentonii_Daubentons bat", "0.7"]],
+        "0-3": [["Myotis daubentonii_Daubentons bat", "0.6"]],
+        "3-6": [["Myotis daubentonii_Daubentons bat", "0.9"]],
+    }
+
+    detections = results_to_detections(results, lambda _label: None)
+
+    assert len(detections) == 1
+    assert detections[0].time_start_s == 0.0
+    assert detections[0].time_end_s == 9.0

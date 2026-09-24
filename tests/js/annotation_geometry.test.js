@@ -61,6 +61,20 @@ test("annotationBoxPx converts a rect to native pixel geometry", () => {
   assert.deepEqual(box, { left: 100, top: 180, width: 100, height: 100 });
 });
 
+test("annotationBoxPx spans the full plot height when frequency is absent", () => {
+  const coords = {
+    sToX: (s) => s * 100,
+    khzToY: (khz) => 480 - khz * 10,
+  };
+  const box = annotationBoxPx(
+    { time_start_s: 1, time_end_s: 2, freq_min_hz: null, freq_max_hz: null },
+    coords,
+  );
+  // top = 0 (not khzToY(null / 1000), which would wrongly evaluate to khzToY(0) = 480),
+  // height = khzToY(0) = 480 (the plot's full native pixel height).
+  assert.deepEqual(box, { left: 100, top: 0, width: 100, height: 480 });
+});
+
 test("annotationPointPx converts a point to native pixel coordinates", () => {
   const coords = {
     sToX: (s) => s * 100,
