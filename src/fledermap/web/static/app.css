@@ -867,6 +867,17 @@ button:disabled { cursor: default; opacity: 0.5; }
    icon+label changing length) never shifts where another zone's contents sit. */
 .detail-toolbar { display: grid; grid-template-columns: 1fr 1fr 1fr; margin: 0.5rem 0; }
 .toolbar-zone { display: flex; gap: 0.4rem; align-items: center; }
+/* A flex item shrinks below its content's natural width by default, which wrapped a button's
+   label (e.g. "Lock view") mid-word once the three toolbar zones ran short on space. `nowrap`
+   keeps the label on one line; `flex-shrink: 0` keeps the button itself from being squeezed
+   narrower than that label, since a shrunk button with a non-wrapping label just clips it
+   instead. The `.layers-control` wrapper needs the same treatment as a whole -- it isn't a
+   button itself, but holds one (`#layers-button`) that would otherwise be squeezed the same way. */
+.toolbar-zone > button,
+.toolbar-zone > .layers-control {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
 .toolbar-zone-shared { justify-content: center; }
 .toolbar-zone-view { justify-content: flex-end; }
 .view-analysis .toolbar-zone-tools .playback-only { display: none; }
