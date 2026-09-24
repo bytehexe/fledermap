@@ -186,3 +186,22 @@ def test_classify_batdetect2_task_keeps_an_unmapped_label(
         assert row.taxon_id is None
         assert row.raw_label == "Myotis alcathoe"
         assert row.confidence == 0.85
+
+
+def test_annotations_to_detections_keeps_the_call_geometry() -> None:
+    from fledermap.jobs.tasks import annotations_to_detections
+
+    annotations = [
+        _annotation("Pipistrellus pipistrellus", det_prob=0.9, class_prob=0.85)
+    ]
+
+    detections = annotations_to_detections(
+        annotations, resolve_label=lambda _label: None
+    )
+
+    assert len(detections) == 1
+    detection = detections[0]
+    assert detection.time_start_s == 0.0015
+    assert detection.time_end_s == 0.0339
+    assert detection.freq_min_hz == 68437
+    assert detection.freq_max_hz == 80137

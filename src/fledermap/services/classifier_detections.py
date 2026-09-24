@@ -47,11 +47,22 @@ class DetectionInput:
     `raw_label` is the model's own label for the candidate and is always set,
     including when `taxon_id` is None because the label has no code mapping
     yet -- see `ClassifierDetection.raw_label`.
+
+    The four geometry fields are populated only by a source whose model output is
+    genuinely per-call (batdetect2); a source that only has fixed-width analysis
+    windows (BattyBirdNET) leaves them `None` -- a window is not a call box. See
+    docs/superpowers/specs/2026-09-24-fledermap-batdetect2-annotation-layer-design.md §2.
+    `record_detections` uses their presence to decide whether to also write a matching
+    `Annotation` row.
     """
 
     taxon_id: int | None
     raw_label: str | None
     confidence: float
+    time_start_s: float | None = None
+    time_end_s: float | None = None
+    freq_min_hz: float | None = None
+    freq_max_hz: float | None = None
 
 
 def record_detections(

@@ -346,6 +346,10 @@ def annotations_to_detections(
                 # says a call is present, and has already done its job at
                 # `_BATDETECT2_FLOOR` above.
                 confidence=float(annotation["class_prob"]),
+                time_start_s=float(annotation["start_time"]),
+                time_end_s=float(annotation["end_time"]),
+                freq_min_hz=float(annotation["low_freq"]),
+                freq_max_hz=float(annotation["high_freq"]),
             ),
         )
     return detections
