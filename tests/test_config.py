@@ -15,6 +15,9 @@ from fledermap.config import (
     ENV_BATTYBIRDNET_ENABLED,
     ENV_BATTYBIRDNET_THRESHOLD,
     ENV_BATTYBIRDNET_URL,
+    ENV_CLASSIFY_IMPLICATION_MIN_CONFIDENCE,
+    ENV_CLASSIFY_IMPLICATION_MIN_LIFT,
+    ENV_CLASSIFY_IMPLICATION_MIN_SUPPORT,
     ENV_COMBINE_EMT_DISPLAY,
     ENV_CONFIG_FILE,
     ENV_DATABASE_URL,
@@ -1292,3 +1295,39 @@ def test_invalid_site_naming_radius_raises_config_error(
     monkeypatch.setenv(ENV_SITE_NAMING_RADIUS_M, "not-a-number")
     with pytest.raises(ConfigError, match="not-a-number"):
         Config.from_env()
+
+
+def test_classify_implication_min_support_is_configurable_via_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+    monkeypatch.setenv(ENV_CLASSIFY_IMPLICATION_MIN_SUPPORT, "5")
+    config = Config.from_env()
+    assert config.classify_implication_min_support == 5
+
+
+def test_classify_implication_min_confidence_is_configurable_via_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+    monkeypatch.setenv(ENV_CLASSIFY_IMPLICATION_MIN_CONFIDENCE, "0.75")
+    config = Config.from_env()
+    assert config.classify_implication_min_confidence == 0.75
+
+
+def test_classify_implication_min_lift_is_configurable_via_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+    monkeypatch.setenv(ENV_CLASSIFY_IMPLICATION_MIN_LIFT, "2.0")
+    config = Config.from_env()
+    assert config.classify_implication_min_lift == 2.0

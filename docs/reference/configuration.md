@@ -40,6 +40,9 @@ also rejected at startup rather than silently ignored.
 | BattyBirdNET detection threshold | `battybirdnet_threshold` | `FLEDERMAP_BATTYBIRDNET_THRESHOLD` | no | `0.6` |
 | BattyBirdNET annotation display threshold | `battybirdnet_annotation_display_threshold` | `FLEDERMAP_BATTYBIRDNET_ANNOTATION_DISPLAY_THRESHOLD` | no | `0.20` |
 | Combine EMT sources in the UI | `combine_emt_display` | `FLEDERMAP_COMBINE_EMT_DISPLAY` | no | `true` |
+| Mined-suggestion minimum support | `classify_implication_min_support` | `FLEDERMAP_CLASSIFY_IMPLICATION_MIN_SUPPORT` | no | `3` |
+| Mined-suggestion minimum confidence | `classify_implication_min_confidence` | `FLEDERMAP_CLASSIFY_IMPLICATION_MIN_CONFIDENCE` | no | `0.6` |
+| Mined-suggestion minimum lift | `classify_implication_min_lift` | `FLEDERMAP_CLASSIFY_IMPLICATION_MIN_LIFT` | no | `1.3` |
 
 Notes on individual settings:
 
@@ -139,6 +142,9 @@ archive_roots = ["/path/to/your/detector/archive"]
 # noise_snr_threshold_db = 2.0
 # site_eps_m = 75.0
 # site_min_points = 3
+# classify_implication_min_support = 3
+# classify_implication_min_confidence = 0.6
+# classify_implication_min_lift = 1.3
 ```
 
 ## Mixing a config file with environment variables

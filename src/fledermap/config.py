@@ -54,6 +54,11 @@ ENV_BATTYBIRDNET_ANNOTATION_DISPLAY_THRESHOLD = (
     "FLEDERMAP_BATTYBIRDNET_ANNOTATION_DISPLAY_THRESHOLD"
 )
 ENV_COMBINE_EMT_DISPLAY = "FLEDERMAP_COMBINE_EMT_DISPLAY"
+ENV_CLASSIFY_IMPLICATION_MIN_SUPPORT = "FLEDERMAP_CLASSIFY_IMPLICATION_MIN_SUPPORT"
+ENV_CLASSIFY_IMPLICATION_MIN_CONFIDENCE = (
+    "FLEDERMAP_CLASSIFY_IMPLICATION_MIN_CONFIDENCE"
+)
+ENV_CLASSIFY_IMPLICATION_MIN_LIFT = "FLEDERMAP_CLASSIFY_IMPLICATION_MIN_LIFT"
 
 # Every key the config file is allowed to set -- one entry per `Config` field
 # that has a `FLEDERMAP_*` env var above. Checked in `_load_config_file` so a
@@ -79,6 +84,9 @@ _KNOWN_FILE_KEYS = frozenset(
         "battybirdnet_threshold",
         "battybirdnet_annotation_display_threshold",
         "combine_emt_display",
+        "classify_implication_min_support",
+        "classify_implication_min_confidence",
+        "classify_implication_min_lift",
         "media_root",
         "static_root",
         "port",
@@ -328,6 +336,16 @@ class Config:
     # list template and the map's Source filter dropdown/query (domain/codes.py's
     # EMT_AUTOMATIC_SOURCES, services/current_best.py, services/map_query.py).
     combine_emt_display: bool = True
+    # Association-rule mining thresholds for the Classify box's mined "likely suggestions"
+    # (design spec 2026-09-25-fledermap-classify-suggestions-part-b-design.md §3). A rule
+    # must clear all three to be stored.
+    classify_implication_min_support: int = 3
+    classify_implication_min_confidence: float = 0.6
+    # Rejects a rule that only looks confident because its conclusion is common everywhere
+    # (the base-rate-dominant-species failure mode part b's spec §1 walks through), not
+    # because the antecedent is actually informative about it. lift = confidence / base_rate;
+    # 1.3 means "at least 30% more likely than picking this conclusion blind."
+    classify_implication_min_lift: float = 1.3
     site_eps_m: float = 75.0
     site_min_points: int = 3
     # Optional (design spec 2026-08-28-fledermap-poiidx-site-naming-design.md,
@@ -672,6 +690,101 @@ class Config:
                 msg = f"{label}={combine_emt_display_raw!r} is not a boolean (true/false)."
                 raise ConfigError(msg)
 
+        classify_implication_min_support_raw = _lookup(
+            ENV_CLASSIFY_IMPLICATION_MIN_SUPPORT,
+            "classify_implication_min_support",
+            file_values,
+        )
+        if classify_implication_min_support_raw is None:
+            classify_implication_min_support = 3
+        else:
+            label = _source_label(
+                ENV_CLASSIFY_IMPLICATION_MIN_SUPPORT,
+                "classify_implication_min_support",
+                config_path,
+            )
+            if isinstance(classify_implication_min_support_raw, bool) or isinstance(
+                classify_implication_min_support_raw,
+                float,
+            ):
+                msg = f"{label}={classify_implication_min_support_raw!r} is not an integer."
+                raise ConfigError(msg)
+            try:
+                classify_implication_min_support = int(
+                    classify_implication_min_support_raw
+                )
+            except (TypeError, ValueError) as exc:
+                msg = f"{label}={classify_implication_min_support_raw!r} is not an integer."
+                raise ConfigError(msg) from exc
+            if classify_implication_min_support < 1:
+                msg = (
+                    f"{label}={classify_implication_min_support_raw!r} is not an "
+                    "integer of 1 or more."
+                )
+                raise ConfigError(msg)
+
+        classify_implication_min_confidence_raw = _lookup(
+            ENV_CLASSIFY_IMPLICATION_MIN_CONFIDENCE,
+            "classify_implication_min_confidence",
+            file_values,
+        )
+        if classify_implication_min_confidence_raw is None:
+            classify_implication_min_confidence = 0.6
+        else:
+            label = _source_label(
+                ENV_CLASSIFY_IMPLICATION_MIN_CONFIDENCE,
+                "classify_implication_min_confidence",
+                config_path,
+            )
+            if isinstance(classify_implication_min_confidence_raw, bool):
+                msg = f"{label}={classify_implication_min_confidence_raw!r} is not a number."
+                raise ConfigError(msg)
+            try:
+                classify_implication_min_confidence = float(
+                    classify_implication_min_confidence_raw
+                )
+            except (TypeError, ValueError) as exc:
+                msg = f"{label}={classify_implication_min_confidence_raw!r} is not a number."
+                raise ConfigError(msg) from exc
+            if not 0.0 <= classify_implication_min_confidence <= 1.0:
+                msg = (
+                    f"{label}={classify_implication_min_confidence_raw!r} "
+                    "must be between 0 and 1."
+                )
+                raise ConfigError(msg)
+
+        classify_implication_min_lift_raw = _lookup(
+            ENV_CLASSIFY_IMPLICATION_MIN_LIFT,
+            "classify_implication_min_lift",
+            file_values,
+        )
+        if classify_implication_min_lift_raw is None:
+            classify_implication_min_lift = 1.3
+        else:
+            label = _source_label(
+                ENV_CLASSIFY_IMPLICATION_MIN_LIFT,
+                "classify_implication_min_lift",
+                config_path,
+            )
+            if isinstance(classify_implication_min_lift_raw, bool):
+                msg = f"{label}={classify_implication_min_lift_raw!r} is not a number."
+                raise ConfigError(msg)
+            try:
+                classify_implication_min_lift = float(classify_implication_min_lift_raw)
+            except (TypeError, ValueError) as exc:
+                msg = f"{label}={classify_implication_min_lift_raw!r} is not a number."
+                raise ConfigError(msg) from exc
+            # No upper bound: unlike confidence, lift has no natural ceiling (an antecedent
+            # that's a near-perfect predictor of a rare conclusion has arbitrarily high
+            # lift). Only reject non-positive values -- lift <= 0 is meaningless (confidence
+            # and base_rate are both >= 0).
+            if not classify_implication_min_lift > 0:
+                msg = (
+                    f"{label}={classify_implication_min_lift_raw!r} is not a "
+                    "positive number."
+                )
+                raise ConfigError(msg)
+
         battybirdnet_url_raw = _lookup(
             ENV_BATTYBIRDNET_URL,
             "battybirdnet_url",
@@ -844,6 +957,9 @@ class Config:
             battybirdnet_threshold=battybirdnet_threshold,
             battybirdnet_annotation_display_threshold=battybirdnet_annotation_display_threshold,
             combine_emt_display=combine_emt_display,
+            classify_implication_min_support=classify_implication_min_support,
+            classify_implication_min_confidence=classify_implication_min_confidence,
+            classify_implication_min_lift=classify_implication_min_lift,
             site_eps_m=site_eps_m,
             site_min_points=site_min_points,
             poiidx_database_url=poiidx_database_url,
