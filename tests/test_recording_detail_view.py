@@ -1138,11 +1138,15 @@ def test_classifier_box_embeds_likely_suggestions(
         "expected a single-quoted data-classify-suggestions attribute"
     )
     suggestions = json.loads(match.group(1))
-    assert len(suggestions) == 1
+    # Two entries: the species claim (heuristic A), then the Noise-if-room fallback
+    # (spec part (b) §7) -- the pool has room and no Noise candidate is already present,
+    # so one is appended unconditionally at the end.
+    assert len(suggestions) == 2
     assert suggestions[0]["is_noise"] is False
     assert suggestions[0]["taxa"] == [
         {"id": taxon_id, "scientific_name": "Pipistrellus pipistrellus"}
     ]
+    assert suggestions[1]["is_noise"] is True
     assert 'id="classifier-likely-row"' in html
 
 
@@ -1200,11 +1204,15 @@ def test_manual_classification_response_embeds_likely_suggestions(
         "expected a single-quoted data-classify-suggestions attribute"
     )
     suggestions = json.loads(match.group(1))
-    assert len(suggestions) == 1
+    # Two entries: the species A claim (heuristic A), then the Noise-if-room fallback
+    # (spec part (b) §7) -- the pool has room and no Noise candidate is already present,
+    # so one is appended unconditionally at the end.
+    assert len(suggestions) == 2
     assert suggestions[0]["is_noise"] is False
     assert suggestions[0]["taxa"] == [
         {"id": taxon_a_id, "scientific_name": "Pipistrellus pipistrellus"}
     ]
+    assert suggestions[1]["is_noise"] is True
 
     # The POST also staged species B as the manual claim -- confirm both things are true at
     # once: the manual chip reflects B, while the suggestion pool still (correctly) offers A.
