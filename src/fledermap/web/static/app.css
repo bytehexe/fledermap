@@ -1423,6 +1423,11 @@ button:disabled { cursor: default; opacity: 0.5; }
   gap: 0.4rem;
   margin: 0.4rem 0;
 }
+/* Same equal-specificity problem as `.analysis-panel[hidden]` elsewhere in this file:
+   `display: flex` above would otherwise beat the UA stylesheet's own `[hidden] { display:
+   none }` rule and leave the "Suggestions:" caption visible with an empty row whenever
+   classifier_box.js sets `hidden` on an empty suggestion pool. */
+.classifier-likely-group[hidden] { display: none; }
 .classifier-likely-label {
   font-size: 0.8rem;
   color: var(--color-muted);
