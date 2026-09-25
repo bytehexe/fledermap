@@ -57,11 +57,39 @@ needs no recursive/nested structure and no parser-generator library (see below).
 
 | Field | Meaning | Maps onto |
 |---|---|---|
-| `species:<code>` | exact taxon-code lookup, not fuzzy (a wrong match is worse than a missing one) | `filtered_recordings`'s existing `taxon_id` param, after a code→taxon_id lookup |
+| `species:<value>` | exact taxon lookup, not fuzzy — see "Species value resolution" below | `filtered_recordings`'s existing `taxon_id` param, after resolving `<value>` to a taxon_id |
 | `annotation:<source>` | `bd2`/`bbn`/`emt`/`manual` — has a claim from that `IdSource` | new EXISTS clause in `search.py`, same `.any()` shape `map_query.py`'s `source` filter already uses |
 | `site:<name>` | site name, exact | new `Site.name ==` join in `search.py` |
 | `verdict:<value>` | closed `Verdict` enum | `filtered_recordings`'s existing `verdict` param |
 | `is:favourite` / `is:flagged` / `is:commented` | boolean namespace, room for a future boolean without a new prefix | `favourite_only` (existing param) / new `Recording.flagged_for_review` clause / new `Recording.comment` non-empty clause |
+
+### Species value resolution
+
+`species:<value>` accepts three representations, tried in this order — each is still an *exact*,
+deterministic match against one specific taxon (or none), never a fuzzy/ranked lookup, so the
+"a wrong match is worse than a missing one" principle from `domain/codes.py` still holds:
+
+1. **A code** — exact `(source, code)` lookup via the existing `domain/codes.py` machinery, e.g.
+   `species:PIPPIP`. Unchanged from the original spec.
+2. **A full scientific name**, case-insensitive exact match against `Taxon.scientific_name`, e.g.
+   `species:"Pipistrellus pipistrellus"`. Safe as an exact match because `scientific_name` already
+   carries a DB-level `unique` constraint (`store/models.py:337`) — at most one taxon can match.
+3. **An abbreviated genus form**, `"G. epithet"` (a single capital letter, a period, then the
+   species epithet), e.g. `species:"P. pipistrellus"` — matched against taxa whose
+   `scientific_name`'s genus starts with that letter and whose epithet equals the given one
+   exactly, case-insensitive. **If more than one taxon matches** (e.g. two genera in the taxa files
+   both start with the same letter and happen to share an epithet), this resolves to *no match*,
+   the same "ambiguous is a miss, not a guess" handling `domain/codes.py`'s sentinel resolution
+   already uses elsewhere — never picks one candidate over another.
+
+Common names (English/German) are deliberately **not** a `species:` representation — a common name
+is already searchable via plain free text (see below), and keeping `species:` limited to
+code/scientific-name forms keeps it a precise-identifier field rather than doubling the ambiguity
+surface a common name can carry across the `taxa_*.yaml` files. `species:` resolving to no taxon at
+all (a typo, an unrecognized code) yields zero results silently — no separate warning — the same
+"unknown value, empty result" behavior the map's own taxon filter already has for a value with no
+matches; this is a different case from the tokenizer-level `warnings` above (those cover parsing
+ambiguity, not query values that parse fine but don't resolve to data).
 
 ### Free text
 
@@ -118,13 +146,18 @@ to free text" means, they only make the degradation visible instead of silent (s
 `services/search.py` (new), not folded into `map_query.py`:
 
 - `parse_search_query(text: str) -> ParsedQuery` — the tokenizer/grammar above. `ParsedQuery` is a
-  frozen dataclass: `free_text_terms: list[str]`, `species_code: str | None`,
-  `annotation_source: IdSource | None`, `site_name: str | None`, `verdict: Verdict | None`,
-  `is_favourite/is_flagged/is_commented: bool`, `warnings: list[str]`.
+  frozen dataclass: `free_text_terms: list[str]`, `species_value: str | None` (the raw, unresolved
+  `species:` value — resolution needs a DB session, so it happens in `search_recordings`, not
+  during parsing), `annotation_source: IdSource | None`, `site_name: str | None`,
+  `verdict: Verdict | None`, `is_favourite/is_flagged/is_commented: bool`, `warnings: list[str]`.
+- `_resolve_species_value(session, value: str) -> int | None` — the three-representation lookup
+  from "Species value resolution" above (code, then exact scientific name, then the `"G. epithet"`
+  abbreviated form; ambiguous or no match → `None`).
 - `search_recordings(session, parsed, *, offset=0, limit=MAX_SEARCH_RESULTS) -> SearchPage` —
   reuses `filtered_recordings`'s existing `taxon_id`/`verdict`/`favourite_only` params for the
-  fields that already exist there (after resolving `species_code` to a `taxon_id` via the existing
-  codes lookup), and adds the genuinely new SQL directly in `search.py`: free-text ILIKE/EXISTS
+  fields that already exist there (`species_value` resolved to a `taxon_id` via
+  `_resolve_species_value` first), and adds the genuinely new SQL directly in `search.py`: free-text
+  ILIKE/EXISTS
   clauses, `annotation:`'s EXISTS-on-`Identification.source`, `is:flagged`'s
   `Recording.flagged_for_review`, `is:commented`'s `Recording.comment` non-empty check. Each filter
   therefore lives in exactly one place — `map_query.py` for what it already owns, `search.py` for
@@ -195,7 +228,11 @@ Follows the established list-page shape (`.filter-bar` + `.entity-list` + pagina
 - `db`-marked tests for `search_recordings` (needs `bats_db`/PostGIS, same tier as
   `test_map_query.py`): one test per field filter against seeded recordings, free-text matching
   each of filename/comment/site name/species name independently, AND-combination across multiple
-  tokens, and the pagination truncation shape (`limit(N+1)`).
+  tokens, and the pagination truncation shape (`limit(N+1)`). Also `_resolve_species_value`
+  specifically: all three representations resolving to the same taxon (`PIPPIP` /
+  `"Pipistrellus pipistrellus"` / `"P. pipistrellus"`), case-insensitivity on the scientific-name
+  and abbreviated forms, a genuinely ambiguous abbreviated form (two seeded taxa sharing a genus
+  initial and epithet) resolving to `None`, and an unrecognized value resolving to `None`.
 - JS: no new custom JS logic (the debounce is a plain `hx-trigger` attribute) — covered by a live
   headless-Chrome check per the JS-tooling live-verification rule, confirming the debounce doesn't
   fire on every keystroke and that Enter submits immediately.
