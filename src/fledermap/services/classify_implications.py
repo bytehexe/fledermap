@@ -20,11 +20,13 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import IdSource, Verdict, is_manual
-from fledermap.services.classify_suggestions import (  # noqa: F401
-    ClassifySuggestion,
-    SuggestedTaxon,
+from fledermap.services.classify_suggestions import ClassifySuggestion, SuggestedTaxon
+from fledermap.store.models import (
+    ClassifyImplicationRule,
+    Identification,
+    Recording,
+    Taxon,
 )
-from fledermap.store.models import ClassifyImplicationRule, Identification, Recording
 
 
 def antecedent_key(taxon_ids: Iterable[int]) -> str:
@@ -155,3 +157,57 @@ def mine_classify_implications(
         stored += 1
 
     return stored
+
+
+_MINED_PRIORITY_SCALE = 0.5
+
+
+def lookup_mined_suggestions(
+    session: OrmSession,
+    recording: Recording,
+) -> list[ClassifySuggestion]:
+    """Cheap indexed reads against already-mined rules (spec §5) -- the expensive
+    computation happened at mining time (`mine_classify_implications`), not here. Ranked by
+    confidence descending; every stored row already cleared `min_lift` at mining time, so no
+    further lift filtering happens here."""
+    atoms = _automatic_atoms(recording)
+    keys = subset_keys(atoms)
+    if not keys:
+        return []
+
+    rules = session.scalars(
+        select(ClassifyImplicationRule)
+        .where(ClassifyImplicationRule.antecedent_key.in_(keys))
+        .order_by(
+            ClassifyImplicationRule.confidence.desc(),
+            ClassifyImplicationRule.support.desc(),
+        ),
+    ).all()
+
+    suggestions: list[ClassifySuggestion] = []
+    for rule in rules:
+        priority = rule.confidence * _MINED_PRIORITY_SCALE
+        if (
+            rule.conclusion_verdict != Verdict.SPECIES
+            or rule.conclusion_taxon_id is None
+        ):
+            suggestions.append(
+                ClassifySuggestion(
+                    taxa=(), is_noise=True, label="Noise", priority=priority
+                ),
+            )
+            continue
+        taxon = session.get(Taxon, rule.conclusion_taxon_id)
+        if taxon is None:
+            continue
+        suggestions.append(
+            ClassifySuggestion(
+                taxa=(
+                    SuggestedTaxon(id=taxon.id, scientific_name=taxon.scientific_name),
+                ),
+                is_noise=False,
+                label=taxon.scientific_name,
+                priority=priority,
+            ),
+        )
+    return suggestions

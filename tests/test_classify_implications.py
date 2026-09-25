@@ -9,9 +9,11 @@ from sqlalchemy.orm import Session as OrmSession
 from fledermap.domain.codes import IdSource, Verdict
 from fledermap.services.classify_implications import (
     antecedent_key,
+    lookup_mined_suggestions,
     mine_classify_implications,
     subset_keys,
 )
+from fledermap.services.classify_suggestions import SuggestedTaxon
 from fledermap.store.models import (
     ClassifyImplicationRule,
     Identification,
@@ -295,3 +297,101 @@ def test_multi_species_manual_claim_decomposes_into_one_rule_per_conclusion(
             if r.antecedent_key == antecedent_key([x.id, y.id])
         }
         assert conclusions == {a.id, b.id}
+
+
+def test_lookup_returns_nothing_when_no_rule_matches(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        pip = _taxon(session, "Pipistrellus pipistrellus")
+        r = _recording(session, "a" * 64)
+        _ident(session, r, IdSource.EMT_GUANO, taxon=pip)
+        session.commit()
+
+        assert lookup_mined_suggestions(session, r) == []
+
+
+def test_lookup_finds_a_matching_single_atom_rule_and_scales_priority(
+    engine: Engine,
+) -> None:
+    with OrmSession(engine) as session:
+        pip = _taxon(session, "Pipistrellus pipistrellus")
+        r = _recording(session, "a" * 64)
+        _ident(session, r, IdSource.EMT_GUANO, taxon=pip)
+        session.add(
+            ClassifyImplicationRule(
+                antecedent_key=antecedent_key([pip.id]),
+                conclusion_verdict=Verdict.SPECIES,
+                conclusion_taxon_id=pip.id,
+                support=3,
+                confidence=0.8,
+                lift=1.5,
+            ),
+        )
+        session.commit()
+
+        suggestions = lookup_mined_suggestions(session, r)
+
+        assert len(suggestions) == 1
+        assert suggestions[0].is_noise is False
+        assert suggestions[0].taxa == (
+            SuggestedTaxon(id=pip.id, scientific_name="Pipistrellus pipistrellus"),
+        )
+        # priority = confidence * 0.5, ceiling 0.5 -- always below part (a)'s Noise (1.0).
+        assert suggestions[0].priority == 0.4
+
+
+def test_lookup_maps_a_noise_conclusion_to_the_noise_sentinel(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        pip = _taxon(session, "Pipistrellus pipistrellus")
+        r = _recording(session, "a" * 64)
+        _ident(session, r, IdSource.EMT_GUANO, taxon=pip)
+        session.add(
+            ClassifyImplicationRule(
+                antecedent_key=antecedent_key([pip.id]),
+                conclusion_verdict=Verdict.NOISE,
+                conclusion_taxon_id=None,
+                support=3,
+                confidence=0.7,
+                lift=1.4,
+            ),
+        )
+        session.commit()
+
+        suggestions = lookup_mined_suggestions(session, r)
+
+        assert len(suggestions) == 1
+        assert suggestions[0].is_noise is True
+        assert suggestions[0].taxa == ()
+        assert suggestions[0].label == "Noise"
+
+
+def test_lookup_ranks_by_confidence_descending(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        pip = _taxon(session, "Pipistrellus pipistrellus")
+        noc = _taxon(session, "Nyctalus noctula")
+        r = _recording(session, "a" * 64)
+        _ident(session, r, IdSource.EMT_GUANO, taxon=pip)
+        session.add(
+            ClassifyImplicationRule(
+                antecedent_key=antecedent_key([pip.id]),
+                conclusion_verdict=Verdict.SPECIES,
+                conclusion_taxon_id=noc.id,
+                support=3,
+                confidence=0.6,
+                lift=1.3,
+            ),
+        )
+        session.add(
+            ClassifyImplicationRule(
+                antecedent_key=antecedent_key([pip.id]),
+                conclusion_verdict=Verdict.SPECIES,
+                conclusion_taxon_id=pip.id,
+                support=5,
+                confidence=0.9,
+                lift=1.6,
+            ),
+        )
+        session.commit()
+
+        suggestions = lookup_mined_suggestions(session, r)
+
+        assert [s.taxa[0].id for s in suggestions] == [pip.id, noc.id]
