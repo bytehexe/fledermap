@@ -75,6 +75,33 @@ test("computeCallIntervalHistograms ignores annotations with no taxon_id", () =>
   assert.deepEqual(computeCallIntervalHistograms(annotations), []);
 });
 
+test("computeCallIntervalHistograms excludes calls below minConfidence (the classification threshold, not the display threshold)", () => {
+  const annotations = [
+    { ...bd2Annotation(1, 1.0, 1.0), confidence: 0.4 },
+    { ...bd2Annotation(1, 1.01, 1.01), confidence: 0.4 },
+    { ...bd2Annotation(1, 1.02, 1.02), confidence: 0.9 },
+  ];
+  const result = computeCallIntervalHistograms(annotations, { minConfidence: 0.8 });
+  // Only the 0.9-confidence call and the excluded 0.4 ones -- fewer than 2 calls
+  // clear the threshold, so no interval can be computed at all.
+  assert.deepEqual(result, []);
+});
+
+test("computeCallIntervalHistograms keeps a call whose confidence equals minConfidence exactly", () => {
+  const annotations = [
+    { ...bd2Annotation(1, 1.0, 1.0), confidence: 0.8 },
+    { ...bd2Annotation(1, 1.01, 1.01), confidence: 0.8 },
+  ];
+  const result = computeCallIntervalHistograms(annotations, { minConfidence: 0.8 });
+  assert.equal(result.length, 1);
+});
+
+test("computeCallIntervalHistograms applies no confidence filter when minConfidence is omitted", () => {
+  const annotations = [bd2Annotation(1, 1.0, 1.0), { ...bd2Annotation(1, 1.01, 1.01), confidence: 0.01 }];
+  const result = computeCallIntervalHistograms(annotations);
+  assert.equal(result.length, 1);
+});
+
 test("callIntervalHistogramsToChartData names each dataset from taxonById and colors it via colorForTaxon", () => {
   const histograms = [{ taxonId: 1, binPercentages: [100, 0] }];
   const taxonById = new Map([[1, { id: 1, scientific_name: "Pipistrellus pipistrellus" }]]);

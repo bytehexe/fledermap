@@ -1136,7 +1136,9 @@ document.addEventListener("DOMContentLoaded", () => {
   function renderCallIntervalChart() {
     if (callIntervalChartRendered) return;
     callIntervalChartRendered = true;
-    const histograms = computeCallIntervalHistograms(annotations);
+    const histograms = computeCallIntervalHistograms(annotations, {
+      minConfidence: classifierThresholds.batdetect2,
+    });
     if (histograms.length === 0) {
       callIntervalChartCanvas.hidden = true;
       callIntervalChartEmpty.hidden = false;

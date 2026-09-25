@@ -27,11 +27,21 @@ function callMidpointMs(annotation) {
 // design decision (a shared distribution comparison, not a raw count comparison). Only
 // batdetect2-sourced annotations with a taxon_id count: BattyBirdNET's long-span detections
 // are unreliable as per-call boxes, and manual comment annotations aren't a systematic
-// per-call detection set (a comment box would create false "gaps" against them). A species
-// needs at least one interval surviving the MAX_INTERVAL_MS exclusion to appear at all --
-// fewer than 2 calls, or every gap being a bout break, both mean nothing to plot; the caller
-// renders an empty-state message when no species have any data at all, rather than a chart
-// with no lines on it.
+// per-call detection set (a comment box would create false "gaps" against them).
+//
+// `options.minConfidence`, when given, drops any call below it before grouping -- deliberately
+// the same cutoff `services/classifier_detections.py`'s `materialize_claims` uses to decide
+// whether a detection counts as an identification (`classifierThresholds` in
+// recording_detail.js), NOT the separate, usually-lower `classifierDisplayThresholds` that
+// governs which boxes are drawn on the spectrogram overlay. A call too weak to count as an
+// identification of that species shouldn't shape that species' own interval distribution
+// either, even though it might still be visible as a drawn box.
+//
+// A species needs at least one interval surviving both the confidence filter and the
+// MAX_INTERVAL_MS exclusion to appear at all -- fewer than 2 qualifying calls, or every
+// remaining gap being a bout break, both mean nothing to plot; the caller renders an
+// empty-state message when no species have any data at all, rather than a chart with no
+// lines on it.
 function computeCallIntervalHistograms(annotations, options = {}) {
   const binWidthMs = options.binWidthMs ?? BIN_WIDTH_MS;
   const maxIntervalMs = options.maxIntervalMs ?? MAX_INTERVAL_MS;
@@ -42,6 +52,7 @@ function computeCallIntervalHistograms(annotations, options = {}) {
     if (a.source !== "batdetect2") continue;
     if (a.taxon_id === null || a.taxon_id === undefined) continue;
     if (a.time_start_s === null || a.time_end_s === null) continue;
+    if (options.minConfidence !== undefined && a.confidence < options.minConfidence) continue;
     if (!midpointsByTaxon.has(a.taxon_id)) midpointsByTaxon.set(a.taxon_id, []);
     midpointsByTaxon.get(a.taxon_id).push(callMidpointMs(a));
   }
