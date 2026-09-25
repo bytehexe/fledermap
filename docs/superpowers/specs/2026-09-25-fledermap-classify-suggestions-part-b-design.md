@@ -39,6 +39,13 @@ analysis), not a bespoke scheme:
   recording rarely has more than a handful of automatic claims to begin with; capping
   keeps mining's itemset enumeration cheap and every rule interpretable, with no
   configurable knob nobody will tune.
+- **Confidence alone is not enough to qualify a rule — it's base-rate-blind.** If one
+  species is the MANUAL pick unusually often overall (very plausible for a real dataset —
+  most regions have a locally dominant, frequently-encountered species), almost any
+  antecedent will show high confidence for concluding that species purely because it's
+  common, not because the antecedent is actually informative about it. Left unchecked,
+  that species would crowd out genuinely-informative rules across unrelated antecedents.
+  §3 adds a **lift** threshold specifically to catch this.
 
 ## 2. Training-example decomposition
 
@@ -64,18 +71,32 @@ that sentinel as the conclusion (no taxon).
 For each training example (antecedent atom set, one conclusion), enumerate every size-1
 and size-2 **subset** of the antecedent atom set (not just the full set) and, for each
 subset, increment two running counters: `co_occurrence[(subset, conclusion)]` and
-`antecedent_total[subset]`. After processing all examples:
+`antecedent_total[subset]`. Also increment two global counters, independent of any
+antecedent: `conclusion_total[conclusion]` (once per example, regardless of its
+antecedent) and `example_total` (once per example). After processing all examples:
 
 ```
 confidence(subset, conclusion) = co_occurrence[(subset, conclusion)] / antecedent_total[subset]
+base_rate(conclusion)           = conclusion_total[conclusion] / example_total
+lift(subset, conclusion)        = confidence(subset, conclusion) / base_rate(conclusion)
 ```
 
-A candidate rule survives into the stored table only if it clears both:
+`base_rate(conclusion)` is that conclusion's own unconditional frequency across every
+training example, regardless of antecedent — how often it gets picked overall. `lift`
+measures how much MORE likely the conclusion is given this specific antecedent, versus
+picking it blind. `lift ≈ 1` means the antecedent adds no information (the conclusion is
+just common); `lift` well above 1 means the antecedent genuinely predicts it.
+
+A candidate rule survives into the stored table only if it clears all three:
 
 - **`min_support`**: `co_occurrence[(subset, conclusion)] >= Config.classify_implication_min_support` (default **3**)
 - **`min_confidence`**: `confidence(subset, conclusion) >= Config.classify_implication_min_confidence` (default **0.6**)
+- **`min_lift`**: `lift(subset, conclusion) >= Config.classify_implication_min_lift` (default **1.3**) —
+  rejects exactly the base-rate-dominant-species failure mode above: a rule that only
+  clears `min_confidence` because its conclusion is common everywhere, not because this
+  antecedent says anything specific about it.
 
-Both are `Config` fields (new, following the existing `batdetect2_threshold`/
+All three are `Config` fields (new, following the existing `batdetect2_threshold`/
 `noise_snr_threshold_db` pattern — env var or TOML, no code change to retune once real
 mined output exists to judge them against).
 
@@ -98,7 +119,13 @@ class ClassifyImplicationRule(Base):
     conclusion_taxon_id: Mapped[int | None] = mapped_column(ForeignKey("taxon.id"))  # set only when conclusion_verdict == SPECIES
     support: Mapped[int] = mapped_column(Integer)
     confidence: Mapped[float] = mapped_column(Float)
+    lift: Mapped[float] = mapped_column(Float)
 ```
+
+`lift` is stored alongside `confidence` rather than recomputed at lookup time: it was
+already computed once during mining to decide whether the rule qualifies at all (§3), and
+storing it lets a future ranking change (e.g. sorting by lift instead of confidence) or a
+diagnostic query happen without re-deriving `base_rate` from history.
 
 `antecedent_key` is the canonical form of a size-1/size-2 atom subset: sorted `taxon_id`s
 joined by `,` (e.g. `"1"` or `"1,24"`) — a plain indexed text lookup, no array/JSON
@@ -115,8 +142,11 @@ choice over tracking what changed since the last run.
 For the current recording's own automatic-species atom set, generate the same size-1/
 size-2 subset keys used at mining time and look up matching rows by exact
 `antecedent_key` (a handful of indexed point lookups — the expensive computation already
-happened at mining time, not here). Rank matches by `confidence` descending (ties by
-`support` descending).
+happened at mining time, not here). Every stored row already cleared `min_lift` at mining
+time (§3), so lookup does no additional lift filtering — it only ranks. Rank matches by
+`confidence` descending (ties by `support` descending); `lift` is not part of the ranking
+key, since among rules that already passed the same lift bar, confidence is still the more
+direct estimate of "how often does this antecedent actually lead here."
 
 **Priority**: mined candidates always sort below both of part (a)'s fixed heuristics,
 regardless of confidence — `priority = confidence * 0.5`, giving a ceiling of 0.5, safely
@@ -202,6 +232,14 @@ ever fills genuinely spare capacity.
   MANUAL claim into separate training rows; subset enumeration correctness for a 3-atom
   recording; min-support/min-confidence thresholds actually excluding under-supported/
   under-confident rules; a full rebuild replacing stale rows from a prior run).
+- **Python**: a base-rate-dominant-conclusion test — construct a training set where one
+  conclusion (species D, say) is the MANUAL pick in most examples regardless of
+  antecedent, so an unrelated antecedent `{X}` still clears `min_confidence` for `{X}→D`
+  purely from D's prevalence. Assert this rule is excluded (`lift` for `{X}→D` comes out
+  at or near 1.0, below `min_lift`), while a genuinely predictive rule in the same
+  synthetic dataset (an antecedent whose conclusion rate is well above D's base rate)
+  survives. This is the test that would have caught the flaw this section's `min_lift`
+  gate exists to fix.
 - **Python**: unit tests for suggestion-time lookup (a recording's atoms correctly
   generate the right subset keys; priority ceiling never exceeds part (a)'s Noise
   priority; the "room left, add Noise" fallback fires only when genuinely under cap and
