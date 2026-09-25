@@ -369,6 +369,9 @@ def scan_all_roots(
     for root_index, rel_path, size_bytes, mtime, existing_hash in rows:
         if root_index >= len(archive_roots):
             continue
+        # guaranteed by the WHERE clause above
+        assert size_bytes is not None
+        assert mtime is not None
         known[archive_roots[root_index] / rel_path] = (size_bytes, mtime, existing_hash)
 
     scanned: list[tuple[ScannedFile, int]] = []

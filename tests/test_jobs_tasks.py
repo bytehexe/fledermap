@@ -438,7 +438,7 @@ def test_requeue_stalled_jobs_recovers_a_job_a_dead_worker_left_doing(
     )
 
     with engine.connect() as conn:
-        job_id = conn.execute(
+        job_id: int = conn.execute(
             text(
                 "UPDATE procrastinate_jobs SET status = 'doing' "
                 "WHERE task_name = 'fledermap.jobs.tasks.render_spectrogram_task' "
@@ -477,7 +477,7 @@ def test_requeue_stalled_jobs_fails_instead_of_retrying_when_a_successor_is_alre
     run_ingest_cycle.configure(lock=lock, queueing_lock=lock).defer(timestamp=1)
 
     with engine.connect() as conn:
-        stuck_id = conn.execute(
+        stuck_id: int = conn.execute(
             text(
                 "UPDATE procrastinate_jobs SET status = 'doing' "
                 "WHERE task_name = 'fledermap.jobs.tasks.run_ingest_cycle' "

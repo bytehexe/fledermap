@@ -87,7 +87,9 @@ def test_backup_then_restore_round_trips_a_row(
     assert restore.returncode == 0, restore.stderr
 
     with engine.connect() as conn:
-        value = conn.execute(text("SELECT value FROM db_backup_smoke")).scalar_one()
+        value: str = conn.execute(
+            text("SELECT value FROM db_backup_smoke")
+        ).scalar_one()
     assert value == "before-backup"
 
     dump_file.unlink()

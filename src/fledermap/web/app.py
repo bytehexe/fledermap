@@ -127,7 +127,7 @@ def create_app(
     }
 
     with OrmSession(engine) as session:
-        display_timezone_name = session.execute(
+        display_timezone_name: str = session.execute(
             text("SELECT current_setting('TimeZone')")
         ).scalar_one()
     display_timezone = _resolve_display_timezone(display_timezone_name)

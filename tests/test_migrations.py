@@ -5,7 +5,7 @@ real deployment runs it (review item 4)."""
 from __future__ import annotations
 
 import ast
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from typing import Any
 
 import pytest
@@ -465,7 +465,7 @@ def test_migration_deduplicates_rows_that_collide_under_the_narrowed_constraint(
                 " VALUES ('d' || repeat('0', 63), 'd.wav', now(), '{}'::jsonb)"
             )
         )
-        first_id = conn.execute(
+        first_id: int = conn.execute(
             text(
                 "INSERT INTO identification"
                 " (recording_id, source, verdict, raw_label, source_version)"
@@ -474,7 +474,7 @@ def test_migration_deduplicates_rows_that_collide_under_the_narrowed_constraint(
                 " RETURNING id"
             )
         ).scalar_one()
-        second_id = conn.execute(
+        second_id: int = conn.execute(
             text(
                 "INSERT INTO identification"
                 " (recording_id, source, verdict, raw_label, source_version)"
@@ -488,7 +488,7 @@ def test_migration_deduplicates_rows_that_collide_under_the_narrowed_constraint(
     command.upgrade(cfg, "head")
 
     with eng.connect() as conn:
-        surviving = (
+        surviving: Sequence[int] = (
             conn.execute(
                 text(
                     "SELECT identification.id FROM identification"

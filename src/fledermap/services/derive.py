@@ -99,6 +99,7 @@ def derive_sites(
     for site_id, recording_id in db_session.execute(
         select(Recording.site_id, Recording.id).where(Recording.site_id.is_not(None)),
     ):
+        assert site_id is not None  # guaranteed by the WHERE clause above
         previous_members.setdefault(site_id, set()).add(recording_id)
 
     db_session.execute(update(Recording).values(site_id=None))
