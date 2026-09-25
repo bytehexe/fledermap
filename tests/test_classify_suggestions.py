@@ -50,6 +50,7 @@ def test_no_claims_and_no_snr_suggests_noise_only() -> None:
     assert len(suggestions) == 1
     assert suggestions[0].is_noise
     assert suggestions[0].taxa == ()
+    assert suggestions[0].label == "Noise"
 
 
 def test_automatic_species_claim_suggests_agree_with_classifiers() -> None:
@@ -63,7 +64,8 @@ def test_automatic_species_claim_suggests_agree_with_classifiers() -> None:
     assert suggestions[0].taxa == (
         SuggestedTaxon(id=1, scientific_name="Pipistrellus pipistrellus"),
     )
-    assert "Pipistrellus pipistrellus" in suggestions[0].label
+    # A single species stays full -- only a multi-species label gets abbreviated.
+    assert suggestions[0].label == "Pipistrellus pipistrellus"
 
 
 def test_low_snr_and_a_species_claim_both_suggest_at_once() -> None:
@@ -133,6 +135,24 @@ def test_multi_species_claim_produces_one_suggestion_with_both_taxa_sorted_by_na
         "Myotis mystacinus",
         "Pipistrellus pipistrellus",
     ]
+    # 2+ taxa -> genus-abbreviated label, same convention as annotation_geometry.js's
+    # abbreviateScientificName (the Obsidian sketch's genus-abbreviation convention).
+    assert suggestions[0].label == "M. mystacinus, P. pipistrellus"
+
+
+def test_multi_species_label_leaves_a_one_word_group_taxon_name_unabbreviated() -> None:
+    """A genus/group taxon (e.g. "Myotis" alone, no species epithet) has no second word to
+    abbreviate against -- must pass through unchanged, same as the JS helper it mirrors."""
+    group = _taxon(1, "Myotis")
+    pip = _taxon(2, "Pipistrellus pipistrellus")
+    r = _recording(
+        _ident(IdSource.BATDETECT2, taxon=group),
+        _ident(IdSource.BATDETECT2, taxon=pip),
+    )
+
+    suggestions = classify_suggestions(r, noise_snr_threshold_db=2.0)
+
+    assert suggestions[0].label == "Myotis, P. pipistrellus"
 
 
 def test_pool_cap_truncates_to_the_highest_priority_candidates() -> None:

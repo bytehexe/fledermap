@@ -20,6 +20,11 @@
    populated by classifier_box.js from data-classify-suggestions) above Save -- see design
    spec 2026-09-25-fledermap-classify-suggestions-design.md. Clicking one adds its chip(s)
    via the same addChip() path a search result uses; it never removes a chip and never saves.
+   #classifier-likely-group (the row plus its "Suggestions:" caption) starts hidden and is
+   shown/hidden by classifier_box.js's renderLikelyChoices, not by Jinja: whether there's
+   anything to show can change client-side as chips are added/removed, long after the initial
+   render -- a caption with nothing under it would be confusing, and a bare row with no label
+   read as unexplained UI in review (2026-09-25).
 
    `current_taxa`/`manual_verdict` are the box's OWN state -- built from
    services/manual_classification.py's current_manual_state, NOT from `best`
@@ -63,7 +68,10 @@
     Can't pin the exact species? Search "HiF", "LoF", or "Hilo" for a frequency-class group,
     or "No ID"/"Noise" if there's nothing to identify.
   </p>
-  <div class="classifier-likely-row" id="classifier-likely-row"></div>
+  <div class="classifier-likely-group" id="classifier-likely-group" hidden>
+    <span class="classifier-likely-label">Suggestions:</span>
+    <div class="classifier-likely-row" id="classifier-likely-row"></div>
+  </div>
   <p class="classifier-error" id="classifier-error" hidden></p>
   <div class="classifier-actions">
     <button type="button" class="button-primary" id="classifier-save">Save</button>

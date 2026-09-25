@@ -21,6 +21,7 @@ chips change without a new request (see the spec's "Candidate list" section)."""
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from fledermap.domain.codes import Verdict
@@ -29,6 +30,28 @@ from fledermap.store.models import Recording
 
 _PRIORITY_AGREE_WITH_CLASSIFIERS = 2.0
 _PRIORITY_NOISE = 1.0
+
+
+def _abbreviate_scientific_name(name: str) -> str:
+    """Genus-abbreviates a scientific name, e.g. "Pipistrellus pipistrellus" -> "P.
+    pipistrellus" -- the Obsidian sketch's
+    genus-abbreviation convention (also used for the map's own species labels and
+    annotation_geometry.js's `abbreviateScientificName`, which this mirrors). A one-word
+    name (a genus/group taxon like "Myotis") is returned unchanged -- there's no second
+    word to abbreviate against."""
+    parts = name.split(" ")
+    if len(parts) < 2:
+        return name
+    return f"{parts[0][0]}. {' '.join(parts[1:])}"
+
+
+def _label_for_taxa(taxa: Sequence[SuggestedTaxon]) -> str:
+    """A single taxon's label stays full (matches how the rest of the app shows a lone
+    result); 2+ taxa get genus-abbreviated so the joined label doesn't repeat every full
+    genus name in a row."""
+    if len(taxa) > 1:
+        return ", ".join(_abbreviate_scientific_name(t.scientific_name) for t in taxa)
+    return taxa[0].scientific_name
 
 
 @dataclass(frozen=True)
@@ -66,7 +89,7 @@ def classify_suggestions(
             key=lambda t: t.scientific_name,
         )
         if taxa:
-            label = "Likely: " + ", ".join(t.scientific_name for t in taxa)
+            label = _label_for_taxa(taxa)
             candidates.append(
                 ClassifySuggestion(
                     taxa=tuple(taxa),
@@ -81,7 +104,7 @@ def classify_suggestions(
     if low_snr or nothing_found:
         candidates.append(
             ClassifySuggestion(
-                taxa=(), is_noise=True, label="Likely: Noise", priority=_PRIORITY_NOISE
+                taxa=(), is_noise=True, label="Noise", priority=_PRIORITY_NOISE
             ),
         )
 

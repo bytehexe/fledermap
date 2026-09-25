@@ -127,14 +127,16 @@ function initClassifierBox(box) {
   }
 
   function renderLikelyChoices() {
+    const groupEl = box.querySelector("#classifier-likely-group");
     const rowEl = box.querySelector("#classifier-likely-row");
-    if (!rowEl) return;
+    if (!rowEl || !groupEl) return;
     rowEl.innerHTML = "";
     const applicable = applicableLikelyChoices(
       suggestions,
       currentChips(),
       CLASSIFY_LIKELY_VISIBLE_CAP,
     );
+    groupEl.hidden = applicable.length === 0;
     for (const suggestion of applicable) {
       const button = document.createElement("button");
       button.type = "button";

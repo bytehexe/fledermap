@@ -121,7 +121,7 @@ test("deriveSavePayload rejects both No ID and Noise chips together", () => {
 const agreeSuggestion = {
   taxa: [{ id: 1, scientific_name: "Pipistrellus pipistrellus" }],
   is_noise: false,
-  label: "Likely: Pipistrellus pipistrellus",
+  label: "Pipistrellus pipistrellus",
 };
 
 const multiSuggestion = {
@@ -130,10 +130,10 @@ const multiSuggestion = {
     { id: 2, scientific_name: "Myotis mystacinus" },
   ],
   is_noise: false,
-  label: "Likely: Myotis mystacinus, Pipistrellus pipistrellus",
+  label: "M. mystacinus, P. pipistrellus",
 };
 
-const noiseSuggestion = { taxa: [], is_noise: true, label: "Likely: Noise" };
+const noiseSuggestion = { taxa: [], is_noise: true, label: "Noise" };
 
 test("likelyChoiceAddsSomething is true for a species suggestion with nothing staged", () => {
   assert.ok(likelyChoiceAddsSomething(agreeSuggestion, []));
