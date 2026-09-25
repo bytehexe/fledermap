@@ -37,6 +37,7 @@ def _recording(
     session_id: int | None = None,
     missing: bool = False,
     favourite: bool = False,
+    flagged_for_review: bool = False,
 ) -> Recording:
     r = Recording(
         audio_hash=audio_hash,
@@ -46,6 +47,7 @@ def _recording(
         session_id=session_id,
         missing_since=datetime(2026, 8, 25, tzinfo=UTC) if missing else None,
         favourite=favourite,
+        flagged_for_review=flagged_for_review,
     )
     session.add(r)
     session.flush()
@@ -286,6 +288,17 @@ def test_favourite_only_combines_with_taxon_as_an_and_not_an_or(
         )
 
     assert [r.id for r in results] == [matching.id]
+
+
+def test_flagged_only_excludes_unflagged_recordings(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        flagged = _recording(session, audio_hash="a" * 64, flagged_for_review=True)
+        _recording(session, audio_hash="b" * 64, flagged_for_review=False)
+        session.commit()
+
+        results = filtered_recordings(session, flagged_only=True)
+
+    assert [r.id for r in results] == [flagged.id]
 
 
 def test_session_id_filters_recordings(engine: Engine) -> None:

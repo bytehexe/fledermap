@@ -128,6 +128,7 @@ def filtered_recordings(
     site_id: int | None = None,
     source: IdSource | Literal["emt"] | None = None,
     favourite_only: bool = False,
+    flagged_only: bool = False,
     needs_review: bool = False,
 ) -> Sequence[Recording]:
     # Most-recent-first: without an explicit order, Postgres returns rows in
@@ -150,6 +151,8 @@ def filtered_recordings(
         stmt = stmt.where(Recording.site_id == site_id)
     if favourite_only:
         stmt = stmt.where(Recording.favourite.is_(True))
+    if flagged_only:
+        stmt = stmt.where(Recording.flagged_for_review.is_(True))
     if source == "emt":
         # The combined-EMT filter (map.html's single "EMT" dropdown option, only shown when
         # Config.combine_emt_display is on) -- matches any recording with a live claim from
