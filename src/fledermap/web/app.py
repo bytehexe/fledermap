@@ -62,6 +62,7 @@ def create_app(
     battybirdnet_threshold: float = 0.6,
     batdetect2_annotation_display_threshold: float = 0.20,
     battybirdnet_annotation_display_threshold: float = 0.20,
+    noise_snr_threshold_db: float = 2.0,
 ) -> flask.Flask:
     """`static_root` is `Config.static_root` -- where
     `services/vendor_assets.py`'s `ensure_vendor_assets` fetches Leaflet/HTMX/Alpine.
@@ -109,6 +110,13 @@ def create_app(
     cached -- see `jobs/tasks.py`'s `_BATDETECT2_FLOOR`/`_BATTYBIRDNET_FLOOR` -- but independent
     of `batdetect2_threshold`/`battybirdnet_threshold` above, which only affect claim
     materialization/box styling, not visibility).
+
+    `noise_snr_threshold_db` is `Config.noise_snr_threshold_db` -- exposed on
+    `app.config["NOISE_SNR_THRESHOLD_DB"]` so the recording-details page's Classify box can
+    suggest "Noise" when a recording's own `snr_db` falls below it, using the same comparison
+    `services/noise.py` makes for `fledermap.noise`'s own claim (design spec
+    2026-09-25-fledermap-classify-suggestions-design.md). Default matches `Config`'s own
+    default.
     """
     app = flask.Flask(__name__)
     app.config["ENGINE"] = engine
@@ -125,6 +133,7 @@ def create_app(
         "batdetect2": batdetect2_annotation_display_threshold,
         "battybirdnet": battybirdnet_annotation_display_threshold,
     }
+    app.config["NOISE_SNR_THRESHOLD_DB"] = noise_snr_threshold_db
 
     with OrmSession(engine) as session:
         display_timezone_name: str = session.execute(

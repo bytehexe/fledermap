@@ -85,3 +85,22 @@ def test_create_app_registers_local_datetime_and_local_date_filters(
     assert "local_datetime" in app.jinja_env.filters
     assert "local_date" in app.jinja_env.filters
     assert "local_datetime_seconds" in app.jinja_env.filters
+
+
+def test_create_app_stores_noise_snr_threshold_on_config(
+    tmp_path: Path, engine: Engine
+) -> None:
+    app = create_app(
+        engine,
+        tmp_path / "static",
+        tmp_path / "media",
+        noise_snr_threshold_db=3.5,
+    )
+    assert app.config["NOISE_SNR_THRESHOLD_DB"] == 3.5
+
+
+def test_create_app_defaults_noise_snr_threshold(
+    tmp_path: Path, engine: Engine
+) -> None:
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    assert app.config["NOISE_SNR_THRESHOLD_DB"] == 2.0
