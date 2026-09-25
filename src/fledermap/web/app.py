@@ -28,6 +28,7 @@ from fledermap.web.views.map import views_bp
 from fledermap.web.views.media import media_bp
 from fledermap.web.views.recording_detail import recording_detail_bp
 from fledermap.web.views.reviews import reviews_bp
+from fledermap.web.views.search import search_bp
 from fledermap.web.views.sessions import sessions_bp
 from fledermap.web.views.statistics import statistics_bp
 
@@ -171,4 +172,5 @@ def create_app(
     app.register_blueprint(entities_bp)
     app.register_blueprint(statistics_bp)
     app.register_blueprint(reviews_bp)
+    app.register_blueprint(search_bp)
     return app

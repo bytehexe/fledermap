@@ -1,0 +1,69 @@
+{% extends "_layout.html" %}
+{% block title %}Fledermap — Search{% endblock %}
+{% block content %}
+  <main class="main-content">
+    <h1>Search</h1>
+    <form
+      id="search-filters"
+      class="filter-bar"
+      method="get"
+      action="/search"
+      hx-get="/search"
+      hx-trigger="keyup changed delay:400ms, search"
+      hx-target="#search-results-wrapper"
+      hx-select="#search-results-wrapper"
+      hx-push-url="true"
+    >
+      <input type="search" name="q" value="{{ q }}" placeholder='species:PIPPIP site:"Kleiner Wald"' autocomplete="off">
+      <button type="button" id="search-help-btn" aria-label="Search syntax help">{{ icon("info-circle") }}</button>
+    </form>
+    <p class="search-field-hint">Fields: species: annotation: site: verdict: is:favourite/flagged/commented</p>
+    {% if warnings %}
+    <ul class="search-warnings">
+      {% for warning in warnings %}
+      <li>{{ icon("alert-triangle") }} {{ warning }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    <div id="search-results-wrapper">
+      <table class="entity-list">
+        <thead>
+          <tr><th>Time</th><th>Filename</th><th>Site</th><th>Species</th></tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr>
+            <td><a href="/recordings/{{ row.recording.audio_hash }}">{{ row.recording.recorded_at | local_datetime }}</a></td>
+            <td><a href="/recordings/{{ row.recording.audio_hash }}">{{ row.filename }}</a></td>
+            <td>{% if row.recording.site_id %}<a href="/sites/{{ row.recording.site_id }}">Site {{ row.recording.site_id }}</a>{% endif %}</td>
+            <td>{{ recording_headline(row.taxon, row.best) }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4">No recordings match this search.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <div class="pagination" id="search-pagination">
+        <button
+          type="button"
+          {% if offset == 0 %}disabled{% endif %}
+          hx-get="/search?q={{ q | urlencode }}&offset={{ prev_offset }}"
+          hx-target="#search-results-wrapper"
+          hx-select="#search-results-wrapper"
+          hx-push-url="true"
+        >{{ icon("chevron-left") }} Newer</button>
+        <button
+          type="button"
+          {% if not has_more %}disabled{% endif %}
+          hx-get="/search?q={{ q | urlencode }}&offset={{ next_offset }}"
+          hx-target="#search-results-wrapper"
+          hx-select="#search-results-wrapper"
+          hx-push-url="true"
+        >Older {{ icon("chevron-right") }}</button>
+      </div>
+    </div>
+  </main>
+{% endblock %}
+{% block scripts %}
+  <script src="{{ url_for('vendor.static', filename='htmx.min.js') }}"></script>
+{% endblock %}
