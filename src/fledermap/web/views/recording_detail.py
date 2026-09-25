@@ -79,6 +79,12 @@ def _serialize_classify_suggestion(s: ClassifySuggestion) -> dict[str, object]:
         "taxa": [{"id": t.id, "scientific_name": t.scientific_name} for t in s.taxa],
         "is_noise": s.is_noise,
         "label": s.label,
+        # Unused by the client (`classifier_logic.js` re-filters purely on taxa/is_noise) --
+        # kept so a test asserting on an embedded suggestion can tell part (a)'s own
+        # evidence-driven Noise heuristic (`_PRIORITY_NOISE`) apart from the unconditional
+        # Noise-if-room pool-assembly fallback (priority 0.0), which look identical
+        # (is_noise=True, label="Noise") without it.
+        "priority": s.priority,
     }
 
 

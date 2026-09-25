@@ -111,7 +111,24 @@ def classify_suggestions(
 
     candidates.extend(mined)
     candidates.sort(key=lambda c: c.priority, reverse=True)
-    candidates = candidates[:pool_cap]
+
+    # Dedup by conclusion (Noise sentinel, or the exact taxon set) BEFORE truncating to
+    # pool_cap -- otherwise a duplicate lower-priority candidate could occupy a pool slot
+    # that should go to a different, higher-priority candidate. The list is already sorted
+    # descending here, so keeping the first occurrence per key keeps the highest-priority
+    # one. A mined rule can duplicate part (a)'s own heuristics (a mined {X}->X rule
+    # duplicates "Agree with classifiers" for X) or another mined rule (several stored
+    # rules concluding the same taxon, e.g. {X}->Z and {Y}->Z both matching a recording
+    # with atoms {X, Y}).
+    seen: set[tuple[bool, frozenset[int]]] = set()
+    deduped: list[ClassifySuggestion] = []
+    for candidate in candidates:
+        key = (candidate.is_noise, frozenset(t.id for t in candidate.taxa))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(candidate)
+    candidates = deduped[:pool_cap]
 
     # Part (b) spec §7: a pool-assembly step, not a new heuristic -- fires only when the
     # capped pool has spare room AND doesn't already carry a Noise candidate.

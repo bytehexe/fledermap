@@ -355,10 +355,13 @@ async def _run_worker_async(config: Config, engine: Engine, *, wait: bool) -> No
             # Unconditional, every startup -- NOT routed through Procrastinate's own
             # periodic/catch-up machinery, whose max_delay (10 minutes) is nowhere near
             # enough for a daily job on a machine that isn't always on (part b spec §6).
-            await run_classify_implication_mining_cycle.configure(
-                lock=_CLASSIFY_IMPLICATION_MINING_LOCK,
-                queueing_lock=_CLASSIFY_IMPLICATION_MINING_LOCK,
-            ).defer_async(timestamp=int(time.time()))
+            try:
+                await run_classify_implication_mining_cycle.configure(
+                    lock=_CLASSIFY_IMPLICATION_MINING_LOCK,
+                    queueing_lock=_CLASSIFY_IMPLICATION_MINING_LOCK,
+                ).defer_async(timestamp=int(time.time()))
+            except procrastinate.exceptions.AlreadyEnqueued:
+                pass  # a mining cycle is already queued (e.g. requeued from `doing` above)
 
             loop = asyncio.get_running_loop()
             observer = start_watching(config.archive_roots, loop, _defer_ingest_cycle)

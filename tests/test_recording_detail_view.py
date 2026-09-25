@@ -1147,6 +1147,13 @@ def test_classifier_box_embeds_likely_suggestions(
         {"id": taxon_id, "scientific_name": "Pipistrellus pipistrellus"}
     ]
     assert suggestions[1]["is_noise"] is True
+    # priority == 0.0 confirms this Noise entry came from the unconditional
+    # Noise-if-room pool-assembly fallback, not part (a)'s own evidence-driven Noise
+    # heuristic (priority 1.0, `_PRIORITY_NOISE`) -- which must NOT fire here: there's
+    # no low SNR and the automatic classifier found a species. A regression that made
+    # part (a)'s heuristic fire unconditionally would still produce a single trailing
+    # Noise entry (indistinguishable by is_noise/label alone), but with priority 1.0.
+    assert suggestions[1]["priority"] == 0.0
     assert 'id="classifier-likely-row"' in html
 
 
@@ -1213,6 +1220,10 @@ def test_manual_classification_response_embeds_likely_suggestions(
         {"id": taxon_a_id, "scientific_name": "Pipistrellus pipistrellus"}
     ]
     assert suggestions[1]["is_noise"] is True
+    # priority == 0.0 confirms this is the Noise-if-room fallback, not part (a)'s own
+    # evidence-driven Noise heuristic (priority 1.0) -- see the identical assertion in
+    # test_classifier_box_embeds_likely_suggestions for why this distinction matters.
+    assert suggestions[1]["priority"] == 0.0
 
     # The POST also staged species B as the manual claim -- confirm both things are true at
     # once: the manual chip reflects B, while the suggestion pool still (correctly) offers A.

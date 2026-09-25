@@ -1533,6 +1533,76 @@ def test_worker_defers_the_classify_implication_mining_task_unconditionally_at_s
     assert count == 1
 
 
+def test_worker_startup_survives_an_already_enqueued_mining_job(
+    clean_database_url: str,
+    tmp_path: Path,
+) -> None:
+    """A mining job left `todo` from a previous startup (still queued behind other
+    work, or requeued from `doing` by `requeue_stalled_jobs` just before this call)
+    must not crash the worker: `run_classify_implication_mining_cycle` carries a
+    `queueing_lock`, so a second `defer_async()` under that lock raises
+    `AlreadyEnqueued` -- unguarded, that exception used to propagate out of
+    `_run_worker_async` and exit the process, which under systemd restarts straight
+    into the same error every time (finding 1 of the final review)."""
+    archive = tmp_path / "archive"
+    archive.mkdir()
+    config = Config(
+        database_url=clean_database_url,
+        archive_roots=(archive,),
+        media_root=tmp_path / "media",
+    )
+    engine = make_engine(clean_database_url)
+
+    cli_main._run_migrations(config.database_url)
+    ensure_schema(cli_main.jobs_app, engine)
+
+    # Pre-defer the mining task under its queueing_lock so a `todo` job already exists
+    # before the worker starts -- via the sync defer-side connector (`jobs_app.open(engine)`,
+    # the same pattern `services/media.py`/`services/site_naming.py` use), since the async
+    # connector is only swapped in for the duration of `_run_worker_async` itself.
+    cli_main.jobs_app.open(engine)
+    cli_main.run_classify_implication_mining_cycle.configure(
+        lock=cli_main._CLASSIFY_IMPLICATION_MINING_LOCK,
+        queueing_lock=cli_main._CLASSIFY_IMPLICATION_MINING_LOCK,
+    ).defer(timestamp=int(time.time()))
+
+    async def _drive() -> int | None:
+        task = asyncio.create_task(
+            cli_main._run_worker_async(config, engine, wait=True),
+        )
+        try:
+            # Give the worker a chance to run its startup sequence (including
+            # the guarded `defer_async()` call under test) and settle into its
+            # normal wait loop instead of crashing.
+            await asyncio.sleep(2)
+            assert not task.done(), (
+                f"worker task exited unexpectedly: "
+                f"{task.exception() if task.done() else None}"
+            )
+            with engine.connect() as conn:
+                count = conn.execute(
+                    text(
+                        "SELECT count(*) FROM procrastinate_jobs WHERE task_name = "
+                        "'fledermap.jobs.tasks.run_classify_implication_mining_cycle'",
+                    ),
+                ).scalar()
+            return count
+        finally:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    try:
+        count = asyncio.run(_drive())
+    finally:
+        engine.dispose()
+
+    # Still exactly one job under the lock -- the pre-deferred one, untouched
+    # (the guarded startup call found it already queued and skipped deferring
+    # a second one).
+    assert count == 1
+
+
 def test_mine_classify_implications_command_reports_a_count(
     clean_database_url: str,
     tmp_path: Path,

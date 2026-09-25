@@ -91,6 +91,14 @@ def _count_training_examples(recordings: Sequence[Recording]) -> _Counters:
     for recording in recordings:
         atoms = _automatic_atoms(recording)
         keys = subset_keys(atoms)
+        if not keys:
+            # No automatic atoms at all -- `subset_keys(())` is `[]`, so this
+            # example can never match a lookup key (`lookup_mined_suggestions`
+            # only ever runs against a recording that HAS automatic atoms).
+            # Counting it toward `example_total`/`conclusion_total` would dilute
+            # the base rate with examples that can never be predicted, letting a
+            # base-rate-dominant species spuriously clear `min_lift`.
+            continue
         for verdict, taxon_id in _manual_conclusions(recording):
             example_total += 1
             conclusion_total[(verdict, taxon_id)] += 1
@@ -187,6 +195,13 @@ def lookup_mined_suggestions(
     suggestions: list[ClassifySuggestion] = []
     for rule in rules:
         priority = rule.confidence * _MINED_PRIORITY_SCALE
+        if rule.conclusion_verdict == Verdict.NO_ID:
+            # No ID (a bat call exists, species undetermined) and Noise (no bat
+            # call at all) are opposite meanings in this app's vocabulary --
+            # rendering a mined "usually marked No ID" pattern as a "Noise"
+            # suggestion button would mislead the user, so it contributes no
+            # suggestion at all rather than being folded into the Noise sentinel.
+            continue
         if (
             rule.conclusion_verdict != Verdict.SPECIES
             or rule.conclusion_taxon_id is None
