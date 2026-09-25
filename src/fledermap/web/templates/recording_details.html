@@ -219,8 +219,8 @@
      the spectrogram while a draft is open; it deliberately has no click-to-dismiss handler of its
      own -- only Cancel/Delete/Escape close the modal, so a draft can never be lost by an
      accidental click. #}
-  <div id="comment-popup-backdrop" class="comment-popup-backdrop" hidden></div>
-  <div id="comment-popup" class="comment-popup" hidden>
+  <div id="comment-popup-backdrop" class="modal-backdrop" hidden></div>
+  <div id="comment-popup" class="modal comment-popup" hidden>
     <div class="comment-popup-species">
       <input type="text" id="comment-popup-species-input" placeholder="Species (optional)" autocomplete="off">
       <div id="comment-popup-species-suggestions" class="comment-popup-suggestions" hidden></div>
