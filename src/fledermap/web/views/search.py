@@ -15,7 +15,7 @@ from fledermap.services.search import (
     parse_search_query,
     search_recordings,
 )
-from fledermap.store.models import Taxon
+from fledermap.store.models import Site, Taxon
 from fledermap.web.params import parse_int
 
 search_bp = flask.Blueprint(
@@ -48,12 +48,14 @@ def search_page() -> flask.Response:
                 and best.primary.taxon_id is not None
             ):
                 taxon = session.get(Taxon, best.primary.taxon_id)
+            site = session.get(Site, recording.site_id) if recording.site_id else None
             rows.append(
                 {
                     "recording": recording,
                     "filename": os.path.basename(recording.path),
                     "best": best,
                     "taxon": taxon,
+                    "site": site,
                 },
             )
 

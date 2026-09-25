@@ -18,14 +18,14 @@
       <button type="button" id="search-help-btn" aria-label="Search syntax help">{{ icon("info-circle") }}</button>
     </form>
     <p class="search-field-hint">Fields: species: annotation: site: verdict: is:favourite/flagged/commented</p>
-    {% if warnings %}
-    <ul class="search-warnings">
-      {% for warning in warnings %}
-      <li>{{ icon("alert-triangle") }} {{ warning }}</li>
-      {% endfor %}
-    </ul>
-    {% endif %}
     <div id="search-results-wrapper">
+      {% if warnings %}
+      <ul class="search-warnings">
+        {% for warning in warnings %}
+        <li>{{ icon("alert-triangle") }} {{ warning }}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
       <table class="entity-list">
         <thead>
           <tr><th>Time</th><th>Filename</th><th>Site</th><th>Species</th></tr>
@@ -35,7 +35,7 @@
           <tr>
             <td><a href="/recordings/{{ row.recording.audio_hash }}">{{ row.recording.recorded_at | local_datetime }}</a></td>
             <td><a href="/recordings/{{ row.recording.audio_hash }}">{{ row.filename }}</a></td>
-            <td>{% if row.recording.site_id %}<a href="/sites/{{ row.recording.site_id }}">Site {{ row.recording.site_id }}</a>{% endif %}</td>
+            <td>{% if row.site %}<a href="/sites/{{ row.site.id }}">{{ row.site.name or "Site #" ~ row.site.id }}</a>{% endif %}</td>
             <td>{{ recording_headline(row.taxon, row.best) }}</td>
           </tr>
           {% else %}
