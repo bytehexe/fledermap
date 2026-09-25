@@ -63,7 +63,32 @@
       </div>
     </div>
   </main>
+  <div id="search-help-backdrop" class="modal-backdrop" hidden></div>
+  <div id="search-help-modal" class="modal search-help-modal" hidden role="dialog" aria-label="Search syntax">
+    <div class="search-help-header">
+      <h2>Search syntax</h2>
+      <button type="button" id="search-help-close" aria-label="Close">{{ icon("x") }}</button>
+    </div>
+    <p>Type anything to search filenames, comments, sites, and species names. Use "quotes" for an exact phrase, or the fields below to narrow your search. Combine several — they all have to match.</p>
+    <table class="entity-list">
+      <thead><tr><th>Type this</th><th>To find</th></tr></thead>
+      <tbody>
+        <tr><td><code>pipistrellus buzz</code></td><td>Free text — matches filenames, comments, site names, or species names</td></tr>
+        <tr><td><code>"Kleiner Wald"</code></td><td>An exact phrase</td></tr>
+        <tr><td><code>species:PIPPIP</code></td><td>A species by its code</td></tr>
+        <tr><td><code>species:"Pipistrellus pipistrellus"</code></td><td>A species by its full scientific name</td></tr>
+        <tr><td><code>species:"P. pipistrellus"</code></td><td>A species by its abbreviated scientific name</td></tr>
+        <tr><td><code>annotation:bd2</code></td><td>Has a classification from batdetect2 (also <code>bbn</code>, <code>emt</code>, <code>manual</code>)</td></tr>
+        <tr><td><code>site:"Kleiner Wald"</code></td><td>Recordings at a specific site</td></tr>
+        <tr><td><code>verdict:species</code></td><td>Identified to species (also <code>no_id</code>, <code>noise</code>, <code>unidentified</code>, <code>all</code>)</td></tr>
+        <tr><td><code>is:favourite</code></td><td>Favourites only (also <code>is:flagged</code>, <code>is:commented</code>)</td></tr>
+      </tbody>
+    </table>
+    <p>Example: <code>species:PIPPIP is:favourite</code> — favourite recordings of <em>Pipistrellus pipistrellus</em>.</p>
+    <p>If something in your search wasn't understood (a misspelled field, a missing closing quote), a note appears above the results explaining what happened.</p>
+  </div>
 {% endblock %}
 {% block scripts %}
   <script src="{{ url_for('vendor.static', filename='htmx.min.js') }}"></script>
+  <script src="{{ url_for('static', filename='search.js') }}"></script>
 {% endblock %}
