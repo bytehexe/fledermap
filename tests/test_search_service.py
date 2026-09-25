@@ -66,6 +66,15 @@ def test_site_field_quoted() -> None:
     assert parsed.site_name == "Kleiner Wald"
 
 
+def test_site_field_with_curly_quotes_parses_the_same_as_ascii_quotes() -> None:
+    """iOS/macOS smart-punctuation and German „…" typing produce curly quotes instead of ASCII
+    `"` -- `site:` has no closed vocabulary to diverge against, so without normalization this
+    would silently mis-tokenize with no warning at all."""
+    parsed = parse_search_query("site:„Kleiner Wald“")
+    assert parsed == parse_search_query('site:"Kleiner Wald"')
+    assert parsed.site_name == "Kleiner Wald"
+
+
 def test_verdict_field_valid() -> None:
     parsed = parse_search_query("verdict:species")
     assert parsed.verdict == Verdict.SPECIES

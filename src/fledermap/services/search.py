@@ -1,7 +1,7 @@
 """Recordings search: a whitelisted field grammar plus free text (design spec
 docs/superpowers/specs/2026-09-25-fledermap-search-design.md). `parse_search_query` is pure (no DB
-access) -- species-value resolution needs a session and happens later, in `search_recordings`
-(Task 3/4 below)."""
+access) -- species-value resolution needs a DB session and happens later, inside
+`search_recordings`."""
 
 from __future__ import annotations
 
@@ -38,6 +38,20 @@ _UNQUOTED_FIELD_RE = re.compile(r"^(\w+):(.+)$")
 _QUOTED_PHRASE_RE = re.compile(r'^"([^"]*)"$')
 
 _UNMATCHED_QUOTE_WARNING = "Unmatched quote — showing plain-text results."
+
+# Typographic quote variants that iOS/macOS smart-punctuation and German „…" typing produce in
+# place of a plain ASCII quote. Without normalizing these, a quoted field value like
+# `site:„Kleiner Wald“` silently mis-tokenizes: `site:` has no closed vocabulary to diverge
+# against, so the field-value warning system never fires and the wrong parse ships silently.
+_CURLY_QUOTE_TRANSLATION = str.maketrans(
+    {
+        "“": '"',  # “ LEFT DOUBLE QUOTATION MARK
+        "”": '"',  # ” RIGHT DOUBLE QUOTATION MARK
+        "„": '"',  # „ DOUBLE LOW-9 QUOTATION MARK
+        "«": '"',  # « LEFT-POINTING DOUBLE ANGLE QUOTATION MARK
+        "»": '"',  # » RIGHT-POINTING DOUBLE ANGLE QUOTATION MARK
+    },
+)
 
 
 @dataclass(frozen=True)
@@ -76,6 +90,7 @@ def _split_respecting_quotes(text: str) -> list[str]:
 
 
 def parse_search_query(text: str) -> ParsedQuery:
+    text = text.translate(_CURLY_QUOTE_TRANSLATION)
     if text.count('"') % 2 != 0:
         # An unterminated quote makes the split below unsafe (see the spec's "Mismatched quote
         # handling") -- degrade the whole query to plain free text rather than risk one token
@@ -184,7 +199,8 @@ def _resolve_species_value(session: OrmSession, value: str) -> int | None:
     abbreviated = _ABBREVIATED_RE.match(value)
     if abbreviated is None:
         return None
-    initial, epithet = abbreviated.group(1).lower(), abbreviated.group(2).lower()
+    initial = _escape_ilike(abbreviated.group(1).lower())
+    epithet = _escape_ilike(abbreviated.group(2).lower())
     candidates = session.scalars(
         select(Taxon.id).where(
             func.lower(Taxon.scientific_name).like(f"{initial}%"),
