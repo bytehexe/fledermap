@@ -215,7 +215,7 @@ Follows the established list-page shape (`.filter-bar` + `.entity-list` + pagina
 ┌─────────────────────────────────────────────────────┐
 │ Search                                               │
 ├─────────────────────────────────────────────────────┤
-│ [ species:PIPPIP site:"Kleiner Wald"            ]    │  <- .filter-bar, one text input
+│ [ species:PIPPIP site:"Kleiner Wald"          ] (i)  │  <- .filter-bar: text input + help button
 │ Fields: species: annotation: site: verdict: is:...   │  <- inline whitelist hint
 │ ⚠ Unknown field 'spceies' — searched as text instead │  <- one line per page.warnings entry
 ├─────────────────────────────────────────────────────┤
@@ -249,6 +249,88 @@ Follows the established list-page shape (`.filter-bar` + `.entity-list` + pagina
   `recording_headline` already produces elsewhere).
 - No-result row: same `.entity-list` empty-row convention as `sessions_list.html`'s "No sessions
   match these filters."
+
+### Syntax help
+
+An `(i)` icon button (`icon("info-circle")`) sits directly right of the search input, inside the
+same `.filter-bar` row — `type="button"`, not a submit, so it can't accidentally trigger a search.
+Clicking it opens a modal with a compact explanation of the syntax; this is the page's only
+on-page teaching beyond the one-line field hint already under the input (which stays, as a
+without-a-click reminder of the field names for someone who's already used the modal once).
+
+```
+                    (backdrop dims the whole page)
+        ┌───────────────────────────────────────┐
+        │ Search syntax                      [x]│
+        │                                         │
+        │ Type anything to search filenames,     │
+        │ comments, sites, and species names.    │
+        │ Use "quotes" for an exact phrase, or   │
+        │ the fields below to narrow it.         │
+        │                                         │
+        │ ┌─────────────────────┬───────────────┐│
+        │ │ Type this           │ To find       ││
+        │ ├─────────────────────┼───────────────┤│
+        │ │ pipistrellus buzz   │ ...           ││
+        │ │ species:PIPPIP      │ ...           ││
+        │ │ ...                 │ ...           ││
+        │ └─────────────────────┴───────────────┘│
+        │                                         │
+        │ Example: species:PIPPIP is:favourite   │
+        └───────────────────────────────────────┘
+```
+
+Centered, fixed width similar to the existing comment popup (roomier — this is a table, not a
+short text field — a `max-width` around 480px, `max-height: calc(100vh - 32px)` with internal
+scroll, same shape the comment popup's own overflow handling already uses). Closes via the `[x]`,
+Escape, or a backdrop click (see below for why backdrop-click is safe here but not for the comment
+popup).
+
+**Shared modal, not a page-specific one.** The app already has exactly one centered-modal-with-
+backdrop pattern (`recording_detail.js`'s comment popup, `.comment-popup`/`.comment-popup-backdrop`
+in `app.css`), built page-specific rather than as a shared class. This help modal is a second,
+unrelated consumer of the same look, so per the style guide's "promote on second use" rule, this
+change extracts the positioning/appearance rules (`position: fixed; inset: 0; margin: auto; height:
+fit-content`, the backdrop dimming, `z-index` layering, border/shadow/background) into shared
+`.modal`/`.modal-backdrop` classes, and both the comment popup and this new help modal use them.
+Behavior that's specific to the comment popup — no backdrop-click-to-dismiss, because a draft could
+otherwise be silently discarded by a click meant for the backdrop — stays exactly as it is and does
+NOT move to the shared class; the help modal has no draft to lose, so its own JS wires a plain
+backdrop-click handler that closes it, alongside Escape (both instances already close on Escape).
+
+**Content** — a short intro line, then a table, nothing else. Written for the person using the
+search box, not for a reader of this spec: no mention of tokens, SQL, `ParsedQuery`, EXISTS
+clauses, or any other implementation term from the sections above.
+
+> **Search syntax**
+>
+> Type anything to search filenames, comments, sites, and species names. Use `"quotes"` for an
+> exact phrase, or the fields below to narrow your search. Combine several — they all have to
+> match.
+>
+> | Type this | To find |
+> |---|---|
+> | `pipistrellus buzz` | Free text — matches filenames, comments, site names, or species names |
+> | `"Kleiner Wald"` | An exact phrase |
+> | `species:PIPPIP` | A species by its code |
+> | `species:"Pipistrellus pipistrellus"` | A species by its full scientific name |
+> | `species:"P. pipistrellus"` | A species by its abbreviated scientific name |
+> | `annotation:bd2` | Has a classification from batdetect2 (also `bbn`, `emt`, `manual`) |
+> | `site:"Kleiner Wald"` | Recordings at a specific site |
+> | `verdict:species` | Identified to species (also `no_id`, `noise`, `unidentified`, `all`) |
+> | `is:favourite` | Favourites only (also `is:flagged`, `is:commented`) |
+>
+> Example: `species:PIPPIP is:favourite` — favourite recordings of *Pipistrellus pipistrellus*.
+>
+> If something in your search wasn't understood (a misspelled field, a missing closing quote),
+> a note appears above the results explaining what happened.
+
+`verdict:`'s value list gains `unidentified`/`all` here for parity with the map's own verdict
+filter — `filtered_recordings`'s `verdict` param already accepts both (see `map_query.py`'s
+`_passes_verdict_filter`), so this is zero extra backend work, just extending the closed-vocabulary
+check in `parse_search_query` to match. The "Warnings" section above and the field-whitelist table
+should be read with this in mind: `verdict:`'s closed vocabulary is `species`/`no_id`/`noise`/
+`unidentified`/`all`, not just the three `Verdict` enum members.
 
 ## Testing
 
