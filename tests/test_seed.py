@@ -82,6 +82,40 @@ def test_a_code_reassigned_in_the_yaml_follows_the_taxon(engine: Engine) -> None
         assert repointed.scientific_name == "Cnephaeus serotinus"
 
 
+def test_a_renamed_taxon_reuses_the_existing_row_instead_of_forking(
+    engine: Engine,
+) -> None:
+    """Simulates the Eptesicus->Cnephaeus revision: a taxon already seeded under
+    its old scientific_name, then the YAML renamed, must update that same row
+    (keeping its id, and anything that references it) rather than leaving it
+    behind as an orphan and creating a second row for the new name."""
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        session.commit()
+
+        taxon = session.scalars(
+            select(Taxon).where(Taxon.scientific_name == "Cnephaeus serotinus"),
+        ).one()
+        original_id = taxon.id
+        taxon.scientific_name = "Eptesicus serotinus"
+        session.commit()
+
+        created = seed_taxonomy(session)
+        session.commit()
+
+        assert created == 0
+        renamed = session.scalars(
+            select(Taxon).where(Taxon.scientific_name == "Cnephaeus serotinus"),
+        ).one()
+        assert renamed.id == original_id
+        assert (
+            session.scalars(
+                select(Taxon).where(Taxon.scientific_name == "Eptesicus serotinus"),
+            ).one_or_none()
+            is None
+        )
+
+
 def test_resolves_a_known_code(engine: Engine) -> None:
     with OrmSession(engine) as session:
         seed_taxonomy(session)

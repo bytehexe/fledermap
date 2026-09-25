@@ -29,6 +29,31 @@ def seed_taxonomy(session: OrmSession) -> int:
         taxon = session.scalars(
             select(Taxon).where(Taxon.scientific_name == entry["scientific_name"]),
         ).one_or_none()
+
+        renamed = False
+        if taxon is None:
+            # No row has this scientific_name yet -- before treating it as a brand
+            # new taxon, check whether one of this entry's own codes already
+            # points somewhere: a taxonomic rename in the YAML (e.g. the 2023
+            # Eptesicus/Cnephaeus split) changes scientific_name but not the
+            # codes, and codes are the actual stable identity a source's data
+            # keys on. Without this, a rename forked a second Taxon row and
+            # stranded every existing Identification on the old, now-codeless
+            # one -- found 2026-09-25 via 183 Identification rows split across
+            # dead "Eptesicus serotinus"/"Eptesicus nilssonii" rows and their
+            # live "Cnephaeus" replacements.
+            for source, code in (entry.get("codes") or {}).items():
+                existing_code = session.scalars(
+                    select(TaxonCode).where(
+                        TaxonCode.source == source,
+                        TaxonCode.code == code,
+                    ),
+                ).one_or_none()
+                if existing_code is not None:
+                    taxon = session.get(Taxon, existing_code.taxon_id)
+                    renamed = True
+                    break
+
         if taxon is None:
             taxon = Taxon(
                 rank=entry["rank"],
@@ -39,6 +64,10 @@ def seed_taxonomy(session: OrmSession) -> int:
             session.add(taxon)
             session.flush()
             created += 1
+        elif renamed:
+            taxon.scientific_name = entry["scientific_name"]
+            taxon.common_name_de = entry.get("common_name_de")
+            taxon.common_name_en = entry.get("common_name_en")
 
         for source, code in (entry.get("codes") or {}).items():
             exists = session.scalars(
