@@ -202,6 +202,34 @@ distinct from `.entity-list`'s table rows since it's one number, not a row of co
 Never nest a bordered `.stats-panel` inside another `.stats-panel` — a card only ever nests
 inside a tinted, borderless band.
 
+### `.modal` / `.modal-backdrop`
+
+Use for any centered dialog that needs to sit above the page with a dimmed backdrop behind it —
+a form, a confirmation, an explanatory panel. Gives a fixed, centered box (`position: fixed; inset:
+0; margin: auto; height: fit-content`) with the standard border/shadow/background, plus a full-
+viewport dimmed `.modal-backdrop` sibling. Both classes ship a `[hidden]` rule
+(`.modal[hidden]`/`.modal-backdrop[hidden] { display: none; }`) that MUST stay — `[hidden]` and an
+author `display` rule are equal-specificity, and the author rule wins over the UA stylesheet's own
+`[hidden]` handling at that specificity, so dropping this rule silently makes the modal permanently
+visible. Extracted 2026-09-25 (search's syntax-help modal, the recording-detail page's comment
+popup) as the "promote on second use" rule's next instance — a consumer-specific size/width rule
+(e.g. `.comment-popup { width: 260px; }`) layers on top via its own selector, same as
+`.filter-bar`/`.stacked-form` layer their own layout rules over the shared form-control look.
+
+```html
+<div id="my-modal-backdrop" class="modal-backdrop" hidden></div>
+<div id="my-modal" class="modal my-modal" hidden>
+  ...
+</div>
+```
+
+**Dismissal is a per-consumer decision, not part of the shared class.** The comment popup holds an
+in-progress draft, so its backdrop deliberately has NO click-to-dismiss handler — only Cancel/
+Delete/Escape close it, so a stray click can never silently discard unsaved text. The search help
+modal holds no such state, so its JS wires a plain backdrop-click handler alongside Escape and its
+own close button. Decide per modal whether a stray click should be allowed to close it, and wire
+that in the modal's own JS — never assume the shared CSS implies a behavior.
+
 ### `.entity-header`
 
 Use for the top-of-page block on any full standalone entity page (`site_detail.html`,

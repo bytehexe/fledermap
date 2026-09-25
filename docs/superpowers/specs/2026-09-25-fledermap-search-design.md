@@ -1,6 +1,6 @@
 # Fledermap Recordings Search — Design
 
-**Status:** draft
+**Status:** shipped (2026-09-25)
 **Date:** 2026-09-25
 
 ## Problem
@@ -60,7 +60,7 @@ needs no recursive/nested structure and no parser-generator library (see below).
 | `species:<value>` | exact taxon lookup, not fuzzy — see "Species value resolution" below | `filtered_recordings`'s existing `taxon_id` param, after resolving `<value>` to a taxon_id |
 | `annotation:<source>` | `bd2`/`bbn`/`emt`/`manual` — has a claim from that source | `filtered_recordings`'s existing `source: IdSource \| Literal["emt"] \| None` param, after mapping the shorthand (`bd2`→`IdSource.BATDETECT2`, `bbn`→`IdSource.BATTYBIRDNET`, `manual`→`IdSource.MANUAL`, `emt`→the existing `"emt"` sentinel) — this is exactly the "has a claim from source X, or any combined-EMT source" check the map's own Source filter already makes, so no new SQL |
 | `site:<name>` | site name, exact | new `Site.name ==` join in `search.py` |
-| `verdict:<value>` | `species`/`no_id`/`noise`/`unidentified`/`all` — see the note on `verdict:`'s vocabulary below | `filtered_recordings`'s existing `verdict` param, via the existing `web/params.py`'s `parse_verdict` |
+| `verdict:<value>` | `species`/`no_id`/`noise`/`unidentified`/`all` — see the note on `verdict:`'s vocabulary below | `filtered_recordings`'s existing `verdict` param, via `domain/codes.py`'s `parse_verdict` (moved there from `web/params.py` during implementation, which still re-exports it for its existing callers — `services/` code must never import from `web/` in this codebase) |
 | `is:favourite` / `is:flagged` / `is:commented` | boolean namespace, room for a future boolean without a new prefix | `favourite_only` (existing `filtered_recordings` param) / new `flagged_only` param added to `filtered_recordings` (same shape as `favourite_only` — a plain existing boolean column, not something `search.py` needs its own SQL for) / new EXISTS-on-`Annotation` clause in `search.py` (`source == AnnotationSource.COMMENT`, genuinely new — no equivalent exists anywhere else) |
 
 Every field above except `site:` draws its value from a closed vocabulary (a fixed enum, or the
@@ -138,8 +138,16 @@ term AND'd against the others, each term itself an OR across those four targets:
   `store/models.py` rather than carried over from that older note.
 - **Site name**: `Site.name` (already used by `site:<name>` above).
 - **Species name**: scientific name + English/German common names from `taxa_*.yaml`
-  (`Taxon.scientific_name`/`common_name_de`/`common_name_en`), matched via the recording's current
-  claims the same way `annotation:`/`species:` resolve a taxon, not a separate lookup path.
+  (`Taxon.scientific_name`/`common_name_de`/`common_name_en`), matched against **any live
+  `Identification` claim** on the recording — the same "any claim from that source" reading
+  `annotation:` already uses, not the recording's single current-best identification (what the
+  results table's Species column shows, and what `species:` resolves against via `taxon_id`).
+  This is a deliberate distinction, clarified during implementation: `species:PIPPIP` and free-text
+  `pipistrellus` can therefore return different sets for the same recording — e.g. a manual claim
+  overriding a batdetect2 guess still leaves the batdetect2 claim live and free-text-matchable,
+  even though the current-best headline (and `species:`) now shows the manual claim's species. A
+  reader landing on a search result whose headline doesn't obviously match their free-text term
+  should not read that as a bug.
 
 ### Tokenizer (hand-rolled, two-phase — not a PEG parser)
 
@@ -349,10 +357,29 @@ clauses, or any other implementation term from the sections above.
 > a note appears above the results explaining what happened.
 
 `verdict:`'s closed vocabulary (`species`/`no_id`/`noise`/`unidentified`/`all`, per the
-field-whitelist table above) parses via the existing `web/params.py`'s `parse_verdict` — it already
-accepts all five (see `map_query.py`'s `_passes_verdict_filter`) and already raises `ValueError` on
+field-whitelist table above) parses via `domain/codes.py`'s `parse_verdict` — it already accepts
+all five (see `map_query.py`'s `_passes_verdict_filter`) and already raises `ValueError` on
 anything else, which `parse_search_query` catches the same way it catches an invalid
 `annotation:`/`is:` value: demote to free text, append a warning.
+
+**Default verdict when the field is absent.** A query with no `verdict:` field at all maps to
+`filtered_recordings(verdict="all")`, NOT to that function's own default (`verdict=None`, which
+means SPECIES-only — the map's curated default browse view, excluding any recording with no
+identification, a NoID, or a Noise verdict). Search's job is to find any recording matching the
+query; `verdict:` is an explicit, opt-in narrowing field, so search must not implicitly apply the
+map's own browsing default. Found and fixed during implementation, when the first version's literal
+`verdict=parsed.verdict` pass-through silently excluded every unidentified recording from a plain
+free-text search with no explanation. An explicit `verdict:species`/`verdict:no_id`/etc. from the
+user still passes through unchanged — only the "field absent entirely" case gets this mapping.
+
+**Curly/smart quotes.** iOS/macOS smart punctuation (on by default in iOS text inputs) and German
+„…" typing conventions both produce typographic quote characters instead of the ASCII `"` this
+grammar's quoting relies on — found during implementation review. `parse_search_query` normalizes
+`“ ” „ « »` to a plain `"` before any other parsing happens, so `site:„Kleiner Wald“` parses
+identically to `site:"Kleiner Wald"` rather than silently misparsing with no warning (`site:` has
+no closed vocabulary for the warning system to catch a divergence against, so an unnormalized curly
+quote would otherwise fail silently — exactly the class of bug the "silent divergence always
+warns" principle exists to prevent, just one level earlier than that system can reach).
 
 **ILIKE escaping.** Every free-text/`site:` value reaching an `ILIKE` clause is escaped first —
 `value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")`, the same escaping
@@ -362,7 +389,7 @@ character (a search for `50%` would otherwise match any string with "50" followe
 
 ## Testing
 
-- `tests/services/test_search.py` (no `db` marker): `parse_search_query` unit tests — one per
+- `tests/test_search_service.py` (no `db` marker): `parse_search_query` unit tests — one per
   whitelisted field (quoted and unquoted), an unwhitelisted `field:` token falling through to free
   text **and** asserting `warnings` names it, mixed free-text + field tokens, empty input, and the
   mismatched-quote fallback (asserts `warnings` is populated and every token comes back as plain
@@ -374,7 +401,8 @@ character (a search for `50%` would otherwise match any string with "50" followe
   "recognized field, unrecognized value" shape as the unwhitelisted-field case, per "Warnings:
   silent divergence always surfaces" above. `site:<anything>` gets no equivalent test here since
   it has no closed vocabulary to validate against.
-- `db`-marked tests for `search_recordings` (needs `bats_db`/PostGIS, same tier as
+- `db`-marked tests for `search_recordings`/`_resolve_species_value`, in `tests/test_search_service_db.py`
+  (view-level rendering tests are separate, in `tests/test_search_view.py`) — needs `bats_db`/PostGIS, same tier as
   `test_map_query.py`): one test per field filter against seeded recordings, free-text matching
   each of path/filename-substring, a `comment`-kind `Annotation`'s `literal`, site name, and
   species name independently, AND-combination across multiple tokens, and the pagination

@@ -97,7 +97,10 @@ Roughly a pipeline, each stage its own top-level package under `src/fledermap/`:
 - **`services/`** — the use-case layer the CLI and web app both call into: `ingest.py`/
   `derive.py` drive the pipeline stages above end-to-end, `map_query.py` is the single definition
   of what the map's active filters mean (shared by every GeoJSON/panel route — see its own
-  module docstring), `media.py` enqueues/checks derived-media jobs, `site_naming.py` wraps the
+  module docstring), `search.py` is the `/search` page's whitelisted-field-grammar parser plus the
+  query itself (`search_recordings`), composing onto `map_query.py`'s `filtered_recordings` for
+  every filter that module already owns rather than duplicating it, `media.py` enqueues/checks
+  derived-media jobs, `site_naming.py` wraps the
   poiidx integration, `current_best.py` picks a recording's current-best identification,
   `manual_classification.py` is the only place that writes `IdSource.MANUAL` identification
   rows, via `set_manual_classification`, which (like `services/ingest.py`'s own
