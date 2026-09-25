@@ -9,7 +9,11 @@ import re
 from dataclasses import dataclass, field
 from typing import Literal
 
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session as OrmSession
+
 from fledermap.domain.codes import IdSource, Verdict, parse_verdict
+from fledermap.store.models import Taxon, TaxonCode
 
 _ANNOTATION_SOURCES: dict[str, IdSource | Literal["emt"]] = {
     "bd2": IdSource.BATDETECT2,
@@ -141,3 +145,41 @@ def parse_search_query(text: str) -> ParsedQuery:
         is_commented=is_commented,
         warnings=warnings,
     )
+
+
+_ABBREVIATED_RE = re.compile(r"^([A-Za-z])\.\s+(\S+)$")
+
+
+def _resolve_species_value(session: OrmSession, value: str) -> int | None:
+    """Three representations, tried in order -- see the spec's "Species value resolution"
+    section. Every step is an exact match; ambiguity or no match returns None rather than
+    guessing (spec: "a wrong match is worse than a missing one")."""
+    code_taxon_ids = set(
+        session.scalars(
+            select(TaxonCode.taxon_id).where(TaxonCode.code == value),
+        ).all(),
+    )
+    if len(code_taxon_ids) == 1:
+        return code_taxon_ids.pop()
+    if len(code_taxon_ids) > 1:
+        return None
+
+    scientific_match = session.scalar(
+        select(Taxon.id).where(func.lower(Taxon.scientific_name) == value.lower()),
+    )
+    if scientific_match is not None:
+        return scientific_match
+
+    abbreviated = _ABBREVIATED_RE.match(value)
+    if abbreviated is None:
+        return None
+    initial, epithet = abbreviated.group(1).lower(), abbreviated.group(2).lower()
+    candidates = session.scalars(
+        select(Taxon.id).where(
+            func.lower(Taxon.scientific_name).like(f"{initial}%"),
+            func.lower(Taxon.scientific_name).like(f"% {epithet}"),
+        ),
+    ).all()
+    if len(candidates) == 1:
+        return candidates[0]
+    return None
