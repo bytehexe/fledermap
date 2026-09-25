@@ -1146,6 +1146,72 @@ def test_classifier_box_embeds_likely_suggestions(
     assert 'id="classifier-likely-row"' in html
 
 
+def test_manual_classification_response_embeds_likely_suggestions(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """`classify_suggestions` is derived purely from automatic claims, never from MANUAL
+    state (see classify_suggestions.py's module docstring) -- so the POST fragment rendered
+    after a Save must carry the same live suggestion data as the GET page, not an empty or
+    stale pool. This mirrors test_classifier_box_embeds_likely_suggestions but for
+    map.py's post_manual_classification, the feature's other _classifier_box.html call site.
+
+    The scenario stages a DIFFERENT species (B) than the one the automatic classifier found
+    (A) via the POST, so the "Agree with classifiers: A" suggestion is a real, distinguishing
+    check -- it adds something beyond what's now staged, so it must still be present in the
+    POST response, not merely absent-by-coincidence the way it would be if the POST had staged
+    the same species the automatic classifier already found."""
+    with OrmSession(engine) as session:
+        taxon_a = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
+        taxon_b = Taxon(rank="species", scientific_name="Nyctalus noctula")
+        session.add_all([taxon_a, taxon_b])
+        session.flush()
+        recording = Recording(
+            audio_hash="r" * 64,
+            path="r.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add(recording)
+        session.flush()
+        session.add(
+            Identification(
+                recording_id=recording.id,
+                source=IdSource.EMT_GUANO,
+                verdict=Verdict.SPECIES,
+                taxon_id=taxon_a.id,
+                first_seen_at=recording.recorded_at,
+            ),
+        )
+        session.commit()
+        taxon_a_id = taxon_a.id
+        taxon_b_id = taxon_b.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().post(
+        f"/recordings/{'r' * 64}/manual-classification",
+        data={"verdict": "species", "taxon_ids": [str(taxon_b_id)]},
+    )
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+
+    match = re.search(r"data-classify-suggestions='([^']*)'", html)
+    assert match is not None, (
+        "expected a single-quoted data-classify-suggestions attribute"
+    )
+    suggestions = json.loads(match.group(1))
+    assert len(suggestions) == 1
+    assert suggestions[0]["is_noise"] is False
+    assert suggestions[0]["taxa"] == [
+        {"id": taxon_a_id, "scientific_name": "Pipistrellus pipistrellus"}
+    ]
+
+    # The POST also staged species B as the manual claim -- confirm both things are true at
+    # once: the manual chip reflects B, while the suggestion pool still (correctly) offers A.
+    tags_block = html.split('id="classifier-tags"')[1].split("</div>")[0]
+    assert f'data-taxon-id="{taxon_b_id}"' in tags_block
+
+
 def test_manual_classification_route_rejects_inconsistent_input(
     engine: Engine,
     tmp_path: Path,
