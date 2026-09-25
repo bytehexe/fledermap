@@ -1416,6 +1416,11 @@ button:disabled { cursor: default; opacity: 0.5; }
   font-size: 0.8rem;
   color: var(--color-muted);
 }
+.classifier-likely-row { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.4rem 0; }
+/* Dashed border distinguishes an unapplied suggestion (an action to take) from an
+   already-staged .classifier-chip (state) -- both otherwise share this app's plain button
+   look. */
+.classifier-likely-choice { font-size: 0.8rem; border-style: dashed; }
 .classifier-actions { display: flex; gap: 0.4rem; margin-top: 0.5rem; }
 /* Save-time validation message (e.g. a sentinel chip staged alongside a
    species chip) -- local to the box, not the project's alert() fallback,

@@ -16,6 +16,11 @@
    guarantee (services/manual_classification.py's set_manual_classification raises on an
    inconsistent combination), not just this client-side check.
 
+   The Classify box also shows 0-N "likely" suggestion buttons (#classifier-likely-row,
+   populated by classifier_box.js from data-classify-suggestions) above Save -- see design
+   spec 2026-09-25-fledermap-classify-suggestions-design.md. Clicking one adds its chip(s)
+   via the same addChip() path a search result uses; it never removes a chip and never saves.
+
    `current_taxa`/`manual_verdict` are the box's OWN state -- built from
    services/manual_classification.py's current_manual_state, NOT from `best`
    (current_best_identification's cross-source precedence result). See that
@@ -27,6 +32,7 @@
   class="classifier-box"
   data-audio-hash="{{ recording.audio_hash }}"
   data-taxon-search-index='{{ taxon_search_index | tojson }}'
+  data-classify-suggestions='{{ suggestions | tojson }}'
 >
   <h3>Classify</h3>
   <div class="classifier-tags" id="classifier-tags">
@@ -57,6 +63,7 @@
     Can't pin the exact species? Search "HiF", "LoF", or "Hilo" for a frequency-class group,
     or "No ID"/"Noise" if there's nothing to identify.
   </p>
+  <div class="classifier-likely-row" id="classifier-likely-row"></div>
   <p class="classifier-error" id="classifier-error" hidden></p>
   <div class="classifier-actions">
     <button type="button" class="button-primary" id="classifier-save">Save</button>

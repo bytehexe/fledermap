@@ -19,6 +19,10 @@ from fledermap.services.annotations import (
     list_annotations,
     update_comment_annotation,
 )
+from fledermap.services.classify_suggestions import (
+    ClassifySuggestion,
+    classify_suggestions,
+)
 from fledermap.services.current_best import (
     CurrentIdentification,
     IdentificationMatrix,
@@ -67,6 +71,25 @@ def _taxon_search_index(session: OrmSession) -> list[dict[str, object]]:
         }
         for t in taxa
     ]
+
+
+def _serialize_classify_suggestion(s: ClassifySuggestion) -> dict[str, object]:
+    return {
+        "taxa": [{"id": t.id, "scientific_name": t.scientific_name} for t in s.taxa],
+        "is_noise": s.is_noise,
+        "label": s.label,
+    }
+
+
+def _classify_suggestions_data(recording: Recording) -> list[dict[str, object]]:
+    """Shared by the details page's initial render and the manual-classification save's
+    `_classifier_box.html` fragment re-render (`web/views/map.py`'s
+    `post_manual_classification`) -- both must embed the same suggestion pool."""
+    suggestions = classify_suggestions(
+        recording,
+        noise_snr_threshold_db=flask.current_app.config["NOISE_SNR_THRESHOLD_DB"],
+    )
+    return [_serialize_classify_suggestion(s) for s in suggestions]
 
 
 def _serialize_annotation(a: Annotation) -> dict[str, object]:
@@ -136,6 +159,7 @@ def recording_details_page(audio_hash: str) -> flask.Response:
         best, taxon, matrix = _current_classification(session, recording)
         reasons = review_reasons(recording, ReviewContext.build(session))
         taxon_search_index = _taxon_search_index(session)
+        suggestions = _classify_suggestions_data(recording)
         annotations = [
             _serialize_annotation(a) for a in list_annotations(session, recording.id)
         ]
@@ -215,6 +239,7 @@ def recording_details_page(audio_hash: str) -> flask.Response:
             current_taxa=current_taxa,
             manual_verdict=manual_verdict,
             taxon_search_index=taxon_search_index,
+            suggestions=suggestions,
             annotations=annotations,
             classifier_thresholds=flask.current_app.config["CLASSIFIER_THRESHOLDS"],
             classifier_display_thresholds=flask.current_app.config[

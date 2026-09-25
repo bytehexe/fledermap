@@ -47,6 +47,7 @@ from fledermap.web.params import (
     parse_verdict,
 )
 from fledermap.web.views.recording_detail import (
+    _classify_suggestions_data,
     _current_classification,
     _taxon_search_index,
 )
@@ -305,6 +306,7 @@ def post_manual_classification(audio_hash: str) -> flask.Response:
                 manual_verdict=manual_verdict,
                 current_taxa=current_taxa,
                 taxon_search_index=_taxon_search_index(session),
+                suggestions=_classify_suggestions_data(recording),
             ),
             flask.render_template(
                 "_entity_title.html", title=recording_headline(taxon, best)

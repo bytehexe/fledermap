@@ -1098,6 +1098,54 @@ def test_taxon_search_index_attribute_is_valid_json(
     assert any(entry["scientific_name"] == "Nyctalus noctula" for entry in index)
 
 
+def test_classifier_box_embeds_likely_suggestions(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
+        session.add(taxon)
+        session.flush()
+        recording = Recording(
+            audio_hash="q" * 64,
+            path="q.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add(recording)
+        session.flush()
+        session.add(
+            Identification(
+                recording_id=recording.id,
+                source=IdSource.EMT_GUANO,
+                verdict=Verdict.SPECIES,
+                taxon_id=taxon.id,
+                first_seen_at=recording.recorded_at,
+            ),
+        )
+        session.commit()
+        taxon_id = taxon.id
+
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().get(f"/recordings/{'q' * 64}")
+    html = response.get_data(as_text=True)
+
+    # Same pattern as the existing test_taxon_search_index_attribute_is_valid_json:
+    # tojson escapes `'` but not `"`, so the attribute must be single-quoted, and the
+    # right way to assert on its content is to parse it back out as JSON, not to guess
+    # at HTML-escaping by eye.
+    match = re.search(r"data-classify-suggestions='([^']*)'", html)
+    assert match is not None, (
+        "expected a single-quoted data-classify-suggestions attribute"
+    )
+    suggestions = json.loads(match.group(1))
+    assert len(suggestions) == 1
+    assert suggestions[0]["is_noise"] is False
+    assert suggestions[0]["taxa"] == [
+        {"id": taxon_id, "scientific_name": "Pipistrellus pipistrellus"}
+    ]
+    assert 'id="classifier-likely-row"' in html
+
+
 def test_manual_classification_route_rejects_inconsistent_input(
     engine: Engine,
     tmp_path: Path,
