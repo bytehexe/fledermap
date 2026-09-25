@@ -1124,6 +1124,32 @@ document.addEventListener("DOMContentLoaded", () => {
       });
   }
 
+  // Call-distance graph (design docs/superpowers/specs/2026-09-18-fledermap-analysis-view-design.md's
+  // reserved placeholder, filled in once batdetect2 per-call `Annotation` rows existed to compute
+  // it from). Unlike the sound-level spectrum above, this needs no fetch -- `annotations` is
+  // already parsed from the page -- so it's rendered once, not re-rendered per denoise/span
+  // change.
+  const callIntervalChartCanvas = document.getElementById("call-interval-chart");
+  const callIntervalChartEmpty = document.getElementById("call-interval-chart-empty");
+  let callIntervalChartRendered = false;
+
+  function renderCallIntervalChart() {
+    if (callIntervalChartRendered) return;
+    callIntervalChartRendered = true;
+    const histograms = computeCallIntervalHistograms(annotations);
+    if (histograms.length === 0) {
+      callIntervalChartCanvas.hidden = true;
+      callIntervalChartEmpty.hidden = false;
+      return;
+    }
+    const chartData = callIntervalHistogramsToChartData(histograms, taxonById, colorForTaxon);
+    new Chart(callIntervalChartCanvas, {
+      type: "line",
+      data: chartData,
+      options: callIntervalChartOptions(),
+    });
+  }
+
   function clearSelectionBox() {
     if (selectionBox) {
       selectionBox.remove();
@@ -1382,6 +1408,7 @@ document.addEventListener("DOMContentLoaded", () => {
       // Selection when one exists, else Whole file (spec §7), is decided explicitly here instead.
       updateSelectionButtonAvailability();
       setActiveSpan(currentSelection !== null ? "selection" : "whole-file");
+      renderCallIntervalChart();
     }
   }
 

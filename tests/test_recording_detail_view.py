@@ -1815,7 +1815,7 @@ def test_analysis_panel_has_whole_file_and_selection_controls(
     assert 'data-span="whole-file"' in html
     assert 'data-span="selection"' in html
     assert 'id="sound-level-spectrum-chart"' in html
-    assert "Call-distance graph" in html
+    assert 'id="call-interval-chart"' in html
 
 
 def test_sound_level_canvas_sits_alone_in_a_dedicated_chart_wrapper(

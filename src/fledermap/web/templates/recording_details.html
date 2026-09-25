@@ -151,8 +151,11 @@
         </div>
         <p class="media-placeholder" id="sound-level-spectrum-error" hidden>Could not compute the spectrum for this recording.</p>
       </div>
-      <div class="analysis-graph analysis-graph-reserved">
-        <p>Call-distance graph — reserved. Needs batdetect2 call annotations (not yet available).</p>
+      <div class="analysis-graph">
+        <div class="analysis-chart-wrap">
+          <canvas id="call-interval-chart"></canvas>
+        </div>
+        <p class="media-placeholder" id="call-interval-chart-empty" hidden>No batdetect2 call data available for a distance graph.</p>
       </div>
     </div>
     {# Swapped in by recording_detail.js's fitDetailHeight() whenever the
@@ -238,6 +241,7 @@
   <script src="{{ url_for('static', filename='url_params.js') }}"></script>
   <script src="{{ url_for('static', filename='tile_visibility.js') }}"></script>
   <script src="{{ url_for('static', filename='analysis_chart.js') }}"></script>
+  <script src="{{ url_for('static', filename='call_interval_chart.js') }}"></script>
   <script src="{{ url_for('static', filename='marker_colors.js') }}"></script>
   <script src="{{ url_for('static', filename='annotation_geometry.js') }}"></script>
   <script src="{{ url_for('static', filename='plot_coords.js') }}"></script>
