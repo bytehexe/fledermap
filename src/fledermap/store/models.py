@@ -449,3 +449,47 @@ class SessionMergeProposal(Base):
             values_callable=lambda enum_cls: [e.value for e in enum_cls],
         ),
     )
+
+
+class ClassifyImplicationRule(Base):
+    """One mined association rule for the Classify box's "likely suggestions" feature, part
+    (b) (docs/superpowers/specs/2026-09-25-fledermap-classify-suggestions-part-b-design.md).
+    Rebuilt from scratch by services/classify_implications.py's mine_classify_implications on
+    every mining run -- never incrementally updated (spec §4/§6)."""
+
+    __tablename__ = "classify_implication_rule"
+    __table_args__ = (
+        # Postgres treats NULLs as distinct by default -- without this, a NO_ID/NOISE
+        # conclusion (conclusion_taxon_id IS NULL) for the same antecedent_key could get
+        # duplicate rows across two mining runs that raced, same gotcha as
+        # Identification.uq_identification_source_claim.
+        UniqueConstraint(
+            "antecedent_key",
+            "conclusion_verdict",
+            "conclusion_taxon_id",
+            name="uq_classify_implication_rule_antecedent_conclusion",
+            postgresql_nulls_not_distinct=True,
+        ),
+        Index("ix_classify_implication_rule_antecedent_key", "antecedent_key"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # Sorted taxon_ids, comma-joined (e.g. "1" or "1,24") -- see
+    # services/classify_implications.py's antecedent_key() for the canonical form.
+    # String(64) is generous headroom for the size-2 cap: two 9-digit ids plus a
+    # separator is 19 chars.
+    antecedent_key: Mapped[str] = mapped_column(String(64))
+    conclusion_verdict: Mapped[Verdict] = mapped_column(
+        SAEnum(
+            Verdict,
+            native_enum=False,
+            length=16,
+            create_constraint=True,
+            values_callable=lambda enum_cls: [e.value for e in enum_cls],
+        ),
+    )
+    # Set only when conclusion_verdict == SPECIES.
+    conclusion_taxon_id: Mapped[int | None] = mapped_column(ForeignKey("taxon.id"))
+    support: Mapped[int] = mapped_column(Integer)
+    confidence: Mapped[float] = mapped_column(Float)
+    lift: Mapped[float] = mapped_column(Float)

@@ -177,6 +177,38 @@ def test_migrated_verdict_check_accepts_every_verdict(migrated_engine: Engine) -
     assert stored == len(Verdict)
 
 
+def test_migrated_classify_implication_rule_conclusion_verdict_check_is_enforced(
+    migrated_engine: Engine,
+) -> None:
+    """conclusion_verdict reuses Verdict's closed vocabulary -- same CHECK-exclusion shape as
+    Identification.verdict above, so it needs the same direct proof."""
+    with pytest.raises(IntegrityError), migrated_engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO classify_implication_rule"
+                " (antecedent_key, conclusion_verdict, support, confidence, lift)"
+                " VALUES ('1', 'not_a_verdict', 3, 0.7, 1.5)"
+            )
+        )
+
+
+def test_migrated_classify_implication_rule_conclusion_verdict_check_accepts_every_verdict(
+    migrated_engine: Engine,
+) -> None:
+    with migrated_engine.begin() as conn:
+        for i, verdict in enumerate(Verdict):
+            conn.execute(
+                text(
+                    "INSERT INTO classify_implication_rule"
+                    " (antecedent_key, conclusion_verdict, support, confidence, lift)"
+                    " VALUES (:key, :verdict, 3, 0.7, 1.5)"
+                ),
+                {"key": str(i), "verdict": verdict.value},
+            )
+        stored = conn.scalar(text("SELECT count(*) FROM classify_implication_rule"))
+    assert stored == len(Verdict)
+
+
 def test_migrated_seen_visually_check_is_enforced(migrated_engine: Engine) -> None:
     """`seen_visually` is a closed three-value vocabulary (2026-08-28) -- the
     one constraint `_comparable` excludes from the drift comparison, same as
