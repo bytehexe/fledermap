@@ -1052,6 +1052,12 @@ button:disabled { cursor: default; opacity: 0.5; }
   position: absolute;
   pointer-events: none;
   z-index: 2; /* same reason as .ruler-box -- see its own comment */
+  /* annotationBoxPx computes `width`/`height` to land exactly on the plot's own edges (e.g. a
+     null-frequency box's `bottom` is `coords.khzToY(0)`, the raster's exact height). Without this,
+     the default content-box sizing adds the border outside that computed box, so a box pinned to
+     the plot's bottom/right edge overshoots past it by the border width -- visible as the box's
+     dashed outline crossing through the frequency axis below a full-height BattyBirdNET band. */
+  box-sizing: border-box;
 }
 /* Species-tagged annotations get a `colorForTaxon` border/fill (recording_detail.js sets
    `--annotation-color` per element so the border/fill below, the hover tint, AND the label all
