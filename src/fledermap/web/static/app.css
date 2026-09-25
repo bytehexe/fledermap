@@ -1322,7 +1322,11 @@ button:disabled { cursor: default; opacity: 0.5; }
   gap: 1rem;
   align-items: flex-start;
 }
-.detail-identify-row .identifications { flex: 0 1 auto; }
+/* Matches .classifier-box's own border (1px) + top padding (0.6rem) below -- Identifications
+   has no box/border of its own on this row, so without this its heading sits flush against
+   the row's top edge while Classify's heading, inset by its box's border and padding, starts
+   lower; the two headings' baselines wouldn't line up otherwise. */
+.detail-identify-row .identifications { flex: 0 1 auto; padding-top: calc(0.6rem + 1px); }
 .detail-identify-row .classifier-box {
   flex: 1 1 320px;
   min-width: 320px;
@@ -1339,7 +1343,14 @@ button:disabled { cursor: default; opacity: 0.5; }
   padding: 0.6rem 0.75rem;
   margin: 0.75rem 0;
 }
-.classifier-box h3 {
+/* .detail-identify-row .identifications h3 rides along on this same rule: unlike
+   .classifier-box, Identifications has no box of its own on this row, so its plain
+   browser-default <h3> top margin sat well below .classifier-box's top border and the row
+   read as though Classify were floating a level above Identifications rather than sitting
+   beside it. The two headings need to look like one register, not two almost-matching
+   copies of the same values. */
+.classifier-box h3,
+.detail-identify-row .identifications h3 {
   margin: 0 0 0.4rem;
   font-size: 0.8rem;
   text-transform: uppercase;
