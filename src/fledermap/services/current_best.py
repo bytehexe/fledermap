@@ -143,6 +143,35 @@ def _multi_support_containment_override(
     return None
 
 
+def _best_identification(
+    recording: Recording,
+    precedence: Sequence[IdSource],
+) -> CurrentIdentification | None:
+    for index, source in enumerate(precedence):
+        matches = _live_claims(recording, source)
+        if not matches:
+            continue
+        if (
+            not is_manual(source)
+            and not is_multi_support(source)
+            and matches[0].verdict == Verdict.SPECIES
+        ):
+            override = _multi_support_containment_override(
+                recording,
+                matches[0].taxon_id,
+                precedence[index + 1 :],
+            )
+            if override is not None:
+                return CurrentIdentification.from_matches(override)
+        return CurrentIdentification.from_matches(matches)
+    return None
+
+
+_AUTOMATIC_PRECEDENCE: tuple[IdSource, ...] = tuple(
+    source for source in _PRECEDENCE if not is_manual(source)
+)
+
+
 def current_best_identification(recording: Recording) -> CurrentIdentification | None:
     """Walk sources in precedence order. A source's claims are skipped (fall through to the
     next source) per `_live_claims` above -- any SPECIES, NOISE, or is_manual claim of any
@@ -160,24 +189,24 @@ def current_best_identification(recording: Recording) -> CurrentIdentification |
     multi-species file, or the containment override above) -- every plain source has at most one
     live row per recording by construction (services/identifications.py's replace_claims keeps
     it that way)."""
-    for index, source in enumerate(_PRECEDENCE):
-        matches = _live_claims(recording, source)
-        if not matches:
-            continue
-        if (
-            not is_manual(source)
-            and not is_multi_support(source)
-            and matches[0].verdict == Verdict.SPECIES
-        ):
-            override = _multi_support_containment_override(
-                recording,
-                matches[0].taxon_id,
-                _PRECEDENCE[index + 1 :],
-            )
-            if override is not None:
-                return CurrentIdentification.from_matches(override)
-        return CurrentIdentification.from_matches(matches)
-    return None
+    return _best_identification(recording, _PRECEDENCE)
+
+
+def automatic_best_identification(recording: Recording) -> CurrentIdentification | None:
+    """Like `current_best_identification`, but skips every `is_manual` source entirely
+    (MANUAL, EMT_MANUAL) rather than merely falling through their NO_ID -- "what would the
+    automatic classifiers alone resolve to, ignoring any human judgment already recorded."
+    Used by `services/classify_suggestions.py`'s "Agree with classifiers"/"Noise" heuristics
+    (design spec 2026-09-25-fledermap-classify-suggestions-design.md) to suggest a likely
+    classification independent of whatever manual state is currently staged in the Classify
+    box, including the "revert to what the classifiers said" case where a standing MANUAL
+    claim already exists but disagrees.
+
+    `automatic_best.verdict` can only ever be SPECIES, NOISE, or this function returns None --
+    never a live NO_ID: `_live_claims`'s "all-NO_ID-from-a-non-manual-source is absent" rule
+    means a pure automatic NO_ID (including `fledermap.noise`'s own) always folds to absent,
+    never survives as a winning claim."""
+    return _best_identification(recording, _AUTOMATIC_PRECEDENCE)
 
 
 def recording_headline(taxon: Taxon | None, best: CurrentIdentification | None) -> str:

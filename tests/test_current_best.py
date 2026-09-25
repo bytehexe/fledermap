@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from fledermap.domain.codes import IdSource, Verdict
 from fledermap.services.current_best import (
     CurrentIdentification,
+    automatic_best_identification,
     claim_key,
     current_best_identification,
     display_identifications,
@@ -913,3 +914,65 @@ def test_identification_matrix_row_label_and_taxon_come_from_a_representative_cl
 
     assert matrix.rows[0].label == "Vespertilio murinus"
     assert matrix.rows[0].taxon is taxon
+
+
+def test_automatic_best_ignores_manual_and_returns_the_automatic_species() -> None:
+    r = _recording(
+        _ident(IdSource.MANUAL, taxon_id=99),
+        _ident(IdSource.EMT_GUANO, taxon_id=3),
+    )
+
+    best = automatic_best_identification(r)
+
+    assert best is not None
+    assert best.primary.source == IdSource.EMT_GUANO
+    assert best.primary.taxon_id == 3
+
+
+def test_automatic_best_is_none_when_only_manual_claims_exist() -> None:
+    r = _recording(_ident(IdSource.MANUAL, taxon_id=1))
+
+    assert automatic_best_identification(r) is None
+
+
+def test_automatic_best_is_none_when_no_claims_at_all() -> None:
+    r = _recording()
+
+    assert automatic_best_identification(r) is None
+
+
+def test_automatic_best_resolves_to_noise_when_only_fledermap_noise_claims_noise() -> (
+    None
+):
+    r = _recording(
+        _ident(IdSource.FLEDERMAP_NOISE, taxon_id=None, verdict=Verdict.NOISE),
+    )
+
+    best = automatic_best_identification(r)
+
+    assert best is not None
+    assert best.verdict == Verdict.NOISE
+
+
+def test_automatic_best_is_none_when_fledermap_noise_claims_no_id() -> None:
+    """A non-manual source's pure NO_ID claim set folds to absent (`_live_claims`) --
+    fledermap.noise's own NO_ID is no exception, so this must NOT resolve to NOISE or NO_ID,
+    it must resolve to nothing at all."""
+    r = _recording(
+        _ident(IdSource.FLEDERMAP_NOISE, taxon_id=None, verdict=Verdict.NO_ID),
+    )
+
+    assert automatic_best_identification(r) is None
+
+
+def test_automatic_best_supports_multi_species_from_batdetect2() -> None:
+    r = _recording(
+        _ident(IdSource.BATDETECT2, taxon_id=1),
+        _ident(IdSource.BATDETECT2, taxon_id=2),
+    )
+
+    best = automatic_best_identification(r)
+
+    assert best is not None
+    assert best.is_multi
+    assert best.taxon_ids == frozenset({1, 2})
