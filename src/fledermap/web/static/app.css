@@ -1309,6 +1309,26 @@ button:disabled { cursor: default; opacity: 0.5; }
 .het-freq-control[hidden] { display: none; }
 .het-freq-input { width: 4.5em; }
 
+/* Side by side when the viewport has room, Classify to the right of
+   Identifications -- Identifications sizes to its own content (a narrow
+   matrix shouldn't be stretched to a 50/50 split, same reasoning as
+   ".panel-columns .col" above but not an even split), Classify grows to
+   fill whatever's left. flex-wrap lets Classify (min-width below) drop to
+   its own full-width row instead of squeezing the search box when both
+   would otherwise overflow the viewport. */
+.detail-identify-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-start;
+}
+.detail-identify-row .identifications { flex: 0 1 auto; }
+.detail-identify-row .classifier-box {
+  flex: 1 1 320px;
+  min-width: 320px;
+  margin: 0;
+}
+
 .classifier-box {
   /* position: relative -- establishes the containing block for
      .classifier-suggestions' position: absolute below, so the dropdown

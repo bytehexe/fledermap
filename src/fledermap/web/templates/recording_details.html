@@ -198,8 +198,10 @@
     <p>Missing duration or sample-rate metadata for this recording — cannot render at a locked scale.</p>
     {% endif %}
 
-    {% include "_identifications_box.html" %}
-    {% include "_classifier_box.html" %}
+    <div class="detail-identify-row">
+      {% include "_identifications_box.html" %}
+      {% include "_classifier_box.html" %}
+    </div>
   </main>
   <div id="crosshair-readout" class="floating-readout crosshair-readout" hidden></div>
   {# `position: fixed`, screen coordinates set by recording_detail.js's `updateRulerBox` --
