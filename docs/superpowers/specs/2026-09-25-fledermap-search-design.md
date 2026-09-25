@@ -63,6 +63,12 @@ needs no recursive/nested structure and no parser-generator library (see below).
 | `verdict:<value>` | closed `Verdict` enum | `filtered_recordings`'s existing `verdict` param |
 | `is:favourite` / `is:flagged` / `is:commented` | boolean namespace, room for a future boolean without a new prefix | `favourite_only` (existing param) / new `Recording.flagged_for_review` clause / new `Recording.comment` non-empty clause |
 
+Every field above except `site:` draws its value from a closed vocabulary (a fixed enum, or the
+species-resolution rules below) — see "Warnings: silent divergence always surfaces" below for what
+happens when a value doesn't fit that vocabulary. `site:<name>` has no such vocabulary (site names
+are open-ended), so a `site:` value matching zero sites is ordinary "no results," the same as any
+filter that legitimately matches nothing — not a divergence, nothing to warn about.
+
 ### Species value resolution
 
 `species:<value>` accepts three representations, tried in this order — each is still an *exact*,
@@ -78,18 +84,39 @@ deterministic match against one specific taxon (or none), never a fuzzy/ranked l
    species epithet), e.g. `species:"P. pipistrellus"` — matched against taxa whose
    `scientific_name`'s genus starts with that letter and whose epithet equals the given one
    exactly, case-insensitive. **If more than one taxon matches** (e.g. two genera in the taxa files
-   both start with the same letter and happen to share an epithet), this resolves to *no match*,
-   the same "ambiguous is a miss, not a guess" handling `domain/codes.py`'s sentinel resolution
-   already uses elsewhere — never picks one candidate over another.
+   both start with the same letter and happen to share an epithet), or **if none matches**, this
+   resolves to *no unique taxon* — see "Warnings" below for what that does to the query, which is
+   not the same as silently returning zero rows.
 
 Common names (English/German) are deliberately **not** a `species:` representation — a common name
 is already searchable via plain free text (see below), and keeping `species:` limited to
 code/scientific-name forms keeps it a precise-identifier field rather than doubling the ambiguity
-surface a common name can carry across the `taxa_*.yaml` files. `species:` resolving to no taxon at
-all (a typo, an unrecognized code) yields zero results silently — no separate warning — the same
-"unknown value, empty result" behavior the map's own taxon filter already has for a value with no
-matches; this is a different case from the tokenizer-level `warnings` above (those cover parsing
-ambiguity, not query values that parse fine but don't resolve to data).
+surface a common name can carry across the `taxa_*.yaml` files.
+
+### Warnings: silent divergence always surfaces
+
+**Any token whose field name is recognized but whose value doesn't resolve unambiguously within
+that field's vocabulary is treated exactly like an unrecognized field name: reclassified as a
+literal free-text word instead of applying as a filter, with a warning naming what happened.**
+This is one invariant applied uniformly, not a warning bolted onto each field individually —
+raised explicitly during design after the first draft only warned for an unrecognized field
+prefix and a mismatched quote, leaving `species:`'s ambiguous/not-found case (and the equivalent
+cases for `annotation:`/`verdict:`/`is:`) silently returning fewer or zero results with no
+indication the value hadn't actually been understood as typed. Concretely, in addition to the two
+tokenizer-level cases already covered above:
+
+- `annotation:<value>` where `<value>` isn't one of `bd2`/`bbn`/`emt`/`manual`.
+- `verdict:<value>` where `<value>` isn't a member of the `Verdict` enum.
+- `is:<value>` where `<value>` isn't `favourite`/`flagged`/`commented`.
+- `species:<value>` where resolution (above) finds zero or more than one taxon.
+
+Each of these four is checkable without a DB round-trip except the last, so the first three are
+caught in `parse_search_query` itself (appending to `ParsedQuery.warnings` and demoting the token
+to `free_text_terms`); `species:` resolution needs a session and happens later, inside
+`search_recordings` (see "Backend" below) — its warning is appended to the same list at that point,
+and the unresolved value is folded into that call's free-text matching rather than left as a
+`taxon_id` filter that can only ever match nothing. `site:<name>` matching zero sites is exempt, per
+the field-whitelist note above — there's no closed vocabulary for a value to diverge from.
 
 ### Free text
 
@@ -121,8 +148,9 @@ shape is two phases instead:
    it to consume:
    - `^(\w+):"([^"]*)"$` → quoted field (case 1 above)
    - `^(\w+):(.+)$` → unquoted field (case 2), reclassified as a free-text word if `\w+` isn't in
-     the whitelist — appends `Unknown field '<word>' — searched as text instead.` to
-     `ParsedQuery.warnings`
+     the whitelist, or (for `annotation:`/`verdict:`/`is:`) if the value isn't a member of that
+     field's closed vocabulary — appends a warning to `ParsedQuery.warnings` in either case (see
+     "Warnings" below)
    - `^"([^"]*)"$` → quoted phrase (case 3)
    - else → free-text word (case 4)
 
@@ -137,9 +165,10 @@ whole input as plain whitespace-split free-text words (same "unrecognized input 
 text, never a parse error" shape as the unwhitelisted-field case), and appends
 `Unmatched quote — showing plain-text results.` to `ParsedQuery.warnings`.
 
-`ParsedQuery.warnings: list[str]` therefore has two producers — the unwhitelisted-field case above
-and the mismatched-quote case here — both purely informational: neither one changes what "degrade
-to free text" means, they only make the degradation visible instead of silent (see UI section).
+`ParsedQuery.warnings: list[str]` collects every case above plus `species:`'s DB-dependent
+resolution (see "Warnings: silent divergence always surfaces" above and "Backend" below) — all
+purely informational: none of them change what "degrade to free text" means, they only make the
+degradation visible instead of silent (see UI section).
 
 ## Backend
 
@@ -153,15 +182,19 @@ to free text" means, they only make the degradation visible instead of silent (s
 - `_resolve_species_value(session, value: str) -> int | None` — the three-representation lookup
   from "Species value resolution" above (code, then exact scientific name, then the `"G. epithet"`
   abbreviated form; ambiguous or no match → `None`).
-- `search_recordings(session, parsed, *, offset=0, limit=MAX_SEARCH_RESULTS) -> SearchPage` —
-  reuses `filtered_recordings`'s existing `taxon_id`/`verdict`/`favourite_only` params for the
-  fields that already exist there (`species_value` resolved to a `taxon_id` via
-  `_resolve_species_value` first), and adds the genuinely new SQL directly in `search.py`: free-text
-  ILIKE/EXISTS
+- `search_recordings(session, parsed, *, offset=0, limit=MAX_SEARCH_RESULTS) -> SearchPage` — if
+  `parsed.species_value` is set, resolves it via `_resolve_species_value` first; on `None` (no
+  unique taxon), the raw value is appended to the free-text terms actually used for this query
+  (not mutating the input `ParsedQuery`) and a warning appended to `SearchPage.warnings`, per
+  "Warnings" above — otherwise it's passed as `filtered_recordings`'s existing `taxon_id` param,
+  same as `verdict`/`favourite_only` for the fields that already exist there. The genuinely new SQL
+  lives directly in `search.py`: free-text ILIKE/EXISTS
   clauses, `annotation:`'s EXISTS-on-`Identification.source`, `is:flagged`'s
   `Recording.flagged_for_review`, `is:commented`'s `Recording.comment` non-empty check. Each filter
   therefore lives in exactly one place — `map_query.py` for what it already owns, `search.py` for
-  what's new — rather than being forked into two copies.
+  what's new — rather than being forked into two copies. `SearchPage.warnings` is
+  `parsed.warnings` plus any warning raised during this resolution step, so the UI has one list to
+  render regardless of which layer produced each entry.
 - Pagination: Python-side slice with the same `limit(N+1)`-truncation-detection shape
   `services/sessions.py`'s `SessionsPage`/`MAX_SESSIONS` already use, not SQL `OFFSET`/`LIMIT` —
   consistent with `filtered_recordings`'s own established Python-side-filtering convention at this
@@ -184,7 +217,7 @@ Follows the established list-page shape (`.filter-bar` + `.entity-list` + pagina
 ├─────────────────────────────────────────────────────┤
 │ [ species:PIPPIP site:"Kleiner Wald"            ]    │  <- .filter-bar, one text input
 │ Fields: species: annotation: site: verdict: is:...   │  <- inline whitelist hint
-│ ⚠ Unknown field 'spceies' — searched as text instead │  <- one line per parsed.warnings entry
+│ ⚠ Unknown field 'spceies' — searched as text instead │  <- one line per page.warnings entry
 ├─────────────────────────────────────────────────────┤
 │ Time              │ Filename        │ Site │ Species │  <- .entity-list
 │ 2026-09-14 22:05  │ PIPPIP_...wav   │ ...  │ ...     │
@@ -202,12 +235,13 @@ Follows the established list-page shape (`.filter-bar` + `.entity-list` + pagina
 - Inline hint line below the input, listing the whitelisted field names — this is genuinely new
   syntax with no other precedent in the app, so needs on-page discoverability; a user can't be
   expected to already know the grammar.
-- **Warning line(s)** — one per `ParsedQuery.warnings` entry (unknown field, or a mismatched
-  quote), only rendered when non-empty. Styled with `--color-warning` (the same token
-  `.merge-badge` already uses), placed directly under the input/hint, above the results — so a
-  user whose field query silently degraded to free text (a typo'd field name, or an unterminated
-  quote) has an explicit reason why, rather than just getting unexpectedly-broad results with no
-  indication their query wasn't parsed as intended.
+- **Warning line(s)** — one per `SearchPage.warnings` entry (unknown field, mismatched quote, an
+  unrecognized `annotation:`/`verdict:`/`is:` value, or an ambiguous/unresolved `species:` value —
+  every case from "Warnings: silent divergence always surfaces" above), only rendered when
+  non-empty. Styled with `--color-warning` (the same token `.merge-badge` already uses), placed
+  directly under the input/hint, above the results — so a user whose query silently degraded to
+  free text anywhere has an explicit reason why, rather than just getting unexpectedly-broad
+  results with no indication their query wasn't parsed as intended.
 - Results table columns: **Time** (`local_datetime`, links to the recording), **Filename** (also
   links to the recording — first place the app displays a filename at all; the open backlog item
   "We have to show the filename(s) somewhere" tracks the broader ask across other pages, out of
@@ -224,7 +258,12 @@ Follows the established list-page shape (`.filter-bar` + `.entity-list` + pagina
   mismatched-quote fallback (asserts `warnings` is populated and every token comes back as plain
   free text, per the traced `site:"Kleiner Wald bbb ccc` case above). Also a token that's
   colon-shaped but not field-like on purpose (`12:30`) to confirm the warning is a harmless,
-  non-blocking hint even on a false positive — it still searches as free text either way.
+  non-blocking hint even on a false positive — it still searches as free text either way. Also one
+  test per closed-vocabulary field with an invalid value (`annotation:foo`, `verdict:foo`,
+  `is:foo`) asserting each demotes to a free-text term **and** appends a warning — the same
+  "recognized field, unrecognized value" shape as the unwhitelisted-field case, per "Warnings:
+  silent divergence always surfaces" above. `site:<anything>` gets no equivalent test here since
+  it has no closed vocabulary to validate against.
 - `db`-marked tests for `search_recordings` (needs `bats_db`/PostGIS, same tier as
   `test_map_query.py`): one test per field filter against seeded recordings, free-text matching
   each of filename/comment/site name/species name independently, AND-combination across multiple
@@ -232,7 +271,10 @@ Follows the established list-page shape (`.filter-bar` + `.entity-list` + pagina
   specifically: all three representations resolving to the same taxon (`PIPPIP` /
   `"Pipistrellus pipistrellus"` / `"P. pipistrellus"`), case-insensitivity on the scientific-name
   and abbreviated forms, a genuinely ambiguous abbreviated form (two seeded taxa sharing a genus
-  initial and epithet) resolving to `None`, and an unrecognized value resolving to `None`.
+  initial and epithet) resolving to `None`, and an unrecognized value resolving to `None` — and, at
+  the `search_recordings` level, that an unresolved `species:` value ends up in `SearchPage`'s
+  effective free-text matching (not silently dropped or forced to zero rows) with a warning in
+  `SearchPage.warnings`.
 - JS: no new custom JS logic (the debounce is a plain `hx-trigger` attribute) — covered by a live
   headless-Chrome check per the JS-tooling live-verification rule, confirming the debounce doesn't
   fire on every keystroke and that Enter submits immediately.
