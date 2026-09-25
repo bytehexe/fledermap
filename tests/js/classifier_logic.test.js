@@ -4,6 +4,9 @@ const {
   matchesQuery,
   deriveSavePayload,
   SENTINEL_ENTRIES,
+  likelyChoiceAddsSomething,
+  applicableLikelyChoices,
+  CLASSIFY_LIKELY_VISIBLE_CAP,
 } = require("../../src/fledermap/web/static/classifier_logic.js");
 
 const pipistrelle = {
@@ -113,4 +116,90 @@ test("deriveSavePayload rejects both No ID and Noise chips together", () => {
   ]);
   assert.equal(result.ok, false);
   assert.ok(result.error);
+});
+
+const agreeSuggestion = {
+  taxa: [{ id: 1, scientific_name: "Pipistrellus pipistrellus" }],
+  is_noise: false,
+  label: "Likely: Pipistrellus pipistrellus",
+};
+
+const multiSuggestion = {
+  taxa: [
+    { id: 1, scientific_name: "Pipistrellus pipistrellus" },
+    { id: 2, scientific_name: "Myotis mystacinus" },
+  ],
+  is_noise: false,
+  label: "Likely: Myotis mystacinus, Pipistrellus pipistrellus",
+};
+
+const noiseSuggestion = { taxa: [], is_noise: true, label: "Likely: Noise" };
+
+test("likelyChoiceAddsSomething is true for a species suggestion with nothing staged", () => {
+  assert.ok(likelyChoiceAddsSomething(agreeSuggestion, []));
+});
+
+test("likelyChoiceAddsSomething is false once the exact taxon is already staged", () => {
+  assert.equal(
+    likelyChoiceAddsSomething(agreeSuggestion, [{ kind: "taxon", id: "1" }]),
+    false,
+  );
+});
+
+test("likelyChoiceAddsSomething is true for a multi-species suggestion partially staged", () => {
+  assert.ok(likelyChoiceAddsSomething(multiSuggestion, [{ kind: "taxon", id: "1" }]));
+});
+
+test("likelyChoiceAddsSomething is false for a multi-species suggestion fully staged", () => {
+  assert.equal(
+    likelyChoiceAddsSomething(multiSuggestion, [
+      { kind: "taxon", id: "1" },
+      { kind: "taxon", id: "2" },
+    ]),
+    false,
+  );
+});
+
+test("likelyChoiceAddsSomething is true for Noise with nothing staged", () => {
+  assert.ok(likelyChoiceAddsSomething(noiseSuggestion, []));
+});
+
+test("likelyChoiceAddsSomething is false once Noise is already staged", () => {
+  assert.equal(
+    likelyChoiceAddsSomething(noiseSuggestion, [{ kind: "sentinel", verdict: "noise" }]),
+    false,
+  );
+});
+
+test("applicableLikelyChoices drops satisfied suggestions and keeps order", () => {
+  const result = applicableLikelyChoices(
+    [agreeSuggestion, noiseSuggestion],
+    [{ kind: "taxon", id: "1" }],
+    CLASSIFY_LIKELY_VISIBLE_CAP,
+  );
+  assert.deepEqual(result, [noiseSuggestion]);
+});
+
+test("applicableLikelyChoices caps to visibleCap", () => {
+  const many = [agreeSuggestion, noiseSuggestion, multiSuggestion];
+  const result = applicableLikelyChoices(many, [], 2);
+  assert.equal(result.length, 2);
+  assert.deepEqual(result, [agreeSuggestion, noiseSuggestion]);
+});
+
+test("applicableLikelyChoices lets a satisfied suggestion's neighbor reappear once staged chips change", () => {
+  const pool = [agreeSuggestion, noiseSuggestion];
+  const beforeRemoval = applicableLikelyChoices(
+    pool,
+    [{ kind: "taxon", id: "1" }, { kind: "sentinel", verdict: "noise" }],
+    CLASSIFY_LIKELY_VISIBLE_CAP,
+  );
+  assert.deepEqual(beforeRemoval, []);
+
+  const afterRemovingNoise = applicableLikelyChoices(
+    pool,
+    [{ kind: "taxon", id: "1" }],
+    CLASSIFY_LIKELY_VISIBLE_CAP,
+  );
+  assert.deepEqual(afterRemovingNoise, [noiseSuggestion]);
 });

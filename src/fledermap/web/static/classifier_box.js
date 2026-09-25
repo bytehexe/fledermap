@@ -33,6 +33,7 @@ function initClassifierBox(box) {
   // taxa come from (classifier_logic.js's SENTINEL_ENTRIES) -- see
   // _classifier_box.html's comment for why.
   const searchIndex = [...SENTINEL_ENTRIES, ...JSON.parse(box.dataset.taxonSearchIndex)];
+  const suggestions = JSON.parse(box.dataset.classifySuggestions);
   const audioHash = box.dataset.audioHash;
   const tagsEl = box.querySelector("#classifier-tags");
   const searchEl = box.querySelector("#classifier-search");
@@ -62,6 +63,7 @@ function initClassifierBox(box) {
     chipEl.querySelector(".classifier-chip-remove").addEventListener("click", () => {
       chipEl.remove();
       classifierBoxDirty = true;
+      renderLikelyChoices();
     });
   }
 
@@ -121,6 +123,45 @@ function initClassifierBox(box) {
     tagsEl.appendChild(chip);
     wireRemoveButton(chip);
     classifierBoxDirty = true;
+    renderLikelyChoices();
+  }
+
+  function renderLikelyChoices() {
+    const rowEl = box.querySelector("#classifier-likely-row");
+    if (!rowEl) return;
+    rowEl.innerHTML = "";
+    const applicable = applicableLikelyChoices(
+      suggestions,
+      currentChips(),
+      CLASSIFY_LIKELY_VISIBLE_CAP,
+    );
+    for (const suggestion of applicable) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "classifier-likely-choice";
+      button.textContent = suggestion.label;
+      button.addEventListener("click", () => {
+        addLikelyChoice(suggestion);
+        renderLikelyChoices();
+      });
+      rowEl.appendChild(button);
+    }
+  }
+
+  function addLikelyChoice(suggestion) {
+    if (suggestion.is_noise) {
+      const alreadyStaged = currentChips().some(
+        (c) => c.kind === "sentinel" && c.verdict === "noise",
+      );
+      if (!alreadyStaged) addChip({ sentinelVerdict: "noise", scientific_name: "Noise" });
+      return;
+    }
+    const stagedIds = new Set(
+      currentChips().filter((c) => c.kind === "taxon").map((c) => c.id),
+    );
+    for (const taxon of suggestion.taxa) {
+      if (!stagedIds.has(String(taxon.id))) addChip(taxon);
+    }
   }
 
   function save() {
@@ -178,6 +219,7 @@ function initClassifierBox(box) {
 
   searchEl.addEventListener("input", () => renderSuggestions(searchEl.value));
   saveButton.addEventListener("click", save);
+  renderLikelyChoices();
 }
 
 // A manual claim outranks every automatic one, so a save can change other parts of the page that

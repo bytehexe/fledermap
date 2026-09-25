@@ -72,6 +72,37 @@ function deriveSavePayload(chips) {
   return { ok: true, verdict: null, taxonIds: [] };
 }
 
+// The Classify box's "likely" suggestion row (design spec
+// 2026-09-25-fledermap-classify-suggestions-design.md) -- pure filtering over the
+// server-embedded candidate pool (#classifier-box's data-classify-suggestions), re-run on
+// every chip mutation by classifier_box.js's renderLikelyChoices. CLASSIFY_LIKELY_VISIBLE_CAP
+// is deliberately smaller than the server's own pool cap so a satisfied suggestion's
+// lower-priority neighbor can surface without a new request.
+const CLASSIFY_LIKELY_VISIBLE_CAP = 3;
+
+function likelyChoiceAddsSomething(suggestion, stagedChips) {
+  if (suggestion.is_noise) {
+    return !stagedChips.some((c) => c.kind === "sentinel" && c.verdict === "noise");
+  }
+  const stagedTaxonIds = new Set(
+    stagedChips.filter((c) => c.kind === "taxon").map((c) => c.id),
+  );
+  return suggestion.taxa.some((t) => !stagedTaxonIds.has(String(t.id)));
+}
+
+function applicableLikelyChoices(suggestions, stagedChips, visibleCap) {
+  return suggestions
+    .filter((s) => likelyChoiceAddsSomething(s, stagedChips))
+    .slice(0, visibleCap);
+}
+
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { matchesQuery, deriveSavePayload, SENTINEL_ENTRIES };
+  module.exports = {
+    matchesQuery,
+    deriveSavePayload,
+    SENTINEL_ENTRIES,
+    CLASSIFY_LIKELY_VISIBLE_CAP,
+    likelyChoiceAddsSomething,
+    applicableLikelyChoices,
+  };
 }
