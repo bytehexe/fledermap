@@ -27,7 +27,3 @@ document.addEventListener("DOMContentLoaded", () => {
   // in-progress draft that a stray click could discard -- backdrop-click-to-dismiss is safe here.
   backdrop.addEventListener("click", closeHelp);
 });
-
-if (typeof module !== "undefined" && module.exports) {
-  module.exports = {};
-}
