@@ -6,14 +6,25 @@ access) -- species-value resolution needs a session and happens later, in `searc
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Literal
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session as OrmSession
 
-from fledermap.domain.codes import IdSource, Verdict, parse_verdict
-from fledermap.store.models import Taxon, TaxonCode
+from fledermap.domain.codes import AnnotationSource, IdSource, Verdict, parse_verdict
+from fledermap.services.map_query import filtered_recordings
+from fledermap.store.models import (
+    Annotation,
+    Identification,
+    Recording,
+    Site,
+    Taxon,
+    TaxonCode,
+)
+
+MAX_SEARCH_RESULTS = 200
 
 _ANNOTATION_SOURCES: dict[str, IdSource | Literal["emt"]] = {
     "bd2": IdSource.BATDETECT2,
@@ -183,3 +194,135 @@ def _resolve_species_value(session: OrmSession, value: str) -> int | None:
     if len(candidates) == 1:
         return candidates[0]
     return None
+
+
+def _escape_ilike(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+@dataclass(frozen=True)
+class SearchPage:
+    rows: Sequence[Recording]
+    has_more: bool
+    warnings: list[str]
+
+
+def _free_text_matching_ids(session: OrmSession, term: str) -> set[int]:
+    """Every recording id where `term` matches the filename (via `path`), a comment annotation's
+    text, its site's name, or a species name attached to any of its live identification claims --
+    an OR across these four targets, per the spec's "Free text" section."""
+    pattern = f"%{_escape_ilike(term)}%"
+
+    path_ids = set(
+        session.scalars(
+            select(Recording.id).where(Recording.path.ilike(pattern))
+        ).all(),
+    )
+
+    comment_ids = set(
+        session.scalars(
+            select(Annotation.recording_id).where(
+                Annotation.source == AnnotationSource.COMMENT,
+                Annotation.literal.ilike(pattern),
+            ),
+        ).all(),
+    )
+
+    site_ids = set(
+        session.scalars(select(Site.id).where(Site.name.ilike(pattern))).all()
+    )
+    site_recording_ids = (
+        set(
+            session.scalars(
+                select(Recording.id).where(Recording.site_id.in_(site_ids))
+            ).all()
+        )
+        if site_ids
+        else set()
+    )
+
+    taxon_ids = set(
+        session.scalars(
+            select(Taxon.id).where(
+                (Taxon.scientific_name.ilike(pattern))
+                | (Taxon.common_name_en.ilike(pattern))
+                | (Taxon.common_name_de.ilike(pattern)),
+            ),
+        ).all(),
+    )
+    species_recording_ids = (
+        set(
+            session.scalars(
+                select(Identification.recording_id).where(
+                    Identification.taxon_id.in_(taxon_ids),
+                ),
+            ).all(),
+        )
+        if taxon_ids
+        else set()
+    )
+
+    return path_ids | comment_ids | site_recording_ids | species_recording_ids
+
+
+def search_recordings(
+    session: OrmSession,
+    parsed: ParsedQuery,
+    *,
+    offset: int = 0,
+    limit: int = MAX_SEARCH_RESULTS,
+) -> SearchPage:
+    warnings = list(parsed.warnings)
+    free_text_terms = list(parsed.free_text_terms)
+
+    taxon_id: int | None = None
+    if parsed.species_value is not None:
+        resolved = _resolve_species_value(session, parsed.species_value)
+        if resolved is None:
+            warnings.append(
+                f"No unique species match for '{parsed.species_value}' — "
+                "searched as text instead.",
+            )
+            free_text_terms.append(parsed.species_value)
+        else:
+            taxon_id = resolved
+
+    candidates: list[Recording] = list(
+        filtered_recordings(
+            session,
+            taxon_id=taxon_id,
+            # filtered_recordings' own verdict=None default means "SPECIES only" (the map's
+            # default view) -- search has no such default narrowing, so an unspecified
+            # `verdict:` field means "all", not "only identified-as-species recordings".
+            verdict=parsed.verdict if parsed.verdict is not None else "all",
+            source=parsed.annotation_source,
+            favourite_only=parsed.is_favourite,
+            flagged_only=parsed.is_flagged,
+        ),
+    )
+
+    if parsed.site_name is not None:
+        pattern_site_ids = set(
+            session.scalars(select(Site.id).where(Site.name == parsed.site_name)).all(),
+        )
+        candidates = [r for r in candidates if r.site_id in pattern_site_ids]
+
+    if parsed.is_commented:
+        commented_ids = set(
+            session.scalars(
+                select(Annotation.recording_id).where(
+                    Annotation.source == AnnotationSource.COMMENT,
+                ),
+            ).all(),
+        )
+        candidates = [r for r in candidates if r.id in commented_ids]
+
+    for term in free_text_terms:
+        matching_ids = _free_text_matching_ids(session, term)
+        candidates = [r for r in candidates if r.id in matching_ids]
+
+    total = len(candidates)
+    page_rows = candidates[offset : offset + limit]
+    return SearchPage(
+        rows=page_rows, has_more=total > offset + limit, warnings=warnings
+    )
