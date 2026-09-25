@@ -19,6 +19,7 @@ from fledermap.services.annotations import (
     list_annotations,
     update_comment_annotation,
 )
+from fledermap.services.classify_implications import lookup_mined_suggestions
 from fledermap.services.classify_suggestions import (
     ClassifySuggestion,
     classify_suggestions,
@@ -81,13 +82,17 @@ def _serialize_classify_suggestion(s: ClassifySuggestion) -> dict[str, object]:
     }
 
 
-def _classify_suggestions_data(recording: Recording) -> list[dict[str, object]]:
+def _classify_suggestions_data(
+    session: OrmSession, recording: Recording
+) -> list[dict[str, object]]:
     """Shared by the details page's initial render and the manual-classification save's
     `_classifier_box.html` fragment re-render (`web/views/map.py`'s
     `post_manual_classification`) -- both must embed the same suggestion pool."""
+    mined = lookup_mined_suggestions(session, recording)
     suggestions = classify_suggestions(
         recording,
         noise_snr_threshold_db=flask.current_app.config["NOISE_SNR_THRESHOLD_DB"],
+        mined=mined,
     )
     return [_serialize_classify_suggestion(s) for s in suggestions]
 
@@ -159,7 +164,7 @@ def recording_details_page(audio_hash: str) -> flask.Response:
         best, taxon, matrix = _current_classification(session, recording)
         reasons = review_reasons(recording, ReviewContext.build(session))
         taxon_search_index = _taxon_search_index(session)
-        suggestions = _classify_suggestions_data(recording)
+        suggestions = _classify_suggestions_data(session, recording)
         annotations = [
             _serialize_annotation(a) for a in list_annotations(session, recording.id)
         ]

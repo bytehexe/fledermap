@@ -73,6 +73,7 @@ def classify_suggestions(
     *,
     noise_snr_threshold_db: float,
     pool_cap: int = 8,
+    mined: Sequence[ClassifySuggestion] = (),
 ) -> list[ClassifySuggestion]:
     automatic_best = automatic_best_identification(recording)
     candidates: list[ClassifySuggestion] = []
@@ -108,5 +109,15 @@ def classify_suggestions(
             ),
         )
 
+    candidates.extend(mined)
     candidates.sort(key=lambda c: c.priority, reverse=True)
-    return candidates[:pool_cap]
+    candidates = candidates[:pool_cap]
+
+    # Part (b) spec §7: a pool-assembly step, not a new heuristic -- fires only when the
+    # capped pool has spare room AND doesn't already carry a Noise candidate.
+    if len(candidates) < pool_cap and not any(c.is_noise for c in candidates):
+        candidates.append(
+            ClassifySuggestion(taxa=(), is_noise=True, label="Noise", priority=0.0),
+        )
+
+    return candidates

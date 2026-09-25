@@ -306,7 +306,7 @@ def post_manual_classification(audio_hash: str) -> flask.Response:
                 manual_verdict=manual_verdict,
                 current_taxa=current_taxa,
                 taxon_search_index=_taxon_search_index(session),
-                suggestions=_classify_suggestions_data(recording),
+                suggestions=_classify_suggestions_data(session, recording),
             ),
             flask.render_template(
                 "_entity_title.html", title=recording_headline(taxon, best)
