@@ -71,9 +71,18 @@ that sentinel as the conclusion (no taxon).
 For each training example (antecedent atom set, one conclusion), enumerate every size-1
 and size-2 **subset** of the antecedent atom set (not just the full set) and, for each
 subset, increment two running counters: `co_occurrence[(subset, conclusion)]` and
-`antecedent_total[subset]`. Also increment two global counters, independent of any
-antecedent: `conclusion_total[conclusion]` (once per example, regardless of its
-antecedent) and `example_total` (once per example). After processing all examples:
+`antecedent_total[subset]`. Also increment two global counters, but **only for an example
+whose antecedent atom set is non-empty** — `conclusion_total[conclusion]` and
+`example_total`, both once per such example. An atom-less example (no automatic classifier
+claim at all — the common shape for an unclaimed "No ID"/"Noise" recording) is excluded
+from these two counters entirely, not merely from `co_occurrence`/`antecedent_total`: it
+can never match any lookup key (§5's subset enumeration of an empty atom set produces no
+keys), so it could never receive a mined suggestion either way, and counting it toward
+`base_rate` below would compare a rule's confidence against a denominator that includes
+cases the rule could never apply to — silently diluting `base_rate` and letting exactly
+the base-rate-dominance failure `min_lift` exists to catch back in on a dataset with many
+unclaimed recordings (caught in final review, 2026-09-25: real field data is ~90% unclaimed
+"No ID"). After processing all examples:
 
 ```
 confidence(subset, conclusion) = co_occurrence[(subset, conclusion)] / antecedent_total[subset]
@@ -148,6 +157,16 @@ time (§3), so lookup does no additional lift filtering — it only ranks. Rank 
 key, since among rules that already passed the same lift bar, confidence is still the more
 direct estimate of "how often does this antecedent actually lead here."
 
+A row whose `conclusion_verdict` is `NO_ID` is skipped entirely at lookup — it contributes
+no suggestion (caught in final review, 2026-09-25). The app's own vocabulary treats No ID
+(a call exists, species undetermined) and Noise (no call at all) as opposite meanings, so
+folding a mined NO_ID pattern into a "Noise" suggestion chip would show the wrong label.
+Adding a genuine third suggestion type for "usually marked No ID" would need its own
+schema/client-side work (a new sentinel kind, `SENTINEL_ENTRIES`-style UI, and the
+mandatory live headless-Chrome verification this project's CLAUDE.md requires for any JS
+change) — out of scope for this feature; a `NOISE` conclusion is unaffected and still maps
+to the Noise sentinel as before.
+
 **Priority**: mined candidates always sort below both of part (a)'s fixed heuristics,
 regardless of confidence — `priority = confidence * 0.5`, giving a ceiling of 0.5, safely
 under `_PRIORITY_NOISE`'s 1.0. This matches part (a)'s own ordering rule ("A and B always
@@ -158,6 +177,14 @@ Mined candidates feed into the same `classify_suggestions()` entrypoint and the 
 server-side pool cap / client-side visible cap / "adds nothing" filtering part (a)
 already established — no schema or client-side change needed for this to work (the
 forward-compatibility part (a) was built for).
+
+**Deduplication (caught in final review, 2026-09-25):** a recording can match several
+stored rules that conclude the same taxon (e.g. both `{X}→Z` and `{X,Y}→Z`), or a mined
+`{X}→X` rule can duplicate part (a)'s own "Agree with classifiers" chip for X. After the
+priority sort and before `pool_cap` truncation, `classify_suggestions()` keeps only the
+highest-priority candidate per `(is_noise, {taxon ids})` — a duplicate at lower priority
+never displaces a distinct candidate out of the capped pool, and never shows the user two
+visually-identical buttons.
 
 ## 6. Refresh: daily cron + unconditional run at worker startup
 
