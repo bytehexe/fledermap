@@ -61,7 +61,7 @@ needs no recursive/nested structure and no parser-generator library (see below).
 | `annotation:<source>` | `bd2`/`bbn`/`emt`/`manual` — has a claim from that `IdSource` | new EXISTS clause in `search.py`, same `.any()` shape `map_query.py`'s `source` filter already uses |
 | `site:<name>` | site name, exact | new `Site.name ==` join in `search.py` |
 | `verdict:<value>` | closed `Verdict` enum | `filtered_recordings`'s existing `verdict` param |
-| `is:favourite` / `is:flagged` / `is:commented` | boolean namespace, room for a future boolean without a new prefix | `favourite_only` (existing param) / new `Recording.flagged_for_review` clause / new `Recording.comment` non-empty clause |
+| `is:favourite` / `is:flagged` / `is:commented` | boolean namespace, room for a future boolean without a new prefix | `favourite_only` (existing param) / new `Recording.flagged_for_review` clause / new EXISTS-on-`Annotation` clause (`source == AnnotationSource.COMMENT`) |
 
 Every field above except `site:` draws its value from a closed vocabulary (a fixed enum, or the
 species-resolution rules below) — see "Warnings: silent divergence always surfaces" below for what
@@ -120,9 +120,26 @@ the field-whitelist note above — there's no closed vocabulary for a value to d
 
 ### Free text
 
-Unfielded words/phrases match against `filename`, `comment`, site name, and species name
-(scientific name + English/German common names from `taxa_*.yaml`) — each term AND'd against the
-others, each term itself an OR across those four targets.
+Unfielded words/phrases match against filename, comment text, site name, and species name — each
+term AND'd against the others, each term itself an OR across those four targets:
+
+- **Filename**: `Recording` has no `filename` column, only `path` (the full archive-relative
+  path, `store/models.py:49`) — a term matches via `Recording.path.ilike(f"%{term}%")`. A term
+  appearing in the filename is necessarily a substring of the full path too, so matching on `path`
+  finds the same recordings a real `filename` column would; only *display* (see "UI" below) needs
+  the actual basename, computed with `os.path.basename(recording.path)`.
+- **Comment text**: `Recording` has no `comment` column either — a whole-recording free-text note
+  is a `comment`-kind `Annotation` row instead (`Annotation.source == AnnotationSource.COMMENT`,
+  text in `Annotation.literal`; `store/models.py`'s `Annotation`, spec
+  `docs/superpowers/specs/2026-09-23-fledermap-annotations-design.md`). A term matches via an
+  EXISTS clause against `Annotation` scoped to that source, `literal ILIKE f"%{term}%"`. This
+  correction was made **after** the original scope sketch (which assumed a plain `Recording.comment`
+  field predating the 2026-09-23 annotations feature) — verified directly against the current
+  `store/models.py` rather than carried over from that older note.
+- **Site name**: `Site.name` (already used by `site:<name>` above).
+- **Species name**: scientific name + English/German common names from `taxa_*.yaml`
+  (`Taxon.scientific_name`/`common_name_de`/`common_name_en`), matched via the recording's current
+  claims the same way `annotation:`/`species:` resolve a taxon, not a separate lookup path.
 
 ### Tokenizer (hand-rolled, two-phase — not a PEG parser)
 
@@ -188,9 +205,11 @@ degradation visible instead of silent (see UI section).
   (not mutating the input `ParsedQuery`) and a warning appended to `SearchPage.warnings`, per
   "Warnings" above — otherwise it's passed as `filtered_recordings`'s existing `taxon_id` param,
   same as `verdict`/`favourite_only` for the fields that already exist there. The genuinely new SQL
-  lives directly in `search.py`: free-text ILIKE/EXISTS
-  clauses, `annotation:`'s EXISTS-on-`Identification.source`, `is:flagged`'s
-  `Recording.flagged_for_review`, `is:commented`'s `Recording.comment` non-empty check. Each filter
+  lives directly in `search.py`: free-text `Recording.path`/`Annotation.literal` ILIKE clauses (the
+  latter scoped to `Annotation.source == AnnotationSource.COMMENT`) plus a `Site`/`Taxon` name-match
+  EXISTS, `annotation:`'s EXISTS-on-`Identification.source`, `is:flagged`'s
+  `Recording.flagged_for_review`, `is:commented`'s EXISTS-on-`Annotation` (same source scoping).
+  Each filter
   therefore lives in exactly one place — `map_query.py` for what it already owns, `search.py` for
   what's new — rather than being forked into two copies. `SearchPage.warnings` is
   `parsed.warnings` plus any warning raised during this resolution step, so the UI has one list to
@@ -242,10 +261,11 @@ Follows the established list-page shape (`.filter-bar` + `.entity-list` + pagina
   directly under the input/hint, above the results — so a user whose query silently degraded to
   free text anywhere has an explicit reason why, rather than just getting unexpectedly-broad
   results with no indication their query wasn't parsed as intended.
-- Results table columns: **Time** (`local_datetime`, links to the recording), **Filename** (also
-  links to the recording — first place the app displays a filename at all; the open backlog item
-  "We have to show the filename(s) somewhere" tracks the broader ask across other pages, out of
-  scope here), **Site** (links to the site), **Species** (current-best headline, same wording
+- Results table columns: **Time** (`local_datetime`, links to the recording), **Filename**
+  (`os.path.basename(recording.path)` — `Recording` has no stored `filename` column, only `path`;
+  also links to the recording — first place the app displays a filename at all; the open backlog
+  item "We have to show the filename(s) somewhere" tracks the broader ask across other pages, out
+  of scope here), **Site** (links to the site), **Species** (current-best headline, same wording
   `recording_headline` already produces elsewhere).
 - No-result row: same `.entity-list` empty-row convention as `sessions_list.html`'s "No sessions
   match these filters."
@@ -348,8 +368,9 @@ should be read with this in mind: `verdict:`'s closed vocabulary is `species`/`n
   it has no closed vocabulary to validate against.
 - `db`-marked tests for `search_recordings` (needs `bats_db`/PostGIS, same tier as
   `test_map_query.py`): one test per field filter against seeded recordings, free-text matching
-  each of filename/comment/site name/species name independently, AND-combination across multiple
-  tokens, and the pagination truncation shape (`limit(N+1)`). Also `_resolve_species_value`
+  each of path/filename-substring, a `comment`-kind `Annotation`'s `literal`, site name, and
+  species name independently, AND-combination across multiple tokens, and the pagination
+  truncation shape (`limit(N+1)`). Also `_resolve_species_value`
   specifically: all three representations resolving to the same taxon (`PIPPIP` /
   `"Pipistrellus pipistrellus"` / `"P. pipistrellus"`), case-insensitivity on the scientific-name
   and abbreviated forms, a genuinely ambiguous abbreviated form (two seeded taxa sharing a genus
