@@ -58,10 +58,10 @@ needs no recursive/nested structure and no parser-generator library (see below).
 | Field | Meaning | Maps onto |
 |---|---|---|
 | `species:<value>` | exact taxon lookup, not fuzzy — see "Species value resolution" below | `filtered_recordings`'s existing `taxon_id` param, after resolving `<value>` to a taxon_id |
-| `annotation:<source>` | `bd2`/`bbn`/`emt`/`manual` — has a claim from that `IdSource` | new EXISTS clause in `search.py`, same `.any()` shape `map_query.py`'s `source` filter already uses |
+| `annotation:<source>` | `bd2`/`bbn`/`emt`/`manual` — has a claim from that source | `filtered_recordings`'s existing `source: IdSource \| Literal["emt"] \| None` param, after mapping the shorthand (`bd2`→`IdSource.BATDETECT2`, `bbn`→`IdSource.BATTYBIRDNET`, `manual`→`IdSource.MANUAL`, `emt`→the existing `"emt"` sentinel) — this is exactly the "has a claim from source X, or any combined-EMT source" check the map's own Source filter already makes, so no new SQL |
 | `site:<name>` | site name, exact | new `Site.name ==` join in `search.py` |
-| `verdict:<value>` | closed `Verdict` enum | `filtered_recordings`'s existing `verdict` param |
-| `is:favourite` / `is:flagged` / `is:commented` | boolean namespace, room for a future boolean without a new prefix | `favourite_only` (existing param) / new `Recording.flagged_for_review` clause / new EXISTS-on-`Annotation` clause (`source == AnnotationSource.COMMENT`) |
+| `verdict:<value>` | `species`/`no_id`/`noise`/`unidentified`/`all` — see the note on `verdict:`'s vocabulary below | `filtered_recordings`'s existing `verdict` param, via the existing `web/params.py`'s `parse_verdict` |
+| `is:favourite` / `is:flagged` / `is:commented` | boolean namespace, room for a future boolean without a new prefix | `favourite_only` (existing `filtered_recordings` param) / new `flagged_only` param added to `filtered_recordings` (same shape as `favourite_only` — a plain existing boolean column, not something `search.py` needs its own SQL for) / new EXISTS-on-`Annotation` clause in `search.py` (`source == AnnotationSource.COMMENT`, genuinely new — no equivalent exists anywhere else) |
 
 Every field above except `site:` draws its value from a closed vocabulary (a fixed enum, or the
 species-resolution rules below) — see "Warnings: silent divergence always surfaces" below for what
@@ -204,14 +204,17 @@ degradation visible instead of silent (see UI section).
   unique taxon), the raw value is appended to the free-text terms actually used for this query
   (not mutating the input `ParsedQuery`) and a warning appended to `SearchPage.warnings`, per
   "Warnings" above — otherwise it's passed as `filtered_recordings`'s existing `taxon_id` param,
-  same as `verdict`/`favourite_only` for the fields that already exist there. The genuinely new SQL
-  lives directly in `search.py`: free-text `Recording.path`/`Annotation.literal` ILIKE clauses (the
-  latter scoped to `Annotation.source == AnnotationSource.COMMENT`) plus a `Site`/`Taxon` name-match
-  EXISTS, `annotation:`'s EXISTS-on-`Identification.source`, `is:flagged`'s
-  `Recording.flagged_for_review`, `is:commented`'s EXISTS-on-`Annotation` (same source scoping).
-  Each filter
-  therefore lives in exactly one place — `map_query.py` for what it already owns, `search.py` for
-  what's new — rather than being forked into two copies. `SearchPage.warnings` is
+  same as `verdict`/`favourite_only`/`source` for the fields that already exist there (`annotation:`
+  and `verdict:` need no new SQL at all — see the field-whitelist table above). `filtered_recordings`
+  gains one new param, `flagged_only: bool = False`, mirroring `favourite_only` exactly (a plain
+  existing boolean column, `Recording.flagged_for_review`) — `is:flagged` passes it the same way
+  `is:favourite` passes `favourite_only`. The genuinely new SQL lives directly in `search.py`:
+  free-text `Recording.path`/`Annotation.literal` ILIKE clauses (the latter scoped to
+  `Annotation.source == AnnotationSource.COMMENT`) plus a `Site`/`Taxon` name-match EXISTS, and
+  `is:commented`'s EXISTS-on-`Annotation` (same source scoping as the free-text comment match).
+  Each filter therefore lives in exactly one place — `map_query.py` for what it already owns
+  (extended by exactly one new param), `search.py` for what's genuinely new — rather than being
+  forked into two copies. `SearchPage.warnings` is
   `parsed.warnings` plus any warning raised during this resolution step, so the UI has one list to
   render regardless of which layer produced each entry.
 - Pagination: Python-side slice with the same `limit(N+1)`-truncation-detection shape
@@ -345,12 +348,17 @@ clauses, or any other implementation term from the sections above.
 > If something in your search wasn't understood (a misspelled field, a missing closing quote),
 > a note appears above the results explaining what happened.
 
-`verdict:`'s value list gains `unidentified`/`all` here for parity with the map's own verdict
-filter — `filtered_recordings`'s `verdict` param already accepts both (see `map_query.py`'s
-`_passes_verdict_filter`), so this is zero extra backend work, just extending the closed-vocabulary
-check in `parse_search_query` to match. The "Warnings" section above and the field-whitelist table
-should be read with this in mind: `verdict:`'s closed vocabulary is `species`/`no_id`/`noise`/
-`unidentified`/`all`, not just the three `Verdict` enum members.
+`verdict:`'s closed vocabulary (`species`/`no_id`/`noise`/`unidentified`/`all`, per the
+field-whitelist table above) parses via the existing `web/params.py`'s `parse_verdict` — it already
+accepts all five (see `map_query.py`'s `_passes_verdict_filter`) and already raises `ValueError` on
+anything else, which `parse_search_query` catches the same way it catches an invalid
+`annotation:`/`is:` value: demote to free text, append a warning.
+
+**ILIKE escaping.** Every free-text/`site:` value reaching an `ILIKE` clause is escaped first —
+`value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")`, the same escaping
+`services/sessions.py`'s `filtered_sessions` already applies to its `detector` filter — otherwise a
+literal `%` or `_` typed by a user is interpreted as an ILIKE wildcard instead of a literal
+character (a search for `50%` would otherwise match any string with "50" followed by anything).
 
 ## Testing
 
