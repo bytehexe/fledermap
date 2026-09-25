@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Literal
 
 
 class Verdict(StrEnum):
@@ -15,6 +16,22 @@ class Verdict(StrEnum):
     SPECIES = "species"
     NO_ID = "no_id"
     NOISE = "noise"
+
+
+def parse_verdict(raw: str | None) -> Verdict | Literal["all", "unidentified"] | None:
+    """`unidentified` matches a recording with no current identification at
+    all -- distinct from `no_id`, which (since the precedence rewrite in
+    docs/superpowers/specs/2026-09-05-fledermap-manual-classification-design.md)
+    can only ever come from a genuine MANUAL claim. Amends decision P4-9
+    (2026-08-25-fledermap-phase4-map-design.md), which folded the two
+    together before that distinction was possible."""
+    if raw is None:
+        return None
+    if raw == "all":
+        return "all"
+    if raw == "unidentified":
+        return "unidentified"
+    return Verdict(raw)
 
 
 _SENTINEL_VERDICTS: dict[str, Verdict] = {

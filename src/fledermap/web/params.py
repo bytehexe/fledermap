@@ -9,7 +9,10 @@ from __future__ import annotations
 from datetime import UTC, datetime, time
 from typing import Literal
 
-from fledermap.domain.codes import IdSource, Verdict
+from fledermap.domain.codes import IdSource
+from fledermap.domain.codes import (
+    parse_verdict as parse_verdict,  # noqa: F401 -- re-exported for web/views/map.py, web/api/geojson.py, and existing test imports
+)
 
 BBox = tuple[float, float, float, float]  # (min_lon, min_lat, max_lon, max_lat)
 
@@ -75,22 +78,6 @@ def parse_datetime(raw: str | None, *, end_of_day: bool = False) -> datetime | N
             parsed = datetime.combine(parsed.date(), time(23, 59, 59, 999999))
         parsed = parsed.replace(tzinfo=UTC)
     return parsed
-
-
-def parse_verdict(raw: str | None) -> Verdict | Literal["all", "unidentified"] | None:
-    """`unidentified` matches a recording with no current identification at
-    all -- distinct from `no_id`, which (since the precedence rewrite in
-    docs/superpowers/specs/2026-09-05-fledermap-manual-classification-design.md)
-    can only ever come from a genuine MANUAL claim. Amends decision P4-9
-    (2026-08-25-fledermap-phase4-map-design.md), which folded the two
-    together before that distinction was possible."""
-    if raw is None:
-        return None
-    if raw == "all":
-        return "all"
-    if raw == "unidentified":
-        return "unidentified"
-    return Verdict(raw)
 
 
 def parse_source(raw: str | None) -> IdSource | Literal["emt"] | None:
