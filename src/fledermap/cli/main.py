@@ -27,7 +27,12 @@ from fledermap.jobs.app import (
     make_worker_connector,
     requeue_stalled_jobs,
 )
-from fledermap.jobs.tasks import _INGEST_CYCLE_LOCK, run_ingest_cycle
+from fledermap.jobs.tasks import (
+    _CLASSIFY_IMPLICATION_MINING_LOCK,
+    _INGEST_CYCLE_LOCK,
+    run_classify_implication_mining_cycle,
+    run_ingest_cycle,
+)
 from fledermap.jobs.tasks import app as jobs_app
 from fledermap.jobs.watch import start_watching
 from fledermap.services.derive import derive_sites
@@ -347,6 +352,14 @@ async def _run_worker_async(config: Config, engine: Engine, *, wait: bool) -> No
             # process ever tries for that lock.
             await requeue_stalled_jobs(worker_app)
 
+            # Unconditional, every startup -- NOT routed through Procrastinate's own
+            # periodic/catch-up machinery, whose max_delay (10 minutes) is nowhere near
+            # enough for a daily job on a machine that isn't always on (part b spec §6).
+            await run_classify_implication_mining_cycle.configure(
+                lock=_CLASSIFY_IMPLICATION_MINING_LOCK,
+                queueing_lock=_CLASSIFY_IMPLICATION_MINING_LOCK,
+            ).defer_async(timestamp=int(time.time()))
+
             loop = asyncio.get_running_loop()
             observer = start_watching(config.archive_roots, loop, _defer_ingest_cycle)
             try:
@@ -521,6 +534,35 @@ def clean_media_command() -> None:
         f"{result.files_removed} stale file(s), "
         f"freed {result.bytes_freed} bytes",
     )
+
+
+@cli.command(name="mine-classify-implications")
+def mine_classify_implications_command() -> None:
+    """Rebuild `classify_implication_rule` from current MANUAL-vs-automatic-classifier
+    history (design spec 2026-09-25-fledermap-classify-suggestions-part-b-design.md). Also
+    runs on its own daily periodic cron inside `worker`, plus once at every `worker`
+    startup (see jobs/tasks.py's run_classify_implication_mining_cycle) -- this command is
+    for an on-demand run."""
+    try:
+        config = Config.from_env()
+    except ConfigError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    engine = make_engine(config.database_url)
+    _run_migrations(config.database_url)
+
+    from fledermap.services.classify_implications import mine_classify_implications
+
+    with OrmSession(engine) as session:
+        count = mine_classify_implications(
+            session,
+            min_support=config.classify_implication_min_support,
+            min_confidence=config.classify_implication_min_confidence,
+            min_lift=config.classify_implication_min_lift,
+        )
+        session.commit()
+
+    click.echo(f"stored {count} implication rule(s)")
 
 
 @cli.command(name="backfill-site-names")

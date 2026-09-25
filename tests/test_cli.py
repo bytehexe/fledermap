@@ -1477,3 +1477,74 @@ def test_install_reports_a_failed_systemctl_call_cleanly(
     assert result.exit_code != 0
     assert not isinstance(result.exception, subprocess.CalledProcessError)
     assert "systemctl" in result.output
+
+
+def test_worker_defers_the_classify_implication_mining_task_unconditionally_at_startup(
+    clean_database_url: str,
+    tmp_path: Path,
+) -> None:
+    """The explicit `defer_async()` call added to `_run_worker_async` (part b spec §6) fires
+    on every startup, independent of the daily cron's own schedule -- unlike
+    `run_ingest_cycle`'s startup behaviour (covered by
+    `test_worker_ingests_a_pre_existing_file_at_startup_without_waiting_for_the_cron_tick`),
+    this isn't Procrastinate's periodic catch-up at all, so this test asserts on the
+    deferred job row directly rather than on an observable side effect."""
+    archive = tmp_path / "archive"
+    archive.mkdir()
+    config = Config(
+        database_url=clean_database_url,
+        archive_roots=(archive,),
+        media_root=tmp_path / "media",
+    )
+    engine = make_engine(clean_database_url)
+
+    cli_main._run_migrations(config.database_url)
+    ensure_schema(cli_main.jobs_app, engine)
+
+    async def _drive() -> int | None:
+        task = asyncio.create_task(
+            cli_main._run_worker_async(config, engine, wait=True),
+        )
+        try:
+            deadline = time.time() + 15
+            count = None
+            while time.time() < deadline:
+                with engine.connect() as conn:
+                    count = conn.execute(
+                        text(
+                            "SELECT count(*) FROM procrastinate_jobs WHERE task_name = "
+                            "'fledermap.jobs.tasks.run_classify_implication_mining_cycle'",
+                        ),
+                    ).scalar()
+                if count:
+                    break
+                await asyncio.sleep(0.2)
+            return count
+        finally:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    try:
+        count = asyncio.run(_drive())
+    finally:
+        engine.dispose()
+
+    assert count == 1
+
+
+def test_mine_classify_implications_command_reports_a_count(
+    clean_database_url: str,
+    tmp_path: Path,
+) -> None:
+    env = {
+        "FLEDERMAP_DATABASE_URL": clean_database_url,
+        "FLEDERMAP_ARCHIVE_ROOTS": str(tmp_path / "archive"),
+        "FLEDERMAP_MEDIA_ROOT": str(tmp_path / "media"),
+    }
+    runner = CliRunner()
+
+    result = runner.invoke(cli, ["mine-classify-implications"], env=env)
+
+    assert result.exit_code == 0, result.output
+    assert "stored 0 implication rule(s)" in result.output

@@ -22,6 +22,7 @@ from fledermap.jobs.app import (
     requeue_stalled_jobs,
 )
 from fledermap.jobs.tasks import (
+    _CLASSIFY_IMPLICATION_MINING_LOCK,
     _CLEAN_MEDIA_CYCLE_LOCK,
     _INGEST_CYCLE_LOCK,
     _NAME_SITE_LOCK,
@@ -32,6 +33,7 @@ from fledermap.jobs.tasks import (
     preview_lock_key,
     render_oscillogram_task,
     render_spectrogram_task,
+    run_classify_implication_mining_cycle,
     run_clean_media_cycle,
     run_ingest_cycle,
     spectrogram_lock_key,
@@ -44,6 +46,7 @@ from fledermap.services import site_naming
 from fledermap.services.classifier_detections import DetectionInput, record_detections
 from fledermap.store.models import (
     ClassifierDetection,
+    ClassifyImplicationRule,
     Identification,
     Recording,
     Site,
@@ -1314,3 +1317,64 @@ def test_name_site_queueing_lock_is_per_site() -> None:
 
 def test_name_site_queueing_lock_is_distinct_for_force() -> None:
     assert name_site_queueing_lock("k") != name_site_queueing_lock("k", force=True)
+
+
+def test_run_classify_implication_mining_cycle_stores_rules(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        pip = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
+        session.add(pip)
+        session.flush()
+        for i in range(3):
+            r = Recording(
+                audio_hash=f"{i}" * 64,
+                path=f"{i}.wav",
+                recorded_at=datetime(2026, 9, 1, tzinfo=UTC),
+            )
+            session.add(r)
+            session.flush()
+            session.add(
+                Identification(
+                    recording_id=r.id,
+                    source=IdSource.EMT_GUANO,
+                    verdict=Verdict.SPECIES,
+                    taxon_id=pip.id,
+                ),
+            )
+            session.add(
+                Identification(
+                    recording_id=r.id,
+                    source=IdSource.MANUAL,
+                    verdict=Verdict.SPECIES,
+                    taxon_id=pip.id,
+                ),
+            )
+        session.commit()
+
+    jobs_app.open(engine)
+    ensure_schema(jobs_app, engine)
+
+    run_classify_implication_mining_cycle.configure(
+        lock=_CLASSIFY_IMPLICATION_MINING_LOCK,
+        queueing_lock=_CLASSIFY_IMPLICATION_MINING_LOCK,
+    ).defer(timestamp=int(time.time()))
+    config = Config(
+        database_url="postgresql://unused/unused",  # never read by this task itself
+        archive_roots=(),
+        classify_implication_min_support=3,
+        classify_implication_min_confidence=0.6,
+        classify_implication_min_lift=1.0,
+    )
+    _run_worker(
+        engine,
+        wait=False,
+        install_signal_handlers=False,
+        listen_notify=False,
+        queues=["maintenance"],
+        additional_context={"config": config, "engine": engine},
+    )
+
+    with OrmSession(engine) as session:
+        stored = session.scalar(
+            select(func.count()).select_from(ClassifyImplicationRule)
+        )
+    assert stored == 1

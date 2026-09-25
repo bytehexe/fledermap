@@ -70,6 +70,12 @@ _INGEST_CYCLE_CRON = "*/5 * * * *"
 _CLEAN_MEDIA_CYCLE_LOCK = "clean_media_cycle"
 _CLEAN_MEDIA_CYCLE_CRON = "0 3 * * *"
 
+# Daily, off-peak, same reasoning as _CLEAN_MEDIA_CYCLE_CRON above -- mining is disk/CPU
+# hygiene work with no reason to run more often than once a day at this project's real
+# scale (spec §6).
+_CLASSIFY_IMPLICATION_MINING_LOCK = "classify_implication_mining"
+_CLASSIFY_IMPLICATION_MINING_CRON = "0 3 * * *"
+
 # Design spec §7 asks for "a small fixed retry count (e.g. 3, exponential
 # backoff)". A bare `retry=3` resolves to `RetryStrategy(max_attempts=3)`
 # with EVERY wait parameter left at 0, so all three attempts fire
@@ -764,3 +770,41 @@ def run_clean_media_cycle(context: procrastinate.JobContext, timestamp: int) -> 
         result.files_removed,
         result.bytes_freed,
     )
+
+
+@app.periodic(
+    cron=_CLASSIFY_IMPLICATION_MINING_CRON,
+    lock=_CLASSIFY_IMPLICATION_MINING_LOCK,
+    queueing_lock=_CLASSIFY_IMPLICATION_MINING_LOCK,
+)
+@app.task(queue="maintenance", pass_context=True)
+def run_classify_implication_mining_cycle(
+    context: procrastinate.JobContext, timestamp: int
+) -> None:
+    """The periodic half of the classify-implication mining feature (part b spec §6;
+    `timestamp` unused -- see `run_ingest_cycle`'s docstring for why Procrastinate's
+    periodic machinery requires it as the first parameter regardless).
+    `fledermap mine-classify-implications` (`cli/main.py`) is the same work, on demand. Also
+    deferred unconditionally at every `fledermap worker` startup (`cli/main.py`'s
+    `_run_worker_async`) -- NOT relying on Procrastinate's own periodic catch-up, whose
+    max_delay (10 minutes) is nowhere near enough for a daily job on a machine that isn't
+    always on (spec §6).
+
+    Shares the `"maintenance"` queue with `run_clean_media_cycle` -- both are low-priority,
+    non-destructive-to-recording-data background jobs, same reasoning as that task's own
+    docstring."""
+    config: Config = context.additional_context["config"]
+    engine = context.additional_context["engine"]
+
+    from fledermap.services.classify_implications import mine_classify_implications
+
+    with OrmSession(engine) as session:
+        count = mine_classify_implications(
+            session,
+            min_support=config.classify_implication_min_support,
+            min_confidence=config.classify_implication_min_confidence,
+            min_lift=config.classify_implication_min_lift,
+        )
+        session.commit()
+
+    logger.info("classify-implication mining cycle: stored %d rule(s)", count)
