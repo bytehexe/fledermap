@@ -12,7 +12,7 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import IdSource, Verdict
-from fledermap.services.annotations import create_comment_annotation, list_annotations
+from fledermap.services.annotations import create_label_annotation, list_annotations
 from fledermap.services.classifier_detections import DetectionInput, record_detections
 from fledermap.store.models import Identification, Recording, Site, Taxon
 from fledermap.store.models import Session as AnnotationSession
@@ -1900,7 +1900,7 @@ def test_annotations_are_embedded_in_the_page(engine: Engine, tmp_path: Path) ->
     app, audio_hash = _create_app_with_one_recording(engine, tmp_path, "an" * 32)
     with OrmSession(engine) as session:
         recording = session.scalars(select(Recording)).one()
-        create_comment_annotation(
+        create_label_annotation(
             session,
             recording,
             time_start_s=1.0,
@@ -1974,7 +1974,7 @@ def test_classifier_thresholds_are_embedded_in_the_page(
     assert "0.75" in html
 
 
-def test_post_annotation_creates_a_comment(engine: Engine, tmp_path: Path) -> None:
+def test_post_annotation_creates_a_label(engine: Engine, tmp_path: Path) -> None:
     app, audio_hash = _create_app_with_one_recording(engine, tmp_path, "ap" * 32)
 
     response = app.test_client().post(
@@ -1992,7 +1992,7 @@ def test_post_annotation_creates_a_comment(engine: Engine, tmp_path: Path) -> No
     assert response.status_code == 200
     body = response.get_json()
     assert body["literal"] == "new comment"
-    assert body["source"] == "comment"
+    assert body["source"] == "label"
 
 
 def test_post_annotation_without_text_or_species_is_rejected(
@@ -2020,7 +2020,7 @@ def test_patch_annotation_updates_text(engine: Engine, tmp_path: Path) -> None:
     app, audio_hash = _create_app_with_one_recording(engine, tmp_path, "ar" * 32)
     with OrmSession(engine) as session:
         recording = session.scalars(select(Recording)).one()
-        created = create_comment_annotation(
+        created = create_label_annotation(
             session,
             recording,
             time_start_s=1.0,
@@ -2046,7 +2046,7 @@ def test_delete_annotation_removes_it(engine: Engine, tmp_path: Path) -> None:
     with OrmSession(engine) as session:
         recording = session.scalars(select(Recording)).one()
         recording_id = recording.id
-        created = create_comment_annotation(
+        created = create_label_annotation(
             session,
             recording,
             time_start_s=1.0,
@@ -2067,10 +2067,10 @@ def test_delete_annotation_removes_it(engine: Engine, tmp_path: Path) -> None:
         assert list_annotations(session, recording_id) == []
 
 
-def test_comment_tool_button_is_present(engine: Engine, tmp_path: Path) -> None:
+def test_label_tool_button_is_present(engine: Engine, tmp_path: Path) -> None:
     app, audio_hash = _create_app_with_one_recording(engine, tmp_path, "at" * 32)
     html = app.test_client().get(f"/recordings/{audio_hash}").get_data(as_text=True)
-    assert 'data-tool="comment"' in html
+    assert 'data-tool="label"' in html
 
 
 def test_layers_button_and_menu_are_present(engine: Engine, tmp_path: Path) -> None:
@@ -2080,8 +2080,8 @@ def test_layers_button_and_menu_are_present(engine: Engine, tmp_path: Path) -> N
     assert 'id="layers-menu"' in html
 
 
-def test_comment_popup_markup_is_present(engine: Engine, tmp_path: Path) -> None:
+def test_label_popup_markup_is_present(engine: Engine, tmp_path: Path) -> None:
     app, audio_hash = _create_app_with_one_recording(engine, tmp_path, "av" * 32)
     html = app.test_client().get(f"/recordings/{audio_hash}").get_data(as_text=True)
-    assert 'id="comment-popup"' in html
-    assert 'id="comment-popup-save"' in html
+    assert 'id="label-popup"' in html
+    assert 'id="label-popup-save"' in html

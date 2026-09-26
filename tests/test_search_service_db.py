@@ -139,14 +139,14 @@ def test_free_text_matches_filename(engine: Engine) -> None:
     assert [r.id for r in page.rows] == [target.id]
 
 
-def test_free_text_matches_comment_annotation(engine: Engine) -> None:
+def test_free_text_matches_label_annotation(engine: Engine) -> None:
     with OrmSession(engine) as session:
         target = _recording(session, audio_hash="a" * 64, path="a.wav")
         _recording(session, audio_hash="b" * 64, path="b.wav")
         session.add(
             Annotation(
                 recording_id=target.id,
-                source=AnnotationSource.COMMENT,
+                source=AnnotationSource.LABEL,
                 time_start_s=0.0,
                 literal="feeding buzz here",
                 created_at=datetime(2026, 9, 25, tzinfo=UTC),
@@ -215,14 +215,14 @@ def test_ilike_special_characters_are_escaped(engine: Engine) -> None:
     assert len(page.rows) == 1
 
 
-def test_is_commented_filters_to_recordings_with_a_comment(engine: Engine) -> None:
+def test_is_labeled_filters_to_recordings_with_a_label(engine: Engine) -> None:
     with OrmSession(engine) as session:
-        commented = _recording(session, audio_hash="a" * 64, path="a.wav")
+        labeled = _recording(session, audio_hash="a" * 64, path="a.wav")
         _recording(session, audio_hash="b" * 64, path="b.wav")
         session.add(
             Annotation(
-                recording_id=commented.id,
-                source=AnnotationSource.COMMENT,
+                recording_id=labeled.id,
+                source=AnnotationSource.LABEL,
                 time_start_s=0.0,
                 literal="note",
                 created_at=datetime(2026, 9, 25, tzinfo=UTC),
@@ -230,9 +230,9 @@ def test_is_commented_filters_to_recordings_with_a_comment(engine: Engine) -> No
         )
         session.commit()
 
-        page = search_recordings(session, ParsedQuery(is_commented=True))
+        page = search_recordings(session, ParsedQuery(is_labeled=True))
 
-    assert [r.id for r in page.rows] == [commented.id]
+    assert [r.id for r in page.rows] == [labeled.id]
 
 
 def test_is_flagged_reuses_filtered_recordings(engine: Engine) -> None:
@@ -378,7 +378,7 @@ def test_two_conditions_and_combine_excluding_a_partial_match(engine: Engine) ->
         session.add(
             Annotation(
                 recording_id=both.id,
-                source=AnnotationSource.COMMENT,
+                source=AnnotationSource.LABEL,
                 time_start_s=0.0,
                 literal="feeding buzz here",
                 created_at=datetime(2026, 9, 25, tzinfo=UTC),
@@ -389,7 +389,7 @@ def test_two_conditions_and_combine_excluding_a_partial_match(engine: Engine) ->
         session.add(
             Annotation(
                 recording_id=text_only.id,
-                source=AnnotationSource.COMMENT,
+                source=AnnotationSource.LABEL,
                 time_start_s=0.0,
                 literal="feeding buzz here too",
                 created_at=datetime(2026, 9, 25, tzinfo=UTC),

@@ -63,7 +63,7 @@ class ParsedQuery:
     verdict: Verdict | Literal["all", "unidentified"] | None = None
     is_favourite: bool = False
     is_flagged: bool = False
-    is_commented: bool = False
+    is_labeled: bool = False
     warnings: list[str] = field(default_factory=list)
 
 
@@ -107,7 +107,7 @@ def parse_search_query(text: str) -> ParsedQuery:
     verdict: Verdict | Literal["all", "unidentified"] | None = None
     is_favourite = False
     is_flagged = False
-    is_commented = False
+    is_labeled = False
     warnings: list[str] = []
 
     for raw_token in _split_respecting_quotes(text):
@@ -139,8 +139,8 @@ def parse_search_query(text: str) -> ParsedQuery:
                     is_favourite = True
                 elif value == "flagged":
                     is_flagged = True
-                elif value == "commented":
-                    is_commented = True
+                elif value == "labeled":
+                    is_labeled = True
                 else:
                     warnings.append(
                         f"Unknown is: value '{value}' — searched as text instead."
@@ -168,7 +168,7 @@ def parse_search_query(text: str) -> ParsedQuery:
         verdict=verdict,
         is_favourite=is_favourite,
         is_flagged=is_flagged,
-        is_commented=is_commented,
+        is_labeled=is_labeled,
         warnings=warnings,
     )
 
@@ -238,7 +238,7 @@ def _free_text_matching_ids(session: OrmSession, term: str) -> set[int]:
     comment_ids = set(
         session.scalars(
             select(Annotation.recording_id).where(
-                Annotation.source == AnnotationSource.COMMENT,
+                Annotation.source == AnnotationSource.LABEL,
                 Annotation.literal.ilike(pattern),
             ),
         ).all(),
@@ -323,15 +323,15 @@ def search_recordings(
         )
         candidates = [r for r in candidates if r.site_id in pattern_site_ids]
 
-    if parsed.is_commented:
-        commented_ids = set(
+    if parsed.is_labeled:
+        labeled_ids = set(
             session.scalars(
                 select(Annotation.recording_id).where(
-                    Annotation.source == AnnotationSource.COMMENT,
+                    Annotation.source == AnnotationSource.LABEL,
                 ),
             ).all(),
         )
-        candidates = [r for r in candidates if r.id in commented_ids]
+        candidates = [r for r in candidates if r.id in labeled_ids]
 
     for term in free_text_terms:
         matching_ids = _free_text_matching_ids(session, term)

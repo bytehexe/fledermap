@@ -14,7 +14,7 @@ def test_empty_query_has_no_terms_and_no_warnings() -> None:
         verdict=None,
         is_favourite=False,
         is_flagged=False,
-        is_commented=False,
+        is_labeled=False,
         warnings=[],
     )
 
@@ -92,11 +92,11 @@ def test_verdict_field_invalid_value_demotes_to_free_text_with_warning() -> None
     assert parsed.warnings == ["Unknown verdict 'foo' — searched as text instead."]
 
 
-def test_is_favourite_flagged_commented() -> None:
-    parsed = parse_search_query("is:favourite is:flagged is:commented")
+def test_is_favourite_flagged_labeled() -> None:
+    parsed = parse_search_query("is:favourite is:flagged is:labeled")
     assert parsed.is_favourite is True
     assert parsed.is_flagged is True
-    assert parsed.is_commented is True
+    assert parsed.is_labeled is True
     assert parsed.warnings == []
 
 

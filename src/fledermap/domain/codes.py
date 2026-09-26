@@ -83,12 +83,12 @@ class IdSource(StrEnum):
 
 
 class AnnotationSource(StrEnum):
-    """Where an annotation came from -- deliberately separate from IdSource: `comment` has no
+    """Where an annotation came from -- deliberately separate from IdSource: `label` has no
     meaning as an identification-claim source, and IdSource carries precedence/disagreement
     semantics (current_best.py, review_flags.py) that annotations don't participate in. See
     docs/superpowers/specs/2026-09-23-fledermap-annotations-design.md §2."""
 
-    COMMENT = "comment"
+    LABEL = "label"
     # Produced by services/classifier_detections.py's record_detections, which writes one
     # Annotation row per detected call geometry alongside its classifier_detection cache row.
     BATDETECT2 = "batdetect2"

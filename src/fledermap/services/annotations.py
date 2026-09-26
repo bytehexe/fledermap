@@ -1,5 +1,5 @@
-"""Comment-annotation CRUD (design spec docs/superpowers/specs/2026-09-23-
-fledermap-annotations-design.md §3). The only place `AnnotationSource.COMMENT` rows are ever
+"""Label-annotation CRUD (design spec docs/superpowers/specs/2026-09-23-
+fledermap-annotations-design.md §3). The only place `AnnotationSource.LABEL` rows are ever
 written or removed -- `services/classifier_detections.py`'s `record_detections`/`purge_source`
 writes/deletes batdetect2's own rows directly against the `Annotation` model, never through this
 module (battybirdnet still has no geometry producer), mirroring how
@@ -26,19 +26,19 @@ def list_annotations(session: OrmSession, recording_id: int) -> Sequence[Annotat
     ).all()
 
 
-def _require_comment_shape(taxon_id: int | None, literal: str | None) -> None:
+def _require_label_shape(taxon_id: int | None, literal: str | None) -> None:
     if taxon_id is None and not literal:
-        msg = "a comment annotation needs at least one of taxon_id or literal"
+        msg = "a label annotation needs at least one of taxon_id or literal"
         raise ValueError(msg)
 
 
-def _require_comment_source(annotation: Annotation) -> None:
-    if annotation.source != AnnotationSource.COMMENT:
-        msg = f"annotation {annotation.id} is source={annotation.source!r}, not comment"
+def _require_label_source(annotation: Annotation) -> None:
+    if annotation.source != AnnotationSource.LABEL:
+        msg = f"annotation {annotation.id} is source={annotation.source!r}, not label"
         raise ValueError(msg)
 
 
-def create_comment_annotation(
+def create_label_annotation(
     session: OrmSession,
     recording: Recording,
     *,
@@ -49,10 +49,10 @@ def create_comment_annotation(
     taxon_id: int | None,
     literal: str | None,
 ) -> Annotation:
-    _require_comment_shape(taxon_id, literal)
+    _require_label_shape(taxon_id, literal)
     annotation = Annotation(
         recording_id=recording.id,
-        source=AnnotationSource.COMMENT,
+        source=AnnotationSource.LABEL,
         time_start_s=time_start_s,
         time_end_s=time_end_s,
         freq_min_hz=freq_min_hz,
@@ -66,21 +66,21 @@ def create_comment_annotation(
     return annotation
 
 
-def update_comment_annotation(
+def update_label_annotation(
     session: OrmSession,
     annotation: Annotation,
     *,
     taxon_id: int | None,
     literal: str | None,
 ) -> None:
-    _require_comment_source(annotation)
-    _require_comment_shape(taxon_id, literal)
+    _require_label_source(annotation)
+    _require_label_shape(taxon_id, literal)
     annotation.taxon_id = taxon_id
     annotation.literal = literal
     session.commit()
 
 
-def delete_comment_annotation(session: OrmSession, annotation: Annotation) -> None:
-    _require_comment_source(annotation)
+def delete_label_annotation(session: OrmSession, annotation: Annotation) -> None:
+    _require_label_source(annotation)
     session.delete(annotation)
     session.commit()

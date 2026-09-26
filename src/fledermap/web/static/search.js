@@ -23,7 +23,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   helpBtn.addEventListener("click", openHelp);
   closeBtn.addEventListener("click", closeHelp);
-  // Unlike the comment popup's backdrop (recording_detail.js), this modal holds no
+  // Unlike the label popup's backdrop (recording_detail.js), this modal holds no
   // in-progress draft that a stray click could discard -- backdrop-click-to-dismiss is safe here.
   backdrop.addEventListener("click", closeHelp);
 });

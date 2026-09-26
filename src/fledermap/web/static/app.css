@@ -863,7 +863,7 @@ button:disabled { cursor: default; opacity: 0.5; }
 .detail-spectrogram-wrap.tool-default.dragging { cursor: grabbing; }
 .detail-spectrogram-wrap.tool-ruler { cursor: crosshair; }
 .detail-spectrogram-wrap.tool-select { cursor: crosshair; }
-.detail-spectrogram-wrap.tool-comment { cursor: crosshair; }
+.detail-spectrogram-wrap.tool-label { cursor: crosshair; }
 .selection-box {
   position: absolute;
   top: 0;
@@ -1063,10 +1063,10 @@ button:disabled { cursor: default; opacity: 0.5; }
 /* Annotation overlay -- boxes/points are children of `wrap` (same as .ruler-box), positioned in
    native px via annotation_geometry.js's annotationBoxPx/annotationPointPx. pointer-events is
    `none` by default: an annotation must never intercept Default's click-to-play/drag-to-pan or
-   Ruler's drag-to-measure, and must not even change the cursor under any tool but Comment
-   (recording_detail.js toggles a `comment-interactive` class on `wrap` while the Comment tool is
+   Ruler's drag-to-measure, and must not even change the cursor under any tool but Label
+   (recording_detail.js toggles a `label-interactive` class on `wrap` while the Label tool is
    active, which re-enables pointer-events on .annotation-box/.annotation-point -- but only for
-   `comment`-source elements, see the rule below). */
+   `label`-source elements, see the rule below). */
 .annotation-box, .annotation-point {
   position: absolute;
   pointer-events: none;
@@ -1092,7 +1092,7 @@ button:disabled { cursor: default; opacity: 0.5; }
 }
 /* A classifier detection below the operator's configured species-confidence threshold is still
    shown (the model DID detect a call there), but visually marked provisional -- the call is real,
-   the species guess is the part that's unconfirmed. Comment annotations never get this class
+   the species guess is the part that's unconfirmed. Label annotations never get this class
    (isBelowThreshold is always false when a source has no configured threshold). */
 .annotation-box.below-threshold {
   border-style: dashed;
@@ -1112,14 +1112,14 @@ button:disabled { cursor: default; opacity: 0.5; }
 .annotation-point.below-threshold {
   border-style: dashed;
 }
-/* Only `comment`-source elements become clickable under the Comment tool: only comment
+/* Only `label`-source elements become clickable under the Label tool: only label
    annotations are ever editable (recording_detail.js's renderAnnotations() only wires up
-   mousedown/click listeners for `annotation.source === "comment"`). A non-comment annotation
-   source (e.g. batdetect2's boxes) must stay click-through under every tool, Comment included,
+   mousedown/click listeners for `annotation.source === "label"`). A non-label annotation
+   source (e.g. batdetect2's boxes) must stay click-through under every tool, Label included,
    or its boxes would intercept clicks meant for the spectrogram while doing nothing when
    clicked themselves. */
-.comment-interactive .annotation-box[data-source="comment"],
-.comment-interactive .annotation-point[data-source="comment"] {
+.label-interactive .annotation-box[data-source="label"],
+.label-interactive .annotation-point[data-source="label"] {
   pointer-events: auto;
   cursor: pointer;
 }
@@ -1127,7 +1127,7 @@ button:disabled { cursor: default; opacity: 0.5; }
    to spot while scanning. Driven by a JS-toggled class (recording_detail.js's
    `updateAnnotationHover`, hit-tested from `wrap`'s own mousemove handler) rather than `:hover`
    itself, deliberately: `:hover` only fires where `pointer-events` is `auto`, which the rule above
-   restricts to `comment`-source boxes under the Comment tool -- this highlight is meant to work
+   restricts to `label`-source boxes under the Label tool -- this highlight is meant to work
    for any annotation under any tool, since (unlike a click) it never intercepts anything the
    active tool needs. */
 .annotation-box.annotation-hover {
@@ -1186,10 +1186,10 @@ button:disabled { cursor: default; opacity: 0.5; }
 }
 .layers-menu[hidden] { display: none; }
 
-/* Shared centered-modal-with-backdrop look, extracted 2026-09-25 as the comment popup's second
+/* Shared centered-modal-with-backdrop look, extracted 2026-09-25 as the label popup's second
    consumer (the search syntax help modal) arrived -- see the style guide's "promote on second
    use" rule. `.modal-backdrop` intercepts every click behind it by default; a consumer that wants
-   backdrop-click-to-dismiss wires that itself (the comment popup deliberately does NOT, to avoid
+   backdrop-click-to-dismiss wires that itself (the label popup deliberately does NOT, to avoid
    losing an in-progress draft to a stray click -- see recording_detail.js's comment). */
 .modal-backdrop {
   position: fixed;
@@ -1202,7 +1202,7 @@ button:disabled { cursor: default; opacity: 0.5; }
 .modal {
   /* `inset: 0; margin: auto;`, not `top/left: 50%; transform: translate(-50%, -50%)` --
      `transform` would make this element the containing block for its own `position: fixed`
-     descendants, breaking `.comment-popup-species-suggestions`'s deliberate escape from this
+     descendants, breaking `.label-popup-species-suggestions`'s deliberate escape from this
      element's own `overflow-y: auto`. `height: fit-content` is required alongside `inset: 0` for
      the same reason: without it, `top`/`bottom` both `0` with default `auto` height resolves to
      "stretch to fill the inset gap" instead of shrink-wrapping content. */
@@ -1230,24 +1230,22 @@ button:disabled { cursor: default; opacity: 0.5; }
    selector. Without this explicit override, the element would stay visible even while `hidden`. */
 .modal[hidden] { display: none; }
 
-.comment-popup {
+.label-popup {
   width: 260px;
 }
-.comment-popup textarea {
-  resize: vertical;
-  min-height: 3em;
+#label-popup-text {
   font: inherit;
 }
-/* `position: fixed`, not `absolute` -- `.comment-popup` (its would-be containing block) is
+/* `position: fixed`, not `absolute` -- `.label-popup` (its would-be containing block) is
    itself `overflow-y: auto`, and an absolutely-positioned box that extends past the popup's own
    padding box still counts toward THAT element's scrollable overflow even though it's a sibling's
    dropdown, not popup content -- opening the list showed two nested scrollbars (found live:
    Janna, 2026-09-24). `position: fixed` escapes that ancestor entirely, the same reason
    `.ruler-readout` is fixed rather than a child of the zoomed wrap; recording_detail.js positions
    it explicitly (`left`/`top`/`width` from the input's own `getBoundingClientRect()`) whenever it
-   opens, and a z-index above `.comment-popup` itself keeps it drawn in front rather than possibly
+   opens, and a z-index above `.label-popup` itself keeps it drawn in front rather than possibly
    behind the popup's own edge. */
-.comment-popup-suggestions {
+.label-popup-suggestions {
   position: fixed;
   background: var(--color-bg);
   border: 1px solid var(--color-border);
@@ -1258,10 +1256,10 @@ button:disabled { cursor: default; opacity: 0.5; }
      growth from ever pushing the dropdown past the right edge of the viewport. */
   max-width: calc(100vw - 16px);
   overflow-y: auto;
-  z-index: 1003; /* above .comment-popup (1002) */
+  z-index: 1003; /* above .label-popup (1002) */
 }
-.comment-popup-suggestions[hidden] { display: none; }
-.comment-popup-suggestions > div {
+.label-popup-suggestions[hidden] { display: none; }
+.label-popup-suggestions > div {
   padding: 2px 6px;
   cursor: pointer;
   /* A scientific name easily exceeds the species input's own width (it sets this dropdown's
@@ -1272,13 +1270,13 @@ button:disabled { cursor: default; opacity: 0.5; }
 /* Failed-request feedback (a non-2xx save/delete response, or the fetch itself rejecting) --
    same treatment as .classifier-error: a message the user can act on (retry, or give up and
    Cancel), shown inline rather than via the project's alert() fallback. */
-.comment-popup-error {
+.label-popup-error {
   margin: 0;
   font-size: 0.8rem;
   color: var(--color-warning);
 }
-.comment-popup-error[hidden] { display: none; }
-.comment-popup-actions {
+.label-popup-error[hidden] { display: none; }
+.label-popup-actions {
   display: flex;
   justify-content: flex-end;
   gap: 0.3rem;

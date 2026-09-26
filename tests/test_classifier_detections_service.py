@@ -7,7 +7,7 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import AnnotationSource, IdSource, Verdict
-from fledermap.services.annotations import create_comment_annotation
+from fledermap.services.annotations import create_label_annotation
 from fledermap.services.classifier_detections import (
     DetectionInput,
     MaterializeReport,
@@ -500,7 +500,7 @@ def test_purge_source_removes_annotations_for_that_source_only(engine: Engine) -
                 ),
             ],
         )
-        create_comment_annotation(
+        create_label_annotation(
             session,
             recording,
             time_start_s=2.0,
@@ -518,7 +518,7 @@ def test_purge_source_removes_annotations_for_that_source_only(engine: Engine) -
         assert report.annotations_removed == 1
         remaining = session.scalars(select(Annotation)).all()
         assert len(remaining) == 1
-        assert remaining[0].source == AnnotationSource.COMMENT
+        assert remaining[0].source == AnnotationSource.LABEL
 
 
 def test_materialize_claims_writes_a_noise_verdict_for_a_sentinel_label(
@@ -859,7 +859,7 @@ def test_record_detections_does_not_touch_other_recordings_or_sources_annotation
         session.commit()
 
         # A comment on the SAME recording as the batdetect2 run.
-        create_comment_annotation(
+        create_label_annotation(
             session,
             target,
             time_start_s=0.5,
@@ -912,9 +912,9 @@ def test_record_detections_does_not_touch_other_recordings_or_sources_annotation
         by_source_and_recording = {
             (a.source, a.recording_id): a for a in all_annotations
         }
-        assert (AnnotationSource.COMMENT, target.id) in by_source_and_recording
+        assert (AnnotationSource.LABEL, target.id) in by_source_and_recording
         assert (
-            by_source_and_recording[(AnnotationSource.COMMENT, target.id)].literal
+            by_source_and_recording[(AnnotationSource.LABEL, target.id)].literal
             == "do not delete me"
         )
         assert (AnnotationSource.BATDETECT2, other.id) in by_source_and_recording

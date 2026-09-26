@@ -249,12 +249,12 @@ document.addEventListener("DOMContentLoaded", () => {
   function annotationAtPoint(xPx, yPx) {
     // Later (later-rendered, i.e. later in the array) annotations paint on top, so hit-test from
     // the end -- an overlapping pair should highlight whichever one is actually visible on top.
-    // sortAnnotationsForPaint puts comments last regardless of DB insertion order, since only
-    // comments are user-editable and must win an overlap.
+    // sortAnnotationsForPaint puts labels last regardless of DB insertion order, since only
+    // labels are user-editable and must win an overlap.
     const ordered = sortAnnotationsForPaint(annotations);
     for (let i = ordered.length - 1; i >= 0; i--) {
       const annotation = ordered[i];
-      const forceVisible = annotation.source === "comment" && activeTool === "comment";
+      const forceVisible = annotation.source === "label" && activeTool === "label";
       if (!forceVisible && !isLayerVisible(annotation.source)) continue;
       if (!forceVisible && isBelowThreshold(annotation, classifierDisplayThresholds)) continue;
       if (annotationShape(annotation) === "point") {
@@ -278,7 +278,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // Purely a visual highlight (app.css's .annotation-hover), never gated by pointer-events/tool
-  // the way click-to-edit is -- hovering must work under every tool, not just Comment, since it
+  // the way click-to-edit is -- hovering must work under every tool, not just Label, since it
   // never intercepts anything the active tool needs.
   function updateAnnotationHover(annotation) {
     const id = annotation ? annotation.id : null;
@@ -345,7 +345,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // mousemove naturally re-applies the class if the cursor is still over the same annotation.
     hoveredAnnotationId = null;
     for (const annotation of sortAnnotationsForPaint(annotations)) {
-      const forceVisible = annotation.source === "comment" && activeTool === "comment";
+      const forceVisible = annotation.source === "label" && activeTool === "label";
       if (!forceVisible && !isLayerVisible(annotation.source)) continue;
       // Below the display threshold: stored (so materialize_claims/the species-confidence
       // threshold still sees it), but not drawn at all -- distinct from `below-threshold`
@@ -356,9 +356,9 @@ document.addEventListener("DOMContentLoaded", () => {
       const shape = annotationShape(annotation);
       const el = document.createElement("div");
       el.dataset.annotationId = String(annotation.id);
-      // Scopes app.css's `.comment-interactive` pointer-events re-enable to comment-source
-      // elements only -- a non-comment annotation source (e.g. batdetect2's boxes) must stay
-      // click-through under every tool, including Comment, since only comment annotations are
+      // Scopes app.css's `.label-interactive` pointer-events re-enable to label-source
+      // elements only -- a non-label annotation source (e.g. batdetect2's boxes) must stay
+      // click-through under every tool, including Label, since only label annotations are
       // ever editable via this popup.
       el.dataset.source = annotation.source;
       // Set once as a custom property, rather than directly on `background`/`border-color`
@@ -397,22 +397,22 @@ document.addEventListener("DOMContentLoaded", () => {
         label.textContent = lines.join("\n");
         // "pre", not "pre-line": pre-line still soft-wraps a long line when the box is
         // narrow, which line-wrapped a label mid-word. These labels are short and meant
-        // to stay on one line per `\n`-separated piece (species line, literal/comment line).
+        // to stay on one line per `\n`-separated piece (species line, literal/label text line).
         label.style.whiteSpace = "pre";
         el.appendChild(label);
       }
 
       annotationLayer.appendChild(el);
 
-      if (annotation.source === "comment") {
+      if (annotation.source === "label") {
         el.addEventListener("mousedown", (event) => {
-          if (activeTool !== "comment") return;
+          if (activeTool !== "label") return;
           event.stopPropagation();
         });
         el.addEventListener("click", (event) => {
-          if (activeTool !== "comment") return;
+          if (activeTool !== "label") return;
           event.stopPropagation();
-          openCommentPopupForEdit(annotation);
+          openLabelPopupForEdit(annotation);
         });
       }
     }
@@ -426,10 +426,10 @@ document.addEventListener("DOMContentLoaded", () => {
   // `activeTool` exists, itself calls renderAnnotations() as part of every tool switch, which
   // covers the first render for free -- no separate bootstrap call needed.
 
-  // Comment tool: popup state and CRUD wiring (design spec section on the Comment tool, section
+  // Label tool: popup state and CRUD wiring (design spec section on the Label tool, section
   // 4.5's required post-implementation UX check). A centered MODAL with a backdrop, not an
   // anchored floating-readout like crosshair/ruler: the anchored popup this originally shipped
-  // with (a) never actually anchored anywhere -- `.comment-popup` had no `position: fixed`, so
+  // with (a) never actually anchored anywhere -- `.label-popup` had no `position: fixed`, so
   // its `style.left`/`style.top` (set from click coordinates) had no effect and it rendered
   // wherever normal document flow put it -- and (b), once that was fixed, still clipped
   // off-screen at a viewport edge with no flip/clamp logic (found during live verification
@@ -440,15 +440,15 @@ document.addEventListener("DOMContentLoaded", () => {
   // draft's never-cleared text/species -- the note you were typing for one point could end up
   // attached to a different one with no warning. The backdrop makes that impossible: while the
   // modal is open, every click over the spectrogram hits the backdrop, not `wrap`.
-  const commentPopup = document.getElementById("comment-popup");
-  const commentPopupBackdrop = document.getElementById("comment-popup-backdrop");
-  const commentSpeciesInput = document.getElementById("comment-popup-species-input");
-  const commentSpeciesSuggestions = document.getElementById("comment-popup-species-suggestions");
-  const commentText = document.getElementById("comment-popup-text");
-  const commentDeleteBtn = document.getElementById("comment-popup-delete");
-  const commentCancelBtn = document.getElementById("comment-popup-cancel");
-  const commentSaveBtn = document.getElementById("comment-popup-save");
-  const commentErrorEl = document.getElementById("comment-popup-error");
+  const labelPopup = document.getElementById("label-popup");
+  const labelPopupBackdrop = document.getElementById("label-popup-backdrop");
+  const labelSpeciesInput = document.getElementById("label-popup-species-input");
+  const labelSpeciesSuggestions = document.getElementById("label-popup-species-suggestions");
+  const labelText = document.getElementById("label-popup-text");
+  const labelDeleteBtn = document.getElementById("label-popup-delete");
+  const labelCancelBtn = document.getElementById("label-popup-cancel");
+  const labelSaveBtn = document.getElementById("label-popup-save");
+  const labelErrorEl = document.getElementById("label-popup-error");
 
   let pendingDraft = null; // { time_start_s, time_end_s, freq_min_hz, freq_max_hz } while creating
   let editingAnnotationId = null; // set while editing an existing annotation, else null
@@ -466,101 +466,101 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function updateSaveEnabled() {
-    commentSaveBtn.disabled = !selectedTaxonId && commentText.value.trim() === "";
+    labelSaveBtn.disabled = !selectedTaxonId && labelText.value.trim() === "";
   }
-  commentText.addEventListener("input", updateSaveEnabled);
+  labelText.addEventListener("input", updateSaveEnabled);
 
-  function closeCommentPopup() {
-    commentPopup.hidden = true;
-    commentPopupBackdrop.hidden = true;
-    document.removeEventListener("keydown", onCommentPopupKeydown);
+  function closeLabelPopup() {
+    labelPopup.hidden = true;
+    labelPopupBackdrop.hidden = true;
+    document.removeEventListener("keydown", onLabelPopupKeydown);
     pendingDraft = null;
     editingAnnotationId = null;
     selectedTaxonId = null;
-    commentSpeciesInput.value = "";
-    commentText.value = "";
-    commentSpeciesSuggestions.hidden = true;
-    commentErrorEl.hidden = true;
+    labelSpeciesInput.value = "";
+    labelText.value = "";
+    labelSpeciesSuggestions.hidden = true;
+    labelErrorEl.hidden = true;
     // Reset in case a request was still in flight (e.g. Escape pressed before the response
     // arrived) -- the next open re-derives the real disabled state via updateSaveEnabled().
-    commentSaveBtn.disabled = false;
-    commentDeleteBtn.disabled = false;
+    labelSaveBtn.disabled = false;
+    labelDeleteBtn.disabled = false;
   }
 
   // Escape is a deliberate keypress, unlike a stray click on the backdrop -- the backdrop
   // itself has no click-to-dismiss handler (see the section comment above for why), but Escape
   // is still offered as the standard modal-dismiss affordance.
-  function onCommentPopupKeydown(event) {
-    if (event.key === "Escape") closeCommentPopup();
+  function onLabelPopupKeydown(event) {
+    if (event.key === "Escape") closeLabelPopup();
   }
 
-  function openCommentModal() {
-    commentPopup.hidden = false;
-    commentPopupBackdrop.hidden = false;
-    document.addEventListener("keydown", onCommentPopupKeydown);
+  function openLabelModal() {
+    labelPopup.hidden = false;
+    labelPopupBackdrop.hidden = false;
+    document.addEventListener("keydown", onLabelPopupKeydown);
   }
 
-  commentSpeciesInput.addEventListener("input", () => {
+  labelSpeciesInput.addEventListener("input", () => {
     selectedTaxonId = null;
     updateSaveEnabled();
-    const query = commentSpeciesInput.value.trim();
-    commentSpeciesSuggestions.innerHTML = "";
+    const query = labelSpeciesInput.value.trim();
+    labelSpeciesSuggestions.innerHTML = "";
     if (query === "") {
-      commentSpeciesSuggestions.hidden = true;
+      labelSpeciesSuggestions.hidden = true;
       return;
     }
     const matches = taxonSearchIndex.filter((t) => matchesQuery(t, query)).slice(0, 8);
-    commentSpeciesSuggestions.hidden = matches.length === 0;
+    labelSpeciesSuggestions.hidden = matches.length === 0;
     // `position: fixed` (app.css) needs an explicit screen position -- computed fresh on every
     // keystroke rather than once on focus, since nothing else repositions it and the input's own
     // rect can't move while the modal is open anyway, so this is cheap and always correct.
     if (matches.length > 0) {
-      const inputRect = commentSpeciesInput.getBoundingClientRect();
-      commentSpeciesSuggestions.style.left = `${inputRect.left}px`;
-      commentSpeciesSuggestions.style.top = `${inputRect.bottom}px`;
+      const inputRect = labelSpeciesInput.getBoundingClientRect();
+      labelSpeciesSuggestions.style.left = `${inputRect.left}px`;
+      labelSpeciesSuggestions.style.top = `${inputRect.bottom}px`;
       // `min-width`, not `width`: the species input is narrower than most scientific names, and
       // a fixed `width` equal to it forced every longer name to wrap mid-word. `min-width` keeps
       // the dropdown at least as wide as the input for a short/empty query, while
       // `white-space: nowrap` (app.css) plus the element's own natural shrink-to-fit sizing lets
       // it grow to whatever the longest visible match actually needs.
-      commentSpeciesSuggestions.style.minWidth = `${inputRect.width}px`;
+      labelSpeciesSuggestions.style.minWidth = `${inputRect.width}px`;
     }
     for (const taxon of matches) {
       const item = document.createElement("div");
       item.textContent = taxon.scientific_name;
       item.addEventListener("click", () => {
         selectedTaxonId = taxon.id;
-        commentSpeciesInput.value = taxon.scientific_name;
-        commentSpeciesSuggestions.hidden = true;
+        labelSpeciesInput.value = taxon.scientific_name;
+        labelSpeciesSuggestions.hidden = true;
         updateSaveEnabled();
       });
-      commentSpeciesSuggestions.appendChild(item);
+      labelSpeciesSuggestions.appendChild(item);
     }
   });
   // Mouse-driven dismiss for the suggestions dropdown alone (Escape closes the whole modal, see
-  // onCommentPopupKeydown above -- deliberately not duplicated here as a second, narrower Escape
+  // onLabelPopupKeydown above -- deliberately not duplicated here as a second, narrower Escape
   // handler). Same outside-click pattern as the Layers menu's own listener earlier in this file.
   document.addEventListener("click", (event) => {
     if (
-      !commentSpeciesSuggestions.hidden &&
-      !commentSpeciesSuggestions.contains(event.target) &&
-      event.target !== commentSpeciesInput
+      !labelSpeciesSuggestions.hidden &&
+      !labelSpeciesSuggestions.contains(event.target) &&
+      event.target !== labelSpeciesInput
     ) {
-      commentSpeciesSuggestions.hidden = true;
+      labelSpeciesSuggestions.hidden = true;
     }
   });
 
-  commentCancelBtn.addEventListener("click", closeCommentPopup);
+  labelCancelBtn.addEventListener("click", closeLabelPopup);
 
-  commentDeleteBtn.addEventListener("click", () => {
+  labelDeleteBtn.addEventListener("click", () => {
     if (editingAnnotationId === null) return;
     // Captured now, not read back out of `editingAnnotationId` inside `.then` below -- closing
     // the popup (e.g. Escape) before the response arrives resets that variable to null, which
     // would otherwise make the deletion silently no-op against the in-memory `annotations` array
     // even though the row is already gone server-side.
     const id = editingAnnotationId;
-    commentDeleteBtn.disabled = true;
-    commentSaveBtn.disabled = true;
+    labelDeleteBtn.disabled = true;
+    labelSaveBtn.disabled = true;
     fetch(`${recordingAnnotationsUrl}/${id}`, { method: "DELETE" })
       .then((response) => {
         if (!response.ok) {
@@ -571,26 +571,26 @@ document.addEventListener("DOMContentLoaded", () => {
         annotations = annotations.filter((a) => a.id !== id);
         rebuildLayersMenu();
         renderAnnotations();
-        closeCommentPopup();
+        closeLabelPopup();
       })
       .catch((error) => {
-        commentErrorEl.textContent = `Could not delete: ${error.message}`;
-        commentErrorEl.hidden = false;
-        commentDeleteBtn.disabled = false;
+        labelErrorEl.textContent = `Could not delete: ${error.message}`;
+        labelErrorEl.hidden = false;
+        labelDeleteBtn.disabled = false;
         updateSaveEnabled();
       });
   });
 
-  commentSaveBtn.addEventListener("click", () => {
-    const literal = commentText.value.trim() || null;
+  labelSaveBtn.addEventListener("click", () => {
+    const literal = labelText.value.trim() || null;
     const taxonId = selectedTaxonId;
     // Same reasoning as the Delete handler above: capture before the request, not read back out
     // of the `let` afterwards.
     const id = editingAnnotationId;
     // Disabling Save up front also stops a fast double-click from firing two identical requests
     // (two POSTs would create two duplicate annotations; two PATCHes are merely redundant).
-    commentSaveBtn.disabled = true;
-    commentDeleteBtn.disabled = true;
+    labelSaveBtn.disabled = true;
+    labelDeleteBtn.disabled = true;
     const request =
       id !== null
         ? fetch(`${recordingAnnotationsUrl}/${id}`, {
@@ -620,17 +620,17 @@ document.addEventListener("DOMContentLoaded", () => {
           rebuildLayersMenu();
         }
         renderAnnotations();
-        closeCommentPopup();
+        closeLabelPopup();
       })
       .catch((error) => {
-        commentErrorEl.textContent = `Could not save: ${error.message}`;
-        commentErrorEl.hidden = false;
+        labelErrorEl.textContent = `Could not save: ${error.message}`;
+        labelErrorEl.hidden = false;
         updateSaveEnabled();
-        commentDeleteBtn.disabled = false;
+        labelDeleteBtn.disabled = false;
       });
   });
 
-  function openCommentPopupForCreate(draft) {
+  function openLabelPopupForCreate(draft) {
     editingAnnotationId = null;
     pendingDraft = draft;
     // Defense in depth alongside the backdrop (see the section comment above): even though the
@@ -638,24 +638,24 @@ document.addEventListener("DOMContentLoaded", () => {
     // clearing any leftover species/text here means a stale draft can never surface even if this
     // is reached some other way in the future.
     selectedTaxonId = null;
-    commentSpeciesInput.value = "";
-    commentText.value = "";
-    commentSpeciesSuggestions.hidden = true;
-    commentDeleteBtn.hidden = true;
+    labelSpeciesInput.value = "";
+    labelText.value = "";
+    labelSpeciesSuggestions.hidden = true;
+    labelDeleteBtn.hidden = true;
     updateSaveEnabled();
-    openCommentModal();
+    openLabelModal();
   }
 
-  function openCommentPopupForEdit(annotation) {
+  function openLabelPopupForEdit(annotation) {
     editingAnnotationId = annotation.id;
     pendingDraft = null;
     const taxon = annotation.taxon_id !== null ? taxonById.get(annotation.taxon_id) : null;
     selectedTaxonId = annotation.taxon_id;
-    commentSpeciesInput.value = taxon ? taxon.scientific_name : "";
-    commentText.value = annotation.literal || "";
-    commentDeleteBtn.hidden = false;
+    labelSpeciesInput.value = taxon ? taxon.scientific_name : "";
+    labelText.value = annotation.literal || "";
+    labelDeleteBtn.hidden = false;
     updateSaveEnabled();
-    openCommentModal();
+    openLabelModal();
   }
 
   // Shrink-to-fit (backlog "Eliminate vertical scrollbar"): `main.main-content` scrolls
@@ -1281,7 +1281,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   let pendingDragBox = null;
 
-  function updateCommentDragBox(dragStart, event) {
+  function updateLabelDragBox(dragStart, event) {
     const rect = wrap.getBoundingClientRect();
     const scrollDriftPx = scrollEl.scrollLeft - dragStart.scrollLeft;
     // mousemove/mouseup are tracked on `document`, not `wrap` (see the shared drag-vs-click state
@@ -1340,8 +1340,8 @@ document.addEventListener("DOMContentLoaded", () => {
     wrap.classList.toggle("tool-default", tool === "default");
     wrap.classList.toggle("tool-ruler", tool === "ruler");
     wrap.classList.toggle("tool-select", tool === "select");
-    wrap.classList.toggle("tool-comment", tool === "comment");
-    wrap.classList.toggle("comment-interactive", tool === "comment");
+    wrap.classList.toggle("tool-label", tool === "label");
+    wrap.classList.toggle("label-interactive", tool === "label");
     clearRulerBox();
     // Avoids clearing the selection you're actively mid-drag-creating the instant you click the
     // Select button itself -- setActiveTool("select") runs once, on the click that activates the
@@ -1489,10 +1489,10 @@ document.addEventListener("DOMContentLoaded", () => {
       },
       onDragEnd() {},
     },
-    comment: {
+    label: {
       onClick(event) {
         const rect = wrap.getBoundingClientRect();
-        // Clamped for the same reason as updateCommentDragBox above: `event` here comes through
+        // Clamped for the same reason as updateLabelDragBox above: `event` here comes through
         // the document-level mouseup listener, not a `wrap`-scoped one.
         const { x: xPx, y: yPx } = clampToPlot(
           (event.clientX - rect.left) / currentScale,
@@ -1502,7 +1502,7 @@ document.addEventListener("DOMContentLoaded", () => {
         );
         const timeS = coords.xToS(xPx);
         const freqHz = coords.yToKhz(yPx) * 1000;
-        openCommentPopupForCreate({
+        openLabelPopupForCreate({
           time_start_s: timeS,
           time_end_s: timeS,
           freq_min_hz: freqHz,
@@ -1510,14 +1510,14 @@ document.addEventListener("DOMContentLoaded", () => {
         });
       },
       onDrag(event, dragStart) {
-        updateCommentDragBox(dragStart, event);
+        updateLabelDragBox(dragStart, event);
       },
       onDragEnd() {
         if (!pendingDragBox) return;
         const bounds = pendingDragBox.bounds;
         pendingDragBox.el.remove();
         pendingDragBox = null;
-        openCommentPopupForCreate(bounds);
+        openLabelPopupForCreate(bounds);
       },
     },
   };

@@ -109,7 +109,7 @@ test("annotationLabelLines shows the abbreviated species and rounded confidence"
   assert.deepEqual(annotationLabelLines(annotation, taxon), ["P. pipistrellus 82%"]);
 });
 
-test("annotationLabelLines omits confidence when the annotation has none (a comment)", () => {
+test("annotationLabelLines omits confidence when the annotation has none (a label)", () => {
   const annotation = { confidence: null, literal: null };
   const taxon = { scientific_name: "Pipistrellus pipistrellus" };
   assert.deepEqual(annotationLabelLines(annotation, taxon), ["P. pipistrellus"]);
@@ -138,9 +138,9 @@ test("isBelowThreshold is false exactly at the threshold", () => {
   assert.equal(isBelowThreshold({ source: "batdetect2", confidence: 0.8 }, thresholds), false);
 });
 
-test("isBelowThreshold is false when the source has no configured threshold (e.g. comment)", () => {
+test("isBelowThreshold is false when the source has no configured threshold (e.g. label)", () => {
   const thresholds = { batdetect2: 0.8 };
-  assert.equal(isBelowThreshold({ source: "comment", confidence: 0.1 }, thresholds), false);
+  assert.equal(isBelowThreshold({ source: "label", confidence: 0.1 }, thresholds), false);
 });
 
 test("isBelowThreshold is false when the annotation has no confidence", () => {
@@ -148,12 +148,12 @@ test("isBelowThreshold is false when the annotation has no confidence", () => {
   assert.equal(isBelowThreshold({ source: "batdetect2", confidence: null }, thresholds), false);
 });
 
-test("sortAnnotationsForPaint moves comment entries after every other source", () => {
+test("sortAnnotationsForPaint moves label entries after every other source", () => {
   const annotations = [
-    { id: 1, source: "comment" },
+    { id: 1, source: "label" },
     { id: 2, source: "batdetect2" },
     { id: 3, source: "batdetect2" },
-    { id: 4, source: "comment" },
+    { id: 4, source: "label" },
   ];
   const sorted = sortAnnotationsForPaint(annotations);
   assert.deepEqual(sorted.map((a) => a.id), [2, 3, 1, 4]);
@@ -164,14 +164,14 @@ test("sortAnnotationsForPaint leaves a single-source list unchanged", () => {
   assert.deepEqual(sortAnnotationsForPaint(annotations).map((a) => a.id), [1, 2]);
 });
 
-test("layerMenuSources puts comment first, batdetect2 next, others alphabetically after", () => {
+test("layerMenuSources puts label first, batdetect2 next, others alphabetically after", () => {
   assert.deepEqual(
-    layerMenuSources(["battybirdnet", "batdetect2", "comment"]),
-    ["comment", "batdetect2", "battybirdnet"],
+    layerMenuSources(["battybirdnet", "batdetect2", "label"]),
+    ["label", "batdetect2", "battybirdnet"],
   );
 });
 
 test("layerMenuSources handles a subset of sources", () => {
   assert.deepEqual(layerMenuSources(["batdetect2"]), ["batdetect2"]);
-  assert.deepEqual(layerMenuSources(["comment"]), ["comment"]);
+  assert.deepEqual(layerMenuSources(["label"]), ["label"]);
 });

@@ -14,10 +14,10 @@ from fledermap.domain.codes import AnnotationSource
 from fledermap.media.paths import preview_path
 from fledermap.media.preview import TIME_EXPANSION_FACTOR
 from fledermap.services.annotations import (
-    create_comment_annotation,
-    delete_comment_annotation,
+    create_label_annotation,
+    delete_label_annotation,
     list_annotations,
-    update_comment_annotation,
+    update_label_annotation,
 )
 from fledermap.services.classify_implications import lookup_mined_suggestions
 from fledermap.services.classify_suggestions import (
@@ -284,7 +284,7 @@ def _find_recording_or_404(session: OrmSession, audio_hash: str) -> Recording:
     return recording
 
 
-def _find_comment_annotation_or_404(
+def _find_label_annotation_or_404(
     session: OrmSession,
     recording: Recording,
     annotation_id: int,
@@ -292,7 +292,7 @@ def _find_comment_annotation_or_404(
     annotation = session.get(Annotation, annotation_id)
     if annotation is None or annotation.recording_id != recording.id:
         flask.abort(404)
-    if annotation.source != AnnotationSource.COMMENT:
+    if annotation.source != AnnotationSource.LABEL:
         flask.abort(404)
     return annotation
 
@@ -304,7 +304,7 @@ def post_annotation(audio_hash: str) -> flask.Response:
     with OrmSession(engine) as session:
         recording = _find_recording_or_404(session, audio_hash)
         try:
-            annotation = create_comment_annotation(
+            annotation = create_label_annotation(
                 session,
                 recording,
                 time_start_s=body.get("time_start_s"),
@@ -325,9 +325,9 @@ def patch_annotation(audio_hash: str, annotation_id: int) -> flask.Response:
     body = flask.request.get_json(silent=True) or {}
     with OrmSession(engine) as session:
         recording = _find_recording_or_404(session, audio_hash)
-        annotation = _find_comment_annotation_or_404(session, recording, annotation_id)
+        annotation = _find_label_annotation_or_404(session, recording, annotation_id)
         try:
-            update_comment_annotation(
+            update_label_annotation(
                 session,
                 annotation,
                 taxon_id=body.get("taxon_id"),
@@ -343,6 +343,6 @@ def delete_annotation(audio_hash: str, annotation_id: int) -> flask.Response:
     engine = flask.current_app.config["ENGINE"]
     with OrmSession(engine) as session:
         recording = _find_recording_or_404(session, audio_hash)
-        annotation = _find_comment_annotation_or_404(session, recording, annotation_id)
-        delete_comment_annotation(session, annotation)
+        annotation = _find_label_annotation_or_404(session, recording, annotation_id)
+        delete_label_annotation(session, annotation)
         return flask.jsonify({"ok": True})

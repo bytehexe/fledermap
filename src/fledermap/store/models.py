@@ -284,11 +284,11 @@ class Annotation(Base):
     `ck_annotation_has_bound` rejects the one truly invalid state: every bound null, an annotation
     pointing at nothing.
 
-    `taxon_id`/`confidence`/`literal` are all nullable on every source. For a `comment` row,
-    `services/annotations.py`'s `create_comment_annotation`/`update_comment_annotation` enforce
+    `taxon_id`/`confidence`/`literal` are all nullable on every source. For a `label` row,
+    `services/annotations.py`'s `create_label_annotation`/`update_label_annotation` enforce
     that at least one of `taxon_id`/`literal` is set (an annotation naming neither is pointless
-    data) -- not a DB constraint, since a future non-comment source may legitimately have
-    neither. `confidence` is classifier-only; nothing writes it for a `comment` row.
+    data) -- not a DB constraint, since a future non-label source may legitimately have
+    neither. `confidence` is classifier-only; nothing writes it for a `label` row.
     """
 
     __tablename__ = "annotation"

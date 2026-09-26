@@ -48,7 +48,7 @@
         <button type="button" class="tool-button playback-only" data-tool="default" aria-pressed="true">Default</button>
         <button type="button" class="tool-button playback-only" data-tool="ruler" aria-pressed="false">Ruler</button>
         <button type="button" class="tool-button playback-only" data-tool="select" aria-pressed="false">Select</button>
-        <button type="button" class="tool-button playback-only" data-tool="comment" aria-pressed="false">Comment</button>
+        <button type="button" class="tool-button playback-only" data-tool="label" aria-pressed="false">Label</button>
         <div class="layers-control playback-only">
           <button type="button" id="layers-button" title="Show/hide annotation layers" disabled>
             {{ icon("stack-2") }}
@@ -212,25 +212,25 @@
      when `fitDetailHeight` has shrunk the image itself to fit the viewport. #}
   <div id="ruler-readout" class="floating-readout ruler-readout" hidden></div>
   {# Modal, not an anchored floating-readout like crosshair/ruler above -- see the comment block
-     above `const commentPopup` in recording_detail.js for why: the anchored popup this originally
+     above `const labelPopup` in recording_detail.js for why: the anchored popup this originally
      shipped with clipped off-screen at a viewport edge with no flip/clamp logic, and had no
      backdrop to stop a click meant for a NEW spot on the spectrogram from silently reaching `wrap`
      and discarding/misattributing an in-progress draft. The backdrop intercepts every click over
      the spectrogram while a draft is open; it deliberately has no click-to-dismiss handler of its
      own -- only Cancel/Delete/Escape close the modal, so a draft can never be lost by an
      accidental click. #}
-  <div id="comment-popup-backdrop" class="modal-backdrop" hidden></div>
-  <div id="comment-popup" class="modal comment-popup" hidden>
-    <div class="comment-popup-species">
-      <input type="text" id="comment-popup-species-input" placeholder="Species (optional)" autocomplete="off">
-      <div id="comment-popup-species-suggestions" class="comment-popup-suggestions" hidden></div>
+  <div id="label-popup-backdrop" class="modal-backdrop" hidden></div>
+  <div id="label-popup" class="modal label-popup" hidden>
+    <div class="label-popup-species">
+      <input type="text" id="label-popup-species-input" placeholder="Species (optional)" autocomplete="off">
+      <div id="label-popup-species-suggestions" class="label-popup-suggestions" hidden></div>
     </div>
-    <textarea id="comment-popup-text" placeholder="Note (optional)"></textarea>
-    <p class="comment-popup-error" id="comment-popup-error" hidden></p>
-    <div class="comment-popup-actions">
-      <button type="button" id="comment-popup-delete" hidden>Delete</button>
-      <button type="button" id="comment-popup-cancel">Cancel</button>
-      <button type="button" id="comment-popup-save" disabled>Save</button>
+    <input type="text" id="label-popup-text" placeholder="Note (optional)">
+    <p class="label-popup-error" id="label-popup-error" hidden></p>
+    <div class="label-popup-actions">
+      <button type="button" id="label-popup-delete" hidden>Delete</button>
+      <button type="button" id="label-popup-cancel">Cancel</button>
+      <button type="button" id="label-popup-save" disabled>Save</button>
     </div>
   </div>
 {% endblock %}

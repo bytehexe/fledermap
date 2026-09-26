@@ -14,7 +14,7 @@ function normalizeDragBounds(startTimeS, endTimeS, startFreqHz, endFreqHz) {
 }
 
 // A point is where BOTH dimensions collapse to a single value (or are absent) -- a real range in
-// either dimension makes it a rect. Today's Comment tool always sets all four bounds together
+// either dimension makes it a rect. Today's Label tool always sets all four bounds together
 // (spec's Non-goals: the narrower single-dimension shape modes are a later follow-up), but this
 // treats a null bound as "collapsed" too so a future partially-bound annotation doesn't crash.
 function annotationShape(annotation) {
@@ -73,7 +73,7 @@ function clampToPlot(xPx, yPx, widthPx, heightPx) {
 }
 
 // The species line, abbreviated the same way as every annotation source, with confidence
-// appended for any source that carries one (comment annotations never set confidence, so their
+// appended for any source that carries one (label annotations never set confidence, so their
 // species line has no percentage). `taxon` is the recording-detail page's own lookup-by-id result
 // (null for an unmapped species, where `raw_label` -- if the annotation carries one -- is the only
 // name available); `literal` is a separate, free-text line, never merged into the species line.
@@ -95,8 +95,8 @@ function annotationLabelLines(annotation, taxon) {
 
 // Strictly below (`<`, not `<=`) the configured threshold for the annotation's own source --
 // matching `materialize_claims`'s own "clears the threshold" semantics elsewhere in this
-// codebase. A source with no configured threshold (comment) or an annotation with no confidence
-// (also comment) is never below-threshold; there is nothing to compare.
+// codebase. A source with no configured threshold (label) or an annotation with no confidence
+// (also label) is never below-threshold; there is nothing to compare.
 function isBelowThreshold(annotation, thresholds) {
   const threshold = thresholds[annotation.source];
   if (threshold === undefined) return false;
@@ -104,20 +104,20 @@ function isBelowThreshold(annotation, thresholds) {
   return annotation.confidence < threshold;
 }
 
-// A stable partition, not a sort by source name: every non-comment annotation keeps its original
-// relative order, followed by every comment annotation in its original relative order. Comments
+// A stable partition, not a sort by source name: every non-label annotation keeps its original
+// relative order, followed by every label annotation in its original relative order. Labels
 // must paint (and hit-test, since `annotationAtPoint` walks from the end) on top of any other
-// source, since only comments are ever user-editable via the popup.
+// source, since only labels are ever user-editable via the popup.
 function sortAnnotationsForPaint(annotations) {
-  const others = annotations.filter((a) => a.source !== "comment");
-  const comments = annotations.filter((a) => a.source === "comment");
-  return [...others, ...comments];
+  const others = annotations.filter((a) => a.source !== "label");
+  const labels = annotations.filter((a) => a.source === "label");
+  return [...others, ...labels];
 }
 
-// Comments lead the Layers menu, batdetect2 next, battybirdnet after that, anything else
+// Labels lead the Layers menu, batdetect2 next, battybirdnet after that, anything else
 // (a future source) alphabetically at the end -- not a plain alphabetical sort, which would put
-// "batdetect2" ahead of "comment".
-const _LAYER_MENU_PRIORITY = ["comment", "batdetect2", "battybirdnet"];
+// "batdetect2" ahead of "label".
+const _LAYER_MENU_PRIORITY = ["label", "batdetect2", "battybirdnet"];
 function layerMenuSources(sources) {
   return [...sources].sort((a, b) => {
     const ia = _LAYER_MENU_PRIORITY.indexOf(a);

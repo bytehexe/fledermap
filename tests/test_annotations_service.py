@@ -9,10 +9,10 @@ from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import AnnotationSource
 from fledermap.services.annotations import (
-    create_comment_annotation,
-    delete_comment_annotation,
+    create_label_annotation,
+    delete_label_annotation,
     list_annotations,
-    update_comment_annotation,
+    update_label_annotation,
 )
 from fledermap.store.models import Annotation, Recording, Taxon
 
@@ -36,7 +36,7 @@ def test_annotation_with_no_time_or_freq_bound_is_rejected(engine: Engine) -> No
         session.add(
             Annotation(
                 recording_id=recording.id,
-                source=AnnotationSource.COMMENT,
+                source=AnnotationSource.LABEL,
                 literal="orphan note",
                 created_at=datetime.now(UTC),
             ),
@@ -51,7 +51,7 @@ def test_deleting_a_recording_cascades_to_its_annotations(engine: Engine) -> Non
         session.add(
             Annotation(
                 recording_id=recording.id,
-                source=AnnotationSource.COMMENT,
+                source=AnnotationSource.LABEL,
                 time_start_s=1.0,
                 time_end_s=1.0,
                 literal="a call",
@@ -66,11 +66,11 @@ def test_deleting_a_recording_cascades_to_its_annotations(engine: Engine) -> Non
         assert session.get(Annotation, 1) is None
 
 
-def test_create_comment_annotation_requires_text_or_species(engine: Engine) -> None:
+def test_create_label_annotation_requires_text_or_species(engine: Engine) -> None:
     with OrmSession(engine) as session:
         recording = _recording(session, "c" * 64)
         with pytest.raises(ValueError, match="literal|taxon_id"):
-            create_comment_annotation(
+            create_label_annotation(
                 session,
                 recording,
                 time_start_s=1.0,
@@ -82,11 +82,11 @@ def test_create_comment_annotation_requires_text_or_species(engine: Engine) -> N
             )
 
 
-def test_create_comment_annotation_persists_a_point(engine: Engine) -> None:
+def test_create_label_annotation_persists_a_point(engine: Engine) -> None:
     with OrmSession(engine) as session:
         recording = _recording(session, "d" * 64)
 
-        created = create_comment_annotation(
+        created = create_label_annotation(
             session,
             recording,
             time_start_s=2.5,
@@ -100,18 +100,18 @@ def test_create_comment_annotation_persists_a_point(engine: Engine) -> None:
         rows = list_annotations(session, recording.id)
         assert len(rows) == 1
         assert rows[0].id == created.id
-        assert rows[0].source == AnnotationSource.COMMENT
+        assert rows[0].source == AnnotationSource.LABEL
         assert rows[0].literal == "buzz here"
         assert rows[0].taxon_id is None
 
 
-def test_update_comment_annotation_changes_text_and_species(engine: Engine) -> None:
+def test_update_label_annotation_changes_text_and_species(engine: Engine) -> None:
     with OrmSession(engine) as session:
         taxon = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
         session.add(taxon)
         session.flush()
         recording = _recording(session, "e" * 64)
-        created = create_comment_annotation(
+        created = create_label_annotation(
             session,
             recording,
             time_start_s=1.0,
@@ -122,7 +122,7 @@ def test_update_comment_annotation_changes_text_and_species(engine: Engine) -> N
             literal="social call?",
         )
 
-        update_comment_annotation(
+        update_label_annotation(
             session,
             created,
             taxon_id=taxon.id,
@@ -134,10 +134,10 @@ def test_update_comment_annotation_changes_text_and_species(engine: Engine) -> N
         assert rows[0].literal == "confirmed social call"
 
 
-def test_update_comment_annotation_rejects_clearing_both_fields(engine: Engine) -> None:
+def test_update_label_annotation_rejects_clearing_both_fields(engine: Engine) -> None:
     with OrmSession(engine) as session:
         recording = _recording(session, "f" * 64)
-        created = create_comment_annotation(
+        created = create_label_annotation(
             session,
             recording,
             time_start_s=1.0,
@@ -149,13 +149,13 @@ def test_update_comment_annotation_rejects_clearing_both_fields(engine: Engine) 
         )
 
         with pytest.raises(ValueError, match="literal|taxon_id"):
-            update_comment_annotation(session, created, taxon_id=None, literal=None)
+            update_label_annotation(session, created, taxon_id=None, literal=None)
 
 
-def test_delete_comment_annotation_removes_the_row(engine: Engine) -> None:
+def test_delete_label_annotation_removes_the_row(engine: Engine) -> None:
     with OrmSession(engine) as session:
         recording = _recording(session, "g" * 64)
-        created = create_comment_annotation(
+        created = create_label_annotation(
             session,
             recording,
             time_start_s=1.0,
@@ -166,13 +166,13 @@ def test_delete_comment_annotation_removes_the_row(engine: Engine) -> None:
             literal="delete me",
         )
 
-        delete_comment_annotation(session, created)
+        delete_label_annotation(session, created)
 
         assert list_annotations(session, recording.id) == []
 
 
-def test_update_comment_annotation_rejects_a_non_comment_source(engine: Engine) -> None:
-    """Written before any non-comment producer exists, so this guard is exercised now
+def test_update_label_annotation_rejects_a_non_label_source(engine: Engine) -> None:
+    """Written before any non-label producer exists, so this guard is exercised now
     rather than only once a future batdetect2 producer's rows are at risk."""
     with OrmSession(engine) as session:
         recording = _recording(session, "h" * 64)
@@ -189,9 +189,9 @@ def test_update_comment_annotation_rejects_a_non_comment_source(engine: Engine) 
         session.add(detection)
         session.commit()
 
-        with pytest.raises(ValueError, match="comment"):
-            update_comment_annotation(
+        with pytest.raises(ValueError, match="label"):
+            update_label_annotation(
                 session, detection, taxon_id=None, literal="hijacked"
             )
-        with pytest.raises(ValueError, match="comment"):
-            delete_comment_annotation(session, detection)
+        with pytest.raises(ValueError, match="label"):
+            delete_label_annotation(session, detection)
