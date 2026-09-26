@@ -94,8 +94,10 @@ Given `(lat: float, lon: float, today: date, tz: tzinfo)`:
   try browser geolocation."
 - On success: `200` with JSON `{state, next_transition: {label, time_iso} | null, moon: {phase_name,
   illumination_pct} | null, extreme_latitude: "always_day" | "always_night" | null}`.
-  `next_transition`/`moon` are `null` together with a non-null `extreme_latitude`, since there's no
-  "next" transition and no meaningful state that day.
+  `next_transition` is `null` whenever `extreme_latitude` is non-null, since there's no "next"
+  sun transition that day. `moon` is independent of `extreme_latitude` — moon phase doesn't depend
+  on the sun's behaviour at a given latitude, so it's still populated for `always_night` (needed to
+  pick the right icon there) and `null` only for `always_day` (no moon-phase icon is shown then).
 
 ## Frontend widget
 
@@ -119,13 +121,15 @@ the widget area stays empty (matches "hidden, not an error").
 | `day` | Tabler `sun` (outline) | "Daylight" | "Sunset `HH:MM`" |
 | `dawn` | Tabler `sunrise` (outline) | "Dawn" | "Sunrise `HH:MM`" |
 | `dusk` | Tabler `sunset` (outline) | "Dusk" | "Night from `HH:MM`" (= today's `dusk` time) |
-| `night` | first-party moon-phase icon (see below) | "Night" | "`Phase name` · `NN`% lit · Dawn `HH:MM`" |
+| `night` | first-party moon-phase icon (see below) | "Night" | "Dawn `HH:MM`" |
 | `extreme_latitude: always_day` | Tabler `sun` (outline) | "Polar day" | *(none)* |
-| `extreme_latitude: always_night` | first-party moon-phase icon | "Polar night" | "`Phase name` · `NN`% lit" |
+| `extreme_latitude: always_night` | first-party moon-phase icon | "Polar night" | *(none)* |
 
-Moon phase/illumination only ever appears during `night` or `always_night` — exactly the state
-where it's decision-relevant (whether tonight's moon will suppress activity), matching the
-"only because we're already showing a sun/moon icon" scope decision above.
+No phase name or illumination percentage is spelled out in text — narrow sidebar real estate
+doesn't comfortably fit it alongside the timing info, which is the widget's primary job. The
+moon-phase icon itself (see below) is what conveys phase during `night`/`always_night`; the API
+still returns `phase_name`/`illumination_pct` (see "API" below) for the frontend to pick the right
+icon file, they're just not rendered as their own text.
 
 ## Moon phase icons
 
