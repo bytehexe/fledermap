@@ -66,6 +66,7 @@ class ParsedQuery:
     species_value: str | None = None
     annotation_source: IdSource | Literal["emt"] | None = None
     site_name: str | None = None
+    label_text: str | None = None
     verdict: Verdict | Literal["all", "unidentified"] | None = None
     is_favourite: bool = False
     is_flagged: bool = False
@@ -111,6 +112,7 @@ def parse_search_query(text: str) -> ParsedQuery:
     species_value: str | None = None
     annotation_source: IdSource | Literal["emt"] | None = None
     site_name: str | None = None
+    label_text: str | None = None
     verdict: Verdict | Literal["all", "unidentified"] | None = None
     is_favourite = False
     is_flagged = False
@@ -145,6 +147,8 @@ def parse_search_query(text: str) -> ParsedQuery:
                     free_text_terms.append(raw_token)
             elif field_name == "site":
                 site_name = value
+            elif field_name == "label":
+                label_text = value
             elif field_name == "verdict":
                 try:
                     verdict = parse_verdict(value)
@@ -184,6 +188,7 @@ def parse_search_query(text: str) -> ParsedQuery:
         species_value=species_value,
         annotation_source=annotation_source,
         site_name=site_name,
+        label_text=label_text,
         verdict=verdict,
         is_favourite=is_favourite,
         is_flagged=is_flagged,
@@ -243,6 +248,22 @@ class SearchPage:
     warnings: list[str]
 
 
+def _recording_ids_with_label_text(session: OrmSession, term: str) -> set[int]:
+    """Recordings with at least one label annotation whose text contains `term` -- shared by
+    free text (one of the five OR'd targets below) and the dedicated `label:` field, which
+    narrows a search to just this one target instead of matching it alongside filenames, notes,
+    site names, and species names."""
+    pattern = f"%{_escape_ilike(term)}%"
+    return set(
+        session.scalars(
+            select(Annotation.recording_id).where(
+                Annotation.source == AnnotationSource.LABEL,
+                Annotation.literal.ilike(pattern),
+            ),
+        ).all(),
+    )
+
+
 def _free_text_matching_ids(session: OrmSession, term: str) -> set[int]:
     """Every recording id where `term` matches the filename (via `path`), a label annotation's
     text, the recording's own `note`, its site's name, or a species name attached to any of its
@@ -256,14 +277,7 @@ def _free_text_matching_ids(session: OrmSession, term: str) -> set[int]:
         ).all(),
     )
 
-    label_ids = set(
-        session.scalars(
-            select(Annotation.recording_id).where(
-                Annotation.source == AnnotationSource.LABEL,
-                Annotation.literal.ilike(pattern),
-            ),
-        ).all(),
-    )
+    label_ids = _recording_ids_with_label_text(session, term)
 
     note_ids = set(
         session.scalars(
@@ -371,6 +385,10 @@ def search_recordings(
             ).all(),
         )
         candidates = [r for r in candidates if r.id in labeled_ids]
+
+    if parsed.label_text is not None:
+        label_text_ids = _recording_ids_with_label_text(session, parsed.label_text)
+        candidates = [r for r in candidates if r.id in label_text_ids]
 
     for tag in parsed.tags:
         tag_ids = _recording_ids_with_tag(session, tag)

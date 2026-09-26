@@ -17,7 +17,7 @@
       <input type="search" name="q" value="{{ q }}" placeholder='species:PIPPIP site:"Kleiner Wald"' autocomplete="off">
       <button type="button" id="search-help-btn" aria-label="Search syntax help">{{ icon("info-circle") }}</button>
     </form>
-    <p class="search-field-hint">Fields: species: annotation: site: verdict: is:favourite/flagged/labeled #tag</p>
+    <p class="search-field-hint">Fields: species: annotation: site: label: verdict: is:favourite/flagged/labeled #tag</p>
     <div id="search-results-wrapper">
       {% if warnings %}
       <ul class="search-warnings">
@@ -80,6 +80,7 @@
         <tr><td><code>species:"P. pipistrellus"</code></td><td>A species by its abbreviated scientific name</td></tr>
         <tr><td><code>annotation:bd2</code></td><td>Has a classification from batdetect2 (also <code>bbn</code>, <code>emt</code>, <code>manual</code>)</td></tr>
         <tr><td><code>site:"Kleiner Wald"</code></td><td>Recordings at a specific site</td></tr>
+        <tr><td><code>label:buzz</code></td><td>Recordings with a label whose text contains "buzz"</td></tr>
         <tr><td><code>verdict:species</code></td><td>Identified to species (also <code>no_id</code>, <code>noise</code>, <code>unidentified</code>, <code>all</code>)</td></tr>
         <tr><td><code>is:favourite</code></td><td>Favourites only (also <code>is:flagged</code>, <code>is:labeled</code>)</td></tr>
         <tr><td><code>#buzz</code></td><td>Recordings whose note contains the tag <code>#buzz</code> (also <code>#tag-with-hyphens</code>, <code>#tag:value</code>)</td></tr>

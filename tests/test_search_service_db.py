@@ -368,6 +368,49 @@ def test_site_field_filters_to_matching_site_name(engine: Engine) -> None:
     assert [r.id for r in page.rows] == [target.id]
 
 
+def test_label_field_filters_to_recordings_with_matching_label_text(
+    engine: Engine,
+) -> None:
+    with OrmSession(engine) as session:
+        target = _recording(session, audio_hash="a" * 64, path="a.wav")
+        other = _recording(session, audio_hash="b" * 64, path="b.wav")
+        session.add(
+            Annotation(
+                recording_id=target.id,
+                source=AnnotationSource.LABEL,
+                time_start_s=0.0,
+                literal="feeding buzz here",
+                created_at=datetime(2026, 9, 25, tzinfo=UTC),
+            ),
+        )
+        session.add(
+            Annotation(
+                recording_id=other.id,
+                source=AnnotationSource.LABEL,
+                time_start_s=0.0,
+                literal="unrelated note",
+                created_at=datetime(2026, 9, 25, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+        page = search_recordings(session, ParsedQuery(label_text="buzz"))
+
+    assert [r.id for r in page.rows] == [target.id]
+
+
+def test_label_field_ignores_non_label_annotation_text(engine: Engine) -> None:
+    """`label:` must only ever match `AnnotationSource.LABEL` text -- a comment/annotation from
+    some other source containing the same word should not count."""
+    with OrmSession(engine) as session:
+        _recording(session, audio_hash="a" * 64, path="a.wav", note="#buzz")
+        session.commit()
+
+        page = search_recordings(session, ParsedQuery(label_text="buzz"))
+
+    assert page.rows == []
+
+
 def test_explicit_verdict_narrows_results(engine: Engine) -> None:
     with OrmSession(engine) as session:
         species_rec = _recording(session, audio_hash="a" * 64, path="a.wav")

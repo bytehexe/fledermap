@@ -76,6 +76,17 @@ def test_site_field_with_curly_quotes_parses_the_same_as_ascii_quotes() -> None:
     assert parsed.site_name == "Kleiner Wald"
 
 
+def test_label_field_unquoted() -> None:
+    parsed = parse_search_query("label:buzz")
+    assert parsed.label_text == "buzz"
+    assert parsed.free_text_terms == []
+
+
+def test_label_field_quoted() -> None:
+    parsed = parse_search_query('label:"feeding buzz"')
+    assert parsed.label_text == "feeding buzz"
+
+
 def test_verdict_field_valid() -> None:
     parsed = parse_search_query("verdict:species")
     assert parsed.verdict == Verdict.SPECIES
