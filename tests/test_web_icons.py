@@ -4,7 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from fledermap.web.icons import IconNotFoundError, make_icon_global
+from fledermap.services.sun import MoonPhaseBucket
+from fledermap.web.icons import (
+    IconNotFoundError,
+    make_icon_global,
+    make_moon_phase_icon_global,
+)
 
 
 def test_icon_reads_the_outline_file_by_default(tmp_path: Path) -> None:
@@ -47,3 +52,28 @@ def test_icon_raises_loudly_when_the_file_is_missing(tmp_path: Path) -> None:
 
     with pytest.raises(IconNotFoundError, match="nonexistent"):
         icon("nonexistent")
+
+
+def test_moon_phase_icon_reads_the_file_for_the_given_bucket(tmp_path: Path) -> None:
+    (tmp_path / "moon-phase-full.svg").write_text("<svg>full-moon</svg>")
+
+    moon_phase_icon = make_moon_phase_icon_global(tmp_path)
+
+    assert str(moon_phase_icon(MoonPhaseBucket.FULL)) == "<svg>full-moon</svg>"
+
+
+def test_moon_phase_icon_is_marked_safe_for_jinja_autoescape(tmp_path: Path) -> None:
+    from markupsafe import Markup
+
+    (tmp_path / "moon-phase-new.svg").write_text("<svg>x</svg>")
+
+    moon_phase_icon = make_moon_phase_icon_global(tmp_path)
+
+    assert isinstance(moon_phase_icon(MoonPhaseBucket.NEW), Markup)
+
+
+def test_moon_phase_icon_raises_loudly_when_the_file_is_missing(tmp_path: Path) -> None:
+    moon_phase_icon = make_moon_phase_icon_global(tmp_path)
+
+    with pytest.raises(IconNotFoundError, match="full"):
+        moon_phase_icon(MoonPhaseBucket.FULL)

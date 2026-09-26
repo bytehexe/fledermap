@@ -21,6 +21,8 @@ from pathlib import Path
 
 from markupsafe import Markup
 
+from fledermap.services.sun import MoonPhaseBucket
+
 
 class IconNotFoundError(Exception):
     """Raised when `icon()` is asked for a name/style pair that wasn't fetched as a vendor
@@ -47,3 +49,22 @@ def make_icon_global(vendor_dir: Path) -> Callable[..., Markup]:
         return Markup(path.read_text(encoding="utf-8"))
 
     return icon
+
+
+def make_moon_phase_icon_global(
+    icons_dir: Path,
+) -> Callable[[MoonPhaseBucket], Markup]:
+    """`icons_dir` is `src/fledermap/web/static/icons` -- checked-in first-party assets
+    (Task 5's generator script), NOT `vendor_dir` like `make_icon_global` above. These can't
+    live in the vendor-fetched directory: that directory's entire invariant is "these are
+    genuine files fetched from Tabler's CDN," and mixing in hand-generated ones would break
+    any future re-verification of it (design spec's "Moon phase icons" section)."""
+
+    def moon_phase_icon(bucket: MoonPhaseBucket) -> Markup:
+        path = icons_dir / f"moon-phase-{bucket.value}.svg"
+        if not path.exists():
+            msg = f"moon phase icon {bucket.value!r} not found at {path}"
+            raise IconNotFoundError(msg)
+        return Markup(path.read_text(encoding="utf-8"))
+
+    return moon_phase_icon
