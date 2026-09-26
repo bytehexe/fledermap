@@ -1,0 +1,13 @@
+{# Rendered by GET /rtc-widget (web/views/rtc.py) into #rtc-widget's innerHTML. Context:
+   `icon_name` (a Tabler outline icon name, or None when `moon_bucket` is set instead),
+   `moon_bucket` (a MoonPhaseBucket, or None when `icon_name` is set instead -- exactly one of
+   the two is ever set), `line1` (str), `line2` (str | None). #}
+<div class="rtc-widget-content">
+  <span class="rtc-icon">
+    {% if moon_bucket %}{{ moon_phase_icon(moon_bucket) }}{% else %}{{ icon(icon_name) }}{% endif %}
+  </span>
+  <div class="rtc-lines">
+    <div class="rtc-line1">{{ line1 }}</div>
+    {% if line2 %}<div class="rtc-line2">{{ line2 }}</div>{% endif %}
+  </div>
+</div>

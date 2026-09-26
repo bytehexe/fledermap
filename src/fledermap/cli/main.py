@@ -493,6 +493,9 @@ def serve(host: str | None, port: int | None) -> None:
         config.batdetect2_annotation_display_threshold,
         config.battybirdnet_annotation_display_threshold,
         config.noise_snr_threshold_db,
+        config.rtc_enabled,
+        config.latitude,
+        config.longitude,
     )
     app.run(
         host=host if host is not None else config.host,

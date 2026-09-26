@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.services.current_best import identification_label, recording_headline
 from fledermap.web.api.geojson import api_bp
-from fledermap.web.icons import make_icon_global
+from fledermap.web.icons import make_icon_global, make_moon_phase_icon_global
 from fledermap.web.params import detector_label
 from fledermap.web.timefmt import local_date, local_datetime, local_datetime_seconds
 from fledermap.web.views.entities import entities_bp
@@ -28,6 +28,7 @@ from fledermap.web.views.map import views_bp
 from fledermap.web.views.media import media_bp
 from fledermap.web.views.recording_detail import recording_detail_bp
 from fledermap.web.views.reviews import reviews_bp
+from fledermap.web.views.rtc import rtc_bp
 from fledermap.web.views.search import search_bp
 from fledermap.web.views.sessions import sessions_bp
 from fledermap.web.views.statistics import statistics_bp
@@ -64,6 +65,9 @@ def create_app(
     batdetect2_annotation_display_threshold: float = 0.20,
     battybirdnet_annotation_display_threshold: float = 0.20,
     noise_snr_threshold_db: float = 2.0,
+    rtc_enabled: bool = True,
+    latitude: float | None = None,
+    longitude: float | None = None,
 ) -> flask.Flask:
     """`static_root` is `Config.static_root` -- where
     `services/vendor_assets.py`'s `ensure_vendor_assets` fetches Leaflet/HTMX/Alpine.
@@ -135,6 +139,12 @@ def create_app(
         "battybirdnet": battybirdnet_annotation_display_threshold,
     }
     app.config["NOISE_SNR_THRESHOLD_DB"] = noise_snr_threshold_db
+    app.config["RTC_ENABLED"] = rtc_enabled
+    app.config["RTC_LOCATION"] = (
+        (latitude, longitude)
+        if latitude is not None and longitude is not None
+        else None
+    )
 
     with OrmSession(engine) as session:
         display_timezone_name: str = session.execute(
@@ -156,6 +166,10 @@ def create_app(
     app.jinja_env.globals["identification_label"] = identification_label
     app.jinja_env.globals["icon"] = make_icon_global(static_root / "vendor")
     app.jinja_env.globals["display_timezone_name"] = display_timezone_name
+    app.jinja_env.globals["moon_phase_icon"] = make_moon_phase_icon_global(
+        Path(__file__).parent / "static" / "icons"
+    )
+    app.jinja_env.globals["rtc_enabled"] = rtc_enabled
 
     vendor_bp = flask.Blueprint(
         "vendor",
@@ -173,4 +187,5 @@ def create_app(
     app.register_blueprint(statistics_bp)
     app.register_blueprint(reviews_bp)
     app.register_blueprint(search_bp)
+    app.register_blueprint(rtc_bp)
     return app
