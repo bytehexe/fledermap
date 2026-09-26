@@ -127,7 +127,7 @@ Notes on individual settings:
   separate in the database either way; this only changes what the UI shows. `emt.manual` (a
   human's on-device correction) is never folded in. Set to `false` to see each of the three
   sources on its own.
-- **`rtc_enabled`** (default `true`) enables the RTC (rise/transit/culmination) sidebar widget,
+- **`rtc_enabled`** (default `true`) enables the RTC (real time clock) sidebar widget,
   which displays sunrise/sunset and moon-phase calculations for astronomical planning. Set to
   `false` to hide the widget. Unlike `batdetect2_enabled`/`battybirdnet_enabled`, this defaults
   to `true` since it has no licensing or heavyweight-dependency concerns.
