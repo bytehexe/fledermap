@@ -16,9 +16,13 @@ document.addEventListener("htmx:afterRequest", function (evt) {
       var lon = position.coords.longitude;
       var url = "/rtc-widget?lat=" + lat + "&lon=" + lon;
       // Update the element's own hx-get so later polls also carry the coordinates,
-      // not just this one-off request. Without this, the next 5-minute poll uses the
+      // not just this one-off request. htmx captures hx-get into a closure the first time it
+      // processes an element and never re-reads the attribute for a running poll, so
+      // setAttribute alone is invisible to it -- htmx.process() re-runs that capture against
+      // the new attribute value. Without both calls, the next 5-minute poll still uses the
       // original bare hx-get, gets another 204, and retries geolocation.
       widget.setAttribute("hx-get", url);
+      window.htmx.process(widget);
       window.htmx.ajax("GET", url, {
         target: "#rtc-widget",
         swap: "innerHTML",
