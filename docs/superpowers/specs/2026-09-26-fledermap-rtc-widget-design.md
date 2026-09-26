@@ -120,7 +120,7 @@ the widget area stays empty (matches "hidden, not an error").
 | `dawn` | Tabler `sunrise` (outline) | "Dawn" | "Sunrise `HH:MM`" |
 | `dusk` | Tabler `sunset` (outline) | "Dusk" | "Night from `HH:MM`" (= today's `dusk` time) |
 | `night` | first-party moon-phase icon (see below) | "Night" | "`Phase name` · `NN`% lit · Dawn `HH:MM`" |
-| `extreme_latitude: always_day` | Tabler `sun` (outline) | "Sun doesn't set today" | *(none)* |
+| `extreme_latitude: always_day` | Tabler `sun` (outline) | "Polar day" | *(none)* |
 | `extreme_latitude: always_night` | first-party moon-phase icon | "Polar night" | "`Phase name` · `NN`% lit" |
 
 Moon phase/illumination only ever appears during `night` or `always_night` — exactly the state
