@@ -33,3 +33,28 @@ def test_map_page_loads_htmx_exactly_once(engine: Engine, tmp_path: Path) -> Non
     html = client.get("/").get_data(as_text=True)
 
     assert html.count("vendor/htmx.min.js") == 1
+
+
+def test_rtc_widget_container_is_present_when_enabled(
+    engine: Engine, tmp_path: Path
+) -> None:
+    app = create_app(engine, tmp_path / "static", tmp_path / "media", rtc_enabled=True)
+    client = app.test_client()
+
+    html = client.get("/statistics").get_data(as_text=True)
+
+    assert 'id="rtc-widget"' in html
+
+
+def test_rtc_widget_container_is_absent_when_disabled(
+    engine: Engine, tmp_path: Path
+) -> None:
+    """Review Focus case: disabling must mean the container never renders at all -- not just
+    that the route 404s while a dead container sits in the DOM (which would still mean the
+    browser issues the initial hx-get, just to a 404 instead of a 204)."""
+    app = create_app(engine, tmp_path / "static", tmp_path / "media", rtc_enabled=False)
+    client = app.test_client()
+
+    html = client.get("/statistics").get_data(as_text=True)
+
+    assert 'id="rtc-widget"' not in html

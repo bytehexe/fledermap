@@ -65,6 +65,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
   <script src="{{ url_for('vendor.static', filename='alpine.min.js') }}" defer></script>
   <script src="{{ url_for('vendor.static', filename='htmx.min.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='rtc.js') }}"></script>
 </head>
 <body{% block body_attrs %}{% endblock %}>
   {% include "_nav.html" %}

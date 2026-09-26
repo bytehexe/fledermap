@@ -1,0 +1,12 @@
+{# The RTC sidebar widget's htmx container (design spec 2026-09-26-fledermap-rtc-widget-design.md).
+   Included from _nav.html only when rtc_enabled is true -- that Jinja-level omission, not the
+   /rtc-widget route's 404, is what guarantees no navigator.geolocation call ever happens when
+   the feature is disabled. Visually hidden when the sidebar is collapsed via CSS
+   (#sidebar.collapsed .rtc-widget in app.css) -- collapsed/expanded is Alpine client state,
+   not something Jinja knows about at render time. #}
+<div id="rtc-widget"
+     class="rtc-widget"
+     hx-get="/rtc-widget"
+     hx-trigger="load, every 5m"
+     hx-swap="innerHTML">
+</div>
