@@ -703,6 +703,11 @@ button:disabled { cursor: default; opacity: 0.5; }
   border-radius: 6px;
 }
 .merge-badge { color: var(--color-warning); font-size: 0.8rem; }
+/* #search-filters has just two children (the query input, the Info button) -- growing the
+   input to fill the row (rather than its browser-default ~20ch size) is what makes the pair
+   together span the full filter-bar width, matching every other full-width control on the
+   page instead of leaving a large dead gap to the button's left. */
+#search-filters input[type="search"] { flex: 1; }
 .search-field-hint {
   color: var(--color-muted);
   font-size: 0.85rem;
@@ -746,6 +751,10 @@ button:disabled { cursor: default; opacity: 0.5; }
   font-size: 0.9rem;
 }
 .stacked-form textarea { min-height: 4.5rem; resize: vertical; }
+/* The 320px cap above suits session_detail.html's narrow sidebar column -- recording_details.html's
+   #note-section sits in the full-width main column instead, where the same cap left the note
+   textarea much narrower than the page around it for no layout reason. */
+#note-section .stacked-form textarea { max-width: none; }
 .stacked-form button { margin-top: 0.2rem; }
 #sessions-table, .entity-list { width: 100%; border-collapse: collapse; margin-top: 1rem; }
 #sessions-table th, #sessions-table td, .entity-list th, .entity-list td {

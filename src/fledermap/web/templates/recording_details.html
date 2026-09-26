@@ -201,6 +201,7 @@
     <p>Missing duration or sample-rate metadata for this recording — cannot render at a locked scale.</p>
     {% endif %}
 
+    <h2>Identification</h2>
     <div class="detail-identify-row">
       {% include "_identifications_box.html" %}
       {% include "_classifier_box.html" %}
@@ -248,7 +249,7 @@
     <div class="label-popup-actions">
       <button type="button" id="label-popup-delete" hidden>Delete</button>
       <button type="button" id="label-popup-cancel">Cancel</button>
-      <button type="button" id="label-popup-save" disabled>Save</button>
+      <button type="button" id="label-popup-save" class="button-primary" disabled>Save</button>
     </div>
   </div>
 {% endblock %}

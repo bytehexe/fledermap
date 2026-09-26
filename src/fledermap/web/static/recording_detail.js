@@ -498,6 +498,7 @@ document.addEventListener("DOMContentLoaded", () => {
     labelPopup.hidden = false;
     labelPopupBackdrop.hidden = false;
     document.addEventListener("keydown", onLabelPopupKeydown);
+    labelSpeciesInput.focus();
   }
 
   labelSpeciesInput.addEventListener("input", () => {
