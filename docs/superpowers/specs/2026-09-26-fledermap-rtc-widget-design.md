@@ -41,7 +41,7 @@ Three new `Config` fields/env vars, following the existing `_lookup`/`_KNOWN_FIL
 `ConfigError` pattern in `config.py`:
 
 - `FLEDERMAP_RTC_ENABLED` (bool, default `true`). `false` disables the feature outright: the
-  widget never renders, `/api/rtc` isn't reachable (see below), and — critically — the frontend
+  widget never renders, `/rtc-widget` isn't reachable (see below), and — critically — the frontend
   never calls `navigator.geolocation`, so no browser permission prompt appears even if latitude/
   longitude are also unset.
 - `FLEDERMAP_LATITUDE` / `FLEDERMAP_LONGITUDE` (floats). Both-or-neither: setting exactly one is a
@@ -81,38 +81,57 @@ Given `(lat: float, lon: float, today: date, tz: tzinfo)`:
   latitudes — unlikely given this project's EU/NA species scope, but not impossible). Caught and
   surfaced as a distinct state (see "Widget content" below) rather than propagated as a 500.
 
-## API (`web/api/rtc.py`)
+## Backend route (`web/views/rtc.py`, not `web/api/`)
 
-`GET /api/rtc?lat=<float>&lon=<float>` (both query params optional):
+**Correction from an earlier draft of this spec**, caught while writing the implementation plan:
+this originally specified a JSON-returning `/api/rtc` endpoint consumed by hand-rolled htmx-driven
+JS. But every existing `/api/*` route in this codebase (`web/api/geojson.py`) serves GeoJSON to
+Leaflet — a genuinely different consumer with its own parsing needs. Every htmx-consumed piece of
+content elsewhere in the app is a server-rendered HTML fragment from `web/views/` (e.g.
+`entities.py`'s `_site_panel.html`). A JSON API here would mean reinventing htmx's fragment-swap
+model with bespoke client-side JS for no reason, against the grain of the rest of the app. Fixed:
+this is a view route returning a rendered HTML fragment, and the state→icon/text mapping happens
+in Python/Jinja, not client-side JS.
 
-- If `FLEDERMAP_RTC_ENABLED` is false: `404` (the route doesn't meaningfully exist; the frontend
-  never calls it in this case regardless — see "Frontend" below).
-- If `Config.latitude`/`longitude` are set: compute using those, **ignoring** any `lat`/`lon` query
-  params (server config always wins).
-- Else if `lat`/`lon` query params are both present and valid: compute using those.
-- Else (`Config` unset, no query params): `204 No Content` — tells the frontend "no location yet,
-  try browser geolocation."
-- On success: `200` with JSON `{state, next_transition: {label, time_iso} | null, moon: {phase_name,
-  illumination_pct} | null, extreme_latitude: "always_day" | "always_night" | null}`.
-  `next_transition` is `null` whenever `extreme_latitude` is non-null, since there's no "next"
-  sun transition that day. `moon` is independent of `extreme_latitude` — moon phase doesn't depend
-  on the sun's behaviour at a given latitude, so it's still populated for `always_night` (needed to
-  pick the right icon there) and `null` only for `always_day` (no moon-phase icon is shown then).
+`GET /rtc-widget?lat=<float>&lon=<float>` (both query params optional; `rtc_bp`, its own blueprint,
+no `url_prefix`, registered alongside `views_bp` etc. in `create_app`):
+
+- If `app.config["RTC_ENABLED"]` is false: `404` (the route doesn't meaningfully exist; the
+  frontend never calls it in this case regardless — see "Frontend" below).
+- If `app.config["RTC_LOCATION"]` is set (from `Config.latitude`/`longitude`): compute using that,
+  **ignoring** any `lat`/`lon` query params (server config always wins).
+- Else if `lat`/`lon` query params are both present and parse as floats: compute using those.
+- Else (no configured location, no query params): `204 No Content` — htmx no-ops on `204` by
+  default (no swap, nothing rendered), so this doubles as both "no location yet, try browser
+  geolocation" and "nothing to show," with no separate empty-fragment case needed.
+- On success: `200` rendering `_rtc_content.html` (a small fragment, not a full page) with the
+  computed state, next-transition label/time, and (only for `night`/`always_night`) which
+  moon-phase icon file to use — all decided in `services/sun.py`/this view, not in the template
+  itself beyond picking which icon/text row to render (see the content table below).
 
 ## Frontend widget
 
-Lives in a new `_rtc.html` partial, included from `_nav.html` **only in the expanded sidebar
-state** (hidden entirely when collapsed — no icon-only fallback). htmx-driven:
-`hx-get="/api/rtc" hx-trigger="load, every 5m"`.
+Lives in a new `_rtc.html` partial (the sidebar's htmx-driven container), included from
+`_nav.html` unconditionally when `app.jinja_env.globals["rtc_enabled"]` is true (a Jinja `{% if
+%}`, checked once per render, not a runtime fetch that then no-ops) — this is what actually
+guarantees no geolocation prompt when the feature is disabled, rather than relying on the route's
+`404`. Visually hidden entirely when the sidebar is collapsed (CSS, `#sidebar.collapsed
+.rtc-widget { display: none; }` — the same mechanism `_nav.html`'s other collapsed-state rules
+already use, since "expanded vs. collapsed" is Alpine client state, not something Jinja knows at
+render time).
 
-If `FLEDERMAP_RTC_ENABLED` is false, `_nav.html` doesn't include `_rtc.html` at all (a
-Jinja-level `{% if %}`, not a runtime fetch that then no-ops) — this is what actually guarantees no
-geolocation prompt, rather than relying on the endpoint's 404.
+`_rtc.html` itself is just the container: `<div id="rtc-widget" hx-get="/rtc-widget"
+hx-trigger="load, every 5m" hx-swap="innerHTML"></div>`. A successful response replaces its
+contents with the rendered `_rtc_content.html` fragment (icon + text, per the table below); a
+`204` leaves it empty.
 
-On the initial load (no `lat`/`lon` params), a `204` response means "try geolocation": a small
-inline script calls `navigator.geolocation.getCurrentPosition`, and on success re-issues the htmx
-request with `lat`/`lon` appended. On denial/unavailability/timeout, no further request is made and
-the widget area stays empty (matches "hidden, not an error").
+On the initial load (no `lat`/`lon` params), an empty result (`204`) means "try geolocation": a
+small inline script listens for htmx's `htmx:afterRequest` on `#rtc-widget`, and if the response
+was `204` **and** this is the first attempt (a `data-geo-tried` flag, so a later 5-minute poll
+with genuinely no location configured doesn't re-prompt every cycle), calls
+`navigator.geolocation.getCurrentPosition`, then re-issues the htmx request with `lat`/`lon`
+appended on success. On denial/unavailability/timeout, no further request is made and the widget
+area stays empty (matches "hidden, not an error").
 
 **Content, one compact block, single icon + up to two lines of text:**
 
@@ -162,8 +181,11 @@ by a small dedicated helper alongside — but separate from — `icons.py`'s `ic
   surfaced as `extreme_latitude`, not propagated as an exception.
 - `tests/test_config.py`: the both-or-neither `latitude`/`longitude` validation, and
   `rtc_enabled`'s default/parsing.
-- The phase-bucket-to-icon-name mapping is a small pure function — covered by `node:test` if it
-  ends up in JS (state → icon name is presentational), or a plain Python unit test if it stays
-  server-side as part of the `/api/rtc` response shape (`phase_name` computed in `services/sun.py`,
-  icon file chosen client-side by name — no DOM/Leaflet involvement, so no live-Chrome
-  verification is needed for this feature at all).
+- The phase-bucket-to-icon-name mapping is a small pure function in `services/sun.py`, covered by
+  a plain Python unit test (not JS — the `GET /rtc-widget` view decides the icon file server-side,
+  same as every other Jinja-rendered decision in this app; no DOM/Leaflet involvement, so no
+  live-Chrome verification is needed for this feature at all).
+- `tests/test_rtc_view.py` (`pytest.mark.db`, since `create_app` always needs a real DB connection
+  to discover `DISPLAY_TIMEZONE` at startup — see "Timezone" above): the route's status-code
+  branching (enabled/disabled, configured vs. query-param vs. neither location, extreme latitude),
+  using Flask's test client, same style as `tests/test_geojson_api.py`.
