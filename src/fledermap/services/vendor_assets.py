@@ -257,6 +257,23 @@ ASSETS: tuple[VendorAsset, ...] = (
         sha256="445e1b53563ad7e089f94dee923c2ef3444c63d45294a733687471a76a3c3b8d",
         relative_path="icons/outline/x.svg",
     ),
+    # The RTC sidebar widget's sun/sunrise/sunset icons (outline style, design spec
+    # docs/superpowers/specs/2026-09-24-fledermap-rtc-widget-design.md)
+    VendorAsset(
+        url="https://unpkg.com/@tabler/icons@3.46.0/icons/outline/sun.svg",
+        sha256="1753d34d4c09f4a0e32afbb417defeded055a88f8ac33963556570a53a76dfa9",
+        relative_path="icons/outline/sun.svg",
+    ),
+    VendorAsset(
+        url="https://unpkg.com/@tabler/icons@3.46.0/icons/outline/sunrise.svg",
+        sha256="d8a1d0fe1234c36e36a3c495140afd18492a839594333a4d6bbdd6ec4a89a37e",
+        relative_path="icons/outline/sunrise.svg",
+    ),
+    VendorAsset(
+        url="https://unpkg.com/@tabler/icons@3.46.0/icons/outline/sunset.svg",
+        sha256="25431fccffcb87a215fa244956f87ee3b372c61fe9223bb325dc6fd1e95f88a0",
+        relative_path="icons/outline/sunset.svg",
+    ),
 )
 
 
