@@ -59,6 +59,9 @@ ENV_CLASSIFY_IMPLICATION_MIN_CONFIDENCE = (
     "FLEDERMAP_CLASSIFY_IMPLICATION_MIN_CONFIDENCE"
 )
 ENV_CLASSIFY_IMPLICATION_MIN_LIFT = "FLEDERMAP_CLASSIFY_IMPLICATION_MIN_LIFT"
+ENV_RTC_ENABLED = "FLEDERMAP_RTC_ENABLED"
+ENV_LATITUDE = "FLEDERMAP_LATITUDE"
+ENV_LONGITUDE = "FLEDERMAP_LONGITUDE"
 
 # Every key the config file is allowed to set -- one entry per `Config` field
 # that has a `FLEDERMAP_*` env var above. Checked in `_load_config_file` so a
@@ -91,6 +94,9 @@ _KNOWN_FILE_KEYS = frozenset(
         "static_root",
         "port",
         "host",
+        "rtc_enabled",
+        "latitude",
+        "longitude",
     },
 )
 
@@ -386,6 +392,14 @@ class Config:
     # flag typed at invocation time should always beat a standing default.
     port: int = 5000
     host: str = "127.0.0.1"
+    # RTC sidebar widget (design spec 2026-09-26-fledermap-rtc-widget-design.md). On by
+    # default -- unlike batdetect2/battybirdnet, there's no licensing/heavyweight-dependency
+    # reason to default it off.
+    rtc_enabled: bool = True
+    # Both-or-neither -- validated below. Server config always wins over browser geolocation
+    # when set, and no geolocation prompt is attempted in that case either.
+    latitude: float | None = None
+    longitude: float | None = None
 
     @classmethod
     def from_env(cls) -> Config:
@@ -896,6 +910,53 @@ class Config:
         else:
             host = _as_str(host_raw, _source_label(ENV_HOST, "host", config_path))
 
+        rtc_enabled_raw = _lookup(ENV_RTC_ENABLED, "rtc_enabled", file_values)
+        if rtc_enabled_raw is None:
+            rtc_enabled = True
+        elif isinstance(rtc_enabled_raw, bool):
+            rtc_enabled = rtc_enabled_raw
+        else:
+            label = _source_label(ENV_RTC_ENABLED, "rtc_enabled", config_path)
+            text = _as_str(rtc_enabled_raw, label).strip().lower()
+            if text in ("true", "1", "yes"):
+                rtc_enabled = True
+            elif text in ("false", "0", "no"):
+                rtc_enabled = False
+            else:
+                msg = f"{label}={rtc_enabled_raw!r} is not a boolean (true/false)."
+                raise ConfigError(msg)
+
+        latitude_raw = _lookup(ENV_LATITUDE, "latitude", file_values)
+        longitude_raw = _lookup(ENV_LONGITUDE, "longitude", file_values)
+        if (latitude_raw is None) != (longitude_raw is None):
+            msg = (
+                f"{ENV_LATITUDE}/{ENV_LONGITUDE} (or 'latitude'/'longitude' in "
+                f"{config_path}) must both be set or both be unset -- got only "
+                f"{'latitude' if latitude_raw is not None else 'longitude'}."
+            )
+            raise ConfigError(msg)
+        if latitude_raw is None or longitude_raw is None:
+            latitude = None
+            longitude = None
+        else:
+            lat_label = _source_label(ENV_LATITUDE, "latitude", config_path)
+            lon_label = _source_label(ENV_LONGITUDE, "longitude", config_path)
+            if isinstance(latitude_raw, bool) or isinstance(longitude_raw, bool):
+                msg = f"{lat_label}/{lon_label} must be numbers."
+                raise ConfigError(msg)
+            try:
+                latitude = float(latitude_raw)
+                longitude = float(longitude_raw)
+            except (TypeError, ValueError) as exc:
+                msg = f"{lat_label}={latitude_raw!r}/{lon_label}={longitude_raw!r} must be numbers."
+                raise ConfigError(msg) from exc
+            if not -90.0 <= latitude <= 90.0:
+                msg = f"{lat_label}={latitude_raw!r} is not between -90 and 90."
+                raise ConfigError(msg)
+            if not -180.0 <= longitude <= 180.0:
+                msg = f"{lon_label}={longitude_raw!r} is not between -180 and 180."
+                raise ConfigError(msg)
+
         poiidx_database_url_raw = _lookup(
             ENV_POIIDX_DATABASE_URL,
             "poiidx_database_url",
@@ -966,4 +1027,7 @@ class Config:
             site_naming_radius_m=site_naming_radius_m,
             port=port,
             host=host,
+            rtc_enabled=rtc_enabled,
+            latitude=latitude,
+            longitude=longitude,
         )

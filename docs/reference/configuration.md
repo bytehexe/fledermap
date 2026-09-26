@@ -43,6 +43,9 @@ also rejected at startup rather than silently ignored.
 | Mined-suggestion minimum support | `classify_implication_min_support` | `FLEDERMAP_CLASSIFY_IMPLICATION_MIN_SUPPORT` | no | `3` |
 | Mined-suggestion minimum confidence | `classify_implication_min_confidence` | `FLEDERMAP_CLASSIFY_IMPLICATION_MIN_CONFIDENCE` | no | `0.6` |
 | Mined-suggestion minimum lift | `classify_implication_min_lift` | `FLEDERMAP_CLASSIFY_IMPLICATION_MIN_LIFT` | no | `1.3` |
+| RTC sidebar widget enabled | `rtc_enabled` | `FLEDERMAP_RTC_ENABLED` | no | `true` |
+| Server latitude | `latitude` | `FLEDERMAP_LATITUDE` | no (both or neither) | unset |
+| Server longitude | `longitude` | `FLEDERMAP_LONGITUDE` | no (both or neither) | unset |
 
 Notes on individual settings:
 
@@ -124,6 +127,14 @@ Notes on individual settings:
   separate in the database either way; this only changes what the UI shows. `emt.manual` (a
   human's on-device correction) is never folded in. Set to `false` to see each of the three
   sources on its own.
+- **`rtc_enabled`** (default `true`) enables the RTC (rise/transit/culmination) sidebar widget,
+  which displays sunrise/sunset and moon-phase calculations for astronomical planning. Set to
+  `false` to hide the widget. Unlike `batdetect2_enabled`/`battybirdnet_enabled`, this defaults
+  to `true` since it has no licensing or heavyweight-dependency concerns.
+- **`latitude`/`longitude`** (both optional, must both be set or both be unset) configure a fixed
+  server-side location for RTC calculations. When set, this location is used instead of browser
+  geolocation. Latitude must be between -90 and 90; longitude must be between -180 and 180. Both
+  are decimal degrees (e.g. `51.5074` for north, `-0.1278` for west).
 
 ## Example config file
 

@@ -23,10 +23,13 @@ from fledermap.config import (
     ENV_DATABASE_URL,
     ENV_DEFAULT_TIMEZONE,
     ENV_HOST,
+    ENV_LATITUDE,
+    ENV_LONGITUDE,
     ENV_MEDIA_ROOT,
     ENV_NOISE_SNR_THRESHOLD_DB,
     ENV_POIIDX_DATABASE_URL,
     ENV_PORT,
+    ENV_RTC_ENABLED,
     ENV_SESSION_GAP_HOURS,
     ENV_SITE_EPS_M,
     ENV_SITE_MIN_POINTS,
@@ -1331,3 +1334,80 @@ def test_classify_implication_min_lift_is_configurable_via_env(
     monkeypatch.setenv(ENV_CLASSIFY_IMPLICATION_MIN_LIFT, "2.0")
     config = Config.from_env()
     assert config.classify_implication_min_lift == 2.0
+
+
+def test_rtc_enabled_defaults_to_true(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+    monkeypatch.delenv(ENV_RTC_ENABLED, raising=False)
+    config = Config.from_env()
+    assert config.rtc_enabled is True
+
+
+def test_rtc_enabled_can_be_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+    monkeypatch.setenv(ENV_RTC_ENABLED, "false")
+    config = Config.from_env()
+    assert config.rtc_enabled is False
+
+
+def test_latitude_and_longitude_default_to_none(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+    monkeypatch.delenv(ENV_LATITUDE, raising=False)
+    monkeypatch.delenv(ENV_LONGITUDE, raising=False)
+    config = Config.from_env()
+    assert config.latitude is None
+    assert config.longitude is None
+
+
+def test_latitude_and_longitude_are_configurable_together(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+    monkeypatch.setenv(ENV_LATITUDE, "51.5074")
+    monkeypatch.setenv(ENV_LONGITUDE, "-0.1278")
+    config = Config.from_env()
+    assert config.latitude == 51.5074
+    assert config.longitude == -0.1278
+
+
+@pytest.mark.parametrize(
+    "set_lat,set_lon",
+    [(True, False), (False, True)],
+)
+def test_latitude_and_longitude_are_both_or_neither(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    set_lat: bool,
+    set_lon: bool,
+) -> None:
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+    if set_lat:
+        monkeypatch.setenv(ENV_LATITUDE, "51.5074")
+    else:
+        monkeypatch.delenv(ENV_LATITUDE, raising=False)
+    if set_lon:
+        monkeypatch.setenv(ENV_LONGITUDE, "-0.1278")
+    else:
+        monkeypatch.delenv(ENV_LONGITUDE, raising=False)
+    with pytest.raises(ConfigError, match="latitude.*longitude|longitude.*latitude"):
+        Config.from_env()
