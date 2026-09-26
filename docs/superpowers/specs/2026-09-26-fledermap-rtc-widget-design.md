@@ -9,10 +9,10 @@ The Obsidian backlog's "RTC" ("real time clock") item asks for a sidebar app sho
 time relative to sunset/sunrise, with a sun/moon visual. Talking it through with Janna narrowed
 the actual value: not ambient decoration (she can look out the window to judge "right now"), but
 **planning** — today's sunset/dusk/dawn/sunrise window tells her when it's worth heading out to
-record tonight, before the fact. Since bats are lunarphobic, moon brightness is also directly
-relevant to that planning decision, not just visual flavour — but only worth computing *because*
-the widget already shows a sun/moon icon for current state; if it didn't, moon phase would be out
-of scope entirely.
+record tonight, before the fact. Moon brightness is included on the same planning basis, per
+Janna's own call, without this spec taking any position on how much it actually affects bat
+activity. It's only worth computing *because* the widget already shows a sun/moon icon for
+current state; if it didn't, moon phase would be out of scope entirely.
 
 ## Goals
 
