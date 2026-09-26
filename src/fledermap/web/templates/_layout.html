@@ -49,10 +49,10 @@
    alpine.min.js ...>` tags are removed from those 4 pages' own `scripts`
    blocks accordingly.
 
-   htmx.min.js moved here too, 2026-09-26, for the identical reason and by the identical
-   mechanism: the RTC sidebar widget (_nav.html) needs htmx on every page, and before this
-   fix only map.html/search.html/recording_details.html/sessions_list.html loaded it
-   themselves -- statistics/species/sites/reviews had none at all. #}
+   htmx.min.js: the RTC sidebar widget (_nav.html) loads on every page and uses
+   htmx for its polling, so it must be available globally. Loading here unconditionally
+   prevents a page from accidentally omitting it, the same way the global alpine.min.js
+   ensures the nav's dark-mode toggle always works regardless of which page it is. #}
 <!doctype html>
 <html lang="en">
 <head>

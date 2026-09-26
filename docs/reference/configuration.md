@@ -130,11 +130,16 @@ Notes on individual settings:
 - **`rtc_enabled`** (default `true`) enables the RTC (real time clock) sidebar widget,
   which displays sunrise/sunset and moon-phase calculations for astronomical planning. Set to
   `false` to hide the widget. Unlike `batdetect2_enabled`/`battybirdnet_enabled`, this defaults
-  to `true` since it has no licensing or heavyweight-dependency concerns.
+  to `true` since it has no licensing or heavyweight-dependency concerns. Times shown in the
+  widget follow the database server's configured `TimeZone` setting (the same display timezone
+  mentioned above in `default_timezone`'s description).
 - **`latitude`/`longitude`** (both optional, must both be set or both be unset) configure a fixed
   server-side location for RTC calculations. When set, this location is used instead of browser
-  geolocation. Latitude must be between -90 and 90; longitude must be between -180 and 180. Both
-  are decimal degrees (e.g. `51.5074` for north, `-0.1278` for west).
+  geolocation — the browser then shows no geolocation prompt and the widget always displays the
+  configured location's sun/moon data. When both are unset, the browser prompts for geolocation
+  once per page load (and the user can deny it to leave the widget empty). Latitude must be
+  between -90 and 90; longitude must be between -180 and 180. Both are decimal degrees
+  (e.g. `51.5074` for north, `-0.1278` for west).
 
 ## Example config file
 
@@ -156,6 +161,11 @@ archive_roots = ["/path/to/your/detector/archive"]
 # classify_implication_min_support = 3
 # classify_implication_min_confidence = 0.6
 # classify_implication_min_lift = 1.3
+
+# RTC sidebar widget: sunrise/sunset/moon-phase planning calculations
+# rtc_enabled = true               # enable/disable the widget
+# latitude = 51.5074               # optional: fixed server location (both lat/lon or neither)
+# longitude = -0.1278              # optional: fixed server location (both lat/lon or neither)
 ```
 
 ## Mixing a config file with environment variables

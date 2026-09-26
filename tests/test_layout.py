@@ -49,9 +49,9 @@ def test_rtc_widget_container_is_present_when_enabled(
 def test_rtc_widget_container_is_absent_when_disabled(
     engine: Engine, tmp_path: Path
 ) -> None:
-    """Review Focus case: disabling must mean the container never renders at all -- not just
-    that the route 404s while a dead container sits in the DOM (which would still mean the
-    browser issues the initial hx-get, just to a 404 instead of a 204)."""
+    """When disabled, the widget container must not be rendered at all -- not just return 404
+    from the route while a dead container sits in the DOM. A dead container would still trigger
+    the browser's initial hx-get on page load (just failing to a 404 instead of a 204)."""
     app = create_app(engine, tmp_path / "static", tmp_path / "media", rtc_enabled=False)
     client = app.test_client()
 

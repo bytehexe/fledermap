@@ -34,8 +34,9 @@ dependencies = [
   "flask",
   # Apache-2.0, no extras/opt-in ceremony needed (unlike batdetect2/battybirdnet) --
   # sunrise/sunset/moon-phase astronomical calculations for the RTC widget (design spec
-  # 2026-09-26-fledermap-rtc-widget-design.md).
-  "astral",
+  # 2026-09-26-fledermap-rtc-widget-design.md). Pinned to 3.2+ because tests/test_sun.py
+  # asserts microsecond-exact outputs from astral 3.2 directly.
+  "astral>=3.2,<4",
   # Pinned to a minor range, not left open: `jobs/app.py`'s `ensure_schema`
   # reaches into `app.schema_manager.get_schema()` (a semi-internal surface)
   # to work around a confirmed upstream bug in `apply_schema()`, and it only

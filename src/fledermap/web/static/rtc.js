@@ -14,7 +14,12 @@ document.addEventListener("htmx:afterRequest", function (evt) {
     function (position) {
       var lat = position.coords.latitude;
       var lon = position.coords.longitude;
-      window.htmx.ajax("GET", "/rtc-widget?lat=" + lat + "&lon=" + lon, {
+      var url = "/rtc-widget?lat=" + lat + "&lon=" + lon;
+      // Update the element's own hx-get so later polls also carry the coordinates,
+      // not just this one-off request. Without this, the next 5-minute poll uses the
+      // original bare hx-get, gets another 204, and retries geolocation.
+      widget.setAttribute("hx-get", url);
+      window.htmx.ajax("GET", url, {
         target: "#rtc-widget",
         swap: "innerHTML",
       });

@@ -258,7 +258,7 @@ ASSETS: tuple[VendorAsset, ...] = (
         relative_path="icons/outline/x.svg",
     ),
     # The RTC sidebar widget's sun/sunrise/sunset icons (outline style, design spec
-    # docs/superpowers/specs/2026-09-24-fledermap-rtc-widget-design.md)
+    # docs/superpowers/specs/2026-09-26-fledermap-rtc-widget-design.md)
     VendorAsset(
         url="https://unpkg.com/@tabler/icons@3.46.0/icons/outline/sun.svg",
         sha256="1753d34d4c09f4a0e32afbb417defeded055a88f8ac33963556570a53a76dfa9",

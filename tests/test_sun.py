@@ -57,8 +57,9 @@ def test_state_is_night_before_dawn_and_next_transition_is_todays_dawn() -> None
 
 
 def test_state_is_night_after_dusk_and_next_transition_is_tomorrows_dawn() -> None:
-    """The Review Focus case: after tonight's dusk, "Dawn" must be tomorrow's, not today's
-    (which already happened)."""
+    """After tonight's dusk, the next dawn is tomorrow's, not today's (which already happened).
+    This matters for the midnight transition case: at 23:00 on a day with sunset, the next
+    dawn must point forward in time, not backward."""
     now = datetime.datetime(2024, 6, 21, 23, 0, tzinfo=LONDON_TZ)
     snapshot = compute_rtc(51.5074, -0.1278, now, LONDON_TZ)
     assert snapshot.state == RtcSunState.NIGHT
@@ -101,3 +102,54 @@ def test_extreme_latitude_polar_night_in_winter() -> None:
     # Moon phase is independent of the sun's behaviour -- still populated so the frontend
     # has an icon to show.
     assert snapshot.moon is not None
+
+
+def test_northern_eu_dusk_wraps_midnight_helsinki_at_2330() -> None:
+    """Important #1 Case A: at high latitude around midsummer, dusk wraps midnight but is
+    stamped with the same calendar date as dawn, breaking time-order assumptions. At 23:30
+    local (genuine civil twilight, elevation -3.21°), should show DUSK state with next
+    transition to NIGHT (dusk ends at 00:45 next calendar day)."""
+    tz = zoneinfo.ZoneInfo("Europe/Helsinki")
+    now = datetime.datetime(2024, 6, 21, 23, 30, tzinfo=tz)
+    snapshot = compute_rtc(60.17, 24.94, now, tz)
+    assert snapshot.state == RtcSunState.DUSK
+    assert snapshot.next_transition is not None
+    assert snapshot.next_transition.label == "Night from"
+    # Verify it's the correct dusk time (00:45:20 on next calendar day).
+    assert snapshot.next_transition.at.hour == 0
+    assert snapshot.next_transition.at.minute == 45
+    assert snapshot.extreme_latitude is None
+
+
+def test_white_night_reykjavik_sunrise_sunset_exist_no_civil_twilight() -> None:
+    """Important #1 Case B: at high latitude on a white-night day, sun never reaches civil
+    twilight (dawn/dusk raise ValueError), but sunrise and sunset do occur. Should show DAY
+    state with actual sunrise/sunset times, not collapse to 'always_day' hiding the times."""
+    tz = zoneinfo.ZoneInfo("Atlantic/Reykjavik")
+    now = datetime.datetime(2024, 6, 21, 12, 0, tzinfo=tz)
+    snapshot = compute_rtc(64.15, -21.94, now, tz)
+    # At noon on a white-night day, we're in DAY state (between sunrise and sunset).
+    assert snapshot.state == RtcSunState.DAY
+    assert snapshot.next_transition is not None
+    assert snapshot.next_transition.label == "Sunset"
+    # Verify the sunset time is correct (00:02:50 next calendar day).
+    assert snapshot.next_transition.at.hour == 0
+    assert snapshot.next_transition.at.minute == 2
+    assert snapshot.extreme_latitude is None
+
+
+def test_display_timezone_differs_from_observer_timezone_la_utc() -> None:
+    """Important #2: when DISPLAY_TIMEZONE differs from observer's timezone, use observer's
+    actual local date for looking up sun times, not the display timezone's date. Here, UTC
+    time 2024-06-21 03:00:00Z = 2024-06-20 20:00:00 PDT (LA is still in daylight, sunset at
+    20:07). Should show DAY state, not NIGHT."""
+    tz_utc = zoneinfo.ZoneInfo("UTC")
+    now_utc = datetime.datetime(2024, 6, 21, 3, 0, tzinfo=tz_utc)
+    # Pass DISPLAY_TIMEZONE (UTC) to compute_rtc, even though observer is in LA.
+    # The function should use longitude to estimate observer's true local date.
+    snapshot = compute_rtc(34.05, -118.24, now_utc, tz_utc)
+    # At LA's actual local time (20:00), we're in DAY state (sunset is 20:07).
+    assert snapshot.state == RtcSunState.DAY
+    assert snapshot.next_transition is not None
+    assert snapshot.next_transition.label == "Sunset"
+    assert snapshot.extreme_latitude is None

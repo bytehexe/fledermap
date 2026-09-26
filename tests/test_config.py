@@ -1411,3 +1411,103 @@ def test_latitude_and_longitude_are_both_or_neither(
         monkeypatch.delenv(ENV_LONGITUDE, raising=False)
     with pytest.raises(ConfigError, match="latitude.*longitude|longitude.*latitude"):
         Config.from_env()
+
+
+@pytest.mark.parametrize(
+    "lat_str",
+    ["91.0", "-91.0", "999.5"],
+)
+def test_latitude_out_of_range_raises(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    lat_str: str,
+) -> None:
+    """Latitude must be between -90 and 90 degrees."""
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+    monkeypatch.setenv(ENV_LATITUDE, lat_str)
+    monkeypatch.setenv(ENV_LONGITUDE, "0.0")
+    with pytest.raises(ConfigError, match="between -90 and 90"):
+        Config.from_env()
+
+
+@pytest.mark.parametrize(
+    "lon_str",
+    ["181.0", "-181.0", "999.5"],
+)
+def test_longitude_out_of_range_raises(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    lon_str: str,
+) -> None:
+    """Longitude must be between -180 and 180 degrees."""
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+    monkeypatch.setenv(ENV_LATITUDE, "0.0")
+    monkeypatch.setenv(ENV_LONGITUDE, lon_str)
+    with pytest.raises(ConfigError, match="between -180 and 180"):
+        Config.from_env()
+
+
+@pytest.mark.parametrize(
+    "lat_str",
+    ["not_a_number", "51.5074n", "51,5074"],
+)
+def test_latitude_non_numeric_raises(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    lat_str: str,
+) -> None:
+    """Latitude must be a valid decimal number."""
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+    monkeypatch.setenv(ENV_LATITUDE, lat_str)
+    monkeypatch.setenv(ENV_LONGITUDE, "0.0")
+    with pytest.raises(ConfigError, match="must be numbers"):
+        Config.from_env()
+
+
+@pytest.mark.parametrize(
+    "rtc_str",
+    ["maybe", "off"],
+)
+def test_rtc_enabled_invalid_value_raises(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    rtc_str: str,
+) -> None:
+    """RTC_ENABLED must be 'true' or 'false'."""
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+    monkeypatch.setenv(ENV_RTC_ENABLED, rtc_str)
+    with pytest.raises(ConfigError, match="boolean"):
+        Config.from_env()
+
+
+def test_latitude_longitude_from_toml_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Latitude and longitude can be configured via TOML config file."""
+    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
+    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
+    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
+
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        "database_url = 'postgresql://x/y'\n"
+        "archive_roots = ['/tmp/archive']\n"
+        "latitude = 60.17\n"
+        "longitude = 24.94\n"
+    )
+    monkeypatch.setenv(ENV_CONFIG_FILE, str(config_file))
+    monkeypatch.delenv(ENV_LATITUDE, raising=False)
+    monkeypatch.delenv(ENV_LONGITUDE, raising=False)
+
+    config = Config.from_env()
+    assert config.latitude == 60.17
+    assert config.longitude == 24.94

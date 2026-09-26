@@ -13,7 +13,7 @@ from typing import Literal
 
 from astral import Observer
 from astral.moon import phase as moon_phase
-from astral.sun import elevation, sun
+from astral.sun import dawn, dusk, elevation, sun, sunrise, sunset
 
 
 class RtcSunState(Enum):
@@ -85,53 +85,122 @@ def _always_day_or_night(
 
 
 def compute_rtc(lat: float, lon: float, now: datetime, tz: tzinfo) -> RtcSnapshot:
+    """Compute sun/moon state and next transition. Handles arbitrary latitude/timezone
+    combinations by building an independent timeline of sun events (dawn/sunrise/sunset/dusk)
+    across yesterday/today/tomorrow relative to the observer's actual local date (derived from
+    longitude + now's UTC time, not from tz if tz differs from the observer's timezone). Each
+    event can raise independently at extreme latitudes; all four existing together is never
+    assumed. White-night cases (sunrise/sunset exist, dawn/dusk don't) resolve to DAY/NIGHT
+    using sunrise/sunset boundaries."""
     observer = Observer(latitude=lat, longitude=lon, elevation=0)
     now_local = now.astimezone(tz)
-    today = now_local.date()
 
+    # Estimate observer's local date via longitude (rough but adequate for daily events).
+    # This fixes Important #2: when tz != observer's actual timezone, use observer's true
+    # local date for looking up sun times, not tz's calendar date.
+    observer_local_date = (now + timedelta(hours=lon / 15)).date()
+
+    # First, try sun() for today's date. If it raises, check if it's a true extreme-latitude
+    # case (no sunrise/sunset at all) or a white-night case (sunrise/sunset exist but not civil
+    # twilight). If sunrise and sunset both exist, proceed with the timeline approach.
+    sun_raises = False
     try:
-        times = sun(observer, date=today, tzinfo=tz)
+        sun(observer, date=observer_local_date, tzinfo=tz)
     except ValueError:
+        sun_raises = True
+
+    if sun_raises:
+        # sun() raised. Check if sunrise/sunset exist (white night) or not (polar day/night).
+        has_sunrise = False
+        has_sunset = False
+        try:
+            sunrise(observer, date=observer_local_date, tzinfo=tz)
+            has_sunrise = True
+        except ValueError:
+            pass
+        try:
+            sunset(observer, date=observer_local_date, tzinfo=tz)
+            has_sunset = True
+        except ValueError:
+            pass
+
+        if not (has_sunrise and has_sunset):
+            # True extreme latitude: no sunrise/sunset at all.
+            extreme = _always_day_or_night(observer, now_local)
+            return RtcSnapshot(
+                state=None,
+                next_transition=None,
+                moon=_moon_info(observer_local_date)
+                if extreme == "always_night"
+                else None,
+                extreme_latitude=extreme,
+            )
+        # Otherwise, fall through to the timeline approach below (white-night case).
+
+    # Candidate dates to try: yesterday, today, tomorrow relative to observer's local date.
+    candidate_dates = [
+        observer_local_date - timedelta(days=1),
+        observer_local_date,
+        observer_local_date + timedelta(days=1),
+    ]
+
+    # Build a timeline of all events that succeed. Each event (dawn/sunrise/sunset/dusk)
+    # can raise independently, and we merge all that exist into one sorted sequence.
+    # Each tuple is (datetime, state_entered_after_this_event, label_for_this_transition).
+    timeline: list[tuple[datetime, RtcSunState, str]] = []
+
+    for candidate_date in candidate_dates:
+        # Try each event independently; any can raise.
+        try:
+            d = dawn(observer, date=candidate_date, tzinfo=tz)
+            timeline.append((d, RtcSunState.DAWN, "Dawn"))
+        except ValueError:
+            pass
+
+        try:
+            sr = sunrise(observer, date=candidate_date, tzinfo=tz)
+            timeline.append((sr, RtcSunState.DAY, "Sunrise"))
+        except ValueError:
+            pass
+
+        try:
+            ss = sunset(observer, date=candidate_date, tzinfo=tz)
+            timeline.append((ss, RtcSunState.DUSK, "Sunset"))
+        except ValueError:
+            pass
+
+        try:
+            du = dusk(observer, date=candidate_date, tzinfo=tz)
+            timeline.append((du, RtcSunState.NIGHT, "Night from"))
+        except ValueError:
+            pass
+
+    if not timeline:
+        # No sun events at all (should be rare given sun() succeeded earlier). Fall back.
         extreme = _always_day_or_night(observer, now_local)
         return RtcSnapshot(
             state=None,
             next_transition=None,
-            moon=_moon_info(today) if extreme == "always_night" else None,
+            moon=_moon_info(observer_local_date) if extreme == "always_night" else None,
             extreme_latitude=extreme,
         )
 
-    dawn, sunrise, sunset, dusk = (
-        times["dawn"],
-        times["sunrise"],
-        times["sunset"],
-        times["dusk"],
-    )
+    # Sort timeline by time.
+    timeline.sort(key=lambda x: x[0])
 
-    if now_local < dawn:
-        state = RtcSunState.NIGHT
-        next_transition = NextTransition("Dawn", dawn)
-    elif now_local < sunrise:
-        state = RtcSunState.DAWN
-        next_transition = NextTransition("Sunrise", sunrise)
-    elif now_local < sunset:
-        state = RtcSunState.DAY
-        next_transition = NextTransition("Sunset", sunset)
-    elif now_local < dusk:
-        state = RtcSunState.DUSK
-        next_transition = NextTransition("Night from", dusk)
-    else:
-        # Past tonight's dusk: the *next* dawn is tomorrow's, not today's (already happened).
-        state = RtcSunState.NIGHT
-        tomorrow = today + timedelta(days=1)
-        try:
-            tomorrow_times = sun(observer, date=tomorrow, tzinfo=tz)
-            next_transition = NextTransition("Dawn", tomorrow_times["dawn"])
-        except ValueError:
-            # Right at a polar transition boundary -- tomorrow has no dawn at all. Degrade
-            # gracefully (no line 2) rather than propagate.
-            next_transition = None
+    # Find current state (last event <= now_local) and next transition (first event > now_local).
+    state: RtcSunState | None = None
+    next_transition: NextTransition | None = None
 
-    moon = _moon_info(today)
+    for event_time, event_state, event_label in timeline:
+        if event_time <= now_local:
+            state = event_state
+        else:
+            # First event after now: this is the next transition.
+            if next_transition is None:
+                next_transition = NextTransition(event_label, event_time)
+
+    moon = _moon_info(observer_local_date)
     return RtcSnapshot(
         state=state,
         next_transition=next_transition,
