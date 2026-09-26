@@ -205,6 +205,24 @@
       {% include "_identifications_box.html" %}
       {% include "_classifier_box.html" %}
     </div>
+
+    <div id="note-section">
+      <h2>Note</h2>
+      {% if recording.device_note %}
+      <label>Device note (from the file's own metadata, read-only)
+        <textarea disabled>{{ recording.device_note }}</textarea>
+      </label>
+      {% endif %}
+      <form class="stacked-form" method="post" action="{{ url_for('recording_detail.save_recording_note', audio_hash=recording.audio_hash) }}">
+        <label>Note (supports #tags, e.g. #buzz)
+          <textarea name="note">{{ recording.note or '' }}</textarea>
+        </label>
+        <button type="submit" class="button-primary">Save</button>
+        {% if request.args.get('saved') %}
+        <span class="save-confirmation">{{ icon("check") }} Saved</span>
+        {% endif %}
+      </form>
+    </div>
   </main>
   <div id="crosshair-readout" class="floating-readout crosshair-readout" hidden></div>
   {# `position: fixed`, screen coordinates set by recording_detail.js's `updateRulerBox` --

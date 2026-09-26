@@ -72,7 +72,7 @@ _METADATA_FIELDS = (
     "model",
     "serial",
     "device",
-    "note",
+    "device_note",
 )
 
 

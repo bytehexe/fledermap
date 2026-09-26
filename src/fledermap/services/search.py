@@ -14,6 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import AnnotationSource, IdSource, Verdict, parse_verdict
+from fledermap.domain.tags import extract_tags
 from fledermap.services.map_query import filtered_recordings
 from fledermap.store.models import (
     Annotation,
@@ -36,6 +37,11 @@ _ANNOTATION_SOURCES: dict[str, IdSource | Literal["emt"]] = {
 _QUOTED_FIELD_RE = re.compile(r'^(\w+):"([^"]*)"$')
 _UNQUOTED_FIELD_RE = re.compile(r"^(\w+):(.+)$")
 _QUOTED_PHRASE_RE = re.compile(r'^"([^"]*)"$')
+# A whole search token, not `domain.tags.TAG_RE`'s find-anywhere-in-prose pattern -- a token
+# starting with `#` is always a tag search (never the field:value grammar above, even for
+# `#device:emt2`), so this only needs to validate the token, not locate a tag within surrounding
+# text the way extracting tags from a `note` does.
+_TAG_TOKEN_RE = re.compile(r"^#([A-Za-z0-9_-]+(?::[A-Za-z0-9_-]+)*)$")
 
 _UNMATCHED_QUOTE_WARNING = "Unmatched quote — showing plain-text results."
 
@@ -64,6 +70,7 @@ class ParsedQuery:
     is_favourite: bool = False
     is_flagged: bool = False
     is_labeled: bool = False
+    tags: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
 
@@ -108,9 +115,21 @@ def parse_search_query(text: str) -> ParsedQuery:
     is_favourite = False
     is_flagged = False
     is_labeled = False
+    tags: list[str] = []
     warnings: list[str] = []
 
     for raw_token in _split_respecting_quotes(text):
+        if raw_token.startswith("#"):
+            tag_match = _TAG_TOKEN_RE.match(raw_token)
+            if tag_match is not None:
+                tags.append(tag_match.group(1).lower())
+            else:
+                warnings.append(
+                    f"Invalid tag '{raw_token}' — searched as text instead."
+                )
+                free_text_terms.append(raw_token)
+            continue
+
         match = _QUOTED_FIELD_RE.match(raw_token) or _UNQUOTED_FIELD_RE.match(raw_token)
         if match is not None:
             field_name, value = match.group(1), match.group(2)
@@ -169,6 +188,7 @@ def parse_search_query(text: str) -> ParsedQuery:
         is_favourite=is_favourite,
         is_flagged=is_flagged,
         is_labeled=is_labeled,
+        tags=tags,
         warnings=warnings,
     )
 
@@ -224,9 +244,10 @@ class SearchPage:
 
 
 def _free_text_matching_ids(session: OrmSession, term: str) -> set[int]:
-    """Every recording id where `term` matches the filename (via `path`), a comment annotation's
-    text, its site's name, or a species name attached to any of its live identification claims --
-    an OR across these four targets, per the spec's "Free text" section."""
+    """Every recording id where `term` matches the filename (via `path`), a label annotation's
+    text, the recording's own `note`, its site's name, or a species name attached to any of its
+    live identification claims -- an OR across these five targets, per the spec's "Free text"
+    section."""
     pattern = f"%{_escape_ilike(term)}%"
 
     path_ids = set(
@@ -235,12 +256,18 @@ def _free_text_matching_ids(session: OrmSession, term: str) -> set[int]:
         ).all(),
     )
 
-    comment_ids = set(
+    label_ids = set(
         session.scalars(
             select(Annotation.recording_id).where(
                 Annotation.source == AnnotationSource.LABEL,
                 Annotation.literal.ilike(pattern),
             ),
+        ).all(),
+    )
+
+    note_ids = set(
+        session.scalars(
+            select(Recording.id).where(Recording.note.ilike(pattern))
         ).all(),
     )
 
@@ -278,7 +305,19 @@ def _free_text_matching_ids(session: OrmSession, term: str) -> set[int]:
         else set()
     )
 
-    return path_ids | comment_ids | site_recording_ids | species_recording_ids
+    return path_ids | label_ids | note_ids | site_recording_ids | species_recording_ids
+
+
+def _recording_ids_with_tag(session: OrmSession, tag: str) -> set[int]:
+    """Recordings whose `note` contains the exact tag `#tag` -- never merely a longer tag it's a
+    prefix of (searching `#device` must not match a note that only has `#device:emt2`). A cheap
+    ILIKE prefilter narrows the candidates; `extract_tags` (the same parser that defines the tag
+    syntax in the first place) makes the exact call."""
+    pattern = f"%#{_escape_ilike(tag)}%"
+    rows = session.execute(
+        select(Recording.id, Recording.note).where(Recording.note.ilike(pattern)),
+    ).all()
+    return {rid for rid, note in rows if note is not None and tag in extract_tags(note)}
 
 
 def search_recordings(
@@ -332,6 +371,10 @@ def search_recordings(
             ).all(),
         )
         candidates = [r for r in candidates if r.id in labeled_ids]
+
+    for tag in parsed.tags:
+        tag_ids = _recording_ids_with_tag(session, tag)
+        candidates = [r for r in candidates if r.id in tag_ids]
 
     for term in free_text_terms:
         matching_ids = _free_text_matching_ids(session, term)

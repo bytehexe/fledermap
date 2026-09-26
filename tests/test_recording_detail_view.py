@@ -2085,3 +2085,109 @@ def test_label_popup_markup_is_present(engine: Engine, tmp_path: Path) -> None:
     html = app.test_client().get(f"/recordings/{audio_hash}").get_data(as_text=True)
     assert 'id="label-popup"' in html
     assert 'id="label-popup-save"' in html
+
+
+def test_note_section_renders_the_saved_note(engine: Engine, tmp_path: Path) -> None:
+    audio_hash = "aw" * 32
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash=audio_hash,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                note="already here #buzz",
+            ),
+        )
+        session.commit()
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+
+    html = app.test_client().get(f"/recordings/{audio_hash}").get_data(as_text=True)
+
+    assert "already here #buzz" in html
+
+
+def test_note_section_shows_device_note_as_disabled_when_present(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    audio_hash = "ax" * 32
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash=audio_hash,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                device_note="from the file itself",
+            ),
+        )
+        session.commit()
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+
+    html = app.test_client().get(f"/recordings/{audio_hash}").get_data(as_text=True)
+
+    device_note_start = html.index("from the file itself")
+    textarea_start = html.rindex("<textarea", 0, device_note_start)
+    textarea_tag_end = html.index(">", textarea_start)
+    assert "disabled" in html[textarea_start:textarea_tag_end]
+
+
+def test_note_section_omits_device_note_field_when_absent(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    app, audio_hash = _create_app_with_one_recording(engine, tmp_path, "ay" * 32)
+    html = app.test_client().get(f"/recordings/{audio_hash}").get_data(as_text=True)
+    assert "Device note" not in html
+
+
+def test_post_note_saves_it_and_redirects_to_saved(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    app, audio_hash = _create_app_with_one_recording(engine, tmp_path, "az" * 32)
+    client = app.test_client()
+
+    response = client.post(
+        f"/recordings/{audio_hash}/note",
+        data={"note": "heard something odd #reidentify"},
+    )
+
+    assert response.status_code == 302
+    assert response.location == f"/recordings/{audio_hash}?saved=1#note-section"
+    with OrmSession(engine) as session:
+        recording = session.scalars(
+            select(Recording).where(Recording.audio_hash == audio_hash),
+        ).one()
+        assert recording.note == "heard something odd #reidentify"
+
+
+def test_post_note_with_blank_text_clears_it(engine: Engine, tmp_path: Path) -> None:
+    audio_hash = "ba" * 32
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash=audio_hash,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                note="will be cleared",
+            ),
+        )
+        session.commit()
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+
+    app.test_client().post(f"/recordings/{audio_hash}/note", data={"note": ""})
+
+    with OrmSession(engine) as session:
+        recording = session.scalars(
+            select(Recording).where(Recording.audio_hash == audio_hash),
+        ).one()
+        assert recording.note is None
+
+
+def test_post_note_404s_for_an_unknown_hash(engine: Engine, tmp_path: Path) -> None:
+    app = create_app(engine, tmp_path / "static", tmp_path / "media")
+    response = app.test_client().post(
+        f"/recordings/{'f1' * 32}/note",
+        data={"note": "x"},
+    )
+    assert response.status_code == 404

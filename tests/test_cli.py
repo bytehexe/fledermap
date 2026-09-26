@@ -80,6 +80,37 @@ def clean_database_url(postgis_url: str) -> Iterator[str]:
     yield postgis_url
 
 
+def test_run_migrations_is_safe_to_call_concurrently(clean_database_url: str) -> None:
+    """`fledermap.target`'s systemd unit starts `serve` and `worker` at the same moment, and both
+    call `_run_migrations` at startup -- without the advisory lock inside it, two processes can
+    both see "not yet at head" and both attempt the same pending migration, and whichever commits
+    second hits a real DDL conflict instead of Alembic's own no-op. Two threads calling it at the
+    same time against a genuinely empty schema is the same race, just in-process."""
+    import threading
+
+    errors: list[Exception] = []
+
+    def _run() -> None:
+        try:
+            _run_migrations(clean_database_url)
+        except Exception as exc:  # noqa: BLE001 -- captured to fail the test from the main thread
+            errors.append(exc)
+
+    threads = [threading.Thread(target=_run) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert errors == []
+    engine = make_engine(clean_database_url)
+    with OrmSession(engine) as session:
+        version: str = session.execute(
+            text("SELECT version_num FROM alembic_version"),
+        ).scalar_one()
+    assert version
+
+
 def _archive(tmp_path: Path) -> Path:
     root = tmp_path / "archive" / "Session_20130401_053030"
     root.mkdir(parents=True)

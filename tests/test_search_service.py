@@ -15,6 +15,7 @@ def test_empty_query_has_no_terms_and_no_warnings() -> None:
         is_favourite=False,
         is_flagged=False,
         is_labeled=False,
+        tags=[],
         warnings=[],
     )
 
@@ -105,6 +106,44 @@ def test_is_field_invalid_value_demotes_to_free_text_with_warning() -> None:
     assert parsed.is_favourite is False
     assert parsed.free_text_terms == ["is:foo"]
     assert parsed.warnings == ["Unknown is: value 'foo' — searched as text instead."]
+
+
+def test_hash_token_is_a_tag_not_free_text() -> None:
+    parsed = parse_search_query("#buzz")
+    assert parsed.tags == ["buzz"]
+    assert parsed.free_text_terms == []
+    assert parsed.warnings == []
+
+
+def test_hash_token_lowercases_the_tag() -> None:
+    assert parse_search_query("#Buzz").tags == ["buzz"]
+
+
+def test_hash_token_with_colon_value_is_a_single_tag() -> None:
+    parsed = parse_search_query("#device:emt2")
+    assert parsed.tags == ["device:emt2"]
+    assert parsed.free_text_terms == []
+
+
+def test_hash_token_is_never_treated_as_field_value_grammar() -> None:
+    """`#a:b` must be one tag, never the field:value grammar (a field name can never start with
+    `#`, but this pins the "# always means a tag search" rule down explicitly)."""
+    parsed = parse_search_query("#a:b")
+    assert parsed.tags == ["a:b"]
+    assert parsed.site_name is None
+    assert parsed.species_value is None
+
+
+def test_multiple_hash_tokens_are_all_collected() -> None:
+    parsed = parse_search_query("#buzz #social-call")
+    assert parsed.tags == ["buzz", "social-call"]
+
+
+def test_invalid_hash_token_demotes_to_free_text_with_warning() -> None:
+    parsed = parse_search_query("#")
+    assert parsed.tags == []
+    assert parsed.free_text_terms == ["#"]
+    assert parsed.warnings == ["Invalid tag '#' — searched as text instead."]
 
 
 def test_unwhitelisted_field_name_demotes_to_free_text_with_warning() -> None:

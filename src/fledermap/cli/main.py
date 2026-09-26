@@ -17,6 +17,7 @@ import click
 import procrastinate
 from alembic import command as alembic_command
 from alembic.config import Config as AlembicConfig
+from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session as OrmSession
 
@@ -114,6 +115,12 @@ def _alembic_script_location() -> Path:
     return Path(str(importlib.resources.files("fledermap"))) / "alembic"
 
 
+# Arbitrary but must never change -- it's the advisory lock's identity, not a version or count.
+# Picked once and fixed forever, the same way a UUID would be, just as a plain bigint since
+# pg_advisory_lock takes one.
+_MIGRATION_LOCK_KEY = 726352901847
+
+
 def _run_migrations(database_url: str) -> None:
     """Build (or update) the schema via the real Alembic migration.
 
@@ -128,11 +135,38 @@ def _run_migrations(database_url: str) -> None:
     already configured in the process. `script_location` and `sqlalchemy.url`
     are the only settings `upgrade` needs (same pattern as
     `tests/test_migrations.py`'s `migrated_engine` fixture).
+
+    Every one of this module's commands calls this at startup (`fledermap.target`'s systemd unit
+    starts `serve` and `worker` at the same time), so two processes can call it concurrently
+    against the same database. Without serialization, both can see "not yet at head" and both
+    start running the same pending migration; whichever commits second then hits a real DDL
+    conflict (e.g. `DuplicateColumn` renaming into a name the first process's commit already
+    claimed) instead of Alembic's own "already at head" no-op. A session-scoped Postgres advisory
+    lock (held only by this function's own short-lived connection, never the migration's own,
+    since the lock's job is mutual exclusion between whole invocations of this function, not
+    anything the migration itself needs to see) makes the second caller wait for the first to
+    finish and commit, so it then correctly finds nothing left to do.
     """
-    cfg = AlembicConfig()
-    cfg.set_main_option("script_location", str(_alembic_script_location()))
-    cfg.set_main_option("sqlalchemy.url", database_url)
-    alembic_command.upgrade(cfg, "head")
+    lock_engine = create_engine(database_url)
+    try:
+        with lock_engine.connect().execution_options(
+            isolation_level="AUTOCOMMIT"
+        ) as connection:
+            connection.execute(
+                text("SELECT pg_advisory_lock(:key)"), {"key": _MIGRATION_LOCK_KEY}
+            )
+            try:
+                cfg = AlembicConfig()
+                cfg.set_main_option("script_location", str(_alembic_script_location()))
+                cfg.set_main_option("sqlalchemy.url", database_url)
+                alembic_command.upgrade(cfg, "head")
+            finally:
+                connection.execute(
+                    text("SELECT pg_advisory_unlock(:key)"),
+                    {"key": _MIGRATION_LOCK_KEY},
+                )
+    finally:
+        lock_engine.dispose()
 
 
 def _require_archive_roots_exist(archive_roots: tuple[Path, ...]) -> None:

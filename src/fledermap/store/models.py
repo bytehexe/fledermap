@@ -77,6 +77,11 @@ class Recording(Base):
     model: Mapped[str | None] = mapped_column(String(128))
     serial: Mapped[str | None] = mapped_column(String(128))
     device: Mapped[str | None] = mapped_column(String(128))
+    # Ingested from the file's own GUANO/wamd "Note" field -- read-only, never written by any
+    # user-facing code. Deliberately not named `note`: that name is `note` below, the
+    # user-editable whole-recording field (supports inline `#tag`s, domain/tags.py), a completely
+    # different concept that happens to share the word "note" in casual English.
+    device_note: Mapped[str | None] = mapped_column(Text)
     note: Mapped[str | None] = mapped_column(Text)
 
     guano_raw: Mapped[dict] = mapped_column(JSONB, default=dict)

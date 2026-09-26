@@ -112,6 +112,7 @@ def _recording(
     site_id: int | None = None,
     favourite: bool = False,
     flagged: bool = False,
+    note: str | None = None,
 ) -> Recording:
     r = Recording(
         audio_hash=audio_hash,
@@ -120,6 +121,7 @@ def _recording(
         site_id=site_id,
         favourite=favourite,
         flagged_for_review=flagged,
+        note=note,
     )
     session.add(r)
     session.flush()
@@ -137,6 +139,45 @@ def test_free_text_matches_filename(engine: Engine) -> None:
         page = search_recordings(session, ParsedQuery(free_text_terms=["PIPPIP"]))
 
     assert [r.id for r in page.rows] == [target.id]
+
+
+def test_free_text_matches_note(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        target = _recording(
+            session,
+            audio_hash="a" * 64,
+            path="a.wav",
+            note="possible roost nearby",
+        )
+        _recording(session, audio_hash="b" * 64, path="b.wav")
+        session.commit()
+
+        page = search_recordings(session, ParsedQuery(free_text_terms=["roost"]))
+
+    assert [r.id for r in page.rows] == [target.id]
+
+
+def test_hash_tag_filters_to_the_exact_tag(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        target = _recording(
+            session, audio_hash="a" * 64, path="a.wav", note="#buzz here"
+        )
+        _recording(session, audio_hash="b" * 64, path="b.wav", note="no tags here")
+        session.commit()
+
+        page = search_recordings(session, ParsedQuery(tags=["buzz"]))
+
+    assert [r.id for r in page.rows] == [target.id]
+
+
+def test_hash_tag_does_not_match_a_longer_tag_it_is_a_prefix_of(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        _recording(session, audio_hash="a" * 64, path="a.wav", note="#device:emt2")
+        session.commit()
+
+        page = search_recordings(session, ParsedQuery(tags=["device"]))
+
+    assert page.rows == []
 
 
 def test_free_text_matches_label_annotation(engine: Engine) -> None:

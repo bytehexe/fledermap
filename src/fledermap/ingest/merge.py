@@ -239,7 +239,7 @@ def merge_metadata(
         ),
         serial=getattr(guano, "serial", None),
         device=getattr(wamd, "device", None),
-        note=getattr(guano, "note", None),
+        device_note=getattr(guano, "note", None),
         guano_raw=dict(getattr(guano, "raw", {}) or {}),
         identifications=_identifications(guano, wamd, filename),
     )

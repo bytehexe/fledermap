@@ -40,7 +40,7 @@ def _scanned(
     name: str = "EPTSER_20150610_215446.wav",
     label: str = "EPTSER",
     device: str | None = None,
-    note: str | None = None,
+    device_note: str | None = None,
     duration_s: float | None = None,
     snr_db: float | None = None,
     identifications: tuple[ParsedIdentification, ...] | None = None,
@@ -71,7 +71,7 @@ def _scanned(
             latitude=42.346973,
             longitude=-76.48760,
             device=device,
-            note=note,
+            device_note=device_note,
             duration_s=duration_s,
             snr_db=snr_db,
             identifications=(
@@ -261,9 +261,9 @@ def test_changed_identification_to_a_different_taxon_replaces_the_old_row(
         assert ids[0].raw_label == "EPTSER"
 
 
-def test_note_change_without_move_is_reported_as_updated(engine: Engine) -> None:
-    """metadata_changed must cover more than the original 3 fields (task-11
-    amendments, defect 4) — `note` and `duration_s` are not in that set."""
+def test_device_note_change_without_move_is_reported_as_updated(engine: Engine) -> None:
+    """metadata_changed must cover more than a hardcoded few fields -- `device_note` and
+    `duration_s` must both be covered too."""
     with OrmSession(engine) as session:
         seed_taxonomy(session)
         commit_scan(session, [(_scanned(), 0)], archive_roots=(ROOT,))
@@ -271,7 +271,7 @@ def test_note_change_without_move_is_reported_as_updated(engine: Engine) -> None
 
         report = commit_scan(
             session,
-            [(_scanned(note="heard a dog bark", duration_s=2.5), 0)],
+            [(_scanned(device_note="heard a dog bark", duration_s=2.5), 0)],
             archive_roots=(ROOT,),
         )
         session.commit()
@@ -279,8 +279,32 @@ def test_note_change_without_move_is_reported_as_updated(engine: Engine) -> None
         assert report.updated == 1
         assert report.unchanged == 0
         rec = session.scalars(select(Recording)).one()
-        assert rec.note == "heard a dog bark"
+        assert rec.device_note == "heard a dog bark"
         assert rec.duration_s == 2.5
+
+
+def test_reingest_does_not_touch_the_user_authored_note(engine: Engine) -> None:
+    """`note` is user-editable (web/views/recording_detail.py's save_recording_note) and
+    deliberately excluded from `_METADATA_FIELDS` -- unlike `device_note`, a rescan must never
+    overwrite it."""
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        commit_scan(session, [(_scanned(), 0)], archive_roots=(ROOT,))
+        session.commit()
+        rec = session.scalars(select(Recording)).one()
+        rec.note = "user-typed #buzz"
+        session.commit()
+
+        commit_scan(
+            session,
+            [(_scanned(device_note="new device note"), 0)],
+            archive_roots=(ROOT,),
+        )
+        session.commit()
+
+        rec = session.scalars(select(Recording)).one()
+        assert rec.note == "user-typed #buzz"
+        assert rec.device_note == "new device note"
 
 
 def test_snr_db_round_trips(engine: Engine) -> None:

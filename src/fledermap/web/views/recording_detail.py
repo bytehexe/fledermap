@@ -346,3 +346,16 @@ def delete_annotation(audio_hash: str, annotation_id: int) -> flask.Response:
         annotation = _find_label_annotation_or_404(session, recording, annotation_id)
         delete_label_annotation(session, annotation)
         return flask.jsonify({"ok": True})
+
+
+@recording_detail_bp.post("/recordings/<audio_hash>/note")
+def save_recording_note(audio_hash: str) -> flask.Response:
+    note = flask.request.form.get("note") or None
+    engine = flask.current_app.config["ENGINE"]
+    with OrmSession(engine) as session:
+        recording = _find_recording_or_404(session, audio_hash)
+        recording.note = note
+        session.commit()
+    return flask.make_response(
+        flask.redirect(f"/recordings/{audio_hash}?saved=1#note-section"),
+    )

@@ -39,7 +39,7 @@ class RecordingMetadata:
     model: str | None = None
     serial: str | None = None
     device: str | None = None  # host phone, from wamd; NOT the detector
-    note: str | None = None
+    device_note: str | None = None
     guano_raw: dict[str, str] = field(default_factory=dict)
     identifications: tuple[ParsedIdentification, ...] = ()
 
