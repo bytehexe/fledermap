@@ -146,21 +146,28 @@ area stays empty (matches "hidden, not an error").
 
 No phase name or illumination percentage is spelled out in text — narrow sidebar real estate
 doesn't comfortably fit it alongside the timing info, which is the widget's primary job. The
-moon-phase icon itself (see below) is what conveys phase during `night`/`always_night`; the API
-still returns `phase_name`/`illumination_pct` (see "API" below) for the frontend to pick the right
-icon file, they're just not rendered as their own text.
+moon-phase icon itself (see below) is what conveys phase during `night`/`always_night`; the
+`phase_name`/`illumination_pct` computed in `services/sun.py` still exist, just to pick the icon
+file server-side — they're not rendered as their own text.
 
 ## Moon phase icons
 
 Tabler's icon set (`icon()`, `web/icons.py`) has no distinct moon-*phase* icons (`moon`, `moon-2`,
 `moon-off`, `moon-stars` exist; no waxing/waning/quarter/gibbous variants) — confirmed against the
-vendored set's file listing. Rather than fall back to emoji (`docs/style-guide.md`'s "No emoji or
-Unicode dingbats in the UI" rule forbids this outright) or a filled/solid moon shape that would
-look stylistically foreign next to Tabler's pure-line-art icons, 8 phase icons are hand-authored to
-match Tabler's own outline style exactly: `viewBox="0 0 24 24"`, `stroke="currentColor"`,
-`stroke-width="2"`, `stroke-linecap="round"`, `stroke-linejoin="round"`, `fill="none"` — a circle
-outline for the disc plus one terminator-curve path, the same technique Tabler's own `moon.svg`
-uses for its single crescent.
+vendored set's file listing. Emoji is a hard no (`docs/style-guide.md`'s "No emoji or Unicode
+dingbats in the UI" rule).
+
+8 phase icons are hand-authored, matching Tabler's `viewBox="0 0 24 24"`, `stroke="currentColor"`,
+`stroke-width="2"`, `stroke-linecap="round"`, `stroke-linejoin="round"` outline conventions — **with
+one deliberate deviation**: the illuminated region gets a `fill="currentColor"`, rather than staying
+`fill="none"` like the rest of Tabler's set. A pure outline can't distinguish a new moon from a full
+moon at all — both are just an empty circle, since an unfilled stroke carries no lit/dark
+information — which would defeat the one thing this feature is actually for (a correct-looking
+phase, decided live with Janna: "Light fill for illuminated region", 2026-09-26). Each icon is a
+disc outline (`<circle cx="12" cy="12" r="9"/>`, unfilled) plus a second closed path tracing the
+illuminated region's boundary, filled `currentColor`: a full circle for `full`, no second path at
+all for `new`, and a lens/crescent-shaped path in between whose bulge direction and width encode
+the other 6 phases.
 
 The 8: new, waxing crescent, first quarter, waxing gibbous, full, waning gibbous, last quarter,
 waning crescent.
