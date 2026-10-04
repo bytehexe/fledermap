@@ -521,6 +521,41 @@ def _make_config(
     )
 
 
+def test_run_ingest_cycle_defers_region_resolution_only_when_poiidx_is_configured(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    """Turning poiidx on backfills regions because the worker's startup ingest
+    cycle defers the resolution job; without poiidx nothing is deferred."""
+    jobs_app.open(engine)
+    ensure_schema(jobs_app, engine)
+    base = _make_config(tmp_path)
+    count_sql = text(
+        "SELECT count(*) FROM procrastinate_jobs "
+        "WHERE task_name = 'fledermap.jobs.tasks.resolve_regions_task' "
+        "AND status = 'todo'",
+    )
+
+    for config, expected in (
+        (base, 0),
+        (replace(base, poiidx_database_url="postgresql://u:p@localhost/poiidx"), 1),
+    ):
+        run_ingest_cycle.configure(
+            lock=_INGEST_CYCLE_LOCK,
+            queueing_lock=_INGEST_CYCLE_LOCK,
+        ).defer(timestamp=int(time.time()))
+        _run_worker(
+            engine,
+            wait=False,
+            install_signal_handlers=False,
+            listen_notify=False,
+            queues=["ingest"],
+            additional_context={"config": config, "engine": engine},
+        )
+        with engine.connect() as conn:
+            assert conn.execute(count_sql).scalar() == expected
+
+
 def test_run_ingest_cycle_creates_a_recording_and_derives(
     engine: Engine,
     tmp_path: Path,

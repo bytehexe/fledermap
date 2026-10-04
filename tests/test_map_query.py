@@ -111,6 +111,41 @@ def test_no_region_filter_returns_recordings_with_no_region(engine: Engine) -> N
         assert len(filtered_recordings(session)) == 1
 
 
+def test_filtered_sites_region_filter_keeps_only_sites_with_a_recording_in_the_region(
+    engine: Engine,
+) -> None:
+    with OrmSession(engine) as session:
+        _region(session, "austria", "Austria")
+        vienna = Site(
+            centroid=WKTElement("POINT(16.4 48.2)", srid=4326),
+            radius_m=50.0,
+            recording_count=1,
+            first_at=datetime(2026, 8, 25, tzinfo=UTC),
+            last_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        bremen = Site(
+            centroid=WKTElement("POINT(8.8 53.1)", srid=4326),
+            radius_m=50.0,
+            recording_count=1,
+            first_at=datetime(2026, 8, 25, tzinfo=UTC),
+            last_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add_all([vienna, bremen])
+        session.flush()
+        in_vienna = _recording(session, audio_hash="e" * 64, lon=16.4, lat=48.2)
+        in_vienna.site_id = vienna.id
+        in_bremen = _recording(session, audio_hash="f" * 64, lon=8.8, lat=53.1)
+        in_bremen.site_id = bremen.id
+        session.add(RecordingRegion(recording_id=in_vienna.id, region_id="austria"))
+        session.flush()
+
+        assert [s.id for s in filtered_sites(session, region_id="austria")] == [
+            vienna.id
+        ]
+        assert filtered_sites(session, region_id="nonexistent") == []
+        assert len(filtered_sites(session)) == 2
+
+
 def test_excludes_missing_recordings(engine: Engine) -> None:
     with OrmSession(engine) as session:
         _recording(session, audio_hash="a" * 64, missing=True)

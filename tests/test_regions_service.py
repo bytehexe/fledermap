@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, cast
 
+import procrastinate
 import pytest
 from geoalchemy2.elements import WKTElement
 from shapely.geometry import Point
@@ -10,9 +13,11 @@ from shapely.geometry.base import BaseGeometry
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session as OrmSession
 
+from fledermap.config import Config
 from fledermap.jobs.app import ensure_schema
 from fledermap.jobs.tasks import app as jobs_app
-from fledermap.services import regions
+from fledermap.jobs.tasks import resolve_regions_task
+from fledermap.services import regions, site_naming
 from fledermap.store.models import LocationRegion, Recording, RecordingRegion, Region
 
 pytestmark = pytest.mark.db
@@ -213,3 +218,138 @@ def test_enqueue_defers_one_job_and_dedupes_the_second(engine: Engine) -> None:
 
     assert regions.enqueue_region_resolution(engine, poiidx_database_url=url) is True
     assert regions.enqueue_region_resolution(engine, poiidx_database_url=url) is False
+
+
+def test_resolve_pending_tolerates_leftover_recording_region_rows(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`backfill-regions --force` resets in its own transaction, outside the
+    job's lock, so it can null `region_resolved_at` while a running job's
+    `recording_region` rows survive. The next run must overwrite them, not
+    die on the duplicate primary key forever."""
+    _fake_poiidx(monkeypatch, {(8.8, 53.1): [BREMEN, GERMANY]}, set())
+    with OrmSession(engine) as session:
+        r = _recording(session, "6" * 64, 8.8, 53.1)
+        regions.resolve_pending(session)
+        session.commit()
+        r.region_resolved_at = None
+        session.commit()
+
+        assert regions.resolve_pending(session) == 1
+        session.commit()
+
+        rows = session.scalars(
+            select(RecordingRegion.region_id).where(
+                RecordingRegion.recording_id == r.id
+            )
+        ).all()
+        assert sorted(rows) == ["bremen", "germany"]
+
+
+def test_resolve_pending_tolerates_a_region_listed_twice_in_one_answer(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _fake_poiidx(monkeypatch, {(8.8, 53.1): [BREMEN, BREMEN]}, set())
+    with OrmSession(engine) as session:
+        r = _recording(session, "7" * 64, 8.8, 53.1)
+        assert regions.resolve_pending(session) == 1
+        session.commit()
+        rows = session.scalars(
+            select(RecordingRegion.region_id).where(
+                RecordingRegion.recording_id == r.id
+            )
+        ).all()
+        assert rows == ["bremen"]
+
+
+def test_new_recordings_at_known_locations_resolve_from_the_cache(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The steady state: after the first run, new recordings at an already
+    resolved spot -- including a spot in no region, stored as an empty array
+    -- cost no poiidx call."""
+    calls = _fake_poiidx(
+        monkeypatch,
+        {(8.8, 53.1): [BREMEN, GERMANY], (0.0, 0.0): []},
+        set(),
+    )
+    with OrmSession(engine) as session:
+        _recording(session, "8" * 64, 8.8, 53.1)
+        _recording(session, "9" * 64, 0.0, 0.0)
+        assert regions.resolve_pending(session) == 2
+        session.commit()
+        assert len(calls) == 2
+
+        known = _recording(session, "0" * 64, 8.8, 53.1)
+        nowhere = _recording(session, "1" * 63 + "0", 0.0, 0.0)
+        assert regions.resolve_pending(session) == 2
+        session.commit()
+
+        assert len(calls) == 2  # both came from location_region
+        known_rows = session.scalars(
+            select(RecordingRegion.region_id).where(
+                RecordingRegion.recording_id == known.id
+            )
+        ).all()
+        assert sorted(known_rows) == ["bremen", "germany"]
+        assert (
+            session.scalars(
+                select(RecordingRegion).where(
+                    RecordingRegion.recording_id == nowhere.id
+                )
+            ).all()
+            == []
+        )
+        assert nowhere.region_resolved_at is not None
+
+
+def _task_context(
+    engine: Engine, tmp_path: Path, poiidx_database_url: str | None
+) -> procrastinate.JobContext:
+    config = Config(
+        database_url="postgresql://unused/unused",
+        archive_roots=(tmp_path / "archive",),
+        media_root=tmp_path / "media",
+        poiidx_database_url=poiidx_database_url,
+    )
+    return cast(
+        "procrastinate.JobContext",
+        SimpleNamespace(additional_context={"config": config, "engine": engine}),
+    )
+
+
+def test_resolve_regions_task_does_nothing_when_poiidx_was_unconfigured_after_deferral(
+    engine: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = _fake_poiidx(monkeypatch, {(8.8, 53.1): [BREMEN]}, {"bremen"})
+    connected: list[str] = []
+    monkeypatch.setattr(site_naming, "ensure_connected", connected.append)
+    with OrmSession(engine) as session:
+        r = _recording(session, "2" * 64, 8.8, 53.1)
+        session.commit()
+
+        resolve_regions_task(_task_context(engine, tmp_path, None))
+
+        session.refresh(r)
+        assert r.region_resolved_at is None
+    assert calls == []
+    assert connected == []
+
+
+def test_resolve_regions_task_connects_resolves_and_commits(
+    engine: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _fake_poiidx(monkeypatch, {(8.8, 53.1): [BREMEN]}, {"bremen"})
+    connected: list[str] = []
+    monkeypatch.setattr(site_naming, "ensure_connected", connected.append)
+    url = "postgresql://u:p@localhost/poiidx_bats_db"
+    with OrmSession(engine) as session:
+        _recording(session, "3" * 64, 8.8, 53.1)
+        session.commit()
+
+    resolve_regions_task(_task_context(engine, tmp_path, url))
+
+    assert connected == [url]
+    with OrmSession(engine) as fresh:
+        assert [r.id for r in regions.list_distinct_regions(fresh)] == ["bremen"]
+        assert fresh.scalars(select(Recording.region_resolved_at)).one() is not None

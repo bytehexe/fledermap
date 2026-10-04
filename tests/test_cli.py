@@ -1216,6 +1216,41 @@ def test_serve_command_uses_configured_host_and_port_when_flags_omitted(
     assert calls == [("0.0.0.0", 9090)]
 
 
+@pytest.mark.parametrize(
+    ("poiidx_env", "expected"),
+    [
+        ({}, False),
+        ({"FLEDERMAP_POIIDX_DATABASE_URL": "postgresql://u:p@localhost/poiidx"}, True),
+    ],
+)
+def test_serve_enables_the_region_filter_only_when_poiidx_is_configured(
+    clean_database_url: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    poiidx_env: dict[str, str],
+    expected: bool,
+) -> None:
+    seen: list[object] = []
+
+    def fake_run(self: flask.Flask, *_args: object, **_kwargs: object) -> None:
+        seen.append(self.config["REGIONS_ENABLED"])
+
+    monkeypatch.setattr(flask.Flask, "run", fake_run)
+    _populate_vendor_cache(tmp_path / "static")
+    env = {
+        "FLEDERMAP_DATABASE_URL": clean_database_url,
+        "FLEDERMAP_ARCHIVE_ROOTS": str(tmp_path / "archive"),
+        "FLEDERMAP_MEDIA_ROOT": str(tmp_path / "media"),
+        "FLEDERMAP_STATIC_ROOT": str(tmp_path / "static"),
+        **poiidx_env,
+    }
+
+    result = CliRunner().invoke(cli, ["serve"], env=env)
+
+    assert result.exit_code == 0, result.output
+    assert seen == [expected]
+
+
 def test_fetch_missing_vendor_assets_or_die_reports_what_it_fetched(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -255,6 +255,7 @@ def filtered_sites(
     date_to: datetime | None = None,
     site_id: int | None = None,
     session_id: int | None = None,
+    region_id: str | None = None,
 ) -> Sequence[Site]:
     # Same reasoning as filtered_recordings above -- most-recently-active
     # first, deterministically, instead of an undefined DB order.
@@ -274,6 +275,21 @@ def filtered_sites(
             Site.id.in_(
                 select(Recording.site_id).where(
                     Recording.session_id == session_id,
+                    Recording.site_id.is_not(None),
+                    Recording.missing_since.is_(None),
+                ),
+            ),
+        )
+    if region_id is not None:
+        # Same reasoning as the session filter above: the Region filter narrows
+        # the recording markers, so the site circles must follow, or the map's
+        # initial fit-to-markers zooms out to every site in every region.
+        stmt = stmt.where(
+            Site.id.in_(
+                select(Recording.site_id)
+                .join(RecordingRegion, RecordingRegion.recording_id == Recording.id)
+                .where(
+                    RecordingRegion.region_id == region_id,
                     Recording.site_id.is_not(None),
                     Recording.missing_since.is_(None),
                 ),

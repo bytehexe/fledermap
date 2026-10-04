@@ -15,7 +15,7 @@ from typing import Any
 import poiidx
 import procrastinate
 from shapely.geometry import MultiPoint, Point
-from sqlalchemy import delete, select, update
+from sqlalchemy import ColumnElement, delete, select, update
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session as OrmSession
 
@@ -40,16 +40,30 @@ def _upsert_region(session: OrmSession, region_id: str, name: str) -> None:
         existing.name = name
 
 
+def _pending_conditions() -> tuple[ColumnElement[bool], ...]:
+    return (
+        Recording.region_resolved_at.is_(None),
+        Recording.missing_since.is_(None),
+        Recording.geom.is_not(None),
+    )
+
+
 def resolve_pending(session: OrmSession) -> int:
     """Resolve every live, located recording not yet resolved. Returns how
     many recordings were resolved."""
-    pending = session.scalars(
-        select(Recording).where(
-            Recording.region_resolved_at.is_(None),
-            Recording.missing_since.is_(None),
-            Recording.geom.is_not(None),
+    # `backfill-regions --force` resets in its own transaction, outside this
+    # job's queue lock, so it can null `region_resolved_at` while rows from a
+    # run still in flight survive. Writing a recording's regions must
+    # therefore overwrite, never assume none exist -- otherwise the duplicate
+    # primary key would fail every later cycle, permanently.
+    session.execute(
+        delete(RecordingRegion).where(
+            RecordingRegion.recording_id.in_(
+                select(Recording.id).where(*_pending_conditions()),
+            ),
         ),
-    ).all()
+    )
+    pending = session.scalars(select(Recording).where(*_pending_conditions())).all()
 
     by_key: dict[str, list[Recording]] = {}
     points: dict[str, tuple[float, float]] = {}
@@ -79,7 +93,9 @@ def resolve_pending(session: OrmSession) -> int:
                 _upsert_region(session, info["id"], info["name"])
             row = LocationRegion(
                 location_key=key,
-                region_ids=[info["id"] for info in found],
+                # A region listed twice would otherwise be a duplicate
+                # recording_region key below.
+                region_ids=list(dict.fromkeys(info["id"] for info in found)),
             )
             session.add(row)
             # Regions must exist before recording_region rows reference them.

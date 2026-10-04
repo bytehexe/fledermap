@@ -10,7 +10,14 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import IdSource, Verdict
-from fledermap.store.models import Identification, Recording, Site, Taxon
+from fledermap.store.models import (
+    Identification,
+    Recording,
+    RecordingRegion,
+    Region,
+    Site,
+    Taxon,
+)
 from fledermap.store.models import Session as AnnotationSession
 from fledermap.web.app import create_app
 
@@ -688,6 +695,48 @@ def test_sites_geojson_filters_by_session(engine: Engine, tmp_path: Path) -> Non
 
     ids = {f["properties"]["id"] for f in response.get_json()["features"]}
     assert ids == {in_session_id}
+
+
+def test_sites_geojson_filters_by_region(engine: Engine, tmp_path: Path) -> None:
+    """The map sends the Region filter to the sites layer too; without this the
+    site circles for every other region stayed on the map and the initial
+    fit-to-markers zoomed out to all of them."""
+    with OrmSession(engine) as session:
+        session.add(Region(id="austria", name="Austria", is_distinct=True))
+        in_region = Site(
+            centroid=WKTElement("POINT(10 50)", srid=4326),
+            radius_m=50.0,
+            recording_count=1,
+            first_at=datetime(2026, 8, 25, tzinfo=UTC),
+            last_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        other = Site(
+            centroid=WKTElement("POINT(11 51)", srid=4326),
+            radius_m=50.0,
+            recording_count=1,
+            first_at=datetime(2026, 8, 25, tzinfo=UTC),
+            last_at=datetime(2026, 8, 25, tzinfo=UTC),
+        )
+        session.add_all([in_region, other])
+        session.flush()
+        recording = Recording(
+            audio_hash="a" * 64,
+            path="a.wav",
+            recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+            geom=WKTElement("POINT(10 50)", srid=4326),
+            site_id=in_region.id,
+        )
+        session.add(recording)
+        session.flush()
+        session.add(RecordingRegion(recording_id=recording.id, region_id="austria"))
+        session.commit()
+        in_region_id = in_region.id
+
+    client = _app_client(engine, tmp_path)
+    response = client.get("/api/sites.geojson?region=austria")
+
+    ids = {f["properties"]["id"] for f in response.get_json()["features"]}
+    assert ids == {in_region_id}
 
 
 def test_recordings_geojson_marks_multi_species_recordings(
