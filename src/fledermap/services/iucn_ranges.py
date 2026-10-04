@@ -14,9 +14,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+import procrastinate
 import requests
 from shapely.geometry import MultiPolygon, Polygon, shape
 from sqlalchemy import delete, func, or_, select, text
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.ranges import (
@@ -30,6 +32,8 @@ from fledermap.domain.ranges import (
     RangeKind,
     RangeStatus,
 )
+from fledermap.jobs.tasks import _FETCH_IUCN_RANGES_LOCK, fetch_iucn_ranges_task
+from fledermap.jobs.tasks import app as jobs_app
 from fledermap.store.models import (
     ClassifierDetection,
     Identification,
@@ -301,3 +305,28 @@ def range_status(
         return RangeStatus(RangeKind.NEAR, distance_km=distance_km, vagrant=True)
     kind = RangeKind.NEAR if distance_km <= edge_km else RangeKind.FAR
     return RangeStatus(kind, distance_km=distance_km)
+
+
+def enqueue_range_fetch(
+    session: OrmSession,
+    engine: Engine,
+    *,
+    enabled: bool,
+) -> bool:
+    """Defer one fetch job when the flag is on and some species is pending. Unlike region
+    resolution, nothing here changes without a new species or code, so an idle ingest cycle must
+    not queue a job. The queueing lock drops a duplicate while one is already waiting."""
+    if not enabled or not pending_taxa(session):
+        return False
+    try:
+        jobs_app.open(engine)
+    except NotImplementedError:
+        pass  # already open inside a running worker -- see enqueue_media's docstring
+    try:
+        fetch_iucn_ranges_task.configure(
+            lock=_FETCH_IUCN_RANGES_LOCK,
+            queueing_lock=_FETCH_IUCN_RANGES_LOCK,
+        ).defer()
+    except procrastinate.exceptions.AlreadyEnqueued:
+        return False
+    return True

@@ -1,15 +1,24 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
+from types import SimpleNamespace
+from typing import cast
 
+import procrastinate
 import pytest
 from geoalchemy2 import Geometry
 from geoalchemy2.elements import WKTElement
-from sqlalchemy import Engine, cast, func, select
+from sqlalchemy import Engine, func, select
+from sqlalchemy import cast as sa_cast
 from sqlalchemy.orm import Session as OrmSession
 
+from fledermap.config import Config
 from fledermap.domain.codes import IdSource, Verdict
 from fledermap.domain.ranges import RANGE_CODE_SOURCE, NoDataReason, RangeKind
+from fledermap.jobs.app import ensure_schema
+from fledermap.jobs.tasks import app as jobs_app
+from fledermap.jobs.tasks import fetch_iucn_ranges_task
 from fledermap.services import iucn_ranges
 from fledermap.services.iucn_ranges import RangePolygon
 from fledermap.store.models import (
@@ -184,7 +193,7 @@ def test_an_invalid_self_intersecting_polygon_is_repaired_not_rejected(
 
         # ST_IsValid exists for geometry only, so the geography column is cast for the check.
         valid = session.scalar(
-            select(func.ST_IsValid(cast(SpeciesRange.geom, Geometry))),
+            select(func.ST_IsValid(sa_cast(SpeciesRange.geom, Geometry))),
         )
         assert valid is True
 
@@ -412,3 +421,88 @@ def test_a_fetch_under_an_outdated_code_counts_as_not_fetched(engine: Engine) ->
         status = _status(session, taxon, recording)
 
     assert status.reason is NoDataReason.NOT_FETCHED
+
+
+def _task_context(
+    engine: Engine,
+    tmp_path: Path,
+    *,
+    enabled: bool,
+) -> procrastinate.JobContext:
+    config = Config(
+        database_url="postgresql://unused/unused",
+        archive_roots=(tmp_path / "archive",),
+        media_root=tmp_path / "media",
+        iucn_ranges_enabled=enabled,
+    )
+    return cast(
+        "procrastinate.JobContext",
+        SimpleNamespace(additional_context={"config": config, "engine": engine}),
+    )
+
+
+def test_enqueue_is_a_no_op_when_disabled(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        _identify(session, _recording(session), _taxon(session))
+        session.commit()
+
+        assert iucn_ranges.enqueue_range_fetch(session, engine, enabled=False) is False
+
+
+def test_enqueue_is_a_no_op_when_nothing_is_pending(engine: Engine) -> None:
+    jobs_app.open(engine)
+    ensure_schema(jobs_app, engine)
+    with OrmSession(engine) as session:
+        assert iucn_ranges.enqueue_range_fetch(session, engine, enabled=True) is False
+
+
+def test_enqueue_defers_one_job_and_dedupes_the_second(engine: Engine) -> None:
+    jobs_app.open(engine)
+    ensure_schema(jobs_app, engine)
+    with OrmSession(engine) as session:
+        _identify(session, _recording(session), _taxon(session))
+        session.commit()
+
+        assert iucn_ranges.enqueue_range_fetch(session, engine, enabled=True) is True
+        assert iucn_ranges.enqueue_range_fetch(session, engine, enabled=True) is False
+
+
+def test_the_task_does_nothing_when_the_flag_was_turned_off_after_deferral(
+    engine: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    called: list[str] = []
+
+    def spy(name: str, **_: object) -> list[RangePolygon]:
+        called.append(name)
+        return []
+
+    monkeypatch.setattr(iucn_ranges, "fetch_range", spy)
+    with OrmSession(engine) as session:
+        _identify(session, _recording(session), _taxon(session))
+        session.commit()
+
+    fetch_iucn_ranges_task(_task_context(engine, tmp_path, enabled=False))
+
+    assert called == []
+    with OrmSession(engine) as fresh:
+        assert fresh.scalars(select(SpeciesRangeFetch)).all() == []
+
+
+def test_the_task_fetches_pending_species_and_commits(
+    engine: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake(name: str, **_: object) -> list[RangePolygon]:
+        return [RangePolygon(presence=1, origin=1, wkt=SQUARE_WKT)]
+
+    monkeypatch.setattr(iucn_ranges, "fetch_range", fake)
+    with OrmSession(engine) as session:
+        taxon = _taxon(session)
+        _identify(session, _recording(session), taxon)
+        session.commit()
+        taxon_id = taxon.id
+
+    fetch_iucn_ranges_task(_task_context(engine, tmp_path, enabled=True))
+
+    with OrmSession(engine) as fresh:
+        assert fresh.get(SpeciesRangeFetch, taxon_id) is not None
+        assert fresh.scalar(select(func.count()).select_from(SpeciesRange)) == 1
