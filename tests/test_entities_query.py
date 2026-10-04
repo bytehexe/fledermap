@@ -241,3 +241,40 @@ def test_list_sites_orders_most_recently_active_first(engine: Engine) -> None:
         results = list_sites(session)
 
     assert [s.id for s in results] == [newer.id, older.id]
+
+
+def test_list_species_code_column_ignores_the_iucn_range_name(engine: Engine) -> None:
+    """The species list shows one arbitrary code per species; a range-lookup name is not
+    something a user knows as a code."""
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Cnephaeus serotinus")
+        session.add(taxon)
+        session.flush()
+        # The IUCN row is inserted FIRST so a reader that does not filter would pick it.
+        session.add(
+            TaxonCode(source="iucn2022", code="Eptesicus serotinus", taxon_id=taxon.id),
+        )
+        session.add(TaxonCode(source="wa", code="EPTSER", taxon_id=taxon.id))
+        _recording(session, audio_hash="b" * 64, taxon_id=taxon.id)
+        session.commit()
+
+        rows = list_species(session)
+
+    assert rows[0].code == "EPTSER"
+
+
+def test_species_detail_codes_exclude_the_iucn_range_name(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Cnephaeus serotinus")
+        session.add(taxon)
+        session.flush()
+        session.add(TaxonCode(source="wa", code="EPTSER", taxon_id=taxon.id))
+        session.add(
+            TaxonCode(source="iucn2022", code="Eptesicus serotinus", taxon_id=taxon.id),
+        )
+        session.commit()
+
+        detail = species_detail(session, taxon.id)
+
+    assert detail is not None
+    assert detail.codes == ["EPTSER"]

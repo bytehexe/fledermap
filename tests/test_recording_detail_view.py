@@ -14,10 +14,17 @@ from sqlalchemy.orm import Session as OrmSession
 from fledermap.domain.codes import IdSource, Verdict
 from fledermap.services.annotations import create_label_annotation, list_annotations
 from fledermap.services.classifier_detections import DetectionInput, record_detections
-from fledermap.store.models import Identification, Recording, Site, Taxon
+from fledermap.store.models import (
+    Identification,
+    Recording,
+    Site,
+    Taxon,
+    TaxonCode,
+)
 from fledermap.store.models import Session as AnnotationSession
 from fledermap.web.app import create_app
 from fledermap.web.timefmt import local_datetime_seconds
+from fledermap.web.views.recording_detail import _taxon_search_index
 
 pytestmark = [pytest.mark.db, pytest.mark.usefixtures("_vendor_icons")]
 
@@ -2191,3 +2198,19 @@ def test_post_note_404s_for_an_unknown_hash(engine: Engine, tmp_path: Path) -> N
         data={"note": "x"},
     )
     assert response.status_code == 404
+
+
+def test_classify_search_index_excludes_the_iucn_range_name(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        taxon = Taxon(rank="species", scientific_name="Cnephaeus serotinus")
+        session.add(taxon)
+        session.flush()
+        session.add(TaxonCode(source="wa", code="EPTSER", taxon_id=taxon.id))
+        session.add(
+            TaxonCode(source="iucn2022", code="Eptesicus serotinus", taxon_id=taxon.id),
+        )
+        session.commit()
+
+        index = _taxon_search_index(session)
+
+    assert index[0]["codes"] == ["EPTSER"]

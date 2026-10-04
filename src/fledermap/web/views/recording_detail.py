@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import AnnotationSource
+from fledermap.domain.ranges import RANGE_CODE_SOURCE
 from fledermap.media.paths import preview_path
 from fledermap.media.preview import TIME_EXPANSION_FACTOR
 from fledermap.services.annotations import (
@@ -60,7 +61,9 @@ def _taxon_search_index(session: OrmSession) -> list[dict[str, object]]:
     assumption (design spec §5)."""
     taxa = session.scalars(select(Taxon)).all()
     codes_by_taxon: dict[int, list[str]] = {}
-    for code in session.scalars(select(TaxonCode)).all():
+    for code in session.scalars(
+        select(TaxonCode).where(TaxonCode.source != RANGE_CODE_SOURCE),
+    ).all():
         codes_by_taxon.setdefault(code.taxon_id, []).append(code.code)
     return [
         {
