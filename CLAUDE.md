@@ -108,7 +108,12 @@ Roughly a pipeline, each stage its own top-level package under `src/fledermap/`:
   `manual_classification.py` is the only place that writes `IdSource.MANUAL` identification
   rows, via `set_manual_classification`, which (like `services/ingest.py`'s own
   `_apply_identifications`) delegates to `services/identifications.py`'s `replace_claims` —
-  the one shared delete/update-in-place algorithm both use.
+  the one shared delete/update-in-place algorithm both use, `iucn_ranges.py` is the
+  optional range plausibility check (off by default for licensing reasons, spec
+  `2026-10-04-fledermap-iucn-range-check-design.md`): the worker fetches and caches IUCN range
+  polygons per species, and `range_status` reduces them to a verdict and a distance for the
+  matrix's `iucn` column -- **range geometry never reaches the browser** (IUCN's terms forbid
+  redistributing it, and the data is non-commercial only).
 - **`jobs/`** — the Procrastinate async task queue: `app.py` bootstraps its schema (see the
   "Procrastinate's schema has no upgrade path here" bullet below), `tasks.py` defines the jobs
   (media rendering, site naming), `watch.py` is the filesystem watcher `fledermap worker` runs.
@@ -564,6 +569,14 @@ own literal value doesn't match, because a `codes` value is a source's own
 vocabulary (what the WA page/EMT device or a classifier model literally
 emits), never derived from `scientific_name` — resolution is by exact
 `(source, code)` lookup, so renaming `scientific_name` cannot break it.
+
+Every species in `taxa_eu.yaml`/`taxa_na.yaml` also carries an `iucn2022` code: the name IUCN's
+2022-2 range layer files the species under (see `docs/references.md`; the three Old World
+*Cnephaeus* species are *Eptesicus* there), used only by the optional range check. It is not a
+code anyone is identified by, so `services/entities.py` and `recording_detail.py`'s search index
+filter `RANGE_CODE_SOURCE` out -- **any new reader of `taxon_code` that shows or searches codes
+must do the same.** Never commit a real IUCN service response (not even as a test fixture):
+IUCN's terms forbid redistributing the data in whole or in part, so fixtures are synthetic.
 
 ## Ingest invariants
 

@@ -1,6 +1,6 @@
 # Fledermap IUCN range plausibility check — Design
 
-**Status:** draft, awaiting review
+**Status:** implemented
 **Date:** 2026-10-04
 
 ## Problem
