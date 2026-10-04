@@ -18,7 +18,7 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
@@ -83,6 +83,11 @@ class Recording(Base):
     # different concept that happens to share the word "note" in casual English.
     device_note: Mapped[str | None] = mapped_column(Text)
     note: Mapped[str | None] = mapped_column(Text)
+
+    # Set once this recording's containing regions are in `recording_region`,
+    # including when there are none. Without it a recording outside every
+    # region has no recording_region rows and would look unresolved forever.
+    region_resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     guano_raw: Mapped[dict] = mapped_column(JSONB, default=dict)
 
@@ -428,6 +433,54 @@ class SiteNameCache(Base):
     name: Mapped[str] = mapped_column(Text)
     admin_path: Mapped[str | None] = mapped_column(Text)
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class Region(Base):
+    """A poiidx/Geofabrik region that contains at least one recorded location.
+
+    `is_distinct` is derived data (poiidx's rule over the current set of
+    recorded locations), recomputed in place every ingest cycle by
+    `services.regions.refresh_distinct_flags`; it changes as recordings are
+    added or go missing. Rows are kept even when not distinct so
+    `recording_region.region_id` can be a real foreign key and a region that
+    becomes distinct later needs no re-resolution.
+    """
+
+    __tablename__ = "region"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    name: Mapped[str] = mapped_column(Text)
+    is_distinct: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class LocationRegion(Base):
+    """poiidx's answer for one rounded coordinate (`services.regions.location_key`),
+    so many recordings at the same spot cost one poiidx call. An empty array
+    means "resolved, in no region" and is never re-asked."""
+
+    __tablename__ = "location_region"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    location_key: Mapped[str] = mapped_column(String(24), unique=True, index=True)
+    region_ids: Mapped[list[str]] = mapped_column(ARRAY(Text))
+
+
+class RecordingRegion(Base):
+    """Every region whose area contains the recording's point. Regions nest
+    (Bremen, Germany, DACH), so a recording has several rows and filtering by
+    a larger region matches its sub-regions' recordings with no extra logic."""
+
+    __tablename__ = "recording_region"
+
+    recording_id: Mapped[int] = mapped_column(
+        ForeignKey("recording.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    region_id: Mapped[str] = mapped_column(
+        ForeignKey("region.id"),
+        primary_key=True,
+        index=True,
+    )
 
 
 class SessionMergeProposal(Base):
