@@ -15,11 +15,21 @@ from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.config import Config
 from fledermap.domain.codes import IdSource, Verdict
-from fledermap.domain.ranges import RANGE_CODE_SOURCE, NoDataReason, RangeKind
+from fledermap.domain.ranges import (
+    IUCN_CITATION,
+    RANGE_CODE_SOURCE,
+    NoDataReason,
+    RangeKind,
+)
 from fledermap.jobs.app import ensure_schema
 from fledermap.jobs.tasks import app as jobs_app
 from fledermap.jobs.tasks import fetch_iucn_ranges_task
 from fledermap.services import iucn_ranges
+from fledermap.services.current_best import (
+    IdentificationMatrix,
+    current_best_identification,
+    identification_matrix,
+)
 from fledermap.services.iucn_ranges import RangePolygon
 from fledermap.store.models import (
     ClassifierDetection,
@@ -506,3 +516,57 @@ def test_the_task_fetches_pending_species_and_commits(
     with OrmSession(engine) as fresh:
         assert fresh.get(SpeciesRangeFetch, taxon_id) is not None
         assert fresh.scalar(select(func.count()).select_from(SpeciesRange)) == 1
+
+
+def _matrix(session: OrmSession, recording: Recording) -> IdentificationMatrix:
+    session.refresh(recording)
+    best = current_best_identification(recording)
+    return identification_matrix(recording.identifications, best, combine_emt=True)
+
+
+def test_attach_ranges_fills_species_rows_and_marks_the_matrix(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        taxon, recording = _with_range(session, [NATIVE_SQUARE], lon=0.5)
+        _identify(session, recording, taxon)
+        session.commit()
+
+        matrix = iucn_ranges.attach_ranges(
+            _matrix(session, recording),
+            session,
+            recording,
+            edge_km=100.0,
+        )
+
+    assert matrix.show_range is True
+    assert matrix.range_citation == IUCN_CITATION
+    [row] = matrix.rows
+    assert row.iucn_range is not None
+    assert row.iucn_range.kind is RangeKind.INSIDE
+
+
+def test_attach_ranges_leaves_group_and_unmapped_rows_blank(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        recording = _recording(session)
+        genus = _taxon(session, "Myotis", code="Myotis", rank="genus")
+        _identify(session, recording, genus)
+        session.add(
+            Identification(
+                recording_id=recording.id,
+                source=IdSource.EMT_GUANO,
+                verdict=Verdict.SPECIES,
+                taxon_id=None,
+                raw_label="UNKNWN",
+                first_seen_at=datetime(2026, 10, 4, tzinfo=UTC),
+            ),
+        )
+        session.commit()
+
+        matrix = iucn_ranges.attach_ranges(
+            _matrix(session, recording),
+            session,
+            recording,
+            edge_km=100.0,
+        )
+
+    assert matrix.show_range is True
+    assert [row.iucn_range for row in matrix.rows] == [None, None]

@@ -31,6 +31,7 @@ from fledermap.services.current_best import (
     current_best_identification,
     identification_matrix,
 )
+from fledermap.services.iucn_ranges import attach_ranges
 from fledermap.services.manual_classification import current_manual_state
 from fledermap.services.recording_detail import (
     detail_params,
@@ -156,6 +157,13 @@ def _current_classification(
         best,
         combine_emt=flask.current_app.config["COMBINE_EMT_DISPLAY"],
     )
+    if flask.current_app.config["IUCN_RANGES_ENABLED"]:
+        matrix = attach_ranges(
+            matrix,
+            session,
+            recording,
+            edge_km=flask.current_app.config["IUCN_RANGE_EDGE_KM"],
+        )
     return best, taxon, matrix
 
 

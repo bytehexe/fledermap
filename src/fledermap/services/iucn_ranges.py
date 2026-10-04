@@ -9,6 +9,7 @@ this module: `range_status` reduces them to a verdict and a distance.
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -24,6 +25,7 @@ from sqlalchemy.orm import Session as OrmSession
 from fledermap.domain.ranges import (
     FETCH_FOUND,
     FETCH_NOT_FOUND,
+    IUCN_CITATION,
     IUCN_RELEASE,
     KEPT_PRESENCE,
     RANGE_CODE_SOURCE,
@@ -34,6 +36,7 @@ from fledermap.domain.ranges import (
 )
 from fledermap.jobs.tasks import _FETCH_IUCN_RANGES_LOCK, fetch_iucn_ranges_task
 from fledermap.jobs.tasks import app as jobs_app
+from fledermap.services.current_best import IdentificationMatrix
 from fledermap.store.models import (
     ClassifierDetection,
     Identification,
@@ -330,3 +333,31 @@ def enqueue_range_fetch(
     except procrastinate.exceptions.AlreadyEnqueued:
         return False
     return True
+
+
+def attach_ranges(
+    matrix: IdentificationMatrix,
+    session: OrmSession,
+    recording: Recording,
+    *,
+    edge_km: float,
+) -> IdentificationMatrix:
+    """The matrix with an `iucn` range status on each species row. Kept out of
+    `identification_matrix` so that stays a pure function of the identifications; this needs a
+    session. Rows that are not a species with a resolved taxon keep `iucn_range=None` (blank
+    cell)."""
+    rows = [
+        dataclasses.replace(
+            row,
+            iucn_range=range_status(session, row.taxon.id, recording, edge_km=edge_km),
+        )
+        if row.taxon is not None and row.taxon.rank == "species"
+        else row
+        for row in matrix.rows
+    ]
+    return dataclasses.replace(
+        matrix,
+        rows=rows,
+        show_range=True,
+        range_citation=IUCN_CITATION,
+    )

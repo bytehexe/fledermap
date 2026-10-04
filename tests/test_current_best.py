@@ -976,3 +976,14 @@ def test_automatic_best_supports_multi_species_from_batdetect2() -> None:
     assert best is not None
     assert best.is_multi
     assert best.taxon_ids == frozenset({1, 2})
+
+
+def test_a_matrix_has_no_range_column_by_default() -> None:
+    r = _recording(_ident(IdSource.BATDETECT2))
+    best = current_best_identification(r)
+
+    matrix = identification_matrix(r.identifications, best, combine_emt=True)
+
+    assert matrix.show_range is False
+    assert matrix.range_citation == ""
+    assert all(row.iucn_range is None for row in matrix.rows)
