@@ -30,7 +30,7 @@ from fledermap.services.current_best import (
     current_best_identification,
     identification_matrix,
 )
-from fledermap.services.iucn_ranges import RangePolygon
+from fledermap.services.iucn_ranges import IucnFetchError, RangePolygon
 from fledermap.store.models import (
     ClassifierDetection,
     Identification,
@@ -570,3 +570,32 @@ def test_attach_ranges_leaves_group_and_unmapped_rows_blank(engine: Engine) -> N
 
     assert matrix.show_range is True
     assert [row.iucn_range for row in matrix.rows] == [None, None]
+
+
+def test_a_species_with_an_unusable_reply_does_not_block_the_others(
+    engine: Engine,
+) -> None:
+    """A deterministic failure (a malformed feature) must not starve every species after it;
+    the job still ends failed so the problem stays visible."""
+
+    def fetch(name: str) -> list[RangePolygon]:
+        if name == "Pipistrellus pipistrellus":
+            msg = "unusable reply"
+            raise IucnFetchError(msg)
+        return [RangePolygon(presence=1, origin=1, wkt=SQUARE_WKT)]
+
+    with OrmSession(engine) as session:
+        bad = _taxon(session, "Pipistrellus pipistrellus")
+        good = _taxon(session, "Nyctalus noctula", code="Nyctalus noctula")
+        recording = _recording(session)
+        _identify(session, recording, bad)
+        _identify(session, recording, good)
+        session.commit()
+        bad_id, good_id = bad.id, good.id
+
+        with pytest.raises(IucnFetchError, match="Pipistrellus pipistrellus"):
+            iucn_ranges.fetch_pending(session, fetch=fetch)
+
+    with OrmSession(engine) as fresh:
+        assert fresh.get(SpeciesRangeFetch, good_id) is not None
+        assert fresh.get(SpeciesRangeFetch, bad_id) is None

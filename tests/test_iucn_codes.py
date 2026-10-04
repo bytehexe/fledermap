@@ -5,10 +5,12 @@ from typing import Any
 
 import pytest
 import yaml
-from sqlalchemy import Engine
+from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.ranges import RANGE_CODE_SOURCE
+from fledermap.store import seed as seed_module
+from fledermap.store.models import Taxon, TaxonCode
 from fledermap.store.seed import resolve_code, seed_taxonomy
 
 # Where IUCN 2022-2's name differs from our `scientific_name` (current taxonomy). Explicit, so a
@@ -64,3 +66,37 @@ def test_seeding_stores_the_iucn2022_codes(engine: Engine) -> None:
 
     assert taxon is not None
     assert taxon.scientific_name == "Cnephaeus serotinus"
+
+
+@pytest.mark.db
+def test_reseeding_with_a_changed_iucn2022_code_replaces_the_old_one(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The seed only ever added codes, so a range name edited in the YAML (IUCN adopting a
+    new genus) left two `iucn2022` rows on the taxon and the fetch job asked about both of them
+    on every cycle, each overwriting the other."""
+    with OrmSession(engine) as session:
+        seed_taxonomy(session)
+        session.commit()
+
+        entries = seed_module._load()
+        for entry in entries:
+            if entry["scientific_name"] == "Cnephaeus serotinus":
+                entry["codes"] = {
+                    **entry["codes"],
+                    RANGE_CODE_SOURCE: "Cnephaeus serotinus",
+                }
+        monkeypatch.setattr(seed_module, "_load", lambda: entries)
+        seed_taxonomy(session)
+        session.commit()
+
+        codes = session.scalars(
+            select(TaxonCode.code)
+            .join(Taxon, Taxon.id == TaxonCode.taxon_id)
+            .where(
+                Taxon.scientific_name == "Cnephaeus serotinus",
+                TaxonCode.source == RANGE_CODE_SOURCE,
+            ),
+        ).all()
+
+    assert codes == ["Cnephaeus serotinus"]

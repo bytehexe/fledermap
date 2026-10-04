@@ -6,9 +6,10 @@ from importlib.resources import files
 from typing import Any
 
 import yaml
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session as OrmSession
 
+from fledermap.domain.ranges import RANGE_CODE_SOURCE
 from fledermap.store.models import Taxon, TaxonCode
 
 _DATA = ["taxa_eu.yaml", "taxa_na.yaml", "taxa_groups.yaml"]
@@ -25,6 +26,7 @@ def _load() -> list[dict[str, Any]]:
 def seed_taxonomy(session: OrmSession) -> int:
     """Insert any missing taxa and codes. Returns the number of taxa created."""
     created = 0
+    range_codes: list[TaxonCode] = []
     for entry in _load():
         taxon = session.scalars(
             select(Taxon).where(Taxon.scientific_name == entry["scientific_name"]),
@@ -77,7 +79,8 @@ def seed_taxonomy(session: OrmSession) -> int:
                 ),
             ).one_or_none()
             if exists is None:
-                session.add(TaxonCode(source=source, code=code, taxon_id=taxon.id))
+                exists = TaxonCode(source=source, code=code, taxon_id=taxon.id)
+                session.add(exists)
             elif exists.taxon_id != taxon.id:
                 # The bundled YAML is the source of truth for reference data, so
                 # a code moved between taxa (a corrected mapping) must follow.
@@ -86,6 +89,20 @@ def seed_taxonomy(session: OrmSession) -> int:
                 # stale row survives silently and resolve_code keeps returning
                 # the old taxon.
                 exists.taxon_id = taxon.id
+            if source == RANGE_CODE_SOURCE:
+                range_codes.append(exists)
+
+    # Unlike every other source, a taxon's IUCN range name is looked up as "the" code for the
+    # taxon, so a name changed in the YAML must REPLACE the old one: left behind, the taxon would
+    # hold two and the range fetch job would ask about both on every cycle, each overwriting the
+    # other's polygons.
+    session.flush()
+    session.execute(
+        delete(TaxonCode).where(
+            TaxonCode.source == RANGE_CODE_SOURCE,
+            TaxonCode.id.not_in([code.id for code in range_codes]),
+        ),
+    )
 
     return created
 

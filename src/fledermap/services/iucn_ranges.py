@@ -243,16 +243,26 @@ def fetch_pending(
 ) -> int:
     """Fetch and store every pending species, one at a time. Commits after each so a failure
     on a later species (the job then retries) keeps the earlier ones. Returns how many were
-    stored."""
+    stored. A species whose reply is unusable (`IucnFetchError`) is skipped and reported once
+    at the end, so one malformed record cannot starve every species after it; a network error
+    still aborts at once, because it would hit every request alike."""
     # Looked up here, not bound as a default argument: a default would freeze the original
     # function object at definition time and make `fetch_range` impossible to replace for the
     # job-level tests, which cannot pass an argument through the task.
     fetcher = fetch if fetch is not None else fetch_range
     stored = 0
+    failures: list[str] = []
     for taxon_id, query_name in pending_taxa(session):
-        store_range(session, taxon_id, query_name, fetcher(query_name))
+        try:
+            polygons = fetcher(query_name)
+        except IucnFetchError as exc:
+            failures.append(f"{query_name}: {exc}")
+            continue
+        store_range(session, taxon_id, query_name, polygons)
         session.commit()
         stored += 1
+    if failures:
+        raise IucnFetchError("; ".join(failures))
     return stored
 
 
