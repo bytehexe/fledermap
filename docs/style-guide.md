@@ -153,6 +153,10 @@ and `sessions_list.html`'s `#session-filters`.
 </form>
 ```
 
+**Map view actions are Leaflet controls on the map, not filter-bar items.** The filter bar holds
+only controls that change *which* data matches; an action that changes the *view* of the current
+result (the "Zoom to fit" button under the zoom +/-) sits in the map's own control stack.
+
 ### `.stacked-form`
 
 Use for any form whose fields should stack top-to-bottom (label above its control) rather than

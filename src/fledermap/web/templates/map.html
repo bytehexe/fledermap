@@ -114,6 +114,9 @@
       Showing the first {{ "{:,}".format(max_features) }} matching results — narrow the filters or zoom in to see the rest.
     </p>
 
+    {# Source of the "Zoom to fit" map control's icon -- app.js clones it, since JS can't call the
+       icon() Jinja global. #}
+    <template id="zoom-to-fit-icon">{{ icon("arrows-maximize") }}</template>
     <div id="map"></div>
 
     <div id="drawer" x-show="$store.drawer.open" x-cloak

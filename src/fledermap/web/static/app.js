@@ -460,6 +460,32 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  // The "Zoom to fit" button. Refetches with the current filters but WITHOUT the viewport
+  // bbox, then fits: after any pan/zoom/filter edit the layers hold only what was inside the
+  // viewport, so fitting to them as-is would just re-fit the current view. Not a history
+  // entry -- it changes the view, not a filter.
+  const ZoomToFit = L.Control.extend({
+    options: { position: "topleft" },
+    onAdd() {
+      const bar = L.DomUtil.create("div", "leaflet-bar leaflet-control");
+      const button = L.DomUtil.create("a", "zoom-to-fit-button", bar);
+      button.href = "#";
+      button.role = "button";
+      button.title = "Zoom to fit";
+      button.setAttribute("aria-label", "Zoom to fit");
+      button.append(
+        document.getElementById("zoom-to-fit-icon").content.cloneNode(true),
+      );
+      L.DomEvent.disableClickPropagation(bar);
+      L.DomEvent.on(button, "click", (event) => {
+        L.DomEvent.preventDefault(event);
+        refreshLayers(query()).then(fitToVisible);
+      });
+      return bar;
+    },
+  });
+  new ZoomToFit().addTo(map);
+
   // A live filter edit: refetch, then sync the URL to the new filter
   // values (not waiting on the fetch, so the URL reflects what the user
   // asked for immediately regardless of fetch latency/failure). Does NOT

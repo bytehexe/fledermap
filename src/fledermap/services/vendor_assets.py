@@ -187,6 +187,13 @@ ASSETS: tuple[VendorAsset, ...] = (
         sha256="729d3e264f4e2e9670cd86f4531141baa78eb94e975198228a8167c8a1eb0572",
         relative_path="icons/outline/stack-2.svg",
     ),
+    # The map's "Zoom to fit" control icon (a Leaflet control built in app.js, which clones it
+    # from a server-rendered <template> in map.html since JS can't call the icon() Jinja global).
+    VendorAsset(
+        url="https://unpkg.com/@tabler/icons@3.46.0/icons/outline/arrows-maximize.svg",
+        sha256="783d491ed6046e51b9b09d377b8a5dc1c01aec3ecd28546b67065a326ca7f672",
+        relative_path="icons/outline/arrows-maximize.svg",
+    ),
     VendorAsset(
         url="https://unpkg.com/@tabler/icons@3.46.0/icons/filled/player-play.svg",
         sha256="2ba08da4e3f0d78b6a957e355c948bf8d5cd4241286aa8bb48a54d97e767929b",

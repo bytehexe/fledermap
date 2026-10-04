@@ -190,6 +190,11 @@ main.main-content h1 { margin-top: 1rem; }
    so there's nothing else visible in it. */
 #map { flex: 1 1 auto; width: 100%; margin-bottom: var(--drawer-h, 0px); }
 
+/* The "Zoom to fit" Leaflet control (app.js): Leaflet's own .leaflet-bar a rule sizes the
+   26x26 box and centres text; the inline SVG just needs to fill most of it. */
+.zoom-to-fit-button { display: flex; align-items: center; justify-content: center; }
+.zoom-to-fit-button .icon { width: 18px; height: 18px; }
+
 /* Shared by any horizontal toolbar of filter controls (map.html's #filters,
    sessions_list.html's #session-filters) -- see docs/style-guide.md. Both
    forms sit inside a `.main-content` flex column (the `.main-content` class rule
