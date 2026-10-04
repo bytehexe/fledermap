@@ -497,6 +497,7 @@ def serve(host: str | None, port: int | None) -> None:
         config.rtc_enabled,
         config.latitude,
         config.longitude,
+        config.poiidx_database_url is not None,
     )
     app.run(
         host=host if host is not None else config.host,

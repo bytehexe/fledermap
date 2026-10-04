@@ -27,6 +27,16 @@
           not
         </label>
       </span>
+      {% if regions %}
+      <label>Region
+        <select name="region" x-model="region">
+          <option value="">Any</option>
+          {% for region in regions %}
+          <option value="{{ region.id }}">{{ region.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      {% endif %}
       <input type="hidden" name="session" x-model="session">
       <label>Source
         <select name="source" x-model="source">

@@ -33,6 +33,7 @@ from fledermap.services.map_query import (
     neighbor_recordings,
     site_detail,
 )
+from fledermap.services.regions import list_distinct_regions
 from fledermap.services.review_flags import ReviewContext, review_reasons
 from fledermap.store.geo import decode_point
 from fledermap.store.models import Recording, Site, Taxon
@@ -69,6 +70,11 @@ def map_page() -> str:
             batdetect2_enabled=flask.current_app.config["BATDETECT2_ENABLED"],
             battybirdnet_enabled=flask.current_app.config["BATTYBIRDNET_ENABLED"],
             combine_emt_display=flask.current_app.config["COMBINE_EMT_DISPLAY"],
+            regions=(
+                list_distinct_regions(session)
+                if flask.current_app.config["REGIONS_ENABLED"]
+                else []
+            ),
         )
 
 

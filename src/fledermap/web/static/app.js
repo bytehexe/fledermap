@@ -23,6 +23,7 @@ function filterForm() {
     to: params.get("to") || "",
     taxon: params.get("taxon") || "",
     taxon_exclude: params.get("taxon_exclude") === "1",
+    region: params.get("region") || "",
     session: params.get("session") || "",
     // Read once from the server-rendered `#filters` form (services/map_query.py's
     // `latest_session_id`) rather than fetched separately -- the "Latest session only"

@@ -68,6 +68,7 @@ def create_app(
     rtc_enabled: bool = True,
     latitude: float | None = None,
     longitude: float | None = None,
+    regions_enabled: bool = False,
 ) -> flask.Flask:
     """`static_root` is `Config.static_root` -- where
     `services/vendor_assets.py`'s `ensure_vendor_assets` fetches Leaflet/HTMX/Alpine.
@@ -122,6 +123,11 @@ def create_app(
     `services/noise.py` makes for `fledermap.noise`'s own claim (design spec
     2026-09-25-fledermap-classify-suggestions-design.md). Default matches `Config`'s own
     default.
+
+    `regions_enabled` is `Config.poiidx_database_url is not None` -- whether the map shows the
+    Region filter. The web process never talks to poiidx itself, it only reads the regions the
+    worker stored; this flag is what keeps rows left over from a past poiidx-enabled run from
+    showing once poiidx is switched off.
     """
     app = flask.Flask(__name__)
     app.config["ENGINE"] = engine
@@ -130,6 +136,7 @@ def create_app(
     app.config["BATDETECT2_ENABLED"] = batdetect2_enabled
     app.config["BATTYBIRDNET_ENABLED"] = battybirdnet_enabled
     app.config["COMBINE_EMT_DISPLAY"] = combine_emt_display
+    app.config["REGIONS_ENABLED"] = regions_enabled
     app.config["CLASSIFIER_THRESHOLDS"] = {
         "batdetect2": batdetect2_threshold,
         "battybirdnet": battybirdnet_threshold,
