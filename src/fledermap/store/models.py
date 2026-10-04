@@ -13,6 +13,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -481,6 +482,47 @@ class RecordingRegion(Base):
         primary_key=True,
         index=True,
     )
+
+
+class SpeciesRange(Base):
+    """One simplified IUCN range polygon for a taxon (design spec 2026-10-04-fledermap-iucn-
+    range-check-design.md). IUCN data under non-commercial, no-redistribution terms: rows are a
+    private cache and are never serialised to a browser. `seasonal` is deliberately absent --
+    IUCN files every bat in our species lists as resident, so there is nothing to compare a
+    recording date against."""
+
+    __tablename__ = "species_range"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    taxon_id: Mapped[int] = mapped_column(
+        ForeignKey("taxon.id", ondelete="CASCADE"),
+        index=True,
+    )
+    presence: Mapped[int] = mapped_column(SmallInteger)
+    origin: Mapped[int] = mapped_column(SmallInteger)
+    geom: Mapped[object] = mapped_column(
+        Geography(geometry_type="MULTIPOLYGON", srid=4326),
+    )
+
+
+class SpeciesRangeFetch(Base):
+    """That the range of one taxon was asked for, and what came back. Without this a species
+    the service does not know would be re-queried every cycle -- the same trap as the
+    classifier NoID marker row. `query_name` records which `iucn2022` code was asked, so a
+    changed code makes the taxon pending again."""
+
+    __tablename__ = "species_range_fetch"
+
+    taxon_id: Mapped[int] = mapped_column(
+        ForeignKey("taxon.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    query_name: Mapped[str] = mapped_column(String(100))
+    # "found" | "not_found" (domain/ranges.py FETCH_*). Plain string, not an Enum+CHECK: a
+    # closed two-value vocabulary private to one service does not earn a drift-test blind spot.
+    status: Mapped[str] = mapped_column(String(16))
+    source_version: Mapped[str] = mapped_column(String(16))
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class SessionMergeProposal(Base):
