@@ -283,9 +283,8 @@ def _status(
     session: OrmSession,
     taxon: Taxon,
     recording: Recording,
-    edge_km: float = 100.0,
-) -> iucn_ranges.RangeStatus:
-    return iucn_ranges.range_status(session, taxon.id, recording, edge_km=edge_km)
+) -> iucn_ranges.RangeStatus | None:
+    return iucn_ranges.range_status(session, taxon.id, recording)
 
 
 def _with_range(
@@ -308,31 +307,18 @@ def test_a_point_inside_the_range_is_inside(engine: Engine) -> None:
 
         status = _status(session, taxon, recording)
 
+    assert status is not None
     assert status.kind is RangeKind.INSIDE
 
 
-def test_a_point_just_outside_is_near_with_its_distance(engine: Engine) -> None:
+@pytest.mark.parametrize("lon", [1.5, 3.0, 50.0])
+def test_a_point_outside_the_range_shows_nothing(engine: Engine, lon: float) -> None:
+    """IUCN ranges have gaps (e.g. Pipistrellus pygmaeus in Germany), so being outside them is
+    not evidence of absence: no verdict at all, however far."""
     with OrmSession(engine) as session:
-        taxon, recording = _with_range(session, [NATIVE_SQUARE], lon=1.5)
+        taxon, recording = _with_range(session, [NATIVE_SQUARE], lon=lon)
 
-        status = _status(session, taxon, recording)
-
-    assert status.kind is RangeKind.NEAR
-    assert status.distance_km is not None
-    assert 50 < status.distance_km < 60
-
-
-def test_a_point_beyond_the_edge_distance_is_far(engine: Engine) -> None:
-    with OrmSession(engine) as session:
-        taxon, recording = _with_range(session, [NATIVE_SQUARE], lon=3.0)
-
-        far = _status(session, taxon, recording)
-        generous = _status(session, taxon, recording, edge_km=500.0)
-
-    assert far.kind is RangeKind.FAR
-    assert far.distance_km is not None
-    assert far.distance_km > 200
-    assert generous.kind is RangeKind.NEAR
+        assert _status(session, taxon, recording) is None
 
 
 def test_a_point_in_a_hole_of_the_range_is_outside_not_inside(engine: Engine) -> None:
@@ -344,14 +330,10 @@ def test_a_point_in_a_hole_of_the_range_is_outside_not_inside(engine: Engine) ->
     with OrmSession(engine) as session:
         taxon, recording = _with_range(session, [donut], lon=1.5, lat=1.5)
 
-        status = _status(session, taxon, recording)
-
-    assert status.kind is RangeKind.NEAR
+        assert _status(session, taxon, recording) is None
 
 
-def test_a_point_only_inside_a_vagrant_polygon_is_near_not_inside(
-    engine: Engine,
-) -> None:
+def test_a_point_only_inside_a_vagrant_polygon_is_not_inside(engine: Engine) -> None:
     with OrmSession(engine) as session:
         taxon, recording = _with_range(
             session,
@@ -359,26 +341,16 @@ def test_a_point_only_inside_a_vagrant_polygon_is_near_not_inside(
             lon=10.5,
         )
 
-        status = _status(session, taxon, recording)
-
-    assert status.kind is RangeKind.NEAR
-    assert status.vagrant is True
+        assert _status(session, taxon, recording) is None
 
 
-def test_a_species_with_only_vagrant_polygons_is_near_inside_one_and_far_away(
+def test_a_species_with_only_vagrant_polygons_never_shows_inside(
     engine: Engine,
 ) -> None:
     with OrmSession(engine) as session:
-        taxon, inside = _with_range(session, [VAGRANT_SQUARE], lon=10.5)
-        elsewhere = _recording(session, "b" * 64, lon=50.0, lat=0.5)
-        session.commit()
+        taxon, inside_vagrant = _with_range(session, [VAGRANT_SQUARE], lon=10.5)
 
-        in_vagrant = _status(session, taxon, inside)
-        far_away = _status(session, taxon, elsewhere)
-
-    assert in_vagrant.kind is RangeKind.NEAR
-    assert in_vagrant.vagrant is True
-    assert far_away.kind is RangeKind.FAR
+        assert _status(session, taxon, inside_vagrant) is None
 
 
 def test_a_recording_without_a_location_has_no_data(engine: Engine) -> None:
@@ -387,6 +359,7 @@ def test_a_recording_without_a_location_has_no_data(engine: Engine) -> None:
 
         status = _status(session, taxon, recording)
 
+    assert status is not None
     assert status.kind is RangeKind.NO_DATA
     assert status.reason is NoDataReason.NO_LOCATION
 
@@ -399,6 +372,7 @@ def test_a_taxon_without_an_iucn_code_has_no_data(engine: Engine) -> None:
 
         status = _status(session, taxon, recording)
 
+    assert status is not None
     assert status.reason is NoDataReason.NO_CODE
 
 
@@ -410,6 +384,7 @@ def test_a_taxon_not_fetched_yet_is_pending(engine: Engine) -> None:
 
         status = _status(session, taxon, recording)
 
+    assert status is not None
     assert status.kind is RangeKind.PENDING
 
 
@@ -419,6 +394,7 @@ def test_a_species_the_service_does_not_know_has_no_data(engine: Engine) -> None
 
         status = _status(session, taxon, recording)
 
+    assert status is not None
     assert status.reason is NoDataReason.NOT_FOUND
 
 
@@ -430,6 +406,7 @@ def test_a_fetch_under_an_outdated_code_is_pending(engine: Engine) -> None:
 
         status = _status(session, taxon, recording)
 
+    assert status is not None
     assert status.kind is RangeKind.PENDING
 
 
@@ -534,7 +511,6 @@ def test_attach_ranges_fills_species_rows_and_marks_the_matrix(engine: Engine) -
             _matrix(session, recording),
             session,
             recording,
-            edge_km=100.0,
         )
 
     assert matrix.show_range is True
@@ -565,7 +541,6 @@ def test_attach_ranges_leaves_group_and_unmapped_rows_blank(engine: Engine) -> N
             _matrix(session, recording),
             session,
             recording,
-            edge_km=100.0,
         )
 
     assert matrix.show_range is True

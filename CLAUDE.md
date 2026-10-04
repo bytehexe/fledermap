@@ -111,7 +111,7 @@ Roughly a pipeline, each stage its own top-level package under `src/fledermap/`:
   the one shared delete/update-in-place algorithm both use, `iucn_ranges.py` is the
   optional range plausibility check (off by default for licensing reasons, spec
   `2026-10-04-fledermap-iucn-range-check-design.md`): the worker fetches and caches IUCN range
-  polygons per species, and `range_status` reduces them to a verdict and a distance for the
+  polygons per species, and `range_status` reduces them to an inside verdict (or nothing) for the
   matrix's `iucn` column -- **range geometry never reaches the browser** (IUCN's terms forbid
   redistributing it, and the data is non-commercial only).
 - **`jobs/`** — the Procrastinate async task queue: `app.py` bootstraps its schema (see the

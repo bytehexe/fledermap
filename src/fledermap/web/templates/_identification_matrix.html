@@ -14,13 +14,12 @@
 
    The optional `iucn` column (services/iucn_ranges.py's `attach_ranges`) is a species-row
    property at the recording's location, not a classifier claim, so it is visually separated
-   and never uses a check mark. A blank cell there means "not applicable" (genus/group or
-   unmapped rows); a help-circle means a species row the check cannot answer, a loader one
-   whose range the worker has not fetched yet. #}
+   from them. It reports presence only: a check-in-circle means inside the IUCN range. A blank
+   cell means no confirmation (not applicable, or outside the polygons -- IUCN ranges have gaps,
+   so outside is never shown as implausible); a help-circle means a species row the check cannot
+   answer, a loader one whose range the worker has not fetched yet. #}
 {% set range_icons = {
   "inside": "circle-check",
-  "near": "alert-triangle",
-  "far": "ban",
   "no_data": "help-circle",
   "pending": "loader",
 } %}
@@ -61,5 +60,5 @@
   </tbody>
 </table>
 {% if matrix.show_range %}
-<p class="detail-meta range-caption">Range: {{ matrix.range_citation }}.</p>
+<p class="detail-meta range-caption">Range: {{ matrix.range_citation }}. A check means inside the range; blank means not confirmed, not absent.</p>
 {% endif %}

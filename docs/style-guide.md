@@ -33,7 +33,6 @@ Defined in `app.css`'s `:root`:
 | `--color-accent` | `#2b6cb0` | `#5b9bd5` | Links and interactive accents |
 | `--color-warning` | `#b7791f` | `#d99a3f` | `.merge-badge`'s warning color |
 | `--color-success` | `#2f855a` | `#48bb78` | `.save-confirmation`'s "✓ Saved" text — see "Positive save feedback" below |
-| `--color-danger` | `#c53030` | `#fc8181` | The "far outside the IUCN range" forbid icon in the matrix's `iucn` column — see "Identifications matrix" below. No destructive control uses it (those stay plain `button`s) |
 | `--color-overlay` | `#ff2fd6` | `#ff2fd6` | Playback cursor and Ruler-tool measurement box — deliberately theme-invariant for visibility against both light and dark spectrograms |
 | `--color-selection` | `#ffffff` | `#ffffff` | Select-tool box on the spectrogram — theme-invariant like `--color-overlay`, drawn with a dark halo (`.selection-box`) so it also reads over yellow/red call cores. Never `--color-accent` on the spectrogram: blue-on-blue |
 | `--color-annotation` | `#9aa0a6` | `#9aa0a6` | An untagged (no species) comment annotation's box/point on the spectrogram — theme-invariant like `--color-overlay`/`--color-selection`. Never `--color-border`: that token is calibrated for UI chrome, not spectrogram contrast, and reads as easily confused with the Select tool's white box there |
@@ -240,12 +239,14 @@ that in the modal's own JS — never assume the shared CSS implies a behavior.
 `_identification_matrix.html` (shared by the drawer and the details page) can carry one extra,
 rightmost column, `iucn`, when `FLEDERMAP_IUCN_RANGES_ENABLED` is on. It is a property of the
 **species row at the recording's location**, not a classifier claim, so: it is separated from the
-claim columns by a heavier left border, it never uses a check mark, and it never changes the
-current-row highlighting. Five states, each by icon *shape* (colour only reinforces it):
-`circle-check` inside (`--color-success`), `alert-triangle` near (`--color-warning`), `ban` far
-(`--color-danger`), `help-circle` no data and `loader` pending (both `--color-muted`). A **blank**
-cell means not applicable (genus/group rows, unmapped or NoID/noise rows) and is deliberately
-different from `help-circle`, which means a species row the check cannot answer (its tooltip says
+claim columns by a heavier left border, it never uses the claim columns' plain check, and it
+never changes the current-row highlighting. It reports **presence only**: IUCN ranges have gaps
+(the 2022-2 *Pipistrellus pygmaeus* polygons omit Germany, where the species is well
+documented), so a point outside the polygons is never shown as near/far/implausible. Three
+states, each by icon *shape* (colour only reinforces it): `circle-check` inside
+(`--color-success`), `help-circle` no data and `loader` pending (both `--color-muted`). A
+**blank** cell means no confirmation (genus/group rows, unmapped or NoID/noise rows, or outside
+the polygons) and is deliberately different from `help-circle`, which means a species row the check cannot answer (its tooltip says
 why), and from `loader`, which means the answer is merely not there *yet* because the worker has
 not fetched that species' range -- it resolves on its own, "no data" does not. The
 tooltip and a caption under the table carry the IUCN citation (release 2022-2, non-commercial

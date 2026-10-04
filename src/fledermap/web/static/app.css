@@ -7,7 +7,6 @@
   --color-accent: #2b6cb0;
   --color-warning: #b7791f;
   --color-success: #2f855a;
-  --color-danger: #c53030;
   /* Deliberately NOT redefined in the dark-mode blocks below, and NOT
      `--color-accent` -- for the recording-detail page's spectrogram overlays
      (playback cursor, ruler box) only. The spectrogram's own palette
@@ -59,7 +58,6 @@
     --color-accent: #5b9bd5;
     --color-warning: #d99a3f;
     --color-success: #48bb78;
-    --color-danger: #fc8181;
     color-scheme: dark;
   }
 }
@@ -72,7 +70,6 @@
   --color-accent: #5b9bd5;
   --color-warning: #d99a3f;
   --color-success: #48bb78;
-  --color-danger: #fc8181;
   color-scheme: dark;
 }
 
@@ -685,8 +682,6 @@ button:disabled { cursor: default; opacity: 0.5; }
 .identification-matrix th.range-column,
 .identification-matrix td.range-cell { border-left: 2px solid var(--color-border); }
 .identification-cell.range-inside .icon { color: var(--color-success); }
-.identification-cell.range-near .icon { color: var(--color-warning); }
-.identification-cell.range-far .icon { color: var(--color-danger); }
 .identification-cell.range-no_data .icon { color: var(--color-muted); }
 .identification-cell.range-pending .icon { color: var(--color-muted); }
 .range-caption { font-size: 0.75rem; margin: 0.3rem 0 0; }

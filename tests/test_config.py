@@ -23,7 +23,6 @@ from fledermap.config import (
     ENV_DATABASE_URL,
     ENV_DEFAULT_TIMEZONE,
     ENV_HOST,
-    ENV_IUCN_RANGE_EDGE_KM,
     ENV_IUCN_RANGES_ENABLED,
     ENV_LATITUDE,
     ENV_LONGITUDE,
@@ -1520,17 +1519,15 @@ def _iucn_base_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
     monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
     monkeypatch.delenv(ENV_IUCN_RANGES_ENABLED, raising=False)
-    monkeypatch.delenv(ENV_IUCN_RANGE_EDGE_KM, raising=False)
 
 
-def test_iucn_ranges_default_to_disabled_with_a_100_km_edge(
+def test_iucn_ranges_default_to_disabled(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     _iucn_base_env(monkeypatch, tmp_path)
     config = Config.from_env()
     assert config.iucn_ranges_enabled is False
-    assert config.iucn_range_edge_km == 100.0
 
 
 def test_iucn_ranges_settings_are_configurable(
@@ -1539,10 +1536,8 @@ def test_iucn_ranges_settings_are_configurable(
 ) -> None:
     _iucn_base_env(monkeypatch, tmp_path)
     monkeypatch.setenv(ENV_IUCN_RANGES_ENABLED, "true")
-    monkeypatch.setenv(ENV_IUCN_RANGE_EDGE_KM, "250.5")
     config = Config.from_env()
     assert config.iucn_ranges_enabled is True
-    assert config.iucn_range_edge_km == 250.5
 
 
 def test_invalid_iucn_ranges_enabled_raises_config_error(
@@ -1552,16 +1547,4 @@ def test_invalid_iucn_ranges_enabled_raises_config_error(
     _iucn_base_env(monkeypatch, tmp_path)
     monkeypatch.setenv(ENV_IUCN_RANGES_ENABLED, "maybe")
     with pytest.raises(ConfigError, match="not a boolean"):
-        Config.from_env()
-
-
-@pytest.mark.parametrize("value", ["0", "-5", "abc", "inf", "nan"])
-def test_invalid_iucn_range_edge_km_raises_config_error(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    value: str,
-) -> None:
-    _iucn_base_env(monkeypatch, tmp_path)
-    monkeypatch.setenv(ENV_IUCN_RANGE_EDGE_KM, value)
-    with pytest.raises(ConfigError, match="FLEDERMAP_IUCN_RANGE_EDGE_KM"):
         Config.from_env()

@@ -224,3 +224,21 @@ palette, unrelated).
 - Verify the three *Eptesicus* names against the live service when adding the YAML codes.
 - Confirm geometry arrives in WGS84 with `f=geojson` and tune `maxAllowableOffset`.
 - Revisit the 100 km edge default after seeing real recordings near range borders.
+
+## Revision 2026-10-04: presence only, no near/far
+
+Superseding the inside/near/far design above wherever they disagree. Checked against the live
+instance, the 2022-2 layer's polygons for some species have large gaps (*Pipistrellus pygmaeus*
+omits Germany, Netherlands, Belgium, Denmark and most of France, although it is well documented
+there; every one of 267 live identifications showed as "far"). Being outside the polygons is
+therefore not evidence of absence, so the column now reports presence only:
+
+- **Inside** a regular-range (non-vagrant) polygon: `circle-check`, tooltip "Inside the IUCN
+  range".
+- **Outside** (including vagrant-only polygons): no status, blank cell, no tooltip. There is no
+  far threshold; a species-wide data hole must not look like an implausible record.
+- Pending, and no-data with its three reasons, are unchanged.
+- Removed with it: `RangeKind.NEAR`/`FAR`, `RangeStatus.distance_km`/`.vagrant`, the
+  `iucn_range_edge_km` setting (`FLEDERMAP_IUCN_RANGE_EDGE_KM`), the `--color-danger` token, the
+  `ban`/`alert-triangle`-for-range icon use, and the distance query.
+- The table caption states that blank means "not confirmed, not absent".

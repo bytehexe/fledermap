@@ -147,7 +147,6 @@ def _render_recording_panel(
                 matrix,
                 session,
                 recording,
-                edge_km=flask.current_app.config["IUCN_RANGE_EDGE_KM"],
             )
         point = decode_point(recording.geom)
 

@@ -87,17 +87,26 @@ def _client_get(
     return response.get_data(as_text=True)
 
 
-@pytest.mark.parametrize(
-    ("lon", "css_class", "text"),
-    [
-        (0.5, "range-inside", "Inside the IUCN range"),
-        (1.5, "range-near", "km outside the IUCN range"),
-        (6.0, "range-far", "km outside the IUCN range"),
-    ],
-)
-def test_details_page_shows_the_range_cell_for_each_state(
-    engine: Engine, tmp_path: Path, lon: float, css_class: str, text: str
+def test_details_page_shows_the_inside_cell(engine: Engine, tmp_path: Path) -> None:
+    audio_hash = _seed(engine, lon=0.5)
+
+    html = _client_get(
+        engine, tmp_path, f"/recordings/{audio_hash}", iucn_ranges_enabled=True
+    )
+
+    assert "range-column" in html
+    assert "range-inside" in html
+    assert "Inside the IUCN range" in html
+    assert "release 2022-2" in html
+    assert "non-commercial" in html
+
+
+@pytest.mark.parametrize("lon", [1.5, 6.0])
+def test_a_point_outside_the_range_gets_an_empty_cell(
+    engine: Engine, tmp_path: Path, lon: float
 ) -> None:
+    """IUCN ranges have gaps, so outside is not evidence of absence: the cell stays blank
+    rather than claiming the record is implausible."""
     audio_hash = _seed(engine, lon=lon)
 
     html = _client_get(
@@ -105,10 +114,11 @@ def test_details_page_shows_the_range_cell_for_each_state(
     )
 
     assert "range-column" in html
-    assert css_class in html
-    assert text in html
-    assert "release 2022-2" in html
-    assert "non-commercial" in html
+    assert "range-cell" in html
+    assert "range-inside" not in html
+    assert "range-near" not in html
+    assert "range-far" not in html
+    assert "outside the IUCN range" not in html
 
 
 def test_the_iucn_column_is_absent_when_the_flag_is_off(

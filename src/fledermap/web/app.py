@@ -70,7 +70,6 @@ def create_app(
     longitude: float | None = None,
     regions_enabled: bool = False,
     iucn_ranges_enabled: bool = False,
-    iucn_range_edge_km: float = 100.0,
 ) -> flask.Flask:
     """`static_root` is `Config.static_root` -- where
     `services/vendor_assets.py`'s `ensure_vendor_assets` fetches Leaflet/HTMX/Alpine.
@@ -131,10 +130,9 @@ def create_app(
     worker stored; this flag is what keeps rows left over from a past poiidx-enabled run from
     showing once poiidx is switched off.
 
-    `iucn_ranges_enabled`/`iucn_range_edge_km` are `Config.iucn_ranges_enabled`/
-    `Config.iucn_range_edge_km` -- whether the Identifications matrix gets its `iucn` range
-    column and where "near" turns into "far". Like regions, the web process only reads what the
-    worker cached; ranges left over from a past enabled run stay hidden once it is switched off.
+    `iucn_ranges_enabled` is `Config.iucn_ranges_enabled` -- whether the Identifications matrix
+    gets its `iucn` range column. Like regions, the web process only reads what the worker
+    cached; ranges left over from a past enabled run stay hidden once it is switched off.
     """
     app = flask.Flask(__name__)
     app.config["ENGINE"] = engine
@@ -145,7 +143,6 @@ def create_app(
     app.config["COMBINE_EMT_DISPLAY"] = combine_emt_display
     app.config["REGIONS_ENABLED"] = regions_enabled
     app.config["IUCN_RANGES_ENABLED"] = iucn_ranges_enabled
-    app.config["IUCN_RANGE_EDGE_KM"] = iucn_range_edge_km
     app.config["CLASSIFIER_THRESHOLDS"] = {
         "batdetect2": batdetect2_threshold,
         "battybirdnet": battybirdnet_threshold,

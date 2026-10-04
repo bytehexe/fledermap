@@ -162,7 +162,6 @@ def _current_classification(
             matrix,
             session,
             recording,
-            edge_km=flask.current_app.config["IUCN_RANGE_EDGE_KM"],
         )
     return best, taxon, matrix
 

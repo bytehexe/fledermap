@@ -27,10 +27,11 @@ FETCH_FOUND = "found"
 FETCH_NOT_FOUND = "not_found"
 
 
+# There is deliberately no "outside"/"near"/"far" kind: IUCN ranges have gaps and lag behind
+# range expansions, so a point outside them is unconfirmed, not implausible
+# (`services/iucn_ranges.range_status` returns no status for it).
 class RangeKind(StrEnum):
     INSIDE = "inside"
-    NEAR = "near"
-    FAR = "far"
     # The check cannot answer for this species and never will without a change in the data
     # (no location, no IUCN name, IUCN has no range).
     NO_DATA = "no_data"
@@ -53,38 +54,19 @@ _NO_DATA_TEXT: dict[NoDataReason, str] = {
 }
 
 
-def _km_text(distance_km: float) -> str:
-    if distance_km < 1:
-        return "less than 1 km"
-    return f"{round(distance_km)} km"
-
-
 @dataclass(frozen=True)
 class RangeStatus:
     """The browser-safe reduction of a species' range polygons at one recording's location: a
-    verdict, a distance, and a tooltip. Never carries geometry (IUCN T&C §4)."""
+    verdict and a tooltip. Never carries geometry (IUCN T&C §4)."""
 
     kind: RangeKind
-    distance_km: float | None = None
     reason: NoDataReason | None = None
-    # True when the point lies only inside an `origin == 4` polygon.
-    vagrant: bool = False
 
     def describe(self) -> str:
         if self.kind is RangeKind.INSIDE:
             return "Inside the IUCN range"
-        if self.kind is RangeKind.NO_DATA:
-            if self.reason is None:
-                return "No IUCN range data"
-            return _NO_DATA_TEXT[self.reason]
         if self.kind is RangeKind.PENDING:
             return "IUCN range not fetched yet"
-        if self.vagrant:
-            base = "Only inside an IUCN vagrant-records area"
-            if self.distance_km is not None and self.distance_km >= 1:
-                return (
-                    f"{base} ({_km_text(self.distance_km)} outside the regular range)"
-                )
-            return base
-        text = f"{_km_text(self.distance_km or 0.0)} outside the IUCN range"
-        return text[0].upper() + text[1:]
+        if self.reason is None:
+            return "No IUCN range data"
+        return _NO_DATA_TEXT[self.reason]

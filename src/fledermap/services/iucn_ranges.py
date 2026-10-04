@@ -4,7 +4,7 @@
 Fetching and cache-writing run in the worker; the web process only calls `range_status` /
 `attach_ranges`, which read the cache. The polygons are IUCN data under non-commercial terms
 that forbid redistribution (T&C v3.1 §4), so nothing here hands a polygon to a caller outside
-this module: `range_status` reduces them to a verdict and a distance.
+this module: `range_status` reduces them to a verdict.
 """
 
 from __future__ import annotations
@@ -270,11 +270,18 @@ def range_status(
     session: OrmSession,
     taxon_id: int,
     recording: Recording,
-    *,
-    edge_km: float,
-) -> RangeStatus:
-    """Where `recording` lies relative to the taxon's cached IUCN range. Reads the cache only;
-    returns a verdict and a distance, never a polygon (T&C §4). `recording` must be persisted."""
+) -> RangeStatus | None:
+    """What the cached IUCN range says about `recording`: INSIDE, a NO_DATA/PENDING state the
+    check cannot answer, or None when the point lies outside every regular-range polygon.
+
+    None, not an "outside" verdict, on purpose: IUCN ranges have gaps and lag behind range
+    expansions (the 2022-2 *Pipistrellus pygmaeus* polygons omit Germany, which the species
+    demonstrably inhabits), so a point outside them is merely unconfirmed, and showing it as
+    implausible would misreport real records. Vagrant-only polygons count as outside for the
+    same reason they are never evidence of a regular range.
+
+    Reads the cache only and returns a verdict, never a polygon (T&C §4). `recording` must be
+    persisted."""
     if recording.geom is None:
         return RangeStatus(RangeKind.NO_DATA, reason=NoDataReason.NO_LOCATION)
     code = session.scalar(
@@ -291,33 +298,20 @@ def range_status(
     if fetched.status != FETCH_FOUND:
         return RangeStatus(RangeKind.NO_DATA, reason=NoDataReason.NOT_FOUND)
 
-    distance = func.ST_Distance(SpeciesRange.geom, Recording.geom)
-    native_m, any_m, in_vagrant = session.execute(
+    inside = session.scalar(
         select(
-            func.min(distance).filter(SpeciesRange.origin != VAGRANT_ORIGIN),
-            func.min(distance),
-            func.bool_or(func.ST_Intersects(SpeciesRange.geom, Recording.geom)).filter(
-                SpeciesRange.origin == VAGRANT_ORIGIN,
-            ),
+            func.bool_or(func.ST_Intersects(SpeciesRange.geom, Recording.geom)),
         )
         .select_from(SpeciesRange)
         # An explicit JOIN, not a second FROM element: SQLAlchemy's cartesian-product linter
         # warns about two FROMs the WHERE clause does not connect, and a warning is a defect.
         .join(Recording, Recording.id == recording.id)
-        .where(SpeciesRange.taxon_id == taxon_id),
-    ).one()
-
-    if any_m is None:
-        return RangeStatus(RangeKind.NO_DATA, reason=NoDataReason.NOT_FOUND)
-    if native_m is not None and native_m == 0:
-        return RangeStatus(RangeKind.INSIDE, distance_km=0.0)
-    # Distance is measured to the regular (non-vagrant) range when there is one: a vagrant
-    # polygon next to the point must not make a far-from-range record look close.
-    distance_km = float(native_m if native_m is not None else any_m) / 1000.0
-    if in_vagrant:
-        return RangeStatus(RangeKind.NEAR, distance_km=distance_km, vagrant=True)
-    kind = RangeKind.NEAR if distance_km <= edge_km else RangeKind.FAR
-    return RangeStatus(kind, distance_km=distance_km)
+        .where(
+            SpeciesRange.taxon_id == taxon_id,
+            SpeciesRange.origin != VAGRANT_ORIGIN,
+        ),
+    )
+    return RangeStatus(RangeKind.INSIDE) if inside else None
 
 
 def enqueue_range_fetch(
@@ -349,17 +343,15 @@ def attach_ranges(
     matrix: IdentificationMatrix,
     session: OrmSession,
     recording: Recording,
-    *,
-    edge_km: float,
 ) -> IdentificationMatrix:
     """The matrix with an `iucn` range status on each species row. Kept out of
     `identification_matrix` so that stays a pure function of the identifications; this needs a
-    session. Rows that are not a species with a resolved taxon keep `iucn_range=None` (blank
-    cell)."""
+    session. Rows that are not a species with a resolved taxon, or whose point is outside the
+    range, keep `iucn_range=None` (blank cell)."""
     rows = [
         dataclasses.replace(
             row,
-            iucn_range=range_status(session, row.taxon.id, recording, edge_km=edge_km),
+            iucn_range=range_status(session, row.taxon.id, recording),
         )
         if row.taxon is not None and row.taxon.rank == "species"
         else row
