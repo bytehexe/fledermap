@@ -10,7 +10,18 @@
    `_identifications_box.html` already used for its list rows) decides whether ITS checkmark
    is bold -- not the row's `is_current` flag, which only bolds the row's species label. Two
    sources can both name the winning species while only one of them is the actual current
-   claim; the other's checkmark stays plain. #}
+   claim; the other's checkmark stays plain.
+
+   The optional `iucn` column (services/iucn_ranges.py's `attach_ranges`) is a species-row
+   property at the recording's location, not a classifier claim, so it is visually separated
+   and never uses a check mark. A blank cell there means "not applicable" (genus/group or
+   unmapped rows); a help-circle means a species row the check could not answer. #}
+{% set range_icons = {
+  "inside": "circle-check",
+  "near": "alert-triangle",
+  "far": "ban",
+  "no_data": "help-circle",
+} %}
 <table class="identification-matrix">
   <thead>
     <tr>
@@ -18,6 +29,9 @@
       {% for column in matrix.columns %}
       <th scope="col" title="{{ column.key }}">{{ column.label }}</th>
       {% endfor %}
+      {% if matrix.show_range %}
+      <th scope="col" class="range-column" title="{{ matrix.range_citation }}">iucn</th>
+      {% endif %}
     </tr>
   </thead>
   <tbody>
@@ -32,7 +46,18 @@
         {% if cell.ident %}{{ icon("check") }}{% endif %}
       </td>
       {% endfor %}
+      {% if matrix.show_range %}
+      <td class="identification-cell range-cell{{ (' range-' ~ row.iucn_range.kind.value) if row.iucn_range else '' }}">
+        {% if row.iucn_range %}
+        {% set description = row.iucn_range.describe() %}
+        <span role="img" title="{{ description }}" aria-label="{{ description }}">{{ icon(range_icons[row.iucn_range.kind.value]) }}</span>
+        {% endif %}
+      </td>
+      {% endif %}
     </tr>
     {% endfor %}
   </tbody>
 </table>
+{% if matrix.show_range %}
+<p class="detail-meta range-caption">Range: {{ matrix.range_citation }}.</p>
+{% endif %}
