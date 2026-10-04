@@ -28,7 +28,7 @@ also rejected at startup rather than silently ignored.
 | Noise classifier SNR threshold (dB) | `noise_snr_threshold_db` | `FLEDERMAP_NOISE_SNR_THRESHOLD_DB` | no | `2.0` |
 | Site clustering radius (metres) | `site_eps_m` | `FLEDERMAP_SITE_EPS_M` | no | `75.0` |
 | Site minimum points | `site_min_points` | `FLEDERMAP_SITE_MIN_POINTS` | no | `3` |
-| poiidx database connection | `poiidx_database_url` | `FLEDERMAP_POIIDX_DATABASE_URL` | no | unset — site naming disabled |
+| poiidx database connection | `poiidx_database_url` | `FLEDERMAP_POIIDX_DATABASE_URL` | no | unset — site naming and the map's Region filter disabled |
 | Site-naming search radius (metres) | `site_naming_radius_m` | `FLEDERMAP_SITE_NAMING_RADIUS_M` | no | `1000.0` |
 | Web server's interface | `host` | `FLEDERMAP_HOST` | no | `127.0.0.1` |
 | Web server's port | `port` | `FLEDERMAP_PORT` | no | `5000` |

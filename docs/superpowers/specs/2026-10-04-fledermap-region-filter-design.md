@@ -1,6 +1,6 @@
 # Fledermap region filter (poiidx regions) — Design
 
-**Status:** draft
+**Status:** implemented
 **Date:** 2026-10-04
 
 ## Problem

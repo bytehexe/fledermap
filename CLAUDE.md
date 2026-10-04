@@ -101,7 +101,10 @@ Roughly a pipeline, each stage its own top-level package under `src/fledermap/`:
   query itself (`search_recordings`), composing onto `map_query.py`'s `filtered_recordings` for
   every filter that module already owns rather than duplicating it, `media.py` enqueues/checks
   derived-media jobs, `site_naming.py` wraps the
-  poiidx integration, `current_best.py` picks a recording's current-best identification,
+  poiidx integration, `regions.py` resolves which poiidx regions contain each recording
+  (worker-side, cached per rounded location in `location_region`, fanned out to
+  `recording_region`) and recomputes `region.is_distinct` -- the web process only reads those
+  tables and never connects to poiidx, `current_best.py` picks a recording's current-best identification,
   `manual_classification.py` is the only place that writes `IdSource.MANUAL` identification
   rows, via `set_manual_classification`, which (like `services/ingest.py`'s own
   `_apply_identifications`) delegates to `services/identifications.py`'s `replace_claims` —
@@ -386,6 +389,14 @@ it needs nothing installed beyond `node` itself, which this project already assu
   `tests/test_db_backup_restore.py::test_backup_then_restore_succeeds_when_role_does_not_own_postgis`.
 - **`bats_db` is never poiidx's database.** poiidx DROPS AND RECREATES all its tables on any
   schema/filter-config mismatch. Full warning in `src/fledermap/store/db.py`.
+- **`region.is_distinct` is derived, recomputed every ingest cycle** (`services/regions.py`'s
+  `refresh_distinct_flags`), because poiidx's `distinct` is defined over the whole set of recorded
+  locations and changes as recordings are added or go missing -- never treat it as a stored fact.
+  `recording_region` holds every containing region (regions nest), not only distinct ones, so
+  filtering by Germany matches Bremen recordings. `fledermap backfill-regions --force` clears all
+  three region tables and re-resolves; turning poiidx on needs no command, the worker's startup
+  ingest cycle resolves everything. A recording whose location changes after it was resolved keeps
+  its old regions until that `--force`.
 - **`Identification` has no soft-delete.** `services/identifications.py`'s `replace_claims` is
   the only writer of a source's claim SET from either `services/ingest.py` or
   `services/manual_classification.py` -- which rows exist for that source, and their
