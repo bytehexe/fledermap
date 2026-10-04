@@ -41,4 +41,12 @@ def test_every_no_data_reason_has_its_own_text() -> None:
     }
     assert len(set(texts.values())) == len(NoDataReason)
     assert "no location" in texts[NoDataReason.NO_LOCATION].lower()
-    assert "not fetched" in texts[NoDataReason.NOT_FETCHED].lower()
+
+
+def test_pending_is_its_own_kind_not_a_no_data_reason() -> None:
+    """ "Not fetched yet" resolves by itself once the worker has run; "no data" never does, so
+    the two must not share a state (or an icon)."""
+    status = RangeStatus(RangeKind.PENDING)
+    assert status.kind is not RangeKind.NO_DATA
+    assert status.describe() == "IUCN range not fetched yet"
+    assert "NOT_FETCHED" not in NoDataReason.__members__

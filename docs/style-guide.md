@@ -241,11 +241,13 @@ that in the modal's own JS — never assume the shared CSS implies a behavior.
 rightmost column, `iucn`, when `FLEDERMAP_IUCN_RANGES_ENABLED` is on. It is a property of the
 **species row at the recording's location**, not a classifier claim, so: it is separated from the
 claim columns by a heavier left border, it never uses a check mark, and it never changes the
-current-row highlighting. Four states, each by icon *shape* (colour only reinforces it):
+current-row highlighting. Five states, each by icon *shape* (colour only reinforces it):
 `circle-check` inside (`--color-success`), `alert-triangle` near (`--color-warning`), `ban` far
-(`--color-danger`), `help-circle` no data (`--color-muted`). A **blank** cell means not
-applicable (genus/group rows, unmapped or NoID/noise rows) and is deliberately different from
-`help-circle`, which means a species row the check could not answer; its tooltip says why. The
+(`--color-danger`), `help-circle` no data and `loader` pending (both `--color-muted`). A **blank**
+cell means not applicable (genus/group rows, unmapped or NoID/noise rows) and is deliberately
+different from `help-circle`, which means a species row the check cannot answer (its tooltip says
+why), and from `loader`, which means the answer is merely not there *yet* because the worker has
+not fetched that species' range -- it resolves on its own, "no data" does not. The
 tooltip and a caption under the table carry the IUCN citation (release 2022-2, non-commercial
 use only, T&C v3.1 §§3, 6). A map-pin icon family was tried and rejected: at the matrix's real
 size (~13.6 px) the pin badges were unreadable and the states differed only by colour.

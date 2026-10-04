@@ -688,6 +688,7 @@ button:disabled { cursor: default; opacity: 0.5; }
 .identification-cell.range-near .icon { color: var(--color-warning); }
 .identification-cell.range-far .icon { color: var(--color-danger); }
 .identification-cell.range-no_data .icon { color: var(--color-muted); }
+.identification-cell.range-pending .icon { color: var(--color-muted); }
 .range-caption { font-size: 0.75rem; margin: 0.3rem 0 0; }
 
 .session-detail-columns { display: flex; gap: 1rem; margin: 1rem 0; flex-wrap: wrap; }

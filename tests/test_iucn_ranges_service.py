@@ -402,7 +402,7 @@ def test_a_taxon_without_an_iucn_code_has_no_data(engine: Engine) -> None:
     assert status.reason is NoDataReason.NO_CODE
 
 
-def test_a_taxon_not_fetched_yet_has_no_data(engine: Engine) -> None:
+def test_a_taxon_not_fetched_yet_is_pending(engine: Engine) -> None:
     with OrmSession(engine) as session:
         taxon = _taxon(session)
         recording = _recording(session)
@@ -410,7 +410,7 @@ def test_a_taxon_not_fetched_yet_has_no_data(engine: Engine) -> None:
 
         status = _status(session, taxon, recording)
 
-    assert status.reason is NoDataReason.NOT_FETCHED
+    assert status.kind is RangeKind.PENDING
 
 
 def test_a_species_the_service_does_not_know_has_no_data(engine: Engine) -> None:
@@ -422,7 +422,7 @@ def test_a_species_the_service_does_not_know_has_no_data(engine: Engine) -> None
     assert status.reason is NoDataReason.NOT_FOUND
 
 
-def test_a_fetch_under_an_outdated_code_counts_as_not_fetched(engine: Engine) -> None:
+def test_a_fetch_under_an_outdated_code_is_pending(engine: Engine) -> None:
     with OrmSession(engine) as session:
         taxon, recording = _with_range(session, [NATIVE_SQUARE], lon=0.5)
         session.scalars(select(TaxonCode)).one().code = "Pipistrellus renamed"
@@ -430,7 +430,7 @@ def test_a_fetch_under_an_outdated_code_counts_as_not_fetched(engine: Engine) ->
 
         status = _status(session, taxon, recording)
 
-    assert status.reason is NoDataReason.NOT_FETCHED
+    assert status.kind is RangeKind.PENDING
 
 
 def _task_context(

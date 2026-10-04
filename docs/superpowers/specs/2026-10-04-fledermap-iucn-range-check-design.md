@@ -132,8 +132,8 @@ One Alembic migration. Back up with `scripts/db-backup.sh` before applying.
     `Identification` or `ClassifierDetection` and have no fetch row for the current code.
   - `fetch_pending(session)` — fetch, store polygons, write the fetch row.
   - `range_status(session, taxon_id, recording, edge_km) -> RangeStatus` — `kind` in
-    {INSIDE, NEAR, FAR, NO_DATA}, `distance_km`, and for NO_DATA a `reason` in {NO_LOCATION,
-    NO_CODE, NOT_FOUND, NOT_FETCHED}.
+    {INSIDE, NEAR, FAR, PENDING, NO_DATA}, `distance_km`, and for NO_DATA a `reason` in {NO_LOCATION,
+    NO_CODE, NOT_FOUND}. PENDING (range not fetched yet) is its own kind: it resolves by itself.
 - `jobs/tasks.py`: `fetch_iucn_ranges_task` on the `geo` queue, enqueued from the ingest cycle only
   when the flag is on **and something is pending** (unlike `resolve_regions_task`, nothing here
   changes without a new species or code, so an idle cycle should not queue a job). Sequential
@@ -163,6 +163,7 @@ palette, unrelated).
  Nyctalus                  ✓     ║  (ban)       far         ban            --color-danger
   noctula
  Barbastella               ✓     ║  (?)         no data     help-circle    --color-muted
+ Plecotus auritus   ✓            ║  (...)       pending     loader         --color-muted
  Myotis         ✓                ║              not applicable: blank
  ─────────────────────────────────────────────
  Range: IUCN Red List 2022-2, non-commercial use only.
@@ -171,7 +172,9 @@ palette, unrelated).
 - Header label **`iucn`** (lowercase, matching `bd2`/`bbn`). Its `title` carries the full citation.
 - Column separated from the classifier columns by a heavier left border so a range icon cannot be
   read as a classifier claim; no check mark is used in it.
-- **Icons: `circle-check`, `alert-triangle`, `ban`, `help-circle`.** A map-pin family
+- **Icons: `circle-check`, `alert-triangle`, `ban`, `help-circle`, plus `loader` for "not fetched
+  yet"** (added after live use showed that a species the worker had not reached yet looked the
+  same as one with permanently no data). A map-pin family
   (`map-pin-check/-exclamation/-off/-question`) was rendered at the matrix's real size (≈13.6 px,
   light and dark) and rejected: the pin badges are unreadable and the states differed only by
   colour. The chosen set is distinguishable by shape alone.
@@ -180,8 +183,10 @@ palette, unrelated).
   added to `:root` and both dark-mode blocks in `app.css` and documented in the style guide's token
   table in the same change.
 - **Blank** = not applicable (genus/group rows, unmapped-species rows, NoID/noise rows).
-  **`help-circle`** = applicable species row with no data. Tooltip states the reason: no location,
-  no IUCN code for this species, service has no range for it, not fetched yet.
+  **`help-circle`** = applicable species row the check cannot answer. Tooltip states the reason:
+  no location, no IUCN code for this species, service has no range for it. **`loader`** =
+  the range has not been fetched yet (`RangeKind.PENDING`, deliberately not a no-data reason: it
+  resolves on its own once the worker has run).
 - Tooltips: inside → "Inside the IUCN range"; near/far → "N km outside the IUCN range"; the cell
   also carries an `aria-label` with the same text.
 - The caption under the matrix states the source, version and non-commercial restriction (§6).

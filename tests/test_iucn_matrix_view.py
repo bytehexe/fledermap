@@ -135,7 +135,7 @@ def test_no_range_geometry_reaches_the_page(engine: Engine, tmp_path: Path) -> N
     assert "0 0, 0 1, 1 1" not in html  # the synthetic square's vertices
 
 
-def test_a_species_without_data_gets_the_no_data_cell(
+def test_a_species_not_fetched_yet_gets_the_pending_cell(
     engine: Engine, tmp_path: Path
 ) -> None:
     audio_hash = _seed(engine, lon=0.5)
@@ -147,8 +147,25 @@ def test_a_species_without_data_gets_the_no_data_cell(
         engine, tmp_path, f"/recordings/{audio_hash}", iucn_ranges_enabled=True
     )
 
-    assert "range-no_data" in html
+    assert "range-pending" in html
+    assert "range-no_data" not in html
     assert "IUCN range not fetched yet" in html
+
+
+def test_a_species_without_an_iucn_name_gets_the_no_data_cell(
+    engine: Engine, tmp_path: Path
+) -> None:
+    audio_hash = _seed(engine, lon=0.5)
+    with OrmSession(engine) as session:
+        session.execute(delete(TaxonCode))
+        session.commit()
+
+    html = _client_get(
+        engine, tmp_path, f"/recordings/{audio_hash}", iucn_ranges_enabled=True
+    )
+
+    assert "range-no_data" in html
+    assert "range-pending" not in html
 
 
 def test_the_drawer_panel_shows_the_column_too(engine: Engine, tmp_path: Path) -> None:

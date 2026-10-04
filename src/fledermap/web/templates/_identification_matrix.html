@@ -15,12 +15,14 @@
    The optional `iucn` column (services/iucn_ranges.py's `attach_ranges`) is a species-row
    property at the recording's location, not a classifier claim, so it is visually separated
    and never uses a check mark. A blank cell there means "not applicable" (genus/group or
-   unmapped rows); a help-circle means a species row the check could not answer. #}
+   unmapped rows); a help-circle means a species row the check cannot answer, a loader one
+   whose range the worker has not fetched yet. #}
 {% set range_icons = {
   "inside": "circle-check",
   "near": "alert-triangle",
   "far": "ban",
   "no_data": "help-circle",
+  "pending": "loader",
 } %}
 <table class="identification-matrix">
   <thead>

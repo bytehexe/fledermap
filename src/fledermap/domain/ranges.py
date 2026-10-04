@@ -31,21 +31,25 @@ class RangeKind(StrEnum):
     INSIDE = "inside"
     NEAR = "near"
     FAR = "far"
+    # The check cannot answer for this species and never will without a change in the data
+    # (no location, no IUCN name, IUCN has no range).
     NO_DATA = "no_data"
+    # The answer is merely not there YET: the worker has not fetched this species' range.
+    # Its own kind, not a NO_DATA reason, because it resolves by itself and so must not look
+    # like the permanent "no data" state.
+    PENDING = "pending"
 
 
 class NoDataReason(StrEnum):
     NO_LOCATION = "no_location"
     NO_CODE = "no_code"
     NOT_FOUND = "not_found"
-    NOT_FETCHED = "not_fetched"
 
 
 _NO_DATA_TEXT: dict[NoDataReason, str] = {
     NoDataReason.NO_LOCATION: "No range check: the recording has no location",
     NoDataReason.NO_CODE: "No range check: species not matched to an IUCN name",
     NoDataReason.NOT_FOUND: "IUCN has no range for this species",
-    NoDataReason.NOT_FETCHED: "IUCN range not fetched yet",
 }
 
 
@@ -73,6 +77,8 @@ class RangeStatus:
             if self.reason is None:
                 return "No IUCN range data"
             return _NO_DATA_TEXT[self.reason]
+        if self.kind is RangeKind.PENDING:
+            return "IUCN range not fetched yet"
         if self.vagrant:
             base = "Only inside an IUCN vagrant-records area"
             if self.distance_km is not None and self.distance_km >= 1:

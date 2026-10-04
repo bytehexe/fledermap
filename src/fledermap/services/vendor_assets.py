@@ -263,6 +263,11 @@ ASSETS: tuple[VendorAsset, ...] = (
         relative_path="icons/outline/help-circle.svg",
     ),
     VendorAsset(
+        url="https://unpkg.com/@tabler/icons@3.46.0/icons/outline/loader.svg",
+        sha256="d0ae75fc88d1d0e99158249934ee48b10a101c9646aaa7776110a9d5c17256da",
+        relative_path="icons/outline/loader.svg",
+    ),
+    VendorAsset(
         url="https://unpkg.com/@tabler/icons@3.46.0/icons/outline/info-circle.svg",
         sha256="bf4377dff0aaaddf1676a4bb7292f90f1102f19daaca7021331ba6a191317c1c",
         relative_path="icons/outline/info-circle.svg",

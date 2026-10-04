@@ -287,7 +287,7 @@ def range_status(
         return RangeStatus(RangeKind.NO_DATA, reason=NoDataReason.NO_CODE)
     fetched = session.get(SpeciesRangeFetch, taxon_id)
     if fetched is None or fetched.query_name != code:
-        return RangeStatus(RangeKind.NO_DATA, reason=NoDataReason.NOT_FETCHED)
+        return RangeStatus(RangeKind.PENDING)
     if fetched.status != FETCH_FOUND:
         return RangeStatus(RangeKind.NO_DATA, reason=NoDataReason.NOT_FOUND)
 
