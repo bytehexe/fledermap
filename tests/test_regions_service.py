@@ -10,6 +10,8 @@ from shapely.geometry.base import BaseGeometry
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session as OrmSession
 
+from fledermap.jobs.app import ensure_schema
+from fledermap.jobs.tasks import app as jobs_app
 from fledermap.services import regions
 from fledermap.store.models import LocationRegion, Recording, RecordingRegion, Region
 
@@ -198,3 +200,16 @@ def test_reset_region_data_clears_everything_and_unresolves(
         assert session.scalars(select(RecordingRegion)).all() == []
         session.refresh(r)
         assert r.region_resolved_at is None
+
+
+def test_enqueue_is_a_no_op_without_poiidx(engine: Engine) -> None:
+    assert regions.enqueue_region_resolution(engine, poiidx_database_url=None) is False
+
+
+def test_enqueue_defers_one_job_and_dedupes_the_second(engine: Engine) -> None:
+    jobs_app.open(engine)
+    ensure_schema(jobs_app, engine)
+    url = "postgresql://u:p@localhost/poiidx_bats_db"
+
+    assert regions.enqueue_region_resolution(engine, poiidx_database_url=url) is True
+    assert regions.enqueue_region_resolution(engine, poiidx_database_url=url) is False

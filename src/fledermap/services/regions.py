@@ -13,10 +13,14 @@ from datetime import UTC, datetime
 from typing import Any
 
 import poiidx
+import procrastinate
 from shapely.geometry import MultiPoint, Point
 from sqlalchemy import delete, select, update
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session as OrmSession
 
+from fledermap.jobs.tasks import _RESOLVE_REGIONS_LOCK, resolve_regions_task
+from fledermap.jobs.tasks import app as jobs_app
 from fledermap.store.geo import decode_point
 from fledermap.store.models import LocationRegion, Recording, RecordingRegion, Region
 
@@ -137,3 +141,30 @@ def list_distinct_regions(session: OrmSession) -> Sequence[Region]:
     return session.scalars(
         select(Region).where(Region.is_distinct.is_(True)).order_by(Region.name),
     ).all()
+
+
+def enqueue_region_resolution(
+    engine: Engine,
+    *,
+    poiidx_database_url: str | None,
+) -> bool:
+    """Defer one resolution job. Called every ingest cycle and from
+    `backfill-regions`: the distinct-flag refresh inside the job must run
+    even with nothing pending (recordings going missing change it), so there
+    is deliberately no "anything pending?" shortcut. A true no-op when poiidx
+    isn't configured. The queueing lock drops a duplicate while one is
+    already waiting."""
+    if not poiidx_database_url:
+        return False
+    try:
+        jobs_app.open(engine)
+    except NotImplementedError:
+        pass  # already open inside a running worker -- see enqueue_media's docstring
+    try:
+        resolve_regions_task.configure(
+            lock=_RESOLVE_REGIONS_LOCK,
+            queueing_lock=_RESOLVE_REGIONS_LOCK,
+        ).defer()
+    except procrastinate.exceptions.AlreadyEnqueued:
+        return False
+    return True

@@ -1649,3 +1649,70 @@ def test_mine_classify_implications_command_reports_a_count(
 
     assert result.exit_code == 0, result.output
     assert "stored 0 implication rule(s)" in result.output
+
+
+def test_backfill_regions_without_poiidx_reports_zero_and_touches_nothing(
+    clean_database_url: str,
+    tmp_path: Path,
+) -> None:
+    env = {
+        "FLEDERMAP_DATABASE_URL": clean_database_url,
+        "FLEDERMAP_ARCHIVE_ROOTS": str(tmp_path / "archive"),
+    }
+    result = CliRunner().invoke(cli, ["backfill-regions", "--force"], env=env)
+
+    assert result.exit_code == 0, result.output
+    assert "enqueued 0" in result.output
+
+
+def test_backfill_regions_force_resets_then_enqueues(
+    clean_database_url: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    def fake_reset(session: object) -> None:
+        calls.append("reset")
+
+    def fake_enqueue(engine: object, *, poiidx_database_url: str | None) -> bool:
+        calls.append("enqueue")
+        return True
+
+    monkeypatch.setattr("fledermap.cli.main.reset_region_data", fake_reset)
+    monkeypatch.setattr("fledermap.cli.main.enqueue_region_resolution", fake_enqueue)
+    env = {
+        "FLEDERMAP_DATABASE_URL": clean_database_url,
+        "FLEDERMAP_ARCHIVE_ROOTS": str(tmp_path / "archive"),
+        "FLEDERMAP_POIIDX_DATABASE_URL": "postgresql://u:p@localhost/poiidx_bats_db",
+    }
+    result = CliRunner().invoke(cli, ["backfill-regions", "--force"], env=env)
+
+    assert result.exit_code == 0, result.output
+    assert calls == ["reset", "enqueue"]
+    assert "enqueued 1" in result.output
+
+
+def test_backfill_regions_without_force_does_not_reset(
+    clean_database_url: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "fledermap.cli.main.reset_region_data", lambda session: calls.append("reset")
+    )
+    monkeypatch.setattr(
+        "fledermap.cli.main.enqueue_region_resolution",
+        lambda engine, *, poiidx_database_url: False,
+    )
+    env = {
+        "FLEDERMAP_DATABASE_URL": clean_database_url,
+        "FLEDERMAP_ARCHIVE_ROOTS": str(tmp_path / "archive"),
+        "FLEDERMAP_POIIDX_DATABASE_URL": "postgresql://u:p@localhost/poiidx_bats_db",
+    }
+    result = CliRunner().invoke(cli, ["backfill-regions"], env=env)
+
+    assert result.exit_code == 0, result.output
+    assert calls == []
+    assert "enqueued 0" in result.output

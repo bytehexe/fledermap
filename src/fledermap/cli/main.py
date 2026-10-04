@@ -47,6 +47,7 @@ from fledermap.services.ingest import (
 )
 from fledermap.services.media import backfill_media, clean_media, enqueue_media
 from fledermap.services.noise import classify_noise
+from fledermap.services.regions import enqueue_region_resolution, reset_region_data
 from fledermap.services.site_naming import enqueue_site_naming
 from fledermap.services.snr import backfill_snr
 from fledermap.services.systemd_install import render_unit_files, systemd_user_dir
@@ -641,6 +642,48 @@ def backfill_site_names_command(force: bool) -> None:
         session.commit()
 
     click.echo(f"enqueued {count}")
+
+
+@cli.command(name="backfill-regions")
+@click.option(
+    "--force",
+    is_flag=True,
+    default=False,
+    help=(
+        "Forget every stored region and re-resolve all recordings from "
+        "poiidx -- for a poiidx region-index change whose effect the "
+        "per-location cache would otherwise hide forever."
+    ),
+)
+def backfill_regions_command(force: bool) -> None:
+    """Resolve poiidx regions for recordings that don't have them yet. Turning
+    poiidx on does this automatically at the worker's startup cycle; this is
+    the explicit, on-demand version. A no-op (reports "enqueued 0") if
+    FLEDERMAP_POIIDX_DATABASE_URL isn't configured -- and --force then leaves
+    stored data alone, since nothing could re-resolve it."""
+    try:
+        config = Config.from_env()
+    except ConfigError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    engine = make_engine(config.database_url)
+    _run_migrations(config.database_url)
+    ensure_schema(jobs_app, engine)
+
+    if not config.poiidx_database_url:
+        click.echo("enqueued 0")
+        return
+
+    if force:
+        with OrmSession(engine) as session:
+            reset_region_data(session)
+            session.commit()
+
+    enqueued = enqueue_region_resolution(
+        engine,
+        poiidx_database_url=config.poiidx_database_url,
+    )
+    click.echo(f"enqueued {int(enqueued)}")
 
 
 @cli.command(name="backfill-snr")

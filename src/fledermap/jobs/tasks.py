@@ -534,6 +534,31 @@ def name_site_task(
         session.commit()
 
 
+_RESOLVE_REGIONS_LOCK = "poiidx-resolve-regions"
+
+
+@app.task(queue="geo", pass_context=True, retry=_RETRY)
+def resolve_regions_task(context: procrastinate.JobContext) -> None:
+    """Resolve region membership for every pending recording, then refresh
+    which regions are distinct (design spec
+    2026-10-04-fledermap-region-filter-design.md). One job per cycle, not one
+    per recording: `list_regions` only reads poiidx's region index, so
+    batching is cheap and keeps the queue small."""
+    # Local import for the same circularity reason as `name_site_task`'s.
+    from fledermap.services import regions, site_naming
+
+    config: Config = context.additional_context["config"]
+    engine = context.additional_context["engine"]
+    if config.poiidx_database_url is None:
+        # Config changed after this job was deferred -- nothing to do.
+        return
+    site_naming.ensure_connected(config.poiidx_database_url)
+
+    with OrmSession(engine) as session:
+        regions.resolve_regions(session)
+        session.commit()
+
+
 @app.task(queue="media", pass_context=True, retry=_RETRY)
 def render_spectrogram_task(
     context: procrastinate.JobContext,
@@ -717,6 +742,13 @@ def run_ingest_cycle(context: procrastinate.JobContext, timestamp: int) -> None:
             poiidx_database_url=config.poiidx_database_url,
         )
         session.commit()
+
+        from fledermap.services.regions import enqueue_region_resolution
+
+        enqueue_region_resolution(
+            engine,
+            poiidx_database_url=config.poiidx_database_url,
+        )
 
         logger.info(
             "%s flagged_missing %s -- sessions created %d extended %d "
