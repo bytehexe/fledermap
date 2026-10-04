@@ -215,6 +215,32 @@ def test_backup_then_restore_succeeds_when_role_does_not_own_postgis(
                       r.sequencename
                     );
                   END LOOP;
+                  -- Procrastinate's schema (functions and enum types) is
+                  -- migrated into existence by the app role too, but only
+                  -- exists here when an earlier test on the same shared
+                  -- container applied it via `ensure_schema`. Left owned by
+                  -- the admin role it makes `--clean`'s DROP FUNCTION/TYPE
+                  -- fail, which no real deployment sees.
+                  FOR r IN SELECT p.oid::regprocedure::text AS sig FROM pg_proc p
+                    JOIN pg_namespace n ON n.oid = p.pronamespace
+                    WHERE n.nspname = 'public' AND p.proname LIKE 'procrastinate%'
+                  LOOP
+                    EXECUTE format(
+                      'ALTER ROUTINE %s OWNER TO {restricted_role}', r.sig
+                    );
+                  END LOOP;
+                  FOR r IN SELECT t.typname FROM pg_type t
+                    JOIN pg_namespace n ON n.oid = t.typnamespace
+                    WHERE n.nspname = 'public' AND t.typname LIKE 'procrastinate%'
+                      AND (t.typtype = 'e' OR EXISTS (
+                        SELECT 1 FROM pg_class c
+                        WHERE c.oid = t.typrelid AND c.relkind = 'c'
+                      ))
+                  LOOP
+                    EXECUTE format(
+                      'ALTER TYPE public.%I OWNER TO {restricted_role}', r.typname
+                    );
+                  END LOOP;
                 END $$;
                 """,
             ),
