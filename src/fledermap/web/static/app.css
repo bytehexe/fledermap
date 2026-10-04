@@ -191,8 +191,9 @@ main.main-content h1 { margin-top: 1rem; }
 #map { flex: 1 1 auto; width: 100%; margin-bottom: var(--drawer-h, 0px); }
 
 /* The "Zoom to fit" Leaflet control (app.js): Leaflet's own .leaflet-bar a rule sizes the
-   26x26 box and centres text; the inline SVG just needs to fill most of it. */
-.zoom-to-fit-button { display: flex; align-items: center; justify-content: center; }
+   box and sets display: block. A bare class selector loses to that on specificity, so the
+   flex centring silently never applied and the icon sat off-centre -- hence the `a.` here. */
+.leaflet-bar a.zoom-to-fit-button { display: flex; align-items: center; justify-content: center; }
 .zoom-to-fit-button .icon { width: 18px; height: 18px; }
 
 /* Shared by any horizontal toolbar of filter controls (map.html's #filters,
