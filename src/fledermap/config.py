@@ -60,6 +60,8 @@ ENV_CLASSIFY_IMPLICATION_MIN_CONFIDENCE = (
 )
 ENV_CLASSIFY_IMPLICATION_MIN_LIFT = "FLEDERMAP_CLASSIFY_IMPLICATION_MIN_LIFT"
 ENV_RTC_ENABLED = "FLEDERMAP_RTC_ENABLED"
+ENV_IUCN_RANGES_ENABLED = "FLEDERMAP_IUCN_RANGES_ENABLED"
+ENV_IUCN_RANGE_EDGE_KM = "FLEDERMAP_IUCN_RANGE_EDGE_KM"
 ENV_LATITUDE = "FLEDERMAP_LATITUDE"
 ENV_LONGITUDE = "FLEDERMAP_LONGITUDE"
 
@@ -87,6 +89,8 @@ _KNOWN_FILE_KEYS = frozenset(
         "battybirdnet_threshold",
         "battybirdnet_annotation_display_threshold",
         "combine_emt_display",
+        "iucn_ranges_enabled",
+        "iucn_range_edge_km",
         "classify_implication_min_support",
         "classify_implication_min_confidence",
         "classify_implication_min_lift",
@@ -342,6 +346,15 @@ class Config:
     # list template and the map's Source filter dropdown/query (domain/codes.py's
     # EMT_AUTOMATIC_SOURCES, services/current_best.py, services/map_query.py).
     combine_emt_display: bool = True
+    # Off by default: IUCN Red List data is licensed for non-commercial use only and may not be
+    # redistributed (T&C v3.1 §§3-4), and enabling this makes the worker fetch range polygons
+    # from a third-party server. See docs/superpowers/specs/2026-10-04-fledermap-iucn-range-
+    # check-design.md "Licensing". Enabling it is the operator's own acceptance of those terms.
+    iucn_ranges_enabled: bool = False
+    # A recording farther than this from a species' IUCN range counts as "far" (the forbid
+    # icon); between 0 and this it is "near". IUCN ranges are generalised and exclude vagrants
+    # and recent range expansions, so a plain outside/inside split would mislabel real records.
+    iucn_range_edge_km: float = 100.0
     # Association-rule mining thresholds for the Classify box's mined "likely suggestions"
     # (design spec 2026-09-25-fledermap-classify-suggestions-part-b-design.md §3). A rule
     # must clear all three to be stored.
@@ -910,6 +923,56 @@ class Config:
         else:
             host = _as_str(host_raw, _source_label(ENV_HOST, "host", config_path))
 
+        iucn_ranges_enabled_raw = _lookup(
+            ENV_IUCN_RANGES_ENABLED,
+            "iucn_ranges_enabled",
+            file_values,
+        )
+        if iucn_ranges_enabled_raw is None:
+            iucn_ranges_enabled = False
+        elif isinstance(iucn_ranges_enabled_raw, bool):
+            iucn_ranges_enabled = iucn_ranges_enabled_raw
+        else:
+            label = _source_label(
+                ENV_IUCN_RANGES_ENABLED,
+                "iucn_ranges_enabled",
+                config_path,
+            )
+            text = _as_str(iucn_ranges_enabled_raw, label).strip().lower()
+            if text in ("true", "1", "yes"):
+                iucn_ranges_enabled = True
+            elif text in ("false", "0", "no"):
+                iucn_ranges_enabled = False
+            else:
+                msg = f"{label}={iucn_ranges_enabled_raw!r} is not a boolean (true/false)."
+                raise ConfigError(msg)
+
+        iucn_range_edge_km_raw = _lookup(
+            ENV_IUCN_RANGE_EDGE_KM,
+            "iucn_range_edge_km",
+            file_values,
+        )
+        if iucn_range_edge_km_raw is None:
+            iucn_range_edge_km = 100.0
+        else:
+            label = _source_label(
+                ENV_IUCN_RANGE_EDGE_KM,
+                "iucn_range_edge_km",
+                config_path,
+            )
+            if isinstance(iucn_range_edge_km_raw, bool):  # see session_gap_hours above
+                msg = f"{label}={iucn_range_edge_km_raw!r} is not a number."
+                raise ConfigError(msg)
+            try:
+                iucn_range_edge_km = float(iucn_range_edge_km_raw)
+            except (TypeError, ValueError) as exc:
+                msg = f"{label}={iucn_range_edge_km_raw!r} is not a number."
+                raise ConfigError(msg) from exc
+            # A chained comparison so NaN fails it too (NaN > 0 is False).
+            if not 0.0 < iucn_range_edge_km < float("inf"):
+                msg = f"{label}={iucn_range_edge_km_raw!r} must be a finite number above 0."
+                raise ConfigError(msg)
+
         rtc_enabled_raw = _lookup(ENV_RTC_ENABLED, "rtc_enabled", file_values)
         if rtc_enabled_raw is None:
             rtc_enabled = True
@@ -1018,6 +1081,8 @@ class Config:
             battybirdnet_threshold=battybirdnet_threshold,
             battybirdnet_annotation_display_threshold=battybirdnet_annotation_display_threshold,
             combine_emt_display=combine_emt_display,
+            iucn_ranges_enabled=iucn_ranges_enabled,
+            iucn_range_edge_km=iucn_range_edge_km,
             classify_implication_min_support=classify_implication_min_support,
             classify_implication_min_confidence=classify_implication_min_confidence,
             classify_implication_min_lift=classify_implication_min_lift,

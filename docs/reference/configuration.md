@@ -40,6 +40,8 @@ also rejected at startup rather than silently ignored.
 | BattyBirdNET detection threshold | `battybirdnet_threshold` | `FLEDERMAP_BATTYBIRDNET_THRESHOLD` | no | `0.6` |
 | BattyBirdNET annotation display threshold | `battybirdnet_annotation_display_threshold` | `FLEDERMAP_BATTYBIRDNET_ANNOTATION_DISPLAY_THRESHOLD` | no | `0.20` |
 | Combine EMT sources in the UI | `combine_emt_display` | `FLEDERMAP_COMBINE_EMT_DISPLAY` | no | `true` |
+| IUCN range check enabled | `iucn_ranges_enabled` | `FLEDERMAP_IUCN_RANGES_ENABLED` | no | `false` |
+| IUCN range "near" distance (km) | `iucn_range_edge_km` | `FLEDERMAP_IUCN_RANGE_EDGE_KM` | no | `100.0` |
 | Mined-suggestion minimum support | `classify_implication_min_support` | `FLEDERMAP_CLASSIFY_IMPLICATION_MIN_SUPPORT` | no | `3` |
 | Mined-suggestion minimum confidence | `classify_implication_min_confidence` | `FLEDERMAP_CLASSIFY_IMPLICATION_MIN_CONFIDENCE` | no | `0.6` |
 | Mined-suggestion minimum lift | `classify_implication_min_lift` | `FLEDERMAP_CLASSIFY_IMPLICATION_MIN_LIFT` | no | `1.3` |
@@ -127,6 +129,19 @@ Notes on individual settings:
   separate in the database either way; this only changes what the UI shows. `emt.manual` (a
   human's on-device correction) is never folded in. Set to `false` to see each of the three
   sources on its own.
+- **`iucn_ranges_enabled`** (default `false`) adds an `iucn` column to the Identifications table
+  showing whether the recording lies inside, near or far outside each species' IUCN Red List
+  range. **Non-commercial use only**: the IUCN Red List data may not be used by or for a
+  for-profit entity or to generate revenue, and may not be redistributed (IUCN Terms and
+  Conditions of Use v3.1, §§3–4). Enabling it makes the worker fetch range polygons from the
+  UNEP-WCMC-hosted IUCN layer (release 2022-2, which IUCN has since superseded, §7) and cache
+  them in your own database; the polygons are never shown or sent to the browser. Enabling this
+  is your acceptance of those terms. The rights are personal to you or your household (§1) — ask
+  redlist@iucn.org before opening an instance to other people.
+- **`iucn_range_edge_km`** (default `100.0`, must be above 0) — a recording this far or less
+  outside a species' range is shown as "near" (warning icon); farther is "far" (forbid icon).
+  IUCN ranges are generalised and omit vagrants and recent expansions, so "outside" alone is not
+  the same as "implausible".
 - **`rtc_enabled`** (default `true`) enables the RTC (real time clock) sidebar widget,
   which displays sunrise/sunset and moon-phase calculations for astronomical planning. Set to
   `false` to hide the widget. Unlike `batdetect2_enabled`/`battybirdnet_enabled`, this defaults
