@@ -110,6 +110,13 @@ def parse_taxon_filter(raw: str | None) -> int | Literal["unmapped"] | None:
     return int(raw)
 
 
+def parse_region_filter(raw: str | None) -> str | None:
+    """The `region` query param: a poiidx region id, opaque to us. Same
+    absent/empty-is-None convention as `parse_int`. Never raises -- an id
+    nothing is stored under simply matches no recordings."""
+    return raw or None
+
+
 def parse_bool(raw: str | None) -> bool:
     """Presence-based flag param (e.g. `taxon_exclude=1`) -- absent or empty
     means False, any non-empty value means True. Never raises: an

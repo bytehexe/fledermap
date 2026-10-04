@@ -18,7 +18,14 @@ from fledermap.services.map_query import (
     neighbor_recordings,
     site_detail,
 )
-from fledermap.store.models import Identification, Recording, Site, Taxon
+from fledermap.store.models import (
+    Identification,
+    Recording,
+    RecordingRegion,
+    Region,
+    Site,
+    Taxon,
+)
 from fledermap.store.models import Session as AnnotationSession
 
 pytestmark = pytest.mark.db
@@ -63,6 +70,45 @@ def _recording(
         )
     session.flush()
     return r
+
+
+def _region(session: OrmSession, region_id: str, name: str) -> None:
+    session.add(Region(id=region_id, name=name, is_distinct=True))
+    session.flush()
+
+
+def test_region_filter_includes_sub_region_recordings(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        _region(session, "bremen", "Bremen")
+        _region(session, "germany", "Germany")
+        in_bremen = _recording(session, audio_hash="a" * 64)
+        in_germany_only = _recording(session, audio_hash="b" * 64)
+        session.add_all(
+            [
+                RecordingRegion(recording_id=in_bremen.id, region_id="bremen"),
+                RecordingRegion(recording_id=in_bremen.id, region_id="germany"),
+                RecordingRegion(recording_id=in_germany_only.id, region_id="germany"),
+            ]
+        )
+        session.flush()
+
+        germany = filtered_recordings(session, region_id="germany")
+        bremen = filtered_recordings(session, region_id="bremen")
+
+        assert {r.audio_hash for r in germany} == {"a" * 64, "b" * 64}
+        assert {r.audio_hash for r in bremen} == {"a" * 64}
+
+
+def test_region_filter_with_an_unknown_region_matches_nothing(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        _recording(session, audio_hash="c" * 64)
+        assert filtered_recordings(session, region_id="nonexistent") == []
+
+
+def test_no_region_filter_returns_recordings_with_no_region(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        _recording(session, audio_hash="d" * 64)
+        assert len(filtered_recordings(session)) == 1
 
 
 def test_excludes_missing_recordings(engine: Engine) -> None:

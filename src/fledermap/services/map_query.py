@@ -36,7 +36,13 @@ from fledermap.services.current_best import (
 )
 from fledermap.services.review_flags import ReviewContext, review_reasons
 from fledermap.store.geo import decode_point
-from fledermap.store.models import Identification, Recording, Site, Taxon
+from fledermap.store.models import (
+    Identification,
+    Recording,
+    RecordingRegion,
+    Site,
+    Taxon,
+)
 from fledermap.store.models import Session as AnnotationSession
 
 # The original 2000 (design spec P4-7) was a design-time guess ("this
@@ -126,6 +132,7 @@ def filtered_recordings(
     verdict: Verdict | Literal["all", "unidentified"] | None = None,
     session_id: int | None = None,
     site_id: int | None = None,
+    region_id: str | None = None,
     source: IdSource | Literal["emt"] | None = None,
     favourite_only: bool = False,
     flagged_only: bool = False,
@@ -149,6 +156,14 @@ def filtered_recordings(
         stmt = stmt.where(Recording.session_id == session_id)
     if site_id is not None:
         stmt = stmt.where(Recording.site_id == site_id)
+    if region_id is not None:
+        stmt = stmt.where(
+            Recording.id.in_(
+                select(RecordingRegion.recording_id).where(
+                    RecordingRegion.region_id == region_id,
+                ),
+            ),
+        )
     if favourite_only:
         stmt = stmt.where(Recording.favourite.is_(True))
     if flagged_only:

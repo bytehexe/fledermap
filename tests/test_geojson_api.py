@@ -22,6 +22,28 @@ def _app_client(engine: Engine, tmp_path: Path) -> flask.testing.FlaskClient:
     return app.test_client()
 
 
+def test_recordings_geojson_with_an_unknown_region_returns_no_features(
+    engine: Engine,
+    tmp_path: Path,
+) -> None:
+    with OrmSession(engine) as session:
+        session.add(
+            Recording(
+                audio_hash="a" * 64,
+                path="a.wav",
+                recorded_at=datetime(2026, 8, 25, tzinfo=UTC),
+                geom=WKTElement("POINT(10 50)", srid=4326),
+            ),
+        )
+        session.commit()
+
+    client = _app_client(engine, tmp_path)
+    response = client.get("/api/recordings.geojson?verdict=all&region=nonexistent")
+
+    assert response.status_code == 200
+    assert response.get_json()["features"] == []
+
+
 def test_recordings_geojson_excludes_noise_by_default(
     engine: Engine,
     tmp_path: Path,

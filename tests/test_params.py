@@ -6,10 +6,20 @@ from fledermap.domain.codes import IdSource
 from fledermap.web.params import (
     detector_label,
     parse_bool,
+    parse_region_filter,
     parse_source,
     parse_taxon_filter,
     parse_verdict,
 )
+
+
+def test_parse_region_filter_treats_absent_and_empty_as_none() -> None:
+    assert parse_region_filter(None) is None
+    assert parse_region_filter("") is None
+
+
+def test_parse_region_filter_passes_the_id_through_unchanged() -> None:
+    assert parse_region_filter("europe/germany/bremen") == "europe/germany/bremen"
 
 
 def test_parse_source_absent_is_none() -> None:

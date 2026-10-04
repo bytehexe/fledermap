@@ -20,6 +20,7 @@ from fledermap.web.params import (
     parse_bool,
     parse_datetime,
     parse_int,
+    parse_region_filter,
     parse_source,
     parse_taxon_filter,
     parse_verdict,
@@ -85,6 +86,7 @@ def recordings_geojson() -> ResponseReturnValue:
         verdict = parse_verdict(flask.request.args.get("verdict"))
         session_id = parse_int(flask.request.args.get("session"))
         site_id = parse_int(flask.request.args.get("site"))
+        region_id = parse_region_filter(flask.request.args.get("region"))
         favourite_only = parse_bool(flask.request.args.get("favourite_only"))
         needs_review_only = parse_bool(flask.request.args.get("needs_review_only"))
     except ValueError as exc:
@@ -102,6 +104,7 @@ def recordings_geojson() -> ResponseReturnValue:
             verdict=verdict,
             session_id=session_id,
             site_id=site_id,
+            region_id=region_id,
             source=source,
             favourite_only=favourite_only,
             needs_review=needs_review_only,
