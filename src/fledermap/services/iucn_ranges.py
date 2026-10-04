@@ -16,7 +16,7 @@ from typing import Any
 
 import requests
 from shapely.geometry import MultiPolygon, Polygon, shape
-from sqlalchemy import delete, or_, select, text
+from sqlalchemy import delete, func, or_, select, text
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.ranges import (
@@ -25,10 +25,15 @@ from fledermap.domain.ranges import (
     IUCN_RELEASE,
     KEPT_PRESENCE,
     RANGE_CODE_SOURCE,
+    VAGRANT_ORIGIN,
+    NoDataReason,
+    RangeKind,
+    RangeStatus,
 )
 from fledermap.store.models import (
     ClassifierDetection,
     Identification,
+    Recording,
     SpeciesRange,
     SpeciesRangeFetch,
     Taxon,
@@ -242,3 +247,57 @@ def fetch_pending(
         session.commit()
         stored += 1
     return stored
+
+
+def range_status(
+    session: OrmSession,
+    taxon_id: int,
+    recording: Recording,
+    *,
+    edge_km: float,
+) -> RangeStatus:
+    """Where `recording` lies relative to the taxon's cached IUCN range. Reads the cache only;
+    returns a verdict and a distance, never a polygon (T&C §4). `recording` must be persisted."""
+    if recording.geom is None:
+        return RangeStatus(RangeKind.NO_DATA, reason=NoDataReason.NO_LOCATION)
+    code = session.scalar(
+        select(TaxonCode.code).where(
+            TaxonCode.taxon_id == taxon_id,
+            TaxonCode.source == RANGE_CODE_SOURCE,
+        ),
+    )
+    if code is None:
+        return RangeStatus(RangeKind.NO_DATA, reason=NoDataReason.NO_CODE)
+    fetched = session.get(SpeciesRangeFetch, taxon_id)
+    if fetched is None or fetched.query_name != code:
+        return RangeStatus(RangeKind.NO_DATA, reason=NoDataReason.NOT_FETCHED)
+    if fetched.status != FETCH_FOUND:
+        return RangeStatus(RangeKind.NO_DATA, reason=NoDataReason.NOT_FOUND)
+
+    distance = func.ST_Distance(SpeciesRange.geom, Recording.geom)
+    native_m, any_m, in_vagrant = session.execute(
+        select(
+            func.min(distance).filter(SpeciesRange.origin != VAGRANT_ORIGIN),
+            func.min(distance),
+            func.bool_or(func.ST_Intersects(SpeciesRange.geom, Recording.geom)).filter(
+                SpeciesRange.origin == VAGRANT_ORIGIN,
+            ),
+        )
+        .select_from(SpeciesRange)
+        # An explicit JOIN, not a second FROM element: SQLAlchemy's cartesian-product linter
+        # warns about two FROMs the WHERE clause does not connect, and a warning is a defect.
+        .join(Recording, Recording.id == recording.id)
+        .where(SpeciesRange.taxon_id == taxon_id),
+    ).one()
+
+    if any_m is None:
+        return RangeStatus(RangeKind.NO_DATA, reason=NoDataReason.NOT_FOUND)
+    if native_m is not None and native_m == 0:
+        return RangeStatus(RangeKind.INSIDE, distance_km=0.0)
+    # Distance is measured to the regular (non-vagrant) range when there is one: a vagrant
+    # polygon next to the point must not make a far-from-range record look close.
+    distance_km = float(native_m if native_m is not None else any_m) / 1000.0
+    if in_vagrant:
+        return RangeStatus(RangeKind.NEAR, distance_km=distance_km, vagrant=True)
+    kind = RangeKind.NEAR if distance_km <= edge_km else RangeKind.FAR
+    return RangeStatus(kind, distance_km=distance_km)

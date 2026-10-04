@@ -9,7 +9,7 @@ from sqlalchemy import Engine, cast, func, select
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import IdSource, Verdict
-from fledermap.domain.ranges import RANGE_CODE_SOURCE
+from fledermap.domain.ranges import RANGE_CODE_SOURCE, NoDataReason, RangeKind
 from fledermap.services import iucn_ranges
 from fledermap.services.iucn_ranges import RangePolygon
 from fledermap.store.models import (
@@ -250,3 +250,165 @@ def test_a_failure_on_a_later_species_keeps_the_earlier_ones(engine: Engine) -> 
     with OrmSession(engine) as fresh:
         assert fresh.get(SpeciesRangeFetch, a_id) is not None
         assert fresh.get(SpeciesRangeFetch, b_id) is None
+
+
+NATIVE_SQUARE = RangePolygon(presence=1, origin=1, wkt=SQUARE_WKT)
+VAGRANT_SQUARE = RangePolygon(
+    presence=1,
+    origin=4,
+    wkt="MULTIPOLYGON(((10 0, 10 1, 11 1, 11 0, 10 0)))",
+)
+
+
+def _status(
+    session: OrmSession,
+    taxon: Taxon,
+    recording: Recording,
+    edge_km: float = 100.0,
+) -> iucn_ranges.RangeStatus:
+    return iucn_ranges.range_status(session, taxon.id, recording, edge_km=edge_km)
+
+
+def _with_range(
+    session: OrmSession,
+    polygons: list[RangePolygon],
+    *,
+    lon: float | None,
+    lat: float | None = 0.5,
+) -> tuple[Taxon, Recording]:
+    taxon = _taxon(session)
+    recording = _recording(session, lon=lon, lat=lat)
+    iucn_ranges.store_range(session, taxon.id, "Pipistrellus pipistrellus", polygons)
+    session.commit()
+    return taxon, recording
+
+
+def test_a_point_inside_the_range_is_inside(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        taxon, recording = _with_range(session, [NATIVE_SQUARE], lon=0.5)
+
+        status = _status(session, taxon, recording)
+
+    assert status.kind is RangeKind.INSIDE
+
+
+def test_a_point_just_outside_is_near_with_its_distance(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        taxon, recording = _with_range(session, [NATIVE_SQUARE], lon=1.5)
+
+        status = _status(session, taxon, recording)
+
+    assert status.kind is RangeKind.NEAR
+    assert status.distance_km is not None
+    assert 50 < status.distance_km < 60
+
+
+def test_a_point_beyond_the_edge_distance_is_far(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        taxon, recording = _with_range(session, [NATIVE_SQUARE], lon=3.0)
+
+        far = _status(session, taxon, recording)
+        generous = _status(session, taxon, recording, edge_km=500.0)
+
+    assert far.kind is RangeKind.FAR
+    assert far.distance_km is not None
+    assert far.distance_km > 200
+    assert generous.kind is RangeKind.NEAR
+
+
+def test_a_point_in_a_hole_of_the_range_is_outside_not_inside(engine: Engine) -> None:
+    donut = RangePolygon(
+        presence=1,
+        origin=1,
+        wkt="MULTIPOLYGON(((0 0, 0 3, 3 3, 3 0, 0 0), (1 1, 2 1, 2 2, 1 2, 1 1)))",
+    )
+    with OrmSession(engine) as session:
+        taxon, recording = _with_range(session, [donut], lon=1.5, lat=1.5)
+
+        status = _status(session, taxon, recording)
+
+    assert status.kind is RangeKind.NEAR
+
+
+def test_a_point_only_inside_a_vagrant_polygon_is_near_not_inside(
+    engine: Engine,
+) -> None:
+    with OrmSession(engine) as session:
+        taxon, recording = _with_range(
+            session,
+            [NATIVE_SQUARE, VAGRANT_SQUARE],
+            lon=10.5,
+        )
+
+        status = _status(session, taxon, recording)
+
+    assert status.kind is RangeKind.NEAR
+    assert status.vagrant is True
+
+
+def test_a_species_with_only_vagrant_polygons_is_near_inside_one_and_far_away(
+    engine: Engine,
+) -> None:
+    with OrmSession(engine) as session:
+        taxon, inside = _with_range(session, [VAGRANT_SQUARE], lon=10.5)
+        elsewhere = _recording(session, "b" * 64, lon=50.0, lat=0.5)
+        session.commit()
+
+        in_vagrant = _status(session, taxon, inside)
+        far_away = _status(session, taxon, elsewhere)
+
+    assert in_vagrant.kind is RangeKind.NEAR
+    assert in_vagrant.vagrant is True
+    assert far_away.kind is RangeKind.FAR
+
+
+def test_a_recording_without_a_location_has_no_data(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        taxon, recording = _with_range(session, [NATIVE_SQUARE], lon=None)
+
+        status = _status(session, taxon, recording)
+
+    assert status.kind is RangeKind.NO_DATA
+    assert status.reason is NoDataReason.NO_LOCATION
+
+
+def test_a_taxon_without_an_iucn_code_has_no_data(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        taxon = _taxon(session, "Plecotus auritus", code=None)
+        recording = _recording(session)
+        session.commit()
+
+        status = _status(session, taxon, recording)
+
+    assert status.reason is NoDataReason.NO_CODE
+
+
+def test_a_taxon_not_fetched_yet_has_no_data(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        taxon = _taxon(session)
+        recording = _recording(session)
+        session.commit()
+
+        status = _status(session, taxon, recording)
+
+    assert status.reason is NoDataReason.NOT_FETCHED
+
+
+def test_a_species_the_service_does_not_know_has_no_data(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        taxon, recording = _with_range(session, [], lon=0.5)
+
+        status = _status(session, taxon, recording)
+
+    assert status.reason is NoDataReason.NOT_FOUND
+
+
+def test_a_fetch_under_an_outdated_code_counts_as_not_fetched(engine: Engine) -> None:
+    with OrmSession(engine) as session:
+        taxon, recording = _with_range(session, [NATIVE_SQUARE], lon=0.5)
+        session.scalars(select(TaxonCode)).one().code = "Pipistrellus renamed"
+        session.commit()
+
+        status = _status(session, taxon, recording)
+
+    assert status.reason is NoDataReason.NOT_FETCHED
