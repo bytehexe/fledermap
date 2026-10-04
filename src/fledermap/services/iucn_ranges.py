@@ -9,14 +9,31 @@ this module: `range_status` reduces them to a verdict and a distance.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 import requests
 from shapely.geometry import MultiPolygon, Polygon, shape
+from sqlalchemy import delete, or_, select, text
+from sqlalchemy.orm import Session as OrmSession
 
-from fledermap.domain.ranges import KEPT_PRESENCE
+from fledermap.domain.ranges import (
+    FETCH_FOUND,
+    FETCH_NOT_FOUND,
+    IUCN_RELEASE,
+    KEPT_PRESENCE,
+    RANGE_CODE_SOURCE,
+)
+from fledermap.store.models import (
+    ClassifierDetection,
+    Identification,
+    SpeciesRange,
+    SpeciesRangeFetch,
+    Taxon,
+    TaxonCode,
+)
 
 LAYER_QUERY_URL = "https://data-gis.unep-wcmc.org/server/rest/services/Hosted/IUCN_Red_List/MapServer/0/query"
 # Server-side simplification tolerance in degrees (~2 km): far below the "near" threshold, so
@@ -115,3 +132,113 @@ def fetch_range(
     )
     response.raise_for_status()
     return _parse(response.json(), query_name)
+
+
+# Repair, then simplify, then force a MULTIPOLYGON in PostGIS rather than in shapely: the
+# service's own simplification can leave a self-intersecting ring, and `ST_MakeValid` is the
+# one place that repairs it without a second geometry library. The geography cast must come
+# last -- the geometry functions above do not exist for it.
+_INSERT_POLYGON = text(
+    """
+    INSERT INTO species_range (taxon_id, presence, origin, geom)
+    SELECT :taxon_id, :presence, :origin,
+           ST_Multi(
+               ST_CollectionExtract(
+                   ST_SimplifyPreserveTopology(
+                       ST_MakeValid(ST_GeomFromText(:wkt, 4326)), :tolerance
+                   ),
+                   3
+               )
+           )::geography
+    """,
+)
+
+
+def pending_taxa(session: OrmSession) -> list[tuple[int, str]]:
+    """(taxon_id, IUCN name) for every species that occurs in this database -- as an
+    identification or a raw classifier detection -- has an `iucn2022` code, and has not been
+    fetched under that code. A changed code makes the taxon pending again; a `not_found` fetch
+    does not, so an unknown species is asked about exactly once."""
+    used = or_(
+        TaxonCode.taxon_id.in_(
+            select(Identification.taxon_id).where(Identification.taxon_id.is_not(None)),
+        ),
+        TaxonCode.taxon_id.in_(
+            select(ClassifierDetection.taxon_id).where(
+                ClassifierDetection.taxon_id.is_not(None),
+            ),
+        ),
+    )
+    rows = session.execute(
+        select(TaxonCode.taxon_id, TaxonCode.code)
+        .join(Taxon, Taxon.id == TaxonCode.taxon_id)
+        .outerjoin(
+            SpeciesRangeFetch,
+            SpeciesRangeFetch.taxon_id == TaxonCode.taxon_id,
+        )
+        .where(
+            TaxonCode.source == RANGE_CODE_SOURCE,
+            Taxon.rank == "species",
+            used,
+            or_(
+                SpeciesRangeFetch.taxon_id.is_(None),
+                SpeciesRangeFetch.query_name != TaxonCode.code,
+            ),
+        )
+        .order_by(TaxonCode.taxon_id),
+    ).all()
+    return [(row.taxon_id, row.code) for row in rows]
+
+
+def store_range(
+    session: OrmSession,
+    taxon_id: int,
+    query_name: str,
+    polygons: Sequence[RangePolygon],
+    *,
+    now: datetime | None = None,
+) -> None:
+    """Replace a taxon's cached polygons with `polygons` and record the fetch. An empty list
+    is recorded as `not_found`, so the species is not asked about again."""
+    session.execute(delete(SpeciesRange).where(SpeciesRange.taxon_id == taxon_id))
+    for polygon in polygons:
+        session.execute(
+            _INSERT_POLYGON,
+            {
+                "taxon_id": taxon_id,
+                "presence": polygon.presence,
+                "origin": polygon.origin,
+                "wkt": polygon.wkt,
+                "tolerance": _SIMPLIFY_DEGREES,
+            },
+        )
+    session.merge(
+        SpeciesRangeFetch(
+            taxon_id=taxon_id,
+            query_name=query_name,
+            status=FETCH_FOUND if polygons else FETCH_NOT_FOUND,
+            source_version=IUCN_RELEASE,
+            fetched_at=now or datetime.now(UTC),
+        ),
+    )
+    session.flush()
+
+
+def fetch_pending(
+    session: OrmSession,
+    *,
+    fetch: Callable[[str], list[RangePolygon]] | None = None,
+) -> int:
+    """Fetch and store every pending species, one at a time. Commits after each so a failure
+    on a later species (the job then retries) keeps the earlier ones. Returns how many were
+    stored."""
+    # Looked up here, not bound as a default argument: a default would freeze the original
+    # function object at definition time and make `fetch_range` impossible to replace for the
+    # job-level tests, which cannot pass an argument through the task.
+    fetcher = fetch if fetch is not None else fetch_range
+    stored = 0
+    for taxon_id, query_name in pending_taxa(session):
+        store_range(session, taxon_id, query_name, fetcher(query_name))
+        session.commit()
+        stored += 1
+    return stored
