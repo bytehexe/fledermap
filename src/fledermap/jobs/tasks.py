@@ -559,26 +559,6 @@ def resolve_regions_task(context: procrastinate.JobContext) -> None:
         session.commit()
 
 
-_FETCH_IUCN_RANGES_LOCK = "iucn-fetch-ranges"
-
-
-@app.task(queue="geo", pass_context=True, retry=_RETRY)
-def fetch_iucn_ranges_task(context: procrastinate.JobContext) -> None:
-    """Fetch IUCN range polygons for every species that needs one (design spec
-    2026-10-04-fledermap-iucn-range-check-design.md). One job per cycle, sequential
-    requests, one commit per species inside `fetch_pending`."""
-    # Local import for the same circularity reason as `resolve_regions_task`'s.
-    from fledermap.services import iucn_ranges
-
-    config: Config = context.additional_context["config"]
-    engine = context.additional_context["engine"]
-    if not config.iucn_ranges_enabled:
-        # Config changed after this job was deferred -- nothing to do.
-        return
-    with OrmSession(engine) as session:
-        iucn_ranges.fetch_pending(session)
-
-
 @app.task(queue="media", pass_context=True, retry=_RETRY)
 def render_spectrogram_task(
     context: procrastinate.JobContext,
@@ -769,10 +749,6 @@ def run_ingest_cycle(context: procrastinate.JobContext, timestamp: int) -> None:
             engine,
             poiidx_database_url=config.poiidx_database_url,
         )
-
-        from fledermap.services.iucn_ranges import enqueue_range_fetch
-
-        enqueue_range_fetch(session, engine, enabled=config.iucn_ranges_enabled)
 
         logger.info(
             "%s flagged_missing %s -- sessions created %d extended %d "

@@ -234,25 +234,6 @@ modal holds no such state, so its JS wires a plain backdrop-click handler alongs
 own close button. Decide per modal whether a stray click should be allowed to close it, and wire
 that in the modal's own JS — never assume the shared CSS implies a behavior.
 
-### Identifications matrix: the `iucn` range column
-
-`_identification_matrix.html` (shared by the drawer and the details page) can carry one extra,
-rightmost column, `iucn`, when `FLEDERMAP_IUCN_RANGES_ENABLED` is on. It is a property of the
-**species row at the recording's location**, not a classifier claim, so: it is separated from the
-claim columns by a heavier left border, it never uses the claim columns' plain check, and it
-never changes the current-row highlighting. It reports **presence only**: IUCN ranges have gaps
-(the 2022-2 *Pipistrellus pygmaeus* polygons omit Germany, where the species is well
-documented), so a point outside the polygons is never shown as near/far/implausible. Three
-states, each by icon *shape* (colour only reinforces it): `circle-check` inside
-(`--color-success`), `help-circle` no data and `loader` pending (both `--color-muted`). A
-**blank** cell means no confirmation (genus/group rows, unmapped or NoID/noise rows, or outside
-the polygons) and is deliberately different from `help-circle`, which means a species row the check cannot answer (its tooltip says
-why), and from `loader`, which means the answer is merely not there *yet* because the worker has
-not fetched that species' range -- it resolves on its own, "no data" does not. The
-tooltip and a caption under the table carry the IUCN citation (release 2022-2, non-commercial
-use only, T&C v3.1 §§3, 6). A map-pin icon family was tried and rejected: at the matrix's real
-size (~13.6 px) the pin badges were unreadable and the states differed only by colour.
-
 ### `.entity-header`
 
 Use for the top-of-page block on any full standalone entity page (`site_detail.html`,

@@ -244,24 +244,6 @@ ASSETS: tuple[VendorAsset, ...] = (
         sha256="92a951d8e90c1b1d986449e74a8b2e1c52982dc3dbe09b141ac11990420408f4",
         relative_path="icons/outline/alert-triangle.svg",
     ),
-    # The `iucn` range column of the Identifications matrix (design spec 2026-10-04-fledermap-
-    # iucn-range-check-design.md): circle-check is inside, help-circle no data and loader
-    # pending. Hashed against unpkg.com directly, like the rest.
-    VendorAsset(
-        url="https://unpkg.com/@tabler/icons@3.46.0/icons/outline/circle-check.svg",
-        sha256="321fb0a26939c8bb1674e8a62c90d0538db23cbb9c46d4c1cce25e0ea313d5bd",
-        relative_path="icons/outline/circle-check.svg",
-    ),
-    VendorAsset(
-        url="https://unpkg.com/@tabler/icons@3.46.0/icons/outline/help-circle.svg",
-        sha256="74ae26c8029b6aa824a688207a5c3cd54e08b611dc35e3faa593165cab48517b",
-        relative_path="icons/outline/help-circle.svg",
-    ),
-    VendorAsset(
-        url="https://unpkg.com/@tabler/icons@3.46.0/icons/outline/loader.svg",
-        sha256="d0ae75fc88d1d0e99158249934ee48b10a101c9646aaa7776110a9d5c17256da",
-        relative_path="icons/outline/loader.svg",
-    ),
     VendorAsset(
         url="https://unpkg.com/@tabler/icons@3.46.0/icons/outline/info-circle.svg",
         sha256="bf4377dff0aaaddf1676a4bb7292f90f1102f19daaca7021331ba6a191317c1c",

@@ -14,7 +14,6 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
 
-from fledermap.domain.ranges import RANGE_CODE_SOURCE
 from fledermap.services.current_best import current_best_identification
 from fledermap.store.models import Recording, Site, Taxon, TaxonCode
 
@@ -65,11 +64,7 @@ def list_species(session: OrmSession) -> Sequence[SpeciesListRow]:
 
     codes_by_taxon: dict[int, str] = {}
     for code in session.scalars(
-        select(TaxonCode).where(
-            TaxonCode.taxon_id.in_(counts),
-            # A range-lookup name is not a code anyone knows the species by.
-            TaxonCode.source != RANGE_CODE_SOURCE,
-        ),
+        select(TaxonCode).where(TaxonCode.taxon_id.in_(counts)),
     ):
         codes_by_taxon.setdefault(code.taxon_id, code.code)
 
@@ -105,10 +100,7 @@ def species_detail(session: OrmSession, taxon_id: int) -> SpeciesDetail | None:
     codes = [
         c.code
         for c in session.scalars(
-            select(TaxonCode).where(
-                TaxonCode.taxon_id == taxon_id,
-                TaxonCode.source != RANGE_CODE_SOURCE,
-            ),
+            select(TaxonCode).where(TaxonCode.taxon_id == taxon_id),
         )
     ]
 

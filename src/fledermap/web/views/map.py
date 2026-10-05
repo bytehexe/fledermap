@@ -20,7 +20,6 @@ from fledermap.services.current_best import (
     identification_matrix,
     recording_headline,
 )
-from fledermap.services.iucn_ranges import attach_ranges
 from fledermap.services.manual_classification import (
     current_manual_state,
     set_manual_classification,
@@ -142,12 +141,6 @@ def _render_recording_panel(
             best,
             combine_emt=flask.current_app.config["COMBINE_EMT_DISPLAY"],
         )
-        if flask.current_app.config["IUCN_RANGES_ENABLED"]:
-            matrix = attach_ranges(
-                matrix,
-                session,
-                recording,
-            )
         point = decode_point(recording.geom)
 
         recording_session = (

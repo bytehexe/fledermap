@@ -28,34 +28,27 @@
 # cross-checked against Wikipedia, not hand-entered. A species this classifier can emit that
 # isn't listed at all (rather than one listed here without a code) still lands in the
 # unmapped-species review queue by design, same as any other unrecognized label.
-#
-# `iucn2022` codes are each species' name in the IUCN Red List 2022-2 range layer
-# (https://data-gis.unep-wcmc.org/server/rest/services/Hosted/IUCN_Red_List/MapServer/0), used
-# only by the optional range plausibility check. They equal `scientific_name` except where IUCN
-# still files a species under its pre-2023 name (the three Old World Cnephaeus species are
-# Eptesicus there). Like every code here they are looked up by exact match, never derived from
-# `scientific_name`; a species with no `iucn2022` code simply shows "no range data".
 taxa:
   - scientific_name: Pipistrellus pipistrellus
     rank: species
     common_name_de: Zwergfledermaus
     common_name_en: Common pipistrelle
-    codes: {emt: PIPPIP, batdetect2: "Pipistrellus pipistrellus", battybirdnet: "Pipistrellus pipistrellus", iucn2022: "Pipistrellus pipistrellus"}
+    codes: {emt: PIPPIP, batdetect2: "Pipistrellus pipistrellus", battybirdnet: "Pipistrellus pipistrellus"}
   - scientific_name: Pipistrellus pygmaeus
     rank: species
     common_name_de: Mückenfledermaus
     common_name_en: Soprano pipistrelle
-    codes: {emt: PIPPYG, batdetect2: "Pipistrellus pygmaeus", battybirdnet: "Pipistrellus pygmaeus", iucn2022: "Pipistrellus pygmaeus"}
+    codes: {emt: PIPPYG, batdetect2: "Pipistrellus pygmaeus", battybirdnet: "Pipistrellus pygmaeus"}
   - scientific_name: Pipistrellus nathusii
     rank: species
     common_name_de: Rauhautfledermaus
     common_name_en: Nathusius' pipistrelle
-    codes: {emt: PIPNAT, batdetect2: "Pipistrellus nathusii", battybirdnet: "Pipistrellus nathusii", iucn2022: "Pipistrellus nathusii"}
+    codes: {emt: PIPNAT, batdetect2: "Pipistrellus nathusii", battybirdnet: "Pipistrellus nathusii"}
   - scientific_name: Pipistrellus kuhlii
     rank: species
     common_name_de: Weißrandfledermaus
     common_name_en: Kuhl's pipistrelle
-    codes: {emt: PIPKUH, battybirdnet: "Pipistrellus kuhlii", iucn2022: "Pipistrellus kuhlii"}
+    codes: {emt: PIPKUH, battybirdnet: "Pipistrellus kuhlii"}
   - scientific_name: Pipistrellus maderensis
     rank: species
     common_name_de: Madeira-Fledermaus
@@ -63,22 +56,22 @@ taxa:
     # Not on the Wildlife Acoustics list this file is otherwise scoped to (no
     # `emt` code) -- BattyBirdNET-Analyzer's EU checkpoint emits it, so it's
     # added here rather than left permanently unmapped.
-    codes: {battybirdnet: "Pipistrellus maderensis", iucn2022: "Pipistrellus maderensis"}
+    codes: {battybirdnet: "Pipistrellus maderensis"}
   - scientific_name: Nyctalus noctula
     rank: species
     common_name_de: Abendsegler
     common_name_en: Common noctule
-    codes: {emt: NYCNOC, batdetect2: "Nyctalus noctula", battybirdnet: "Nyctalus noctula", iucn2022: "Nyctalus noctula"}
+    codes: {emt: NYCNOC, batdetect2: "Nyctalus noctula", battybirdnet: "Nyctalus noctula"}
   - scientific_name: Nyctalus leisleri
     rank: species
     common_name_de: Kleinabendsegler
     common_name_en: Leisler's bat
-    codes: {emt: NYCLEI, batdetect2: "Nyctalus leisleri", battybirdnet: "Nyctalus leisleri", iucn2022: "Nyctalus leisleri"}
+    codes: {emt: NYCLEI, batdetect2: "Nyctalus leisleri", battybirdnet: "Nyctalus leisleri"}
   - scientific_name: Nyctalus lasiopterus
     rank: species
     common_name_de: Riesenabendsegler
     common_name_en: Greater noctule bat
-    codes: {emt: NYCLAS, battybirdnet: "Nyctalus lasiopterus", iucn2022: "Nyctalus lasiopterus"}
+    codes: {emt: NYCLAS, battybirdnet: "Nyctalus lasiopterus"}
   - scientific_name: Cnephaeus serotinus
     rank: species
     common_name_de: Breitflügelfledermaus
@@ -87,72 +80,72 @@ taxa:
     # `scientific_name` -- batdetect2/battybirdnet still emit "Eptesicus serotinus"
     # (their training data predates this 2023 revision), so those literals stay
     # as-is even though `scientific_name` above reflects current consensus.
-    codes: {emt: EPTSER, batdetect2: "Eptesicus serotinus", battybirdnet: "Eptesicus serotinus", iucn2022: "Eptesicus serotinus"}
+    codes: {emt: EPTSER, batdetect2: "Eptesicus serotinus", battybirdnet: "Eptesicus serotinus"}
   - scientific_name: Cnephaeus isabellinus
     rank: species
     common_name_de: Isabell-Breitflügelfledermaus
     common_name_en: Meridional serotine
-    codes: {emt: EPTISA, iucn2022: "Eptesicus isabellinus"}
+    codes: {emt: EPTISA}
   - scientific_name: Cnephaeus nilssonii
     rank: species
     common_name_de: Nordfledermaus
     common_name_en: Northern bat
-    codes: {emt: EPTNIL, battybirdnet: "Eptesicus nilssonii", iucn2022: "Eptesicus nilssonii"}
+    codes: {emt: EPTNIL, battybirdnet: "Eptesicus nilssonii"}
   - scientific_name: Myotis daubentonii
     rank: species
     common_name_de: Wasserfledermaus
     common_name_en: Daubenton's bat
-    codes: {emt: MYODAU, batdetect2: "Myotis daubentonii", battybirdnet: "Myotis daubentonii", iucn2022: "Myotis daubentonii"}
+    codes: {emt: MYODAU, batdetect2: "Myotis daubentonii", battybirdnet: "Myotis daubentonii"}
   - scientific_name: Myotis myotis
     rank: species
     common_name_de: Großes Mausohr
     common_name_en: Greater mouse-eared bat
-    codes: {emt: MYOMYO, battybirdnet: "Myotis myotis", iucn2022: "Myotis myotis"}
+    codes: {emt: MYOMYO, battybirdnet: "Myotis myotis"}
   - scientific_name: Myotis alcathoe
     rank: species
     common_name_de: Nymphenfledermaus
     common_name_en: Alcathoe bat
-    codes: {emt: MYOALC, batdetect2: "Myotis alcathoe", battybirdnet: "Myotis alcathoe", iucn2022: "Myotis alcathoe"}
+    codes: {emt: MYOALC, batdetect2: "Myotis alcathoe", battybirdnet: "Myotis alcathoe"}
   - scientific_name: Myotis bechsteinii
     rank: species
     common_name_de: Bechsteinfledermaus
     common_name_en: Bechstein's bat
-    codes: {emt: MYOBEC, batdetect2: "Myotis bechsteinii", battybirdnet: "Myotis bechsteinii", iucn2022: "Myotis bechsteinii"}
+    codes: {emt: MYOBEC, batdetect2: "Myotis bechsteinii", battybirdnet: "Myotis bechsteinii"}
   - scientific_name: Myotis brandtii
     rank: species
     common_name_de: Große Bartfledermaus
     common_name_en: Brandt's bat
-    codes: {emt: MYOBRA, batdetect2: "Myotis brandtii", battybirdnet: "Myotis brandtii", iucn2022: "Myotis brandtii"}
+    codes: {emt: MYOBRA, batdetect2: "Myotis brandtii", battybirdnet: "Myotis brandtii"}
   - scientific_name: Myotis capaccinii
     rank: species
     common_name_de: Langfußfledermaus
     common_name_en: Long-fingered bat
-    codes: {emt: MYOCAP, battybirdnet: "Myotis capaccinii", iucn2022: "Myotis capaccinii"}
+    codes: {emt: MYOCAP, battybirdnet: "Myotis capaccinii"}
   - scientific_name: Myotis dasycneme
     rank: species
     common_name_de: Teichfledermaus
     common_name_en: Pond bat
-    codes: {emt: MYODAS, battybirdnet: "Myotis dasycneme", iucn2022: "Myotis dasycneme"}
+    codes: {emt: MYODAS, battybirdnet: "Myotis dasycneme"}
   - scientific_name: Myotis emarginatus
     rank: species
     common_name_de: Wimperfledermaus
     common_name_en: Geoffroy's bat
-    codes: {emt: MYOEMA, battybirdnet: "Myotis emarginatus", iucn2022: "Myotis emarginatus"}
+    codes: {emt: MYOEMA, battybirdnet: "Myotis emarginatus"}
   - scientific_name: Myotis escalerai
     rank: species
     common_name_de: Iberische Fransenfledermaus
     common_name_en: Escalera's bat
-    codes: {emt: MYOESC, iucn2022: "Myotis escalerai"}
+    codes: {emt: MYOESC}
   - scientific_name: Myotis mystacinus
     rank: species
     common_name_de: Kleine Bartfledermaus
     common_name_en: Whiskered bat
-    codes: {emt: MYOMYS, batdetect2: "Myotis mystacinus", battybirdnet: "Myotis mystacinus", iucn2022: "Myotis mystacinus"}
+    codes: {emt: MYOMYS, batdetect2: "Myotis mystacinus", battybirdnet: "Myotis mystacinus"}
   - scientific_name: Myotis nattereri
     rank: species
     common_name_de: Fransenfledermaus
     common_name_en: Natterer's bat
-    codes: {emt: MYONAT, batdetect2: "Myotis nattereri", battybirdnet: "Myotis nattereri", iucn2022: "Myotis nattereri"}
+    codes: {emt: MYONAT, batdetect2: "Myotis nattereri", battybirdnet: "Myotis nattereri"}
   - scientific_name: Barbastella barbastellus
     rank: species
     common_name_de: Mopsfledermaus
@@ -160,42 +153,42 @@ taxa:
     # batdetect2's own class label has a genus typo ("Barbastellus", not "Barbastella") --
     # the exact string the checkpoint prints, kept verbatim since resolve_code matches on
     # the source's own vocabulary, not a corrected spelling.
-    codes: {emt: BARBAR, batdetect2: "Barbastellus barbastellus", battybirdnet: "Barbastella barbastellus", iucn2022: "Barbastella barbastellus"}
+    codes: {emt: BARBAR, batdetect2: "Barbastellus barbastellus", battybirdnet: "Barbastella barbastellus"}
   - scientific_name: Plecotus auritus
     rank: species
     common_name_de: Braunes Langohr
     common_name_en: Brown long-eared bat
-    codes: {emt: PLEAUR, batdetect2: "Plecotus auritus", iucn2022: "Plecotus auritus"}
+    codes: {emt: PLEAUR, batdetect2: "Plecotus auritus"}
   - scientific_name: Plecotus austriacus
     rank: species
     common_name_de: Graues Langohr
     common_name_en: Grey long-eared bat
-    codes: {emt: PLEAUS, batdetect2: "Plecotus austriacus", iucn2022: "Plecotus austriacus"}
+    codes: {emt: PLEAUS, batdetect2: "Plecotus austriacus"}
   - scientific_name: Hypsugo savii
     rank: species
     common_name_de: Alpenfledermaus
     common_name_en: Savi's pipistrelle
-    codes: {emt: HYPSAV, battybirdnet: "Hypsugo savii", iucn2022: "Hypsugo savii"}
+    codes: {emt: HYPSAV, battybirdnet: "Hypsugo savii"}
   - scientific_name: Miniopterus schreibersii
     rank: species
     common_name_de: Langflügelfledermaus
     common_name_en: Common bent-wing bat
-    codes: {emt: MINSCH, battybirdnet: "Miniopterus schreibersii", iucn2022: "Miniopterus schreibersii"}
+    codes: {emt: MINSCH, battybirdnet: "Miniopterus schreibersii"}
   - scientific_name: Rhinolophus euryale
     rank: species
     common_name_de: Mittelmeer-Hufeisennase
     common_name_en: Mediterranean horseshoe bat
-    codes: {emt: RHIEUR, iucn2022: "Rhinolophus euryale"}
+    codes: {emt: RHIEUR}
   - scientific_name: Rhinolophus ferrumequinum
     rank: species
     common_name_de: Große Hufeisennase
     common_name_en: Greater horseshoe bat
-    codes: {emt: RHIFER, batdetect2: "Rhinolophus ferrumequinum", battybirdnet: "Rhinolophus ferrumequinum", iucn2022: "Rhinolophus ferrumequinum"}
+    codes: {emt: RHIFER, batdetect2: "Rhinolophus ferrumequinum", battybirdnet: "Rhinolophus ferrumequinum"}
   - scientific_name: Rhinolophus hipposideros
     rank: species
     common_name_de: Kleine Hufeisennase
     common_name_en: Lesser horseshoe bat
-    codes: {emt: RHIHIP, batdetect2: "Rhinolophus hipposideros", battybirdnet: "Rhinolophus hipposideros", iucn2022: "Rhinolophus hipposideros"}
+    codes: {emt: RHIHIP, batdetect2: "Rhinolophus hipposideros", battybirdnet: "Rhinolophus hipposideros"}
   - scientific_name: Rhinolophus blasii
     rank: species
     common_name_de: Blasius-Hufeisennase
@@ -203,14 +196,14 @@ taxa:
     # Not on the Wildlife Acoustics list this file is otherwise scoped to (no
     # `emt` code) -- BattyBirdNET-Analyzer's EU checkpoint emits it, so it's
     # added here rather than left permanently unmapped.
-    codes: {battybirdnet: "Rhinolophus blasii", iucn2022: "Rhinolophus blasii"}
+    codes: {battybirdnet: "Rhinolophus blasii"}
   - scientific_name: Tadarida teniotis
     rank: species
     common_name_de: Europäische Bulldoggfledermaus
     common_name_en: European free-tailed bat
-    codes: {emt: TADTEN, battybirdnet: "Tadarida teniotis", iucn2022: "Tadarida teniotis"}
+    codes: {emt: TADTEN, battybirdnet: "Tadarida teniotis"}
   - scientific_name: Vespertilio murinus
     rank: species
     common_name_de: Zweifarbfledermaus
     common_name_en: Parti-coloured bat
-    codes: {emt: VESMUR, battybirdnet: "Vespertilio murinus", iucn2022: "Vespertilio murinus"}
+    codes: {emt: VESMUR, battybirdnet: "Vespertilio murinus"}

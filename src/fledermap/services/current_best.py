@@ -29,7 +29,6 @@ from fledermap.domain.codes import (
     is_manual,
     is_multi_support,
 )
-from fledermap.domain.ranges import RangeStatus
 from fledermap.store.models import Identification, Recording, Taxon
 
 _PRECEDENCE: tuple[IdSource, ...] = (
@@ -443,18 +442,12 @@ class MatrixRow:
     taxon: Taxon | None
     is_current: bool
     cells: dict[str, MatrixCell]
-    # Filled by `services/iucn_ranges.py`'s `attach_ranges` when the range check is enabled;
-    # None means "not applicable" (a genus/group row, an unmapped or sentinel claim) and renders
-    # as a blank cell, distinct from a RangeStatus of kind NO_DATA.
-    iucn_range: RangeStatus | None = None
 
 
 @dataclass(frozen=True)
 class IdentificationMatrix:
     columns: list[MatrixColumn]
     rows: list[MatrixRow]
-    show_range: bool = False
-    range_citation: str = ""
 
 
 def identification_matrix(

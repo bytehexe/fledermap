@@ -16,7 +16,6 @@ from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.config import Config
 from fledermap.domain.codes import IdSource, Verdict
-from fledermap.domain.ranges import RANGE_CODE_SOURCE
 from fledermap.jobs.app import (
     ensure_schema,
     make_worker_connector,
@@ -52,7 +51,6 @@ from fledermap.store.models import (
     Recording,
     Site,
     Taxon,
-    TaxonCode,
 )
 from fledermap.store.models import Session as SessionModel
 from tests.fixtures import build_wav, fmt_payload, wamd_payload
@@ -1415,65 +1413,3 @@ def test_run_classify_implication_mining_cycle_stores_rules(engine: Engine) -> N
             select(func.count()).select_from(ClassifyImplicationRule)
         )
     assert stored == 1
-
-
-def test_run_ingest_cycle_defers_range_fetch_only_when_enabled_and_pending(
-    engine: Engine,
-    tmp_path: Path,
-) -> None:
-    """The ingest cycle is what makes the first fetch happen after the flag is turned on."""
-    with OrmSession(engine) as session:
-        taxon = Taxon(rank="species", scientific_name="Pipistrellus pipistrellus")
-        session.add(taxon)
-        session.flush()
-        session.add(
-            TaxonCode(
-                source=RANGE_CODE_SOURCE,
-                code="Pipistrellus pipistrellus",
-                taxon_id=taxon.id,
-            ),
-        )
-        recording = Recording(
-            audio_hash="c" * 64,
-            path="c.wav",
-            recorded_at=datetime(2026, 10, 4, tzinfo=UTC),
-        )
-        session.add(recording)
-        session.flush()
-        session.add(
-            Identification(
-                recording_id=recording.id,
-                # MANUAL: the cycle purges the disabled classifiers' rows and re-derives the EMT ones,
-                # so any other source would vanish before the hook runs.
-                source=IdSource.MANUAL,
-                verdict=Verdict.SPECIES,
-                taxon_id=taxon.id,
-                first_seen_at=datetime(2026, 10, 4, tzinfo=UTC),
-            ),
-        )
-        session.commit()
-
-    jobs_app.open(engine)
-    ensure_schema(jobs_app, engine)
-    base = _make_config(tmp_path)
-    count_sql = text(
-        "SELECT count(*) FROM procrastinate_jobs "
-        "WHERE task_name = 'fledermap.jobs.tasks.fetch_iucn_ranges_task' "
-        "AND status = 'todo'",
-    )
-
-    for config, expected in ((base, 0), (replace(base, iucn_ranges_enabled=True), 1)):
-        run_ingest_cycle.configure(
-            lock=_INGEST_CYCLE_LOCK,
-            queueing_lock=_INGEST_CYCLE_LOCK,
-        ).defer(timestamp=int(time.time()))
-        _run_worker(
-            engine,
-            wait=False,
-            install_signal_handlers=False,
-            listen_notify=False,
-            queues=["ingest"],
-            additional_context={"config": config, "engine": engine},
-        )
-        with engine.connect() as conn:
-            assert conn.execute(count_sql).scalar() == expected

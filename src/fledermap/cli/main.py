@@ -498,7 +498,6 @@ def serve(host: str | None, port: int | None) -> None:
         config.latitude,
         config.longitude,
         config.poiidx_database_url is not None,
-        config.iucn_ranges_enabled,
     )
     app.run(
         host=host if host is not None else config.host,

@@ -534,19 +534,3 @@ def test_migration_deduplicates_rows_that_collide_under_the_narrowed_constraint(
 
     assert surviving == [second_id]
     eng.dispose()
-
-
-def test_migrated_species_range_has_a_spatial_index(migrated_engine: Engine) -> None:
-    """`compare_metadata` does not see a missing GIST index on a geography column, and the
-    distance query in `services/iucn_ranges.py` needs it once ranges are large."""
-    with migrated_engine.connect() as conn:
-        definitions = (
-            conn.execute(
-                text(
-                    "SELECT indexdef FROM pg_indexes WHERE tablename = 'species_range'",
-                ),
-            )
-            .scalars()
-            .all()
-        )
-    assert any("gist" in d.lower() and "geom" in d for d in definitions), definitions

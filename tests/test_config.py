@@ -23,7 +23,6 @@ from fledermap.config import (
     ENV_DATABASE_URL,
     ENV_DEFAULT_TIMEZONE,
     ENV_HOST,
-    ENV_IUCN_RANGES_ENABLED,
     ENV_LATITUDE,
     ENV_LONGITUDE,
     ENV_MEDIA_ROOT,
@@ -1512,39 +1511,3 @@ def test_latitude_longitude_from_toml_file(
     config = Config.from_env()
     assert config.latitude == 60.17
     assert config.longitude == 24.94
-
-
-def _iucn_base_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setenv(ENV_DATABASE_URL, "postgresql://x/y")
-    monkeypatch.setenv(ENV_ARCHIVE_ROOTS, str(tmp_path / "archive"))
-    monkeypatch.setenv(ENV_MEDIA_ROOT, str(tmp_path / "media"))
-    monkeypatch.delenv(ENV_IUCN_RANGES_ENABLED, raising=False)
-
-
-def test_iucn_ranges_default_to_disabled(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    _iucn_base_env(monkeypatch, tmp_path)
-    config = Config.from_env()
-    assert config.iucn_ranges_enabled is False
-
-
-def test_iucn_ranges_settings_are_configurable(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    _iucn_base_env(monkeypatch, tmp_path)
-    monkeypatch.setenv(ENV_IUCN_RANGES_ENABLED, "true")
-    config = Config.from_env()
-    assert config.iucn_ranges_enabled is True
-
-
-def test_invalid_iucn_ranges_enabled_raises_config_error(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    _iucn_base_env(monkeypatch, tmp_path)
-    monkeypatch.setenv(ENV_IUCN_RANGES_ENABLED, "maybe")
-    with pytest.raises(ConfigError, match="not a boolean"):
-        Config.from_env()

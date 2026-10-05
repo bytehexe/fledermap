@@ -11,7 +11,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
 
 from fledermap.domain.codes import AnnotationSource
-from fledermap.domain.ranges import RANGE_CODE_SOURCE
 from fledermap.media.paths import preview_path
 from fledermap.media.preview import TIME_EXPANSION_FACTOR
 from fledermap.services.annotations import (
@@ -31,7 +30,6 @@ from fledermap.services.current_best import (
     current_best_identification,
     identification_matrix,
 )
-from fledermap.services.iucn_ranges import attach_ranges
 from fledermap.services.manual_classification import current_manual_state
 from fledermap.services.recording_detail import (
     detail_params,
@@ -62,9 +60,7 @@ def _taxon_search_index(session: OrmSession) -> list[dict[str, object]]:
     assumption (design spec §5)."""
     taxa = session.scalars(select(Taxon)).all()
     codes_by_taxon: dict[int, list[str]] = {}
-    for code in session.scalars(
-        select(TaxonCode).where(TaxonCode.source != RANGE_CODE_SOURCE),
-    ).all():
+    for code in session.scalars(select(TaxonCode)).all():
         codes_by_taxon.setdefault(code.taxon_id, []).append(code.code)
     return [
         {
@@ -157,12 +153,6 @@ def _current_classification(
         best,
         combine_emt=flask.current_app.config["COMBINE_EMT_DISPLAY"],
     )
-    if flask.current_app.config["IUCN_RANGES_ENABLED"]:
-        matrix = attach_ranges(
-            matrix,
-            session,
-            recording,
-        )
     return best, taxon, matrix
 
 
