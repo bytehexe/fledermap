@@ -42,7 +42,7 @@ dependencies = [
   # to work around a confirmed upstream bug in `apply_schema()`, and it only
   # ever APPLIES the schema -- it never runs Procrastinate's own versioned
   # migrations, so a library upgrade needs a deliberate, manual schema step.
-  "procrastinate>=3.9,<4",
+  "procrastinate>=3.10.0,<4",
   "psycopg[binary,pool]",
   "watchdog",
   # Upper-bounded like procrastinate above, same reasoning: init_if_new()
