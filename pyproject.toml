@@ -82,7 +82,7 @@ dependencies = [
 # stability-guaranteed API. Bumping past this bound means re-checking both against the real
 # package, the same way they were established in the first place.
 [project.optional-dependencies]
-batdetect2 = ["batdetect2>=1.3,<2", "audioread"]
+batdetect2 = ["batdetect2>=1.3.1,<2", "audioread"]
 
 [project.scripts]
 fledermap = "fledermap.cli.main:cli"
